@@ -1,9 +1,7 @@
 #!/bin/sh
-slx_out=$srcdir/data/slx_out
-
 # Extract an entry using srf_extract_linear
 $top_builddir/progs/srf_extract_linear $outdir/proc.srf test_run:4:134:369:182 > $outdir/_.srf
-cmp $outdir/_.srf $slx_out/test_run_4_134_369_182.srf || exit 1
+cmp $outdir/_.srf $srcdir/data/test_run_4_134_369_182.srf || exit 1
 
 # Extract using the hash table method - should fail
 echo "NB: The next line is expected to be an error message" 1>&2
@@ -12,7 +10,7 @@ $top_builddir/progs/srf_extract_hash $outdir/proc.srf test_run:4:134:369:182 > $
 
 # Index it
 $top_builddir/progs/srf_index_hash $outdir/proc.srf
-cmp $outdir/proc.srf $slx_out/proc.srf.indexed || exit 1
+cmp $outdir/proc.srf $srcdir/data/proc.srf.indexed || exit 1
 
 # Extract using the hash table method
 $top_builddir/progs/srf_extract_hash $outdir/proc.srf test_run:4:134:369:182 > $outdir/_.srf

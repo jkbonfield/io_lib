@@ -10,8 +10,6 @@ TESTS_ENVIRONMENT       = \
 			outdir=$(test_outdir)
 
 TESTS                   = \
-                        illumina2srf.test \
-			srf2illumina.test \
                         srf2fasta.test \
                         srf2fastq.test \
 			srf_info.test \
