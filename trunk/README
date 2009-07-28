@@ -1,0 +1,100 @@
+			IO_LIB VERSION 1.12.0
+			=====================
+
+Io_lib is a library of file reading and writing code to provide a general
+purpose trace file (and Experiment File) reading interface. The programmer
+simply calls the (eg) read_reading to create a "Read" C structure with the
+data loaded into memory. It has been compiled and tested on a variety
+of unix systems, MacOS X and MS Windows.
+
+The directories below here contain the io_lib code. These support the
+following file formats:
+
+	SCF trace files
+	ABI trace files
+	ALF trace files
+	CTF trace files
+	ZTR trace files
+	SFF trace archives
+	SRF trace archives
+	Experiment files
+	Plain text files
+
+These link together to form a single "libread" library supporting all
+the file formats via a single read_reading (or fread_reading or
+mfread_reading) function call and analogous write_reading functions
+too. See the file include/Read.h for the generic 'Read' structure.
+
+
+Imminent removal of illumina2srf and srf2illumina
+=================================================
+
+I plan for the illumina2srf and srf2illumina tools to be removed from
+io_lib in a future release. Continued support for these programs is
+best done by Illumina themselves so they can tie in specific versions
+with specific pipeline releases.
+
+
+What's new in this release?
+===========================
+
+See CHANGES and ChangeLog for full details.
+
+
+Compared to 1.10.x this release introduces support for the new
+short-read file format: SRF (Sequence Read Format). Tightly coupled
+with SRF development are updates to the ZTR format, which is now at
+v1.3. 
+
+For the SRF v1.3 format specification see:
+
+http://www.bcgsc.ca/pipermail/ssrformat/attachments/20071209/b0f865a0/ShortSequenceFormatDec9th_v_1_3-0001.doc
+
+The ZTR specification changes involve adding some new compression
+types (the general purpose XRLE2 plus some more solexa specific TSHIT
+and QSHIFT methods), a region chunk (REGN) to indicate the location of
+paired-end data stored in a single trace, improved meta-data support
+for SMP4/SAMP chunks including specifying the baseline (OFFS meta-data
+tag) and various minor tweaks. There's still a few questions in the
+ZTR format itself (pending feedback), but what is implemented
+currently is also what has been described in the docs/ZTR_format
+file.
+
+Finally the directory layout has been greatly simplified with the
+merging of all the format directories into a single "io_lib"
+directory and the programs utilising it remaining in the "progs"
+subdirectory.
+
+
+Building
+========
+
+We use the GNU autoconf build mechanism.
+
+To build:
+
+1. ./configure
+
+"./configure --help" will give a list of the options for GNU autoconf. For
+modifying the compiler options or flags you may wish to redefine the CC or
+CFLAGS variable.
+
+Eg (in sh or bash):
+   CC=cc CFLAGS=-g ./configure
+
+2. make (or gmake)
+
+This will build the sources.
+
+CFLAGS may also be changed a build time using (eg):
+    make 'CFLAGS=-g ...'
+
+3. make install
+
+The default installation location is /usr/local/bin and /usr/local/lib. These
+can be changed with the --prefix option to "configure".
+
+
+Under Microsoft Windows we recommend the use of MSYS and MINGW as a
+build environment. These contain enough tools to build using the
+configure script.

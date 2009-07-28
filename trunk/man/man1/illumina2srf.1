@@ -1,0 +1,280 @@
+.TH illumina2srf 1 "September 29" "" "Staden io_lib"
+
+.SH "NAME"
+
+.PP
+.BR illumina2srf
+\- Builds an SRF file from an Illumina/Solexa GA run folder.
+
+.SH "SYNOPSIS"
+.PP
+\fBillumina2srf\fR  [\fIoptions\fR] \fItile_seq_file\fR ...
+
+.SH "DESCRIPTION"
+.PP
+\fBillumina2srf\fR converts the Illumina GA-pipeline run folder output
+into an SRF file. It should be run from the
+Bustard\fI<version><date>\fR directory.  It has a wealth of options,
+listed below, although many have defaults  and may be ommitted if the
+run folder follows the standard directory layout. The arguments, after
+the options, should be the filenames of the sequence files, eg
+\fIs_8_*_seq.txt\fR. All other filenames are derived from the _seq.txt
+filenames.
+.PP
+The main structure of an SRF file is as a container, much like zip or
+tar. The contents however may be split into variable and common
+components allowing for better compression. For \fBillumina2srf\fR
+that means that we store trace data in ZTR format with common ZTR
+chunks (text identifiers such as base-caller name and version, matrix
+files and compression specifications) in an SRF \fIData Block
+Header\fR and variable components (sequence, quality and traces) in
+ZTR chunks held within an SRF \fIData Block\fR. Typically we have
+10,000 Data Blocks per Data Block Header.
+.PP
+The most major decision in producing the SRF file is what data to put
+in it. By default the program writes the sequence and probability
+values along with the "processed" trace intensities. In GAPipeline
+v1.0 and earlier these are in the \fI_seq.txt\fR, \fI_prb.txt\fR and
+\fI_sig2.txt\fR files held within the main Bustard directory. In
+addition to these the \fB-r\fR option requests storage of the "raw"
+trace intensities, comprising both the pre-processed intensities and
+noise estimates from the Firecrest \fI_int.txt\fR and \fI_nse.txt\fR
+files respectively. To store only raw intensities, skipping processed
+data, specify the \fB-r -P\fR options. Finally the \fB-I\fR option can
+be used to store data from IPAR format files.
+.PP
+Confidence values have been a source of large variation over the
+pipeline releases. In GAPipeline 1.0 and earlier the \fI_prb.txt\fR
+files in the Bustard directory contain four quality values per base
+encoded using a log-odds system: 10*log(P/(1-P)). In addition to this
+there are various calibrated formats in the GERALD directory with one
+Phred scale value per base. See the \fB-qf\fR, \fB-qr\fR and \fB-qc\fR
+parameters.
+.PP
+There are a number of smaller ancillary data files that get stored
+too. As there is no per-lane or per-run storage mechanism in 
+these are added for every SRF Data Block Header of which there may be
+several per tile. However the overhead in duplicating this data is not
+significant given the size of the individual SRF Data Blocks. The
+ancillary data files also stored are \fI.params\fR files (for both Bustard
+and Firecrest), matrices (specified using \fB-mf\fR and \fB-mr\fR) and
+phasing XML files (\fB-pf\fR and \fB-pr\fR).
+
+.SH "OPTIONS"
+.PP
+.SS "Trace data-source options"
+.TP
+\fB-r\fR, \fB-R\fR
+Specifies to store (\fB-r\fR) or not to store (\fB-R\fR - the default)
+"raw" data. This is currently comprised of the contents of the
+\fI_int.txt\fR and \fI_nse.txt\fR files in the Firecrest directory.
+.TP
+\fB-p\fR, \fB-P\fR
+Specifies to store (\fB-p\fR - the default) or not to store (\fB-P\fR)
+the "processed" data. This is the contents of the \fI_sig2.txt\fR
+files in the Bustard directory.
+.TP
+\fB-u\fR
+Deprecated. Older GAPipeline releases created \fI_sig.txt\fR files
+holding semi-processed data with compensation for the dye spectral
+overlap, but before phasing correction steps. The \fB-u\fR argument
+indicates that the processed data should be taken from these files
+instead of \fI_sig2.txt\fR.
+.TP
+\fB-I\fR
+Reads \fIIPAR\fR files instead of the raw trace data files. These are
+a different format used by the incremental processing software when
+the pipeline is run on the instrument control PC itself.
+.SS "Quality value data-source options"
+.TP
+\fB-qf\fR \fIfilename\fR
+Specifies the filename of the calibrated quality values for the
+forward-read or both the forward and reverse read combined if
+appropriate. \fIfilename\fR should be in Illumina's fastq derivative
+format, with quality values stored as ASCII 64 plus the log-odds
+score.
+.TP
+\fB-qr\fR \fIfilename\fR
+If the calibrated fastq files are split into forward and reverse files
+then \fIfilename\fR specifies the reverse sequences. Otherwise we
+assume they are tacked onto the end of the forward sequences specified
+in \fB-qf\fR. Like the former file, this should be in Illumina's
+fastq-like format.
+.TP
+\fB-qc\fR \fIdirectory\fR
+This is an alternative to the \fB-qf\fR and \fB-qr\fR options above
+and is mutually exclusive with them. This specifies that the
+calibrated data should come from files named
+"\fIdirectory\fR/s_%d_qcal.txt" where "%d" is replaced by the current
+tile number.
+
+.SS "Filtering options"
+.TP
+\fB-c\fR \fIvalue\fR
+Only store traces that have a "chastity" score >= \fIValue\fR.
+This is mutually exclusive with the \fB-C\fR option.
+.TP
+\fB-C\fR \fIvalue\fR
+Until the -c option, traces with a "chastity" score < \fIValue\fR are
+still stored in the SRF file but are marked as bad reads
+instead. \fBsrf2fasta\fR and \fBsrf2fastq\fR have options to
+subsequently filter out bad reads using this flag.
+This is mutually exclusive with the \fB-c\fR option.
+.TP
+\fB-s\fR \fIN\fR
+This skips the first \fIN\fR cycles of a trace (including signal,
+sequence and quality values) when writing it to an SRF file. The
+purpose of this is to remove primer bases, but it is not
+recommended. Instead the SRF file should be using the ZTR region chunk
+(REGN) to indicate which potion of a trace is valid.
+.SS "Read naming"
+.PP
+Read names are split into two halves, a prefix and a suffix. One
+common prefix is stored in each and every SRF Data Block Header while
+the suffix is stored in every Data Block. This combination allows for
+removal of repetitive data in order to shrink the SRF file size.
+.TP
+\fB-n\fR \fIformat\fR
+.RS
+Controls the format used for creating the sequence name suffix. This
+uses a printf style system of percent expansions that will be replaced
+with the appropriate data. The list of percent expansions are:
+.TP
+%%
+A literal percent character
+.TP
+%d
+Run date (taken from parsing the current working directory)
+.TP
+%m
+Machine name (taken from parsing the current working directory)
+.TP
+%r
+Run number (taken from parsing the current working directory)
+.TP
+%l
+lane number (%L for hexidecimal encoding)
+.TP
+%t
+tile number (%T for hexidecimal encoding)
+.TP
+%x
+X coordinate (%X for hexidecimal encoding)
+.TP
+%y
+Y coordinate (%Y for hexidecimal encoding)
+.TP
+%c
+Counter; increments by 1 for every sequence in the tile (%C for
+hexidecimal encoding).
+.PP
+All the above format strings have an optional numerical value between
+the percent and the format character. This is used to control the
+field width. For example to print the X and Y coordinates to 3
+hexidecimal places we could use \fB-n "%3X:%3Y"\fR.
+.PP
+The default format is "\fB%x:%y\fR".
+.RE
+.TP
+\fB-N\fR \fIformat\fR
+.RS
+Specifies the format string for encoding the reading name prefix. It
+follows the same formatting rules specified in the \fB-n\fR above.
+.PP
+The default format is "\fB%m_%r:%l:%t:\fR".
+.RE
+.SS "Ancillary data files"
+.PP
+These options govern the extra files stored per tile (or strictly
+speaking per SRF Data Block Header).
+.TP
+\fB-2\fR \fIcycle\fR
+This specifies the cycle number, counting from 1, of the second read
+forming a read-pair. It is used for automatic generation of filenames
+in several of the options below and also for construction of the ZTR
+region (REGN) chunks.
+.TP
+\fB-mf\fR \fIfilename\fR
+The filename of the forward matrix file. If a single printf numerical
+percent rule is used (such as "%d") then it will be replaced by the
+lane number.  When not specified the default \fIfilename\fR will be
+\fI../Matrix/s_%d_02_matrix.txt\fR.
+.TP
+\fB-mr\fR \fIfilename\fR
+The filename of the reverse matrix file - only used on paired end
+runs. If a single printf numerical percent rule is used (such as "%d")
+then it will be replaced by the lane number.  If a second printf
+percent rule is used then it will be replaced with the cycle number
+that the paired read starts on. This is equivalent to the cycle number
+specified in the \fB-2\fR option plus one. (The plus one comes
+from using the second cycle per end for matrix calibration.)
+When \fB-mr\fR is not specified the default \fIfilename\fR will be
+\fI../Matrix/s_%d_%02d_matrix.txt\fR.
+.TP
+\f-pf\fR \fIfilename\fR
+Specifies the filename of the forward-read phasing XML file. As with
+\fR-mf\fR a printf numerical percent rule will be replaced by the lane
+number. The default \fIfilename\fR format is
+\fIPhasing/s_%d_01_phasing.xml\fR.
+.TP
+\f-pr\fR \fIfilename\fR
+Specifies the filename of the reverse-read phasing XML file. As with
+\fR-mr\fR the first two printf numerical percent rules will be
+replaced by the lane number and the cycle number. Unlike \fB-mr\fR
+though the cycle number is the value used in the \fB-c\fR option as-is
+instead of plus one. The default \fIfilename\fR format is
+\fIPhasing/s_%d_%02d_phasing.xml\fR.
+.SS "Other options"
+.TP
+\fB-o\fR \fIsrf_filename\fR
+Specifies the output filename to write the SRF data too. Defaults to
+"traces.srf".
+.TP
+\fB-i\fR
+Indicates that an index should be appended to the SRF file. This
+allows for random access based on the sequence name.
+.TP
+\fB-d\fR
+Enable dots-mode. This outputs a full-stop per input tile. Most useful
+in conjunction with quiet mode. Default is off.
+.TP
+\fB-q\fR
+Quiet mode. Do not output commentary on which tile is being processed
+and the metrics about it. Default off.
+
+.SH "EXAMPLES"
+.PP
+To store a lane 4 from a paired end run with raw traces, no
+processed data and calibrated confidence values.
+.PP
+.nf
+    # From Bustard directory
+    illumina2srf -o all.srf -r -P \\
+	   -qf GERALD*/s_4_1_sequence.txt \\
+	   -qr GERALD*/s_4_2_sequence.txt \\
+	   s_4_*_seq.txt
+.fi
+
+.PP
+To store and index only processed traces with chastity >= 0.6
+.PP
+.nf
+    illumina2srf -o s4.srf -c 0.6 s_4_*_seq.txt
+.fi
+
+.SH "CAVEATS"
+.PP
+There are many mutually exclusive options, some of which may be for
+processing file formats that no longer exist. This is due to the
+history of the program and the rapidly changing nature of the files
+being processed. Some future culling of options and file formats can
+be expected.
+.PP
+Some assumptions are made as to the directory layout and the ability
+to parse the run folder directory name. There are currently no ways to
+override some of this information, including run date, run number and
+GAPipeline program version numbers.
+
+.SH "AUTHOR"
+.PP
+James Bonfield, Wellcome Trust Sanger Institute

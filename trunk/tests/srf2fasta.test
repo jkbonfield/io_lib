@@ -1,0 +1,17 @@
+#!/bin/sh
+slx_out=$srcdir/data/slx_out
+
+$top_builddir/progs/srf2fasta $outdir/proc.srf > $outdir/slx.fasta
+cmp $outdir/slx.fasta $slx_out/slx.fasta || exit 1
+$top_builddir/progs/srf2fasta -C $outdir/proc.srf > $outdir/slx.fasta
+cmp $outdir/slx.fasta $slx_out/slx-C.fasta || exit 1
+
+$top_builddir/progs/srf2fasta $outdir/raw.srf > $outdir/slx.fasta
+cmp $outdir/slx.fasta $slx_out/slx.fasta || exit 1
+$top_builddir/progs/srf2fasta -C $outdir/raw.srf > $outdir/slx.fasta
+cmp $outdir/slx.fasta $slx_out/slx-C.fasta || exit 1
+
+$top_builddir/progs/srf2fasta $outdir/both.srf > $outdir/slx.fasta
+cmp $outdir/slx.fasta $slx_out/slx.fasta || exit 1
+$top_builddir/progs/srf2fasta -C $outdir/both.srf > $outdir/slx.fasta
+cmp $outdir/slx.fasta $slx_out/slx-C.fasta || exit 1

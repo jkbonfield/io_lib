@@ -1,0 +1,26 @@
+#!/bin/sh
+
+mkdir $outdir
+
+slx_in=$srcdir/data/slx_in/Bustard1.9.5_28-08-2008_auto
+slx_out=$srcdir/data/slx_out
+
+$top_builddir/progs/illumina2srf -p -R -C 0.6 \
+    -N test_run:%l:%t: -n %x:%y \
+    -o $outdir/proc.srf $slx_in/*_seq.txt > $outdir/il2srf.out 2>&1
+cmp $outdir/proc.srf $slx_out/proc.srf || exit 1
+
+$top_builddir/progs/illumina2srf -i -p -R -C 0.6 \
+    -N test_run:%l:%t: -n %x:%y \
+    -o $outdir/proc.srf.indexed $slx_in/*_seq.txt >> $outdir/il2srf.out 2>&1
+cmp $outdir/proc.srf.indexed $slx_out/proc.srf.indexed || exit 1
+
+$top_builddir/progs/illumina2srf -P -r -C 0.6 \
+    -N test_run:%l:%t: -n %x:%y \
+    -o $outdir/raw.srf  $slx_in/*_seq.txt >> $outdir/il2srf.out 2>&1
+cmp $outdir/raw.srf $slx_out/raw.srf || exit 1
+
+$top_builddir/progs/illumina2srf -p -r -C 0.6 \
+    -N test_run:%l:%t: -n %x:%y \
+    -o $outdir/both.srf $slx_in/*_seq.txt >> $outdir/il2srf.out 2>&1
+cmp $outdir/both.srf $slx_out/both.srf || exit 1

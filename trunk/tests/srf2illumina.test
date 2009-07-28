@@ -1,0 +1,37 @@
+#!/bin/sh
+slx_out=$srcdir/data/slx_out
+
+# Full data
+$top_builddir/progs/srf2illumina $outdir/both.srf
+(cd $outdir/both.run; for i in *
+do
+    cmp $i ../../$slx_out/both.run/$i || exit 1
+done) || exit 1
+
+# Raw only
+$top_builddir/progs/srf2illumina $outdir/raw.srf
+data=`cat $outdir/raw.run/*sig2.txt`
+if [ "x$data" != "x" ]
+then
+   echo FAIL: srf2illumina sig2.txt not empty
+   exit 1
+fi
+rm $outdir/raw.run/*sig2.txt
+(cd $outdir/raw.run; for i in *
+do
+    cmp $i ../../$slx_out/both.run/$i || exit 1
+done) || exit 1
+
+# Processed only
+$top_builddir/progs/srf2illumina $outdir/proc.srf
+data=`cat $outdir/proc.run/*int.txt $outdir/proc.run/*nse.txt`
+if [ "x$data" != "x" ]
+then
+   echo FAIL: srf2illumina int/nse.txt not empty
+   exit 1
+fi
+rm $outdir/proc.run/*int.txt $outdir/proc.run/*nse.txt
+(cd $outdir/proc.run; for i in *
+do
+    cmp $i ../../$slx_out/both.run/$i || exit 1
+done) || exit 1
