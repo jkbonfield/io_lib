@@ -1,0 +1,17 @@
+#!/bin/sh
+slx_out=$srcdir/data/slx_out
+
+$top_builddir/progs/srf2fastq $outdir/proc.srf > $outdir/slx.fastq
+cmp $outdir/slx.fastq $slx_out/slx.fastq || exit 1
+$top_builddir/progs/srf2fastq -C $outdir/proc.srf > $outdir/slx.fastq
+cmp $outdir/slx.fastq $slx_out/slx-C.fastq || exit 1
+
+$top_builddir/progs/srf2fastq $outdir/raw.srf > $outdir/slx.fastq
+cmp $outdir/slx.fastq $slx_out/slx.fastq || exit 1
+$top_builddir/progs/srf2fastq -C $outdir/raw.srf > $outdir/slx.fastq
+cmp $outdir/slx.fastq $slx_out/slx-C.fastq || exit 1
+
+$top_builddir/progs/srf2fastq $outdir/both.srf > $outdir/slx.fastq
+cmp $outdir/slx.fastq $slx_out/slx.fastq || exit 1
+$top_builddir/progs/srf2fastq -C $outdir/both.srf > $outdir/slx.fastq
+cmp $outdir/slx.fastq $slx_out/slx-C.fastq || exit 1
