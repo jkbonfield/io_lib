@@ -20,10 +20,11 @@ following file formats:
 	Experiment files
 	Plain text files
 
-These link together to form a single "libread" library supporting all
-the file formats via a single read_reading (or fread_reading or
+These link together to form a single "libstaden-read" library supporting
+all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
+
 
 
 Imminent removal of illumina2srf and srf2illumina
@@ -38,15 +39,36 @@ with specific pipeline releases.
 What's new in this release?
 ===========================
 
-See CHANGES and ChangeLog for full details.
+Library renaming:
+	The final object is no longer libread.so (or read.dll), but
+	libstaden-read.so. This had already been done by the Fedora bundled
+	version and work was in progress to do this in Debian too.
+
+Illumina2srf/srf2illumina:
+	Both of these tools have now been removed. Illumina itself should
+	now be supporting these tools and shipping appropriate versions
+	compatible with each GA-pipeline release.
+
+Libtool:
+	We now create dynamic library too, in addition to the static
+	versions, using the autoconf "libtool" program.  Furthermore we now
+	have proper library versioning, starting with an soname of
+	libstaden-read.so.1 for this release.
+
+INCOMPATIBILITY:
+	The Array data type and Array* functions now use size_t instead of
+	int for the array sizes. This means programs linked against the old
+	io_lib releases are not binary compatible with this version. 
+
+See CHANGES and ChangeLog for a full list of changes and for older release
+notes.
 
 
-Compared to 1.10.x this release introduces support for the new
-short-read file format: SRF (Sequence Read Format). Tightly coupled
-with SRF development are updates to the ZTR format, which is now at
-v1.3. 
+Older comments
+==============
 
-For the SRF v1.3 format specification see:
+In 1.11.x the SRF support was added. The SRF v1.3 format specification can
+be found here:
 
 http://www.bcgsc.ca/pipermail/ssrformat/attachments/20071209/b0f865a0/ShortSequenceFormatDec9th_v_1_3-0001.doc
 

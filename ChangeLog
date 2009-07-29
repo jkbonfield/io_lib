@@ -1,3 +1,233 @@
+===============================================================================
+2009-07-29: RELEASE 1.12.0
+
+------------------------------------------------------------------------
+r1779 | jkbonfield | 2009-07-29 09:53:33 +0100 (Wed, 29 Jul 2009) | 2 lines
+Changed paths:
+   M /io_lib/trunk/Makefile.am
+
+The man1 pages are now installed too.
+
+------------------------------------------------------------------------
+r1778 | jkbonfield | 2009-07-28 17:42:26 +0100 (Tue, 28 Jul 2009) | 2 lines
+Changed paths:
+   M /io_lib/trunk/tests/Makefile.am
+   D /io_lib/trunk/tests/data/.params
+   A /io_lib/trunk/tests/data/both.info (from /io_lib/trunk/tests/data/slx_out/both.info:1776)
+   A /io_lib/trunk/tests/data/both.run (from /io_lib/trunk/tests/data/slx_out/both.run:1776)
+   A /io_lib/trunk/tests/data/both.srf (from /io_lib/trunk/tests/data/slx_out/both.srf:1776)
+   A /io_lib/trunk/tests/data/proc.info (from /io_lib/trunk/tests/data/slx_out/proc.info:1776)
+   A /io_lib/trunk/tests/data/proc.srf (from /io_lib/trunk/tests/data/slx_out/proc.srf:1776)
+   A /io_lib/trunk/tests/data/proc.srf.indexed (from /io_lib/trunk/tests/data/slx_out/proc.srf.indexed:1776)
+   A /io_lib/trunk/tests/data/raw.info (from /io_lib/trunk/tests/data/slx_out/raw.info:1776)
+   A /io_lib/trunk/tests/data/raw.srf (from /io_lib/trunk/tests/data/slx_out/raw.srf:1776)
+   A /io_lib/trunk/tests/data/slx-C.fasta (from /io_lib/trunk/tests/data/slx_out/slx-C.fasta:1776)
+   A /io_lib/trunk/tests/data/slx-C.fastq (from /io_lib/trunk/tests/data/slx_out/slx-C.fastq:1776)
+   A /io_lib/trunk/tests/data/slx.fasta (from /io_lib/trunk/tests/data/slx_out/slx.fasta:1776)
+   A /io_lib/trunk/tests/data/slx.fastq (from /io_lib/trunk/tests/data/slx_out/slx.fastq:1776)
+   D /io_lib/trunk/tests/data/slx_in
+   D /io_lib/trunk/tests/data/slx_out
+   A /io_lib/trunk/tests/data/test_run_4_134_369_182.srf (from /io_lib/trunk/tests/data/slx_out/test_run_4_134_369_182.srf:1776)
+   A /io_lib/trunk/tests/data/traces.srf (from /io_lib/trunk/tests/data/slx_out/traces.srf:1776)
+   D /io_lib/trunk/tests/illumina2srf.test
+   M /io_lib/trunk/tests/srf2fasta.test
+   M /io_lib/trunk/tests/srf2fastq.test
+   D /io_lib/trunk/tests/srf2illumina.test
+   M /io_lib/trunk/tests/srf_filter.test
+   M /io_lib/trunk/tests/srf_index.test
+   M /io_lib/trunk/tests/srf_info.test
+
+Updated tests now that srf2illumina and illumina2srf have been removed.
+
+------------------------------------------------------------------------
+r1777 | jkbonfield | 2009-07-28 16:44:43 +0100 (Tue, 28 Jul 2009) | 3 lines
+Changed paths:
+   D /io_lib/trunk/Makefile
+   M /io_lib/trunk/bootstrap
+   D /io_lib/trunk/io_lib/Makefile
+   D /io_lib/trunk/progs/Makefile
+
+Removed remnant Makefiles from the old staden package build
+system. All we have left now is the autoconf build files.
+
+------------------------------------------------------------------------
+r1775 | jkbonfield | 2009-07-28 16:37:18 +0100 (Tue, 28 Jul 2009) | 8 lines
+Changed paths:
+   A /io_lib/branches
+   A /io_lib/tags
+   A /io_lib/trunk
+   A /io_lib/trunk/CHANGES (from /staden/trunk/src/io_lib/CHANGES:1774)
+   A /io_lib/trunk/COPYRIGHT (from /staden/trunk/src/io_lib/COPYRIGHT:1774)
+   A /io_lib/trunk/ChangeLog (from /staden/trunk/src/io_lib/ChangeLog:1774)
+   A /io_lib/trunk/Makefile (from /staden/trunk/src/io_lib/Makefile:1774)
+   A /io_lib/trunk/Makefile.am (from /staden/trunk/src/io_lib/Makefile.am:1774)
+   A /io_lib/trunk/README (from /staden/trunk/src/io_lib/README:1774)
+   A /io_lib/trunk/acinclude.m4 (from /staden/trunk/src/io_lib/acinclude.m4:1774)
+   A /io_lib/trunk/bootstrap (from /staden/trunk/src/io_lib/bootstrap:1774)
+   A /io_lib/trunk/configure.in (from /staden/trunk/src/io_lib/configure.in:1774)
+   A /io_lib/trunk/dependencies (from /staden/trunk/src/io_lib/dependencies:1774)
+   A /io_lib/trunk/docs (from /staden/trunk/src/io_lib/docs:1774)
+   A /io_lib/trunk/include (from /staden/trunk/src/io_lib/include:1774)
+   A /io_lib/trunk/io_lib (from /staden/trunk/src/io_lib/io_lib:1774)
+   A /io_lib/trunk/io_lib-config.in (from /staden/trunk/src/io_lib/io_lib-config.in:1774)
+   A /io_lib/trunk/io_lib.m4 (from /staden/trunk/src/io_lib/io_lib.m4:1774)
+   A /io_lib/trunk/man (from /staden/trunk/src/io_lib/man:1774)
+   A /io_lib/trunk/options.mk (from /staden/trunk/src/io_lib/options.mk:1774)
+   A /io_lib/trunk/progs (from /staden/trunk/src/io_lib/progs:1774)
+   A /io_lib/trunk/tests (from /staden/trunk/src/io_lib/tests:1774)
+   D /staden/trunk/src/io_lib/CHANGES
+   D /staden/trunk/src/io_lib/COPYRIGHT
+   D /staden/trunk/src/io_lib/ChangeLog
+   D /staden/trunk/src/io_lib/Makefile
+   D /staden/trunk/src/io_lib/Makefile.am
+   D /staden/trunk/src/io_lib/README
+   D /staden/trunk/src/io_lib/acinclude.m4
+   D /staden/trunk/src/io_lib/bootstrap
+   D /staden/trunk/src/io_lib/configure.in
+   D /staden/trunk/src/io_lib/dependencies
+   D /staden/trunk/src/io_lib/docs
+   D /staden/trunk/src/io_lib/include
+   D /staden/trunk/src/io_lib/io_lib
+   D /staden/trunk/src/io_lib/io_lib-config.in
+   D /staden/trunk/src/io_lib/io_lib.m4
+   D /staden/trunk/src/io_lib/man
+   D /staden/trunk/src/io_lib/options.mk
+   D /staden/trunk/src/io_lib/progs
+   D /staden/trunk/src/io_lib/tests
+
+Moved io_lib from staden source tree into it's own top-level
+subversion directory, complete with tags, branches, and trunk.
+
+For now the old tagged copies of io_lib are still in the staden/tags/
+directory with tag names io_lib-<version>, but that is perhaps right
+and proper (as it's where the code actually resided at that release
+number).
+
+------------------------------------------------------------------------
+r1772 | jkbonfield | 2009-07-28 15:32:58 +0100 (Tue, 28 Jul 2009) | 4 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/progs/Makefile.am
+   D /staden/trunk/src/io_lib/progs/solexa2srf.c
+   D /staden/trunk/src/io_lib/progs/srf2solexa.c
+
+Removed Illumina/Solexa specific programs. These are now out of date
+with respect to Illumina's own fork, plus I don't think they belong in
+the largely platform agnostic library.
+
+------------------------------------------------------------------------
+r1771 | jkbonfield | 2009-07-28 12:44:07 +0100 (Tue, 28 Jul 2009) | 7
+lines
+Changed paths:
+   M /staden/trunk/src/io_lib/CHANGES
+   M /staden/trunk/src/io_lib/ChangeLog
+   M /staden/trunk/src/io_lib/README
+   M /staden/trunk/src/io_lib/configure.in
+   M /staden/trunk/src/io_lib/io_lib/Makefile.am
+
+Preparations for 1.12.0 release.
+
+There is now proper versioning support for the library too. The soname
+used here is libstaden-read.so.1, to distinguish from any earlier
+dynamic libraries. (The ABI definitely has changed over the years in
+incompatible manners.)
+
+------------------------------------------------------------------------
+r1770 | jkbonfield | 2009-07-28 09:17:29 +0100 (Tue, 28 Jul 2009) | 1 line
+Changed paths:
+   M /staden/trunk/src/io_lib/tests/data/slx_out/both.info
+   M /staden/trunk/src/io_lib/tests/data/slx_out/raw.info
+
+Updated for new format srf_info output
+------------------------------------------------------------------------
+r1769 | jkbonfield | 2009-07-28 09:16:11 +0100 (Tue, 28 Jul 2009) | 2 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/tests/data/slx_out/proc.info
+
+Updated with new format output.
+
+------------------------------------------------------------------------
+r1768 | jkbonfield | 2009-07-27 17:49:44 +0100 (Mon, 27 Jul 2009) | 2 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/io_lib/vlen.c
+
+Include os.h so we can pick up NEED_VA_COPY definition.
+
+------------------------------------------------------------------------
+r1767 | jkbonfield | 2009-07-27 17:48:37 +0100 (Mon, 27 Jul 2009) | 5 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/progs/srf_filter.c
+
+Reorganisation to allow chunks to be added as well as removed. At
+present this only supports adding REGN chunks.
+
+(Patch supplied by Steven Leonard.)
+
+------------------------------------------------------------------------
+r1766 | jkbonfield | 2009-07-27 17:46:07 +0100 (Mon, 27 Jul 2009) | 3 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/progs/index_tar.c
+
+Handle GNU tar extensions: LongLink notation.
+(Patch supplied by Steven Leonard).
+
+------------------------------------------------------------------------
+r1765 | jkbonfield | 2009-07-27 17:45:16 +0100 (Mon, 27 Jul 2009) | 4 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/progs/srf2fasta.c
+   M /staden/trunk/src/io_lib/progs/srf2fastq.c
+   M /staden/trunk/src/io_lib/progs/srf_extract_hash.c
+
+Changed the maximum read length from 1024 to 10000. This allows for
+capillary traces to be stored in SRF.
+(Patch supplied by Steven Leonard)
+
+------------------------------------------------------------------------
+r1764 | jkbonfield | 2009-07-27 17:43:36 +0100 (Mon, 27 Jul 2009) | 3 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/progs/srf_info.c
+
+Use int64_t instead of long for base counts and chunk sizes.
+(Supplied by Steven Leonard.)
+
+------------------------------------------------------------------------
+r1763 | jkbonfield | 2009-07-27 16:49:10 +0100 (Mon, 27 Jul 2009) | 3 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/man/man1/srf_info.1
+   M /staden/trunk/src/io_lib/progs/srf_info.c
+
+Added compressed chunk size to the per-chunk type output. This allows
+us to see what takes up the most storage in an SRF.
+
+------------------------------------------------------------------------
+r1762 | jkbonfield | 2009-07-27 16:47:20 +0100 (Mon, 27 Jul 2009) | 1 line
+Changed paths:
+   M /staden/trunk/src/io_lib/io_lib/ztr.c
+
+removed C9Xism
+
+------------------------------------------------------------------------
+r1761 | jkbonfield | 2009-07-27 15:01:16 +0100 (Mon, 27 Jul 2009) | 5 lines
+Changed paths:
+   M /staden/trunk/src/io_lib/configure.in
+   M /staden/trunk/src/io_lib/io_lib/Makefile.am
+   M /staden/trunk/src/io_lib/progs/Makefile.am
+
+Re-enabled libtool, with a workaround to remove the infuriating rpath
+nonsense. (It's now 2x slower to configure, 3x slower to compile and
+10x more anguish to debug, but at least I can sleep at night knowing
+rpath hasn't had it's wicked way with the code.)
+
+------------------------------------------------------------------------
+r1756 | jkbonfield | 2009-07-24 10:27:29 +0100 (Fri, 24 Jul 2009) | 5 lines
+Changed paths:
+   M /staden/trunk/src/Makefile.in
+   A /staden/trunk/src/io_lib/io_lib/Makefile
+
+Added a Makefile for io_lib/io_lib; so the library itself. This isn't
+expected to be used normally, but it allows me to test local copies of
+io_lib (under a different library name) in conjunction with the staden
+source tree before releasing either.
+
 ------------------------------------------------------------------------
 r1723 | jkbonfield | 2009-06-22 12:38:26 +0100 (Mon, 22 Jun 2009) | 2 lines
 Changed paths:
@@ -78,6 +308,7 @@ Changed dump_qcal so it handles negative log-odds scores. In practice
 I've never seen these occur with the 1.0 solexa pipeline release though.
 
 
+===============================================================================
 2008-12-10  James Bonfield  <jkb@sanger.ac.uk>
 
 	* 1.11.6.1 released.
@@ -179,6 +410,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	argument into which the SRF Data Block 'flags' value is copied when
 	returning the next trace. 
 
+===============================================================================
 2008-12-04  James Bonfield  <jkb@sanger.ac.uk>
 
 	* 1.11.5 released.
@@ -299,6 +531,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	
 	Updated the tests to check the new illumina2srf -i option too. 
 
+===============================================================================
 2008-09-11  James Bonfield  <jkb@sanger.ac.uk>
 
 	* 1.11.4 released.
@@ -612,6 +845,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	
 	It has a very minor impact overall, but it is now consistent. 
 
+===============================================================================
 2008-07-09  James Bonfield  <jkb@sanger.ac.uk>
 
 	* 1.11.3 released.
@@ -664,6 +898,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	(10:44:23) Removed memory leaks from using ztr_find_chunks and not
 	freeing the result. 
 
+===============================================================================
 2008-06-04  James Bonfield  <jkb@sanger.ac.uk>
 
 	* 1.11.2 released.
@@ -923,6 +1158,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	https://sourceforge.net/tracker/index.php?func=detail&aid=1898427&g
 	roup_id=100316&atid=627058 
 
+===============================================================================
 2008-02-20  James Bonfield  <jkb@sanger.ac.uk>
 
 	* 1.11.0 released.
@@ -1099,6 +1335,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
         containerFile elements, plus also computed the index size wrong
 	for these fields too.
 
+===============================================================================
 2008-01-11  James Bonfield  <jkb@sanger.ac.uk>
 
 	* 1.11.0b7 released.
@@ -1468,6 +1705,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	again. (TODO: actually we don't need to encode it over and over
 	again either.) 
 
+===============================================================================
 2007-10-16  James Bonfield  <jkb@sanger.ac.uk>
 
 	* progs/solexa2srf.c,
@@ -1688,6 +1926,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	also includes the SYM_ANY escape code for handling out-of-band
 	data. 
 
+===============================================================================
 2007-05-30  James Bonfield  <jkb@sanger.ac.uk>
 
 	* progs/extract_seq.c:
@@ -1849,6 +2088,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	mode is used (ie forced to the end of file) and it now returns 0
 	when attempting to write to a read-only mFILE. 
 
+===============================================================================
 2006-06-20  awhitwham  <awhitwham@sanger.ac.uk>
 
 	* utils/open_trace_file.c:
@@ -2064,6 +2304,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	removes and destroys a specified HashItem. HashTableRemove removes
 	and destroys all items attached to a given key. 
 
+===============================================================================
 2005-12-14  James Bonfield  <jkb@sanger.ac.uk>
 
 	* CHANGES,
@@ -2114,6 +2355,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	(11:33:07) Fixed problem in hashquery when searching for something
 	that has a hash key not present (ie empty hash bucket). 
 
+===============================================================================
 2005-10-27  James Bonfield  <jkb@sanger.ac.uk>
 
 	* utils/mFILE.c:
@@ -2531,6 +2773,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	the underlying FILE pointer used. Added mftruncate. Rewrote mfread
 	to do a single memcpy instead of   looped  memcpys. 
 
+===============================================================================
 2005-06-29  James Bonfield  <jkb@sanger.ac.uk>
 
 	* CHANGES,
@@ -2899,6 +3142,7 @@ I've never seen these occur with the 1.0 solexa pipeline release though.
 	* utils/open_trace_file.c:
 	(14:26:13) MinGW port 
 
+===============================================================================
 2004-06-01  James Bonfield  <jkb@sanger.ac.uk>
 
 	* CHANGES,
