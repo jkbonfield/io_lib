@@ -3,24 +3,30 @@ AUTOMAKE_OPTIONS = foreign no-dependencies
 SUBDIRS = io_lib progs tests
 
 man_MANS = \
-	man/man3/exp2read.3 \
-	man/man3/ExperimentFile.3 \
-	man/man3/fread_reading.3 \
-	man/man3/fread_scf.3 \
-	man/man3/fwrite_reading.3 \
-	man/man3/fwrite_scf.3 \
-	man/man3/read2exp.3 \
-	man/man3/read2scf.3 \
-	man/man4/Read.4 \
-	man/man3/read_allocate.3 \
-	man/man3/read_deallocate.3 \
-	man/man3/read_reading.3 \
-	man/man3/read_scf.3 \
+	man/man1/srf_index_hash.1 \
+	man/man1/srf_info.1 \
+	man/man1/srf_list.1 \
+	man/man1/illumina2srf.1 \
+	man/man1/srf2fasta.1 \
+	man/man1/srf2fastq.1 \
 	man/man3/read_scf_header.3 \
-	man/man3/scf2read.3 \
+	man/man3/read_allocate.3 \
+	man/man3/ExperimentFile.3 \
 	man/man3/write_reading.3 \
 	man/man3/write_scf.3 \
-	man/man3/write_scf_header.3
+	man/man3/read_deallocate.3 \
+	man/man3/fwrite_reading.3 \
+	man/man3/read2scf.3 \
+	man/man3/scf2read.3 \
+	man/man3/fwrite_scf.3 \
+	man/man3/write_scf_header.3 \
+	man/man3/read_reading.3 \
+	man/man3/read_scf.3 \
+	man/man3/exp2read.3 \
+	man/man3/fread_reading.3 \
+	man/man3/read2exp.3 \
+	man/man3/fread_scf.3 \
+	man/man4/Read.4
 
 pkginclude_HEADERS = \
 	io_lib/Read.h \
