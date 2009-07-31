@@ -11,7 +11,7 @@ Usage: io_lib-config [option]
 where 'option' is any one of:
 
   --cflags      C and preprocessor flags (eg -I/foo/include)
-  --libs        Link-line parameters, eg -L/foo/lib -lread
+  --libs        Link-line parameters, eg -L/foo/lib -lstaden-read
   --version	List io_lib version number
 
 _EOF_
@@ -30,7 +30,7 @@ case "$1" in
     echo "-I@includedir@"
     ;;
 --libs)
-    echo "-L@libdir@ -lread @LDFLAGS@ @LIBS@ @LIBCURL@ @LIBZ@"
+    echo "-L@libdir@ -lstaden-read @LDFLAGS@ @LIBS@ @LIBCURL@ @LIBZ@"
     ;;
 --version)
     echo @VERSION@
