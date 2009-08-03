@@ -17,7 +17,7 @@ TESTS                   = \
 			srf_index.test
 
 dist-hook:
-	rm -rf `find $(distdir)/data -name CVS`
+	rm -rf `find $(distdir)/data -name .svn`
 
 distclean-local:
 	-rm -rf $(test_outdir)

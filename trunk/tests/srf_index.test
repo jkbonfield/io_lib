@@ -1,5 +1,6 @@
 #!/bin/sh
 # Extract an entry using srf_extract_linear
+chmod u+w $outdir/proc.srf
 $top_builddir/progs/srf_extract_linear $outdir/proc.srf test_run:4:134:369:182 > $outdir/_.srf
 cmp $outdir/_.srf $srcdir/data/test_run_4_134_369_182.srf || exit 1
 
