@@ -191,6 +191,28 @@ typedef int mode_t;
  */
 
 /*
+ * First guess via autoconf. This is here as endianness can only be computed
+ * by autoconf for the machine we're building on. Hence cross-compilations
+ * or MacOSX "fat binaries" cannot work via autoconf in this manner.
+ *
+ * These provide a default for when the machine specific ifdefs below do you
+ * catch your system type.
+ */
+#ifdef HAVE_CONFIG_H
+#    if defined(WORDS_BIGENDIAN)
+#        ifdef SP_LITTLE_ENDIAN
+#            undef SP_LITTLE_ENDIAN
+#        endif
+#        define SP_BIG_ENDIAN
+#    else
+#        ifdef SP_BIG_ENDIAN
+#            undef SP_BIG_ENDIAN
+#        endif
+#        define SP_LITTLE_ENDIAN
+#    endif
+#endif
+
+/*
  * x86 equivalents
  */
 #if defined(__i386__) || defined(__i386) || defined(__amd64__) || defined(__amd64)
@@ -237,21 +259,6 @@ typedef int mode_t;
 
 #if defined(__BIG_ENDIAN__) || defined(__BIGENDIAN__)
 #    define SP_BIG_ENDIAN
-#endif
-
-/* autoconf */
-#ifdef HAVE_CONFIG_H
-#    if defined(WORDS_BIGENDIAN)
-#        ifdef SP_LITTLE_ENDIAN
-#            undef SP_LITTLE_ENDIAN
-#        endif
-#        define SP_BIG_ENDIAN
-#    else
-#        ifdef SP_BIG_ENDIAN
-#            undef SP_BIG_ENDIAN
-#        endif
-#        define SP_LITTLE_ENDIAN
-#    endif
 #endif
 
 #if defined(SP_BIG_ENDIAN) && defined(SP_LITTLE_ENDIAN)
