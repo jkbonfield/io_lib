@@ -119,4 +119,9 @@ can be changed with the --prefix option to "configure".
 
 Under Microsoft Windows we recommend the use of MSYS and MINGW as a
 build environment. These contain enough tools to build using the
-configure script.
+configure script. Visit http://sourceforge.net/projects/mingw/files/
+and download/install Automated MinGW Installer (eg MinGW-5.1.4.exe),
+MSYS Base System (eg MSYS-1.0.11.exe) and MSYS Supplementary Tools (eg
+msysDTK-1.0.1.exe).
+
+

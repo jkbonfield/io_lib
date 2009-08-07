@@ -69,4 +69,4 @@ EXTRA_DIST = README COPYRIGHT ChangeLog CHANGES man options.mk bootstrap \
 
 
 dist-hook:
-	rm -rf `find $(distdir)/man -name CVS`
+	rm -rf `find $(distdir)/man -name .svn`
