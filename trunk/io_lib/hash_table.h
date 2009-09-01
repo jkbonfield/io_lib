@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "io_lib/pooled_alloc.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,6 +33,7 @@ typedef struct {
     uint32_t  mask;	/* bit-mask equiv of nbuckets */
     int       nused;    /* How many hash entries we're storing */
     HashItem **bucket;  /* The bucket "list heads" themselves */
+    pool_alloc_t *hi_pool; /* Pool of allocated HashItem structs */
 } HashTable;
 
 /* An iterator on HashTable items */
@@ -112,6 +115,7 @@ typedef struct {
 #define HASH_ALLOW_DUP_KEYS   (1<<4)
 #define HASH_DYNAMIC_SIZE     (1<<5)
 #define HASH_OWN_KEYS	      (1<<6)
+#define HASH_POOL_ITEMS       (1<<7)
 
 /* Hashing prototypes */
 uint32_t hash(int func, uint8_t *key, int key_len);

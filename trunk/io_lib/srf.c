@@ -781,8 +781,13 @@ srf_index_t *srf_index_create(char *ch_file, char *th_file, int dbh_sep) {
     if (!(idx->th_pos = ArrayCreate(sizeof(uint64_t), 0)))
 	return NULL;
 
+    if (!(idx->name_blocks = ArrayCreate(sizeof(srf_name_block_t), 0)))
+        return NULL;
+
     if (!(idx->db_hash = HashTableCreate(0, HASH_DYNAMIC_SIZE |
-					    HASH_FUNC_JENKINS3)))
+					    HASH_FUNC_JENKINS3 |
+					    HASH_NONVOLATILE_KEYS |
+					    HASH_POOL_ITEMS)))
 	return NULL;
 
     return idx;
@@ -793,6 +798,8 @@ srf_index_t *srf_index_create(char *ch_file, char *th_file, int dbh_sep) {
  * Deallocates memory used by an srf_index_t structure.
  */
 void srf_index_destroy(srf_index_t *idx) {
+    size_t i;
+
     if (!idx)
 	return;
 
@@ -802,6 +809,13 @@ void srf_index_destroy(srf_index_t *idx) {
 	ArrayDestroy(idx->ch_pos);
     if (idx->th_pos)
 	ArrayDestroy(idx->th_pos);
+    if (idx->name_blocks) {
+        for (i = 0; i < ArrayMax(idx->name_blocks); i++) {
+	    if (NULL != arr(srf_name_block_t, idx->name_blocks, i).names)
+	        free(arr(srf_name_block_t, idx->name_blocks, i).names);
+        }
+	ArrayDestroy(idx->name_blocks);
+    }
 
     free(idx);
 }
@@ -849,6 +863,9 @@ int srf_index_add_trace_hdr(srf_index_t *idx, uint64_t pos) {
 int srf_index_add_trace_body(srf_index_t *idx, char *name, uint64_t pos) {
     HashData hd;
     pos_dbh *pdbh;
+    srf_name_block_t *blockp;
+    char *name_copy;
+    size_t name_len;
     int new;
 
     if (idx->dbh_pos_stored_sep) {
@@ -860,7 +877,38 @@ int srf_index_add_trace_body(srf_index_t *idx, char *name, uint64_t pos) {
     } else {
 	hd.i = pos;
     }
-    HashTableAdd(idx->db_hash, name, strlen(name), hd, &new);
+
+    name_len = strlen(name) + 1; /* Include NULL */
+
+    /* Allocate more space for names if needed */
+    if (ArrayMax(idx->name_blocks) == 0
+	|| arr(srf_name_block_t, idx->name_blocks,
+	       ArrayMax(idx->name_blocks) -  1).space <= name_len) {
+        blockp = ARRP(srf_name_block_t, idx->name_blocks,
+		      ArrayMax(idx->name_blocks));
+	if (NULL == blockp) return -1;
+
+	blockp->used = 0;
+	blockp->space = (name_len < SRF_INDEX_NAME_BLOCK_SIZE
+			 ? SRF_INDEX_NAME_BLOCK_SIZE
+			 : name_len);
+	blockp->names = xmalloc(blockp->space);
+	if (NULL == blockp->names) {
+	    ArrayMax(idx->name_blocks)--;
+	    return -1;
+	}	
+    }
+
+    blockp = ARRP(srf_name_block_t, idx->name_blocks,
+		  ArrayMax(idx->name_blocks) - 1);
+    name_copy = blockp->names + blockp->used;
+    memcpy(name_copy, name, name_len);
+    blockp->used  += name_len;
+    blockp->space -= name_len;
+
+    if (NULL == HashTableAdd(idx->db_hash, name_copy, name_len - 1, hd, &new)){
+        return -1;
+    }
     if (0 == new) {
 	fprintf(stderr, "duplicate read name %s\n", name);
 	return -1;
