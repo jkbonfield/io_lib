@@ -73,11 +73,20 @@ typedef struct {
 } srf_index_hdr_t;
 
 /* In-memory index itself */
+#define SRF_INDEX_NAME_BLOCK_SIZE 10000000
+
+typedef struct {
+  size_t  used;
+  size_t  space;
+  char   *names;
+} srf_name_block_t;
+
 typedef struct {
     char ch_file[PATH_MAX+1];
     char th_file[PATH_MAX+1];
     Array ch_pos;
     Array th_pos;
+    Array name_blocks;
     int dbh_pos_stored_sep;
     HashTable *db_hash;
 } srf_index_t;
