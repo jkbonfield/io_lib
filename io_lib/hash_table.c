@@ -280,8 +280,9 @@ uint64_t hash64(int func, uint8_t *key, int key_len) {
 static HashItem *HashItemCreate(HashTable *h) {
     HashItem *hi;
 
-    if (!(hi = (HashItem *)malloc(sizeof(*hi))))
-	return NULL;
+    hi = (h->options & HASH_POOL_ITEMS
+	  ? pool_alloc(h->hi_pool) : malloc(sizeof(*hi)));
+    if (NULL == hi) return NULL;
 
     hi->data.p    = NULL;
     hi->data.i    = 0;
@@ -301,6 +302,8 @@ static HashItem *HashItemCreate(HashTable *h) {
  * call HashTableDel() first if appropriate.
  */
 static void HashItemDestroy(HashTable *h, HashItem *hi, int deallocate_data) {
+    if (!hi) return;
+
     if (!(h->options & HASH_NONVOLATILE_KEYS) || (h->options & HASH_OWN_KEYS))
 	if (hi->key)
 	    free(hi->key);
@@ -308,8 +311,11 @@ static void HashItemDestroy(HashTable *h, HashItem *hi, int deallocate_data) {
     if (deallocate_data && hi->data.p)
 	free(hi->data.p);
 
-    if (hi)
+    if (h->options & HASH_POOL_ITEMS) {
+        pool_free(h->hi_pool, hi);
+    } else {
 	free(hi);
+    }
 
     h->nused--;
 }
@@ -319,11 +325,16 @@ static void HashItemDestroy(HashTable *h, HashItem *hi, int deallocate_data) {
  * power of 2. It is a starting point and hash tables may be grown or shrunk
  * as needed (if HASH_DYNAMIC_SIZE is used).
  *
+ * If HASH_POOL_ITEMS is used, HashItems will be allocated in blocks to reduce
+ * malloc overhead in the case where a large number of items is required.
+ * HashItems allocated this way will be put on a free list when destroyed; the
+ * memory will only be reclaimed when the entire hash table is destroyed.
+ *
  * Options are as defined in the header file (see HASH_* macros).
  *
  * Returns:
  *    A pointer to a HashTable on success
- *    NULL on failue
+ *    NULL on failure
  */
 HashTable *HashTableCreate(int size, int options) {
     HashTable *h;
@@ -332,6 +343,16 @@ HashTable *HashTableCreate(int size, int options) {
 
     if (!(h = (HashTable *)malloc(sizeof(*h))))
 	return NULL;
+
+    if (options & HASH_POOL_ITEMS) {
+        h->hi_pool = pool_create(sizeof(HashItem));
+	if (NULL == h->hi_pool) {
+	    free(h);
+	    return NULL;
+	}
+    } else {
+        h->hi_pool = NULL;
+    }
 
     if (size < 4)
 	size = 4; /* an inconsequential minimum size */
@@ -349,8 +370,12 @@ HashTable *HashTableCreate(int size, int options) {
     h->nbuckets = size;
     h->mask = mask;
     h->options = options;
-    h->bucket = (HashItem **)malloc(sizeof(*h->bucket) * size);
     h->nused = 0;
+    h->bucket = (HashItem **)malloc(sizeof(*h->bucket) * size);
+    if (NULL == h->bucket) {
+        HashTableDestroy(h, 0);
+        return NULL;
+    }
 
     for (i = 0; i < size; i++) {
 	h->bucket[i] = NULL;
@@ -373,16 +398,19 @@ void HashTableDestroy(HashTable *h, int deallocate_data) {
     if (!h)
 	return;
 
-    for (i = 0; i < h->nbuckets; i++) {
-	HashItem *hi = h->bucket[i], *next = NULL;
-	for (hi = h->bucket[i]; hi; hi = next) {
-	    next = hi->next;
-	    HashItemDestroy(h, hi, deallocate_data);
+    if (h->bucket) {
+        for (i = 0; i < h->nbuckets; i++) {
+	    HashItem *hi = h->bucket[i], *next = NULL;
+	    for (hi = h->bucket[i]; hi; hi = next) {
+	        next = hi->next;
+		HashItemDestroy(h, hi, deallocate_data);
+	    }
 	}
+
+	free(h->bucket);
     }
 
-    if (h->bucket)
-	free(h->bucket);
+    if (h->hi_pool) pool_destroy(h->hi_pool);
 
     free(h);
 }
