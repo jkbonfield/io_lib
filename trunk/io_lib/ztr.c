@@ -693,7 +693,7 @@ ztr_chunk_t *ztr_add_text(ztr_t *z, ztr_chunk_t *ch,
 	    ch->dlength--;
     }
 
-    cp = realloc(ch->data, 1 + ch->dlength + key_len + value_len + 2);
+    cp = realloc(ch->data, 1 + ch->dlength + key_len + value_len + 3);
     if (NULL == cp)
 	return NULL;
     else
@@ -707,9 +707,10 @@ ztr_chunk_t *ztr_add_text(ztr_t *z, ztr_chunk_t *ch,
      * to mark the end of the previous value (we rewound above specifically
      * for this case).
      * When creating a new chunk we still write a nul, but in this case it's
-     * the RAW format byte.
-     */    
-    ch->dlength += 1+sprintf(cp, "%c%s%c%s", 0, key, 0, value);
+     * the RAW format byte.  After the value we add an extra nul to
+     * indicate the last entry.
+     */
+    ch->dlength += 1+sprintf(cp, "%c%s%c%s%c", 0, key, 0, value, 0);
 
     return ch;
 }
