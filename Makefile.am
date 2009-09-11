@@ -60,6 +60,7 @@ pkginclude_HEADERS = \
 	io_lib/ztr.h \
 	io_lib/deflate_interlaced.h \
 	io_lib/srf.h \
+	io_lib/pooled_alloc.h \
 	io_lib_config.h
 
 bin_SCRIPTS = io_lib-config
