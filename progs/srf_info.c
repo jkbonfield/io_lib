@@ -155,23 +155,24 @@ HashItem *parse_regn(ztr_t *z, ztr_chunk_t *chunk, HashTable *regn_hash) {
     char *name;
     HashItem *hi;
     regn_t *regn;
+    size_t l;
     
     uncompress_chunk(z, chunk);
 
     /* the hash key is a combination of the region names and boundaries */
     name = ztr_lookup_mdata_value(z, chunk, "NAME");
-    sprintf(key, "names=%s", name);
+    l = snprintf(key, sizeof(key), "names=%s", name);
     if( chunk->dlength ){
         int nbndy = (chunk->dlength-1)/4;
         uint4 *bndy = (uint4 *)(chunk->data+1);
         int ibndy;
 	for (ibndy=0; ibndy<nbndy; ibndy++) {
-            char buf[12];
             if( ibndy )
-                sprintf(buf, ";%d", be_int4(bndy[ibndy]));
+                l += snprintf(key + l, sizeof(key) - l,
+			      ";%d", be_int4(bndy[ibndy]));
             else
-                sprintf(buf, " boundaries=%d", be_int4(bndy[ibndy]));
-            strcat(key, buf);
+                l += snprintf(key + l, sizeof(key) - l,
+			      " boundaries=%d", be_int4(bndy[ibndy]));
         }
     }
 
