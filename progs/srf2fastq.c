@@ -171,7 +171,7 @@ HashItem *parse_regn(ztr_t *z, ztr_chunk_t *chunk, HashTable *regn_hash) {
 
 /* ------------------------------------------------------------------------ */
 #define MAX_READ_LEN 10000
-void ztr2fastq(ztr_t *z, char *name, int calibrated,
+void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
                int split, char *root, int numeric, int append, int explicit,
                HashTable *regn_hash, int *nfiles_open, char **filenames,
 	       FILE **files) {
@@ -183,7 +183,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated,
     regn_t *regn;
     int logodds;
 
-    if ( split || explicit ) {
+    if ( sequential || split || explicit ) {
         chunks = ztr_find_chunks(z, ZTR_TYPE_REGN, &nc);
         if (nc != 1) {
             fprintf(stderr, "Zero or greater than one REGN chunks found.\n");
@@ -280,7 +280,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated,
     logodds = (key && 0 == strcmp(key, "LO")) ? 1 : 0;
 
     /* Construct fastq entry */
-    if( split ){
+    if( sequential || split ){
         int iregion;
         for (iregion=0; iregion<regn->nregions; iregion++) {
             char *cp = name;
@@ -440,6 +440,10 @@ void usage(void) {
     fprintf(stderr, "       -s root  split the fastq files, one for each region     \n");
     fprintf(stderr, "                in the REGN chunk. The files are named         \n");
     fprintf(stderr, "                root_ + the name of the region                 \n");
+    fprintf(stderr, "       -S       sequentially display regions rather than       \n");
+    fprintf(stderr, "                appending them into one long read              \n");
+    fprintf(stderr, "                (conflicts with -s)                            \n");
+    fprintf(stderr, "                                                               \n");
     fprintf(stderr, "       -n       ignore REGN names, use region index.           \n");
     fprintf(stderr, "                i.e. root_1, root_2 etc.                       \n");
     fprintf(stderr, "       -a       append region index to name                    \n");
@@ -452,6 +456,7 @@ void usage(void) {
 int main(int argc, char **argv) {
     int calibrated = 0;
     int mask = 0, i;
+    int sequential = 0;
     int split = 0;
     int numeric = 0;
     int append = 0;
@@ -472,6 +477,8 @@ int main(int argc, char **argv) {
 	} else if (!strcmp(argv[i], "-s")) {
             split = 1;
             strcpy(root, argv[++i]);
+	} else if (!strcmp(argv[i], "-S")) {
+            sequential = 1;
 	} else if (!strcmp(argv[i], "-n")) {
             numeric = 1;
 	} else if (!strcmp(argv[i], "-a")) {
@@ -485,6 +492,11 @@ int main(int argc, char **argv) {
 
     if (i == argc) {
 	usage();
+    }
+
+    if ( sequential && split ) {
+        fprintf(stderr, "ERROR: Parameters -s and -S conflict!\n");
+        usage();
     }
 
     read_sections(READ_BASES);
@@ -513,7 +525,7 @@ int main(int argc, char **argv) {
         }
     
 	while (NULL != (ztr = srf_next_ztr(srf, name, mask))) {
-            ztr2fastq(ztr, name, calibrated, split, root, numeric, append,
+            ztr2fastq(ztr, name, calibrated, sequential, split, root, numeric, append,
 		      explicit, regn_hash, &nfiles_open, filenames, files);
 	    delete_ztr(ztr);
 	}
