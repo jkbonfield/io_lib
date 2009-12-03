@@ -258,6 +258,9 @@ sff_read_data *read_sff_read_data(mFILE *mf, int nflows, int nbases) {
     if (nbases != mfread(d->quality, 1, nbases, mf))
 	return free_sff_read_data(d), NULL;
 
+    /* Pad to 8 chars */
+    mfseek(mf, (mftell(mf) + 7)& ~7, SEEK_SET);
+
     return d;
 }
 
