@@ -450,7 +450,7 @@ void usage(void) {
     fprintf(stderr, "                i.e. name/1, name/2 etc.                       \n");
     fprintf(stderr, "       -e       include explicit sequence, the names of the    \n");
     fprintf(stderr, "                regions of type 'E'                            \n");
-    exit(0);
+    exit(1);
 }
 
 int main(int argc, char **argv) {
