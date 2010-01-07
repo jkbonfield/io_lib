@@ -89,7 +89,7 @@ void ztr2fasta(ztr_t *z, char *name) {
 /* ------------------------------------------------------------------------ */
 void usage(void) {
     fprintf(stderr, "Usage: srf2fasta [-C] archive_name\n");
-    exit(0);
+    exit(1);
 }
 
 int main(int argc, char **argv) {
