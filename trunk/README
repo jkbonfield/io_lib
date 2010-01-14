@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.12.1
+			IO_LIB VERSION 1.12.2
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -27,17 +27,24 @@ too. See the file include/Read.h for the generic 'Read' structure.
 
 
 
-Imminent removal of illumina2srf and srf2illumina
-=================================================
+What's new in 1.12.2
+====================
 
-I plan for the illumina2srf and srf2illumina tools to be removed from
-io_lib in a future release. Continued support for these programs is
-best done by Illumina themselves so they can tie in specific versions
-with specific pipeline releases.
+Extra options in srf2fastq:
+	-S to output split regions sequentially to stdout.
+	-r to request a region to be reverse complemented before output.
+
+API changes in HashTable code:
+	We now support HASH_POOL_ITEMS flag to reduce memory usage and
+	fragmentation, while speeding it up too. The pooled_alloc
+	methods implementing this may be useful in other places too.
+	(This change does not break the existing ABI.)
+
+Minor bug fixes (see CHANGES file).
 
 
-What's new in this release?
-===========================
+What's new in 1.12.1
+====================
 
 Library renaming:
 	The final object is no longer libread.so (or read.dll), but
