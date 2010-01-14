@@ -40,7 +40,7 @@
 #include <io_lib/srf.h>
 #include <io_lib/hash_table.h>
 
-#define MAX_REGIONS   4
+#define MAX_REGIONS   40
 
 /* regn chunk */
 typedef struct {
@@ -55,6 +55,56 @@ typedef struct {
     FILE *file[MAX_REGIONS];
     int count;
 } regn_t;
+
+/*
+ * Inline reverse a string
+ */
+static void reverse_string( char *s , int length ) {
+    char temp;
+    char *first = s;
+    char *last  = s + length - 1;
+
+    /* Reverse complement */
+    while ( last > first ) {
+	temp = *first;
+	*first++ = *last;
+	*last-- = temp;
+    }
+}
+
+/*
+ * Reverse complement a DNA string.
+ */
+static void reverse_complement( char *s , int length ) {
+    char temp;
+    char *first = s;
+    char *last  = s + length - 1;
+    static unsigned char cbase[256];
+    static int init = 0;
+
+    /* Initialise cbase[] array on first use */
+    if (!init) {
+	int i;
+	for (i = 0; i < 256; i++)
+	    cbase[i] = i;
+	cbase['A'] = 'T'; cbase['a'] = 't';
+	cbase['C'] = 'G'; cbase['c'] = 'g';
+	cbase['G'] = 'C'; cbase['g'] = 'c';
+	cbase['T'] = 'A'; cbase['t'] = 'a';
+
+	init = 1;
+    }
+
+    /* Reverse complement */
+    while ( last > first ) {
+	temp = *first;
+	*first++ = cbase[(unsigned char)*last];
+	*last-- = cbase[(unsigned char)temp];
+    }
+
+    if (last == first)
+    	*first = cbase[(unsigned char)*first];
+}
 
 static char qlookup[256];
 void init_qlookup(void) {
@@ -174,7 +224,7 @@ HashItem *parse_regn(ztr_t *z, ztr_chunk_t *chunk, HashTable *regn_hash) {
 void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
                int split, char *root, int numeric, int append, int explicit,
                HashTable *regn_hash, int *nfiles_open, char **filenames,
-	       FILE **files) {
+	       FILE **files, int *reverse) {
     int i, nc, seq_len, nfiles = *nfiles_open;
     char buf[MAX_READ_LEN*2 + 512 + 6];
     char *seq, *qual, *sdata, *qdata, *key;
@@ -282,7 +332,9 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
     /* Construct fastq entry */
     if( sequential || split ){
         int iregion;
-        for (iregion=0; iregion<regn->nregions; iregion++) {
+        for (iregion=0;
+	     iregion<regn->nregions && iregion<MAX_REGIONS;
+	     iregion++) {
             char *cp = name;
             int start, length;
 
@@ -333,6 +385,14 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
                 /*
 		 * previous region not in BASE chunk, the name of region
 		 * IS the sequence which is pre-pended to this region
+		 *
+		 * The idea of adding the sequence to the quality string
+		 * here seems very odd. However so far we have only seen
+		 * SOLiD files using explicit regions and in these their
+		 * own fastqs appear to have the DNA base prepended to
+		 * both the colour space sequence and quality strings.
+		 *
+		 * NB: we don't allow this to be reversed.
 		 */
                 strcpy(seq, regn->name[iregion-1]);
                 seq += strlen(regn->name[iregion-1]);
@@ -340,6 +400,12 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
                 qual += strlen(regn->name[iregion-1]);
             }
             
+	    /* If this is a region to be reversed, do so */
+	    if ( reverse[iregion] ) {
+		reverse_complement(sdata ,length);
+		reverse_string(qdata, length);
+            }
+
             for (i = 0; i < length; i++) {
                 if (*sdata != '.') {
                     *seq++ = *sdata++;
@@ -363,7 +429,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 
         if( explicit ){
             int iregion;
-            for (iregion=0; iregion<regn->nregions; iregion++)
+            for (iregion=0; iregion<regn->nregions; iregion++) {
                 if( regn->code[iregion] == 'E' ) {
                     /*
 		     * region not in BASE chunk, the name of region IS
@@ -371,6 +437,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 		     */
                     qual += strlen(regn->name[iregion]);
                 }
+	    }
         }
 
         *qual++ = '\n';
@@ -385,6 +452,12 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
                     /*
 		     * region not in BASE chunk, the name of region IS
 		     * the sequence
+		     *
+		     * The idea of adding the sequence to the quality string
+		     * here seems very odd. However so far we have only seen
+		     * SOLiD files using explicit regions and in these their
+		     * own fastqs appear to have the DNA base prepended to
+		     * both the colour space sequence and quality strings.
 		     */
                     strcpy(seq, regn->name[iregion]);
                     seq += strlen(regn->name[iregion]);
@@ -395,6 +468,13 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
                     length = (regn->length[iregion] == -1
 			      ? (seq_len-regn->start[iregion])
 			      : regn->length[iregion]);
+
+                    /* If this is a region to be reversed, do so */
+                    if ( reverse[iregion] ) {
+			reverse_complement(sdata, length);
+			reverse_string(qdata, length);
+                    }
+
                     for (i = 0; i < length; i++) {
                         if (*sdata != '.') {
                             *seq++ = *sdata++;
@@ -409,6 +489,11 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
                 }
             }
         } else {
+	    if ( reverse[0] ) {
+		reverse_complement(sdata, seq_len);
+		reverse_string(qdata, seq_len);
+	    }
+
             for (i = 0; i < seq_len; i++) {
                 if (*sdata != '.') {
                     *seq++ = *sdata++;
@@ -433,23 +518,24 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 /* ------------------------------------------------------------------------ */
 void usage(void) {
     fprintf(stderr, "Usage: srf2fastq [-c] [-C] [-s root] [-n] [-p] archive_name ...\n");
-    fprintf(stderr, "                                                               \n");
-    fprintf(stderr, "       -c       use calibrated quality values (CNF1)           \n");
-    fprintf(stderr, "       -C       ignore bad reads                               \n");
-    fprintf(stderr, "                                                               \n");
-    fprintf(stderr, "       -s root  split the fastq files, one for each region     \n");
-    fprintf(stderr, "                in the REGN chunk. The files are named         \n");
-    fprintf(stderr, "                root_ + the name of the region                 \n");
-    fprintf(stderr, "       -S       sequentially display regions rather than       \n");
-    fprintf(stderr, "                appending them into one long read              \n");
-    fprintf(stderr, "                (conflicts with -s)                            \n");
-    fprintf(stderr, "                                                               \n");
-    fprintf(stderr, "       -n       ignore REGN names, use region index.           \n");
-    fprintf(stderr, "                i.e. root_1, root_2 etc.                       \n");
-    fprintf(stderr, "       -a       append region index to name                    \n");
-    fprintf(stderr, "                i.e. name/1, name/2 etc.                       \n");
-    fprintf(stderr, "       -e       include explicit sequence, the names of the    \n");
-    fprintf(stderr, "                regions of type 'E'                            \n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "       -c       Use calibrated quality values (CNF1)\n");
+    fprintf(stderr, "       -C       Ignore bad reads\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "       -s root  Split the fastq files, one for each region in the REGN chunk.\n");
+    fprintf(stderr, "                The files are named root_ + the name of the region.\n");
+    fprintf(stderr, "       -S       Sequentially display regions rather than append them into\n");
+    fprintf(stderr, "                one long read. (conflicts with -s)\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "       -n       Ignore REGN names: use region index.\n");
+    fprintf(stderr, "                i.e. root_1, root_2 etc.\n");
+    fprintf(stderr, "       -a       Append region index to name\n");
+    fprintf(stderr, "                i.e. name/1, name/2 etc.\n");
+    fprintf(stderr, "       -e       Include explicit sequence: the names of the regions of type 'E'\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "       -r 1,2.. In a comma seperated list, specify which regions to reverse,\n");
+    fprintf(stderr, "                counting from 1. This will reverse complement the read and\n");
+    fprintf(stderr, "                reverse the quality scores. (requires -s or -S)\n");
     exit(1);
 }
 
@@ -465,7 +551,10 @@ int main(int argc, char **argv) {
     int nfiles_open = 0;
     char *filenames[MAX_REGIONS];
     FILE *files[MAX_REGIONS];
-    
+    int reverse[MAX_REGIONS], reverse_set = 0;
+
+    memset(reverse, 0, MAX_REGIONS * sizeof(int));
+
     /* Parse args */
     for (i = 1; i < argc && argv[i][0] == '-'; i++) {
 	if (!strcmp(argv[i], "-")) {
@@ -485,6 +574,22 @@ int main(int argc, char **argv) {
             append = 1;
 	} else if (!strcmp(argv[i], "-e")) {
             explicit = 1;
+        } else if (!strcmp(argv[i], "-r")) {
+	    char *cp, *cpend;
+
+            /* Figure out which ends to reverse */
+	    if (++i == argc)
+		usage();
+
+	    cp = argv[i];
+	    do {
+		long l = (int)strtol(cp, &cpend, 10);
+		if (cpend - cp && l >= 1 && l <= MAX_REGIONS)
+		    reverse[l-1] = 1;
+		cp = cpend+1;
+	    } while (*cpend);
+
+	    reverse_set = 1;
 	} else {
 	    usage();
 	}
@@ -497,6 +602,12 @@ int main(int argc, char **argv) {
     if ( sequential && split ) {
         fprintf(stderr, "ERROR: Parameters -s and -S conflict!\n");
         usage();
+    }
+
+    if ( reverse_set && ! (sequential || split) ) {
+	fprintf(stderr, "ERROR: The -r parameter is only supported when "
+		"spliting sequences by region.\n");
+	usage();
     }
 
     read_sections(READ_BASES);
@@ -525,8 +636,9 @@ int main(int argc, char **argv) {
         }
     
 	while (NULL != (ztr = srf_next_ztr(srf, name, mask))) {
-            ztr2fastq(ztr, name, calibrated, sequential, split, root, numeric, append,
-		      explicit, regn_hash, &nfiles_open, filenames, files);
+            ztr2fastq(ztr, name, calibrated, sequential, split, root, numeric,
+		      append, explicit, regn_hash, &nfiles_open, filenames,
+		      files, reverse);
 	    delete_ztr(ztr);
 	}
 

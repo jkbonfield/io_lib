@@ -37,7 +37,13 @@ Masks out sequences tagged as bad quality.
 Generates files on disk with filenames starting \fIroot\fR, one file
 per non-explicit element in the SRF/ZTR region (REGN) chunk. Typically
 this results in two files for paired end runs. The filename suffixes
-come from the names listed in the SRF region chunks.
+come from the names listed in the SRF region chunks.  This
+option conflicts with the \fB-S\fR parameter.
+.TP
+\fB-S\fR
+Splits sequences into regions, but sequentially lists each sequence
+region to stdout instead of splitting to separate files on disk. This
+option conflicts with the \fB-s\fR parameter.
 .TP
 \fB-n\FR
 When using -s the filename suffixes are simply numbered (starting with
@@ -52,6 +58,13 @@ Include any explicit sequence (ZTR region chunk of type 'E') in the
 sequence output. The explicit sequence is also included in the quality
 line too. Currently this is utilised by ABI SOLiD to store the last
 base of the primer.
+.TP
+\fB-r\fR \fIregion list\fR
+Reverse complements the sequence and reverses the quality values for
+all regions in the \fIregion list\fR. This is a comma separated list
+of integer values enumerating the regions, starting from 1. Note that
+this option only works when either \fB-s\fR or \fB-S\fR are
+specified.
 
 .SH "EXAMPLES"
 .PP
@@ -67,6 +80,13 @@ named \fIname\fR/1 and \fIname\fR/2.
 .PP
 .nf
     srf2fastq -s runX -a -n runX.srf
+.fi
+.PP
+To extract a paired end run as a single file, alternating forward and
+reverse sequences, with the second read being reverse complemented.
+.PP
+.nf
+    srf2fastq -S -r 2 runX.srf > runX.fastq
 .fi
 .SH "AUTHOR"
 .PP
