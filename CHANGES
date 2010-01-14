@@ -1,3 +1,38 @@
+Version 1.12.2 (15th Jan 2010)
+--------------
+
+* Extra options in srf2fastq: -S to output split regions sequentially
+  to stdout. -r to request a region to be reverse complemented before
+  output.
+
+* API addition
+  - Added pooled_alloc.h. This is a general purpose mechanism of
+    pooling multiple fixed size memory allocations into fewer malloc()
+    library calls.
+  - HashTables now have a HASH_POOL_ITEMS option to use the above
+    pooling system. This reduces memory wasted and speeds them up.
+
+* Bug fix: Fixed ztr_add_text() so that is leaves two nul bytes on the
+  end of TEXT chunks instead of one, as documented in the ZTR
+  specification.
+
+* Bug fix: Fixed buffer overrun in parse region chunks; srf2fastq and
+  srf2fasta.
+
+* Bug fix: API read_sff_read_data() did not skip ahead to the next
+  8-byte boundary.
+
+
+Version 1.12.1 (7th August 2009)
+--------------
+
+* Fixed the endianness detection in io_lib/os.h when used in
+  conjuction with auto-conf. This fix allows for "fat" binaries to be
+  built on MacOS X.
+
+* Fixed io_lib-config program to use -lstaden-read instead of -lread.
+
+
 Version 1.12.0 (29th July 2009)
 --------------
 
