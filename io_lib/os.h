@@ -41,8 +41,12 @@ extern "C" {
  * Emulation of config.h stuff when not using autoconf
  */
 #ifndef HAVE_CONFIG_H
-#    define HAVE_ZLIB
-#    define HAVE_SYS_WAIT_H
+#    ifndef HAVE_ZLIB
+#        define HAVE_ZLIB
+#    endif
+#    ifndef HAVE_SYS_WAIT_H
+#        define HAVE_SYS_WAIT_H
+#    endif
 #endif
 
 /*
