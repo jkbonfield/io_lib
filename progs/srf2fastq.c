@@ -533,7 +533,7 @@ void usage(void) {
     fprintf(stderr, "                i.e. name/1, name/2 etc.\n");
     fprintf(stderr, "       -e       Include explicit sequence: the names of the regions of type 'E'\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "       -r 1,2.. In a comma seperated list, specify which regions to reverse,\n");
+    fprintf(stderr, "       -r 1,2.. In a comma separated list, specify which regions to reverse,\n");
     fprintf(stderr, "                counting from 1. This will reverse complement the read and\n");
     fprintf(stderr, "                reverse the quality scores. (requires -s or -S)\n");
     exit(1);
