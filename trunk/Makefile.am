@@ -6,7 +6,6 @@ man_MANS = \
 	man/man1/srf_index_hash.1 \
 	man/man1/srf_info.1 \
 	man/man1/srf_list.1 \
-	man/man1/illumina2srf.1 \
 	man/man1/srf2fasta.1 \
 	man/man1/srf2fastq.1 \
 	man/man3/read_scf_header.3 \
