@@ -114,6 +114,17 @@ void init_qlookup(void) {
     }
 }
 
+static char getQual(int logodds, char qual) {
+    /*
+     * If quality is negative, treat it as 0.
+     * Solid, for instance, produces -1 on unknown base.
+     */
+    if ( qual < 0 )
+        qual = 0;
+
+    return ( logodds ? qlookup[qual + 128] : qual + '!' );
+}
+
 /*
  * Parse the REGN chunk, add to regn HASH
  *
@@ -232,6 +243,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
     HashItem *hi;
     regn_t *regn;
     int logodds;
+    char *cset;
 
     if ( sequential || split || explicit ) {
         chunks = ztr_find_chunks(z, ZTR_TYPE_REGN, &nc);
@@ -301,28 +313,42 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 
     /* Extract the sequence only */
     chunks = ztr_find_chunks(z, ZTR_TYPE_BASE, &nc);
-    if (nc != 1) {
-	fprintf(stderr, "Zero or greater than one BASE chunks found.\n");
+    if (nc == 0) {
+	fprintf(stderr, "Zero BASE chunks found.\n");
 	if (chunks)
 	    free(chunks);
 	return;
     }
+    if (nc > 1) {
+	fprintf(stderr, "Multiple BASE chunks found. Using first only.\n");
+    }
+    cset = ztr_lookup_mdata_value(z, chunks[0], "CSET");
     uncompress_chunk(z, chunks[0]);
     sdata = chunks[0]->data+1;
     seq_len = chunks[0]->dlength-1;
 
     /* Extract the quality */
     free(chunks);
-    if (calibrated)
+    if (calibrated) {
 	chunks = ztr_find_chunks(z, ZTR_TYPE_CNF1, &nc);
-    else
+    } else {
+	/* Try CNF4 first, and if not found revert to CNF1 */
 	chunks = ztr_find_chunks(z, ZTR_TYPE_CNF4, &nc);
+	if (nc == 0) {
+	    if (chunks)
+		free(chunks);
+	    chunks = ztr_find_chunks(z, ZTR_TYPE_CNF1, &nc);
+	}
+    }
 
-    if (nc != 1) {
-	fprintf(stderr, "Zero or greater than one CNF chunks found.\n");
+    if (nc == 0) {
+	fprintf(stderr, "No CNF chunks found.\n");
 	if (chunks)
 	    free(chunks);
 	return;
+    }
+    if (nc > 1) {
+	fprintf(stderr, "Multiple CNF chunks found. Using first only\n");
     }
     uncompress_chunk(z, chunks[0]);
     qdata = chunks[0]->data+1;
@@ -396,7 +422,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 		 */
                 strcpy(seq, regn->name[iregion-1]);
                 seq += strlen(regn->name[iregion-1]);
-                strcpy(qual, regn->name[iregion-1]);
+		memset(qual, '!', strlen(regn->name[iregion-1]));
                 qual += strlen(regn->name[iregion-1]);
             }
             
@@ -407,13 +433,13 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
             }
 
             for (i = 0; i < length; i++) {
-                if (*sdata != '.') {
+                if (*sdata != '.' || (cset && *cset == '0')) {
                     *seq++ = *sdata++;
                 } else {
                     *seq++ = 'N';
                     sdata++;
                 }
-                *qual++ = logodds ? qlookup[*qdata++ + 128] : *qdata++ + '!';
+                *qual++ = getQual(logodds, *qdata++);
             }
             *qual++ = '\n';
 
@@ -461,7 +487,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 		     */
                     strcpy(seq, regn->name[iregion]);
                     seq += strlen(regn->name[iregion]);
-                    strcpy(qual, regn->name[iregion]);
+		    memset(qual, '!', strlen(regn->name[iregion]));
                     qual += strlen(regn->name[iregion]);
                 } else {
                     start = regn->start[iregion];
@@ -476,15 +502,13 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
                     }
 
                     for (i = 0; i < length; i++) {
-                        if (*sdata != '.') {
+                        if (*sdata != '.' || (cset && *cset == '0')) {
                             *seq++ = *sdata++;
                         } else {
                             *seq++ = 'N';
                             sdata++;
                         }
-                        *qual++ = logodds
-			    ? qlookup[*qdata++ + 128]
-			    : *qdata++ + '!';
+                        *qual++ = getQual(logodds, *qdata++);
                     }
                 }
             }
@@ -495,13 +519,13 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 	    }
 
             for (i = 0; i < seq_len; i++) {
-                if (*sdata != '.') {
+                if (*sdata != '.' || (cset && *cset == '0')) {
                     *seq++ = *sdata++;
                 } else {
                     *seq++ = 'N';
                     sdata++;
                 }
-                *qual++ = logodds ? qlookup[*qdata++ + 128] : *qdata++ + '!';
+                *qual++ = getQual(logodds, *qdata++);
             }
         }
 
