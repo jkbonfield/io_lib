@@ -1,4 +1,159 @@
 ===============================================================================
+2009-07-29: RELEASE 1.12.2
+
+------------------------------------------------------------------------
+r1952 | jkbonfield | 2010-01-14 17:28:02 +0000 (Thu, 14 Jan 2010) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Updates to produce 1.12.2
+
+------------------------------------------------------------------------
+r1951 | jkbonfield | 2010-01-14 17:21:14 +0000 (Thu, 14 Jan 2010) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/os.h
+
+Guarded HAVE_* definitions behind #ifndef checks to avoid warnings in
+certain cases.
+
+------------------------------------------------------------------------
+r1950 | jkbonfield | 2010-01-14 16:44:42 +0000 (Thu, 14 Jan 2010) | 5 lines
+Changed paths:
+   M /io_lib/trunk/man/man1/srf2fastq.1
+   M /io_lib/trunk/progs/srf2fastq.c
+
+Added -r option as requested in source forge Patch ID: 2926627, as
+suggested by jmendler.
+
+The exact implementation differs in minor ways.
+------------------------------------------------------------------------
+r1939 | jkbonfield | 2010-01-07 09:36:18 +0000 (Thu, 07 Jan 2010) | 3 lines
+Changed paths:
+   M /io_lib/trunk/progs/srf2fasta.c
+   M /io_lib/trunk/progs/srf2fastq.c
+   M /io_lib/trunk/progs/srf_extract_hash.c
+
+Fixed the usage() function to exit 1 instead of 0.
+(Patch from Jordan Mendler)
+
+------------------------------------------------------------------------
+r1930 | jkbonfield | 2009-12-03 14:04:01 +0000 (Thu, 03 Dec 2009) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/sff.c
+
+Fixed a bug in read_sff_read_data (with thanks to Tim Massingham).
+After reading the data the function did not pad out to the next 8-byte
+boundary.
+
+This only surfaces when using the library from your own tools as the
+programs supplied with io_lib never read more than a single sff read.
+
+------------------------------------------------------------------------
+r1924 | jkbonfield | 2009-11-23 12:20:18 +0000 (Mon, 23 Nov 2009) | 6 lines
+Changed paths:
+   M /io_lib/trunk/progs/srf2fastq.c
+
+Applied patch from Jordan Mendler:
+https://sourceforge.net/tracker/index.php?func=detail&aid=2900087&group_id=100316&atid=627060
+
+This adds a -S (sequential) option to srf2fastq to interleave forward
+and reverse fragments in the same output file as desired by BFast.
+
+------------------------------------------------------------------------
+r1851 | daviesrob | 2009-10-02 10:29:05 +0100 (Fri, 02 Oct 2009) | 1 line
+Changed paths:
+   M /io_lib/trunk/progs/srf2fastq.c
+
+Fixed buffer overrun in parse_regn
+------------------------------------------------------------------------
+r1850 | daviesrob | 2009-10-02 10:02:30 +0100 (Fri, 02 Oct 2009) | 1 line
+Changed paths:
+   M /io_lib/trunk/progs/srf_info.c
+
+Fixed buffer overrun in parse_regn
+------------------------------------------------------------------------
+r1834 | daviesrob | 2009-09-11 17:48:32 +0100 (Fri, 11 Sep 2009) | 1 line
+Changed paths:
+   M /io_lib/trunk/Makefile.am
+   M /io_lib/trunk/io_lib/ztr.c
+
+Added pooled_alloc.h to list of include files to install.  Fixed
+ztr_add_text so
+ that it leaves two NUL bytes on the end of the TEXT chunk, as
+ documented in the
+ ZTR specification.
+------------------------------------------------------------------------
+r1813 | daviesrob | 2009-09-01 12:37:37 +0100 (Tue, 01 Sep 2009) | 1 line
+Changed paths:
+   M /io_lib/trunk/io_lib/Makefile.am
+   M /io_lib/trunk/io_lib/hash_table.c
+   M /io_lib/trunk/io_lib/hash_table.h
+   A /io_lib/trunk/io_lib/pooled_alloc.c
+   A /io_lib/trunk/io_lib/pooled_alloc.h
+   M /io_lib/trunk/io_lib/srf.c
+   M /io_lib/trunk/io_lib/srf.h
+
+Added HASH_POOL_ITEMS option to hash table code to allocate HashItems
+in pools,
+which reduces malloc overhead in big hash tables.  Also made
+srf_index_add_trace
+_body use pooled storage for trace names.
+
+
+===============================================================================
+2009-07-29: RELEASE 1.12.1
+
+------------------------------------------------------------------------
+r1806 | jkbonfield | 2009-08-07 16:46:20 +0100 (Fri, 07 Aug 2009) | 1 line
+Changed paths:
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Updated version to 1.12.1
+------------------------------------------------------------------------
+r1805 | jkbonfield | 2009-08-07 16:18:28 +0100 (Fri, 07 Aug 2009) | 1 line
+Changed paths:
+   M /io_lib/trunk/Makefile.am
+   M /io_lib/trunk/README
+
+Minor edit
+------------------------------------------------------------------------
+r1792 | jkbonfield | 2009-08-03 11:58:49 +0100 (Mon, 03 Aug 2009) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/os.h
+
+Moved the autoconf detection of endianness to the start of os.h. This
+means that machine/compiler testing #ifdefs take precedence, allowing
+for cross-compilation and "fat" binaries on MacOS X.
+
+------------------------------------------------------------------------
+r1791 | jkbonfield | 2009-08-03 11:56:50 +0100 (Mon, 03 Aug 2009) | 2 lines
+Changed paths:
+   M /io_lib/trunk/tests/Makefile.am
+   M /io_lib/trunk/tests/srf_index.test
+
+Minor tweaks to checks/dist.
+
+------------------------------------------------------------------------
+r1789 | jkbonfield | 2009-07-31 12:17:27 +0100 (Fri, 31 Jul 2009) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib-config.in
+
+Fixed -lread to be -lstaden-read
+
+------------------------------------------------------------------------
+r1780 | jkbonfield | 2009-07-29 10:07:56 +0100 (Wed, 29 Jul 2009) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+
+Minor updates to state version 1.12.0
+
+
+===============================================================================
 2009-07-29: RELEASE 1.12.0
 
 ------------------------------------------------------------------------
