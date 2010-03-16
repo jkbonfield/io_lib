@@ -103,9 +103,12 @@ typedef struct {
 /* Find the first non-digit character in the name and make it variable. */
 int parse_int_from_name(const char *name, int *variable, size_t *i, const char *variable_name) {
     size_t last = *i;
+    int sep = 0;
+
     while (*i >= 0 && isdigit(name[*i])) {
 	--(*i);
     }
+    sep = name[*i];
 
     if(*i < 0 || last == *i) {
 	fprintf(stderr, "Bad read name \"%s\" for \"%s\".  Read name needs to follow pattern of:\n", name, variable_name);
@@ -118,12 +121,16 @@ int parse_int_from_name(const char *name, int *variable, size_t *i, const char *
     *variable = atoi(&name[(*i)+1]);
     --(*i);
 
-    return 0;
+    return sep;
 }
 
 /*
  * Parses a name assuming it consists of:
  * prefix<separator><lane><separator><tile><separator><x><separator><y>
+ *
+ * Sometimes though we have indexed samples, eg
+ * "IL2_4381:1:1:1066:18864#43", where the last number has a different
+ * meaning. We spot this by looking for a different separator.
  *
  * We fill out the supplied lane, tile, x and y parameters, or set them to
  * 0, 0, 0 and 0 if unknown.
@@ -134,23 +141,44 @@ int parse_int_from_name(const char *name, int *variable, size_t *i, const char *
 int parse_name(char *name, int *lane, int *tile, int *x, int *y) {
     size_t len = strlen(name);
     size_t i = len-1;
-    int result = 0;
+    int sep1, sep2, sep3, sep4;
 
     /* Find the first non-digit character in the name and make it y. */
-    if(result = parse_int_from_name(name, y, &i, "y"))
-	return result;
+    if((sep1 = parse_int_from_name(name, y, &i, "y")) == -1)
+	return -1;
     
     /* Find the second non-digit character in the name and make it x. */
-    if(result = parse_int_from_name(name, x, &i, "x"))
-	return result;
+    if((sep2 = parse_int_from_name(name, x, &i, "x")) == -1)
+	return -1;
 
     /* Find the third non-digit character in the name and make it the tile. */
-    if(result = parse_int_from_name(name, tile, &i, "tile"))
-	return result;
+    if((sep3 = parse_int_from_name(name, tile, &i, "tile")) == -1)
+	return -1;
 
     /* Find the fourth non-digit character in the name and make it the lane. */
-    if(result = parse_int_from_name(name, lane, &i, "lane"))
-	return result;
+    if((sep4 = parse_int_from_name(name, lane, &i, "lane")) == -1)
+	return -1;
+
+    /* Detect when the last value was something different, eg index */
+    if (sep1 != sep2 && sep2 == sep3) {
+	*y    = *x;
+	*x    = *tile;
+	*tile = *lane;
+	sep1 = sep2;
+	sep2 = sep3;
+	sep3 = sep4;
+	if ((sep4 = parse_int_from_name(name, lane, &i, "lane") == -1))
+	    return -1;
+    }
+
+    if (sep1 != sep2 || sep2 != sep3) {
+	static int done = 0;
+	if (!done) {
+	    done = 1;
+	    fprintf(stderr, "Error: Name format unrecognised. "
+		    "lane/tile/x/y values maybe incorrect.\n");
+	}
+    }
 
     return 0;
 }
