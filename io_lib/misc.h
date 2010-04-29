@@ -1,11 +1,12 @@
 #ifndef _misc_h
 #define _misc_h
 
+#include "io_lib/os.h"
+
 #include <stdio.h>
 #include <stdarg.h>  /* varargs needed for v*printf() prototypes */
 #include <sys/types.h>
 
-#include "io_lib/os.h"
 #include "io_lib/xalloc.h"
 
 #ifdef __cplusplus
