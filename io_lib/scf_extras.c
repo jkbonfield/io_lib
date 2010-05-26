@@ -21,6 +21,10 @@
  * This file is derived from the Gap4 source file scf_extras.c.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdlib.h>
 
 #include "io_lib/stdio_hack.h"

@@ -90,7 +90,12 @@ AC_SEARCH_LIBS([socket], [socket], [],
                   [LIBS="-lsocket -lnsl $LIBS"], [], [-lnsl])])
 
 dnl Check host endian-ness
-AC_C_BIGENDIAN
+AC_C_BIGENDIAN([SET_ENDIAN="#define SP_BIG_ENDIAN"],
+	       [SET_ENDIAN="#define SP_LITTLE_ENDIAN"],
+	       [SET_ENDIAN=""],
+	       [SET_ENDIAN=""])
+
+AC_SUBST(SET_ENDIAN)
 
 dnl Checks for header files.
 AC_HEADER_STDC
@@ -122,4 +127,4 @@ dnl AC_FUNC_VPRINTF
 AC_CHECK_FUNCS(strdup)
 dnl AC_CHECK_FUNCS(mktime strspn strstr strtol)
 
-AC_OUTPUT(Makefile io_lib/Makefile progs/Makefile tests/Makefile io_lib-config)
+AC_OUTPUT(Makefile io_lib/Makefile progs/Makefile tests/Makefile io_lib-config io_lib/os.h)

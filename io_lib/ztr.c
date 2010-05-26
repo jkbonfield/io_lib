@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -1168,3 +1172,4 @@ int uncompress_ztr(ztr_t *ztr) {
     return 0;
 }
 
+#endif /* HAVE_ZLIB */

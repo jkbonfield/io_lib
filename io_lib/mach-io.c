@@ -39,6 +39,10 @@
  *    1 - value suggessfully read or written
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include "io_lib/stdio_hack.h"
 #include "io_lib/mach-io.h"

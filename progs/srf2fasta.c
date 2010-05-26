@@ -29,6 +29,10 @@
  * to use, but as a test and benchmark statistic.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <math.h>
 #include <string.h>

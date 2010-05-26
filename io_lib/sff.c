@@ -23,6 +23,10 @@
  * by a BSD style license as described elsewhere in this source tree.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

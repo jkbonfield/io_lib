@@ -21,6 +21,10 @@
  * in a new format that is more easily compressed.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <strings.h>
 #include <io_lib/Read.h>
