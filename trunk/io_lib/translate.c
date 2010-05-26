@@ -18,6 +18,10 @@
  * Last update:	01/09/94
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #ifndef NDEBUG
 #    define NDEBUG /* disable assertions */

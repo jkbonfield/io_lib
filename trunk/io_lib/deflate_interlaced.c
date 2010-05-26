@@ -24,6 +24,10 @@
  * James Bonfield, 2007
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #define NDEBUG /* disable asserts for production use */
 
 #include <stdio.h>

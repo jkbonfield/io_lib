@@ -35,6 +35,10 @@ on 1 byte), but shoehorning those bytes into integers efficiently is messy.
 */
 /* #define SELF_TEST 1 */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>      /* defines printf for tests */
 #include <time.h>       /* defines time_t for timings in the test */
 #include <inttypes.h>   /* defines uint32_t etc */

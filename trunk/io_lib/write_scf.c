@@ -49,6 +49,10 @@ static int scf_version = 3;
 /* ---- Imports ---- */
 
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <ctype.h>
 #include <stdio.h>    /* IMPORT: fopen, fclose, fseek, ftell, fgetc,
 		                 EOF */
@@ -66,22 +70,22 @@ int write_scf_header(FILE *fp, Header *h)
 {
     int i;
 
-    if (be_write_int_4(fp,&h->magic_number)==False)     return -1;
-    if (be_write_int_4(fp,&h->samples)==False)          return -1;
-    if (be_write_int_4(fp,&h->samples_offset)==False)   return -1;
-    if (be_write_int_4(fp,&h->bases)==False)            return -1;
-    if (be_write_int_4(fp,&h->bases_left_clip)==False)  return -1;
-    if (be_write_int_4(fp,&h->bases_right_clip)==False) return -1;
-    if (be_write_int_4(fp,&h->bases_offset)==False)     return -1;
-    if (be_write_int_4(fp,&h->comments_size)==False)    return -1;
-    if (be_write_int_4(fp,&h->comments_offset)==False)  return -1;
+    if (be_write_int_4(fp,&h->magic_number)==0)         return -1;
+    if (be_write_int_4(fp,&h->samples)==0)              return -1;
+    if (be_write_int_4(fp,&h->samples_offset)==0)       return -1;
+    if (be_write_int_4(fp,&h->bases)==0)                return -1;
+    if (be_write_int_4(fp,&h->bases_left_clip)==0)      return -1;
+    if (be_write_int_4(fp,&h->bases_right_clip)==0)     return -1;
+    if (be_write_int_4(fp,&h->bases_offset)==0)         return -1;
+    if (be_write_int_4(fp,&h->comments_size)==0)        return -1;
+    if (be_write_int_4(fp,&h->comments_offset)==0)      return -1;
     if (fwrite(h->version,sizeof(h->version),1,fp)!=1)  return -1;
-    if (be_write_int_4(fp,&h->sample_size)==False)      return -1;
-    if (be_write_int_4(fp,&h->code_set)==False)         return -1;
-    if (be_write_int_4(fp,&h->private_size)==False)     return -1;
-    if (be_write_int_4(fp,&h->private_offset)==False)   return -1;
+    if (be_write_int_4(fp,&h->sample_size)==0)          return -1;
+    if (be_write_int_4(fp,&h->code_set)==0)             return -1;
+    if (be_write_int_4(fp,&h->private_size)==0)         return -1;
+    if (be_write_int_4(fp,&h->private_offset)==0)       return -1;
     for (i=0;i<18;i++)
-	if (be_write_int_4(fp,&h->spare[i])==False)     return -1;
+	if (be_write_int_4(fp,&h->spare[i])==0)         return -1;
 
     return 0;
 }

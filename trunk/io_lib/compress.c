@@ -19,6 +19,10 @@
  * Neither of these two are likely to work under Windows or MacOS.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -34,11 +38,6 @@
 #include <sys/time.h>
 
 #include "io_lib/os.h" /* for ftruncate() under WINNT */
-
-#ifdef HAVE_CONFIG_H
-#include "io_lib_config.h"
-#endif
-
 #include "io_lib/compress.h"
 
 #ifdef HAVE_ZLIB

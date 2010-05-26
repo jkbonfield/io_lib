@@ -12,6 +12,10 @@
  * MRC disclaims all warranties with regard to this software.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include "io_lib/misc.h"
 #include <stdio.h>
 #include <stdlib.h>

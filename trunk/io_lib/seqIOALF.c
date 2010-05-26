@@ -73,6 +73,10 @@
 /* ---- Imports ---- */
 
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
