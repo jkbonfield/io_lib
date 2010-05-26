@@ -1171,5 +1171,3 @@ int uncompress_ztr(ztr_t *ztr) {
 
     return 0;
 }
-
-#endif /* HAVE_ZLIB */
