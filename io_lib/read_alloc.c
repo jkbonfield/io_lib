@@ -31,6 +31,10 @@
 
 /* ---- Includes ---- */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>

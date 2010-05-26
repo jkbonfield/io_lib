@@ -6,6 +6,10 @@
  * are the archives to append to the first argument.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>

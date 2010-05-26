@@ -64,7 +64,6 @@ libstaden_read_la_SOURCES = \
 	jenkins_lookup3.h \
 	mFILE.c \
 	mFILE.h \
-	os.h \
 	stdio_hack.h \
 	pooled_alloc.c \
 	pooled_alloc.h

@@ -49,6 +49,10 @@
 
 /* ---- Imports ---- */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>      /* IMPORT: fopen, fclose, fseek, ftell, fgetc */
 #include <ctype.h>      /* IMPORT: isprint */
 #include <string.h>

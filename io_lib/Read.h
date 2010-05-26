@@ -49,29 +49,6 @@ extern "C" {
 #endif
 
 /*
- * The autoconf setup doesn't use options.mk as the Makefile is rebuilt.
- * I haven't worked out how to do the analogous via autoconf, so for now
- * I take the easy approach and hard-code all formats to be enabled
- */
-#ifdef HAVE_CONFIG_H
-#include "io_lib_config.h"
-#define IOLIB_ABI
-#define IOLIB_SCF
-#define IOLIB_ALF
-#define IOLIB_PLN
-#define IOLIB_CTF
-#define IOLIB_EXP
-#define IOLIB_SFF
-#endif
-
-/* Only add ZTR support if we've got ZLIB installed */
-#ifdef HAVE_ZLIB
-#  ifndef IOLIB_ZTR
-#    define IOLIB_ZTR
-#  endif
-#endif
-
-/*
  *-----------------------------------------------------------------------------
  * Macros
  *-----------------------------------------------------------------------------

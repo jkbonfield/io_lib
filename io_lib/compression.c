@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
