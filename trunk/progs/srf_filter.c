@@ -37,6 +37,8 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h> /* Only need on windows for _O_BINARY */
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <io_lib/Read.h>
@@ -139,6 +141,8 @@ void usage(int code) {
     fprintf(stderr, "\n    -b      exclude bad reads using readsFlags bitmask in data block header.\n");
     fprintf(stderr, "\n    -2 cyc  use this option to add a Illumina-style REGN chunk.\n");
     fprintf(stderr, "\n    -v      Print verbose messages.\n");
+    fprintf(stderr, "\nUse '-' for the input or output name to read from stdin"
+	    " or write to stdout.\n");
     fprintf(stderr, "\n");
 
     exit(code);
@@ -609,9 +613,21 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
     int output_trace_header;
     char name[1024];
 
-    if (NULL == (in_srf = srf_open(input, "rb"))) {
+    if (0 == strcmp(input, "-")) {
+      /* Read from stdin */
+      input = "stdin";
+#ifdef _WIN32
+      _setmode(_fileno(stdin), _O_BINARY);
+#endif
+      if (NULL == (in_srf = srf_create(stdin))) {
+	perror("srf_create");
+	return 1;
+      }
+    } else {
+      if (NULL == (in_srf = srf_open(input, "rb"))) {
 	perror(input);
         return 1;
+      }
     }
 
     do {
@@ -1011,11 +1027,37 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
 	}
 
 	case SRFB_INDEX: {
-	    long pos = ftell(in_srf->fp);
+	    off_t pos = ftell(in_srf->fp);
 	    srf_read_index_hdr(in_srf, &in_srf->hdr, 1);
 
 	    /* Skip the index body */
-	    fseeko(in_srf->fp, pos + in_srf->hdr.size, SEEK_SET);
+	    if (0 != fseeko(in_srf->fp, pos + in_srf->hdr.size, SEEK_SET)) {
+	      char temp[65536];
+	      ssize_t to_read;
+
+	      if (EBADF != errno && ESPIPE != errno) {
+		perror(input);
+		srf_destroy(in_srf, 1);
+		return 1;
+	      }
+
+	      to_read = in_srf->hdr.size - in_srf->hdr.index_hdr_sz;
+	      while (to_read > 0) {
+		size_t nmemb = to_read > sizeof(temp) ? sizeof(temp) : to_read;
+		size_t bytes = fread(temp, 1, nmemb, in_srf->fp);
+		if (bytes < nmemb) break;
+		to_read -= bytes;
+	      }
+	      if (to_read > 0) {
+		if (ferror(in_srf->fp)) {
+		  perror(input);
+		} else {
+		  fprintf(stderr, "srf file '%s' truncated.", input);
+		}
+		srf_destroy(in_srf, 1);
+		return 1;
+	      }
+	    }
 	    break;
 	}
 
@@ -1127,14 +1169,25 @@ int main(int argc, char **argv) {
 	dump_mdata_mode(mdata_mode);
     }
 
-    if (NULL == (srf = srf_open(output, "wb"))) {
+    if (0 == strcmp(output, "-")) {
+#ifdef _WIN32
+      _setmode(_fileno(stdout), _O_BINARY);
+#endif
+      if (NULL == (srf = srf_create(stdout))) {
+	perror("srf_create");
+	return 1;
+      }
+    } else {
+      if (NULL == (srf = srf_open(output, "wb"))) {
         perror(output);
         return 1;
+      }
     }
     
     for (ifile=0; ifile<nfiles; ifile++) {
         input = argv[optind+ifile];
-        printf("Reading archive %s.\n", input);
+        fprintf(stderr, "Reading archive %s.\n",
+		0 != strcmp(input, "-") ? input : "stdin");
 
         if (0 != srf_filter(input, srf, chunk_mode, mdata_mode, filter_mode, read_filter, read_mask, rev_cycle)) {
             srf_destroy(srf, 1);
