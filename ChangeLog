@@ -1,5 +1,206 @@
 ===============================================================================
-2009-07-29: RELEASE 1.12.2
+2010-07-06: RELEASE 1.12.3
+
+------------------------------------------------------------------------
+r2170 | jkbonfield | 2010-07-06 17:32:43 +0100 (Tue, 06 Jul 2010) | 14 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/hash_table.c
+   M /io_lib/trunk/io_lib/hash_table.h
+   M /io_lib/trunk/progs/hash_list.c
+   M /io_lib/trunk/progs/hash_sff.c
+   M /io_lib/trunk/progs/hash_tar.c
+
+Added support for a hash index of multiple files. This means we can
+have a single HASH= line on our TRACE_PATH while transparently
+fetching traces from any number of .tar files. (For now this is only
+supported with tar and not SFF.)
+
+Hash_list has been updated to list the originating .tar file when
+outputting in long format.
+
+Also added a -m option to hash_tar to provide a mapping from old to
+new tar entry names. This allows us to rename the contents of a tar
+file (eg to strip off a .ztr suffix or change case) incase Gap4 has
+been incorrectly contructed with different trace filenames in it. (Yes
+it's just a hack option.)
+
+------------------------------------------------------------------------
+r2132 | daviesrob | 2010-05-27 10:18:46 +0100 (Thu, 27 May 2010) | 1 line
+Changed paths:
+   M /io_lib/trunk/progs/srf_filter.c
+
+Update srf_filter so that it can read from a pipe.  It is also now
+possible to u se "-" as the name of the input/output file to read from
+stdin/write to stdout.
+
+------------------------------------------------------------------------
+r2131 | jkbonfield | 2010-05-26 17:08:22 +0100 (Wed, 26 May 2010) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/ztr.c
+
+Removed erroneous #endif.
+
+------------------------------------------------------------------------
+r2130 | jkbonfield | 2010-05-26 16:53:07 +0100 (Wed, 26 May 2010) | 24 lines
+Changed paths:
+   M /io_lib/trunk/COPYRIGHT
+   M /io_lib/trunk/Makefile.am
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/io_lib/Makefile.am
+   M /io_lib/trunk/io_lib/Read.c
+   M /io_lib/trunk/io_lib/Read.h
+   M /io_lib/trunk/io_lib/array.c
+   M /io_lib/trunk/io_lib/compress.c
+   M /io_lib/trunk/io_lib/compression.c
+   M /io_lib/trunk/io_lib/ctfCompress.c
+   M /io_lib/trunk/io_lib/deflate_interlaced.c
+   M /io_lib/trunk/io_lib/error.c
+   M /io_lib/trunk/io_lib/expFileIO.c
+   M /io_lib/trunk/io_lib/files.c
+   M /io_lib/trunk/io_lib/find.c
+   M /io_lib/trunk/io_lib/fpoint.c
+   M /io_lib/trunk/io_lib/jenkins_lookup3.c
+   M /io_lib/trunk/io_lib/mach-io.c
+   M /io_lib/trunk/io_lib/misc_scf.c
+   D /io_lib/trunk/io_lib/os.h
+   A /io_lib/trunk/io_lib/os.h.in
+   M /io_lib/trunk/io_lib/pooled_alloc.c
+   M /io_lib/trunk/io_lib/read_alloc.c
+   M /io_lib/trunk/io_lib/read_scf.c
+   M /io_lib/trunk/io_lib/scf_extras.c
+   M /io_lib/trunk/io_lib/seqIOABI.c
+   M /io_lib/trunk/io_lib/seqIOALF.c
+   M /io_lib/trunk/io_lib/seqIOCTF.c
+   M /io_lib/trunk/io_lib/seqIOPlain.c
+   M /io_lib/trunk/io_lib/sff.c
+   M /io_lib/trunk/io_lib/strings.c
+   M /io_lib/trunk/io_lib/traceType.c
+   M /io_lib/trunk/io_lib/translate.c
+   M /io_lib/trunk/io_lib/vlen.c
+   M /io_lib/trunk/io_lib/write_scf.c
+   M /io_lib/trunk/io_lib/xalloc.c
+   M /io_lib/trunk/io_lib/ztr.c
+   M /io_lib/trunk/io_lib/ztr_translate.c
+   M /io_lib/trunk/progs/append_sff.c
+   M /io_lib/trunk/progs/convert_trace.c
+   M /io_lib/trunk/progs/extract_fastq.c
+   M /io_lib/trunk/progs/extract_qual.c
+   M /io_lib/trunk/progs/extract_seq.c
+   M /io_lib/trunk/progs/get_comment.c
+   M /io_lib/trunk/progs/hash_exp.c
+   M /io_lib/trunk/progs/hash_extract.c
+   M /io_lib/trunk/progs/hash_sff.c
+   M /io_lib/trunk/progs/hash_tar.c
+   M /io_lib/trunk/progs/index_tar.c
+   M /io_lib/trunk/progs/makeSCF.c
+   M /io_lib/trunk/progs/scf_dump.c
+   M /io_lib/trunk/progs/scf_info.c
+   M /io_lib/trunk/progs/scf_update.c
+   M /io_lib/trunk/progs/srf2fasta.c
+   M /io_lib/trunk/progs/srf2fastq.c
+   M /io_lib/trunk/progs/srf_dump_all.c
+   M /io_lib/trunk/progs/srf_filter.c
+   M /io_lib/trunk/progs/srf_info.c
+   M /io_lib/trunk/progs/trace_dump.c
+   M /io_lib/trunk/progs/ztr_dump.c
+
+Overhaul of endianness detection.
+
+- We still use autoconf, but now generate an os.h from os.h.in with
+  either SP_LITTLE_ENDIAN or SP_BIG_ENDIAN already hard-coded within
+  it. This avoids issues when non-autoconf programs linking against
+  io_lib include os.h.
+
+- As an exception to the above, MacOS X FAT binaries will defined
+  neither of the endian parameters (as it's impossible to know this at
+  configure time) and falls back to the auto-dtection based on CPU
+  time. Hopefully the same applies for any cross-compilation. NOTE:
+  this requires a modern autoconf with the 4th argument to
+  AC_C_BIGENDIAN macro. (3.65 has it, but 3.61 does not. I am unsure
+  which version inbetween it appeared.)
+
+- We now include io_lib_config.h in all .c files and in no .h
+  files. This avoids complications of trying to include io_lib header
+  files (os.h in particular) from another program using autoconf
+  that's also defined HAVE_CONFIG_H.
+
+- Removed False/True from os.h. Only false was used and only in two
+  scf source files. I just explicitly check vs 0 now.
+
+
+------------------------------------------------------------------------
+r2123 | jkbonfield | 2010-05-11 17:04:30 +0100 (Tue, 11 May 2010) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/os.h
+
+Added extra auto-detected for big vs little endian (when not using autoconf).
+
+------------------------------------------------------------------------
+r2107 | jkbonfield | 2010-04-29 16:46:14 +0100 (Thu, 29 Apr 2010) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/misc.h
+
+Reordered include files to ensure that io_lib-config.h comes before
+sys/types.h or sys/stat.h. This ensures Large File Support works
+correctly.
+
+------------------------------------------------------------------------
+r2068 | jkbonfield | 2010-03-16 15:31:00 +0000 (Tue, 16 Mar 2010) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/srf_dump_all.c
+
+Detect tagged-runs with names including #<index>, eg IL2_4381:1:1:1066:18864#43.
+
+------------------------------------------------------------------------
+r1999 | jkbonfield | 2010-02-05 13:59:40 +0000 (Fri, 05 Feb 2010) | 15 lines
+Changed paths:
+   M /io_lib/trunk/progs/srf2fastq.c
+
+See:
+https://sourceforge.net/tracker/index.php?func=detail&aid=2945526&group_id=100316&atid=627060
+submitted by Jordan Mendler.
+
+Fixed negative quality values - these shouldn't happen when specifying
+SCALE as PH(red), but -1 appears in ABI SOLiD files.
+
+Fixed N vs . character. We no longer force ambiguity bases to N,
+keeping . in use for SOLiD data.
+
+Improved the use of the "-c" option. The program will now
+automatically find the appropriate CNF chunk, so -c is only necessary
+when both CNF1 and CNF4 are present and you wish to request data comes
+from CNF1 instead.
+
+------------------------------------------------------------------------
+r1998 | jkbonfield | 2010-02-05 13:54:42 +0000 (Fri, 05 Feb 2010) | 1 line
+Changed paths:
+   M /io_lib/trunk/ChangeLog
+
+
+------------------------------------------------------------------------
+r1967 | jkbonfield | 2010-01-18 09:57:34 +0000 (Mon, 18 Jan 2010) | 1 line
+Changed paths:
+   M /io_lib/trunk/Makefile.am
+
+
+------------------------------------------------------------------------
+r1966 | jkbonfield | 2010-01-18 09:55:14 +0000 (Mon, 18 Jan 2010) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/srf2fastq.c
+
+Fixed spelling mistake.
+
+------------------------------------------------------------------------
+r1965 | jkbonfield | 2010-01-18 09:54:39 +0000 (Mon, 18 Jan 2010) | 2 lines
+Changed paths:
+   D /io_lib/trunk/man/man1/illumina2srf.1
+
+Removed - should have been culled when we removed illumina2srf itself.
+
+
+===============================================================================
+2010-01-15: RELEASE 1.12.2
 
 ------------------------------------------------------------------------
 r1952 | jkbonfield | 2010-01-14 17:28:02 +0000 (Thu, 14 Jan 2010) | 2 lines

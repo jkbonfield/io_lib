@@ -1,3 +1,29 @@
+Version 1.12.3 (6th July 2010)
+--------------
+
+* Resolved compilation problems: endianness and large file support are
+  now detected in a wider variety of cases.
+
+* srf2fastq now automatically outputs appropriate calibrated vs
+  non-calibrated values without having to explicitly use -c. This
+  option is now only needed when both CNF1 and CNF4 ZTR chunks are
+  present (it'll default to CNF4).
+
+* srf2fastq no longer forces "." to be reformatted to "N".
+
+* srf_dump_all improvements when facing read names with "#index" from
+  tagged runs.
+
+* srf_filter can now act as a pipe, reading from stdin and writing to
+  stdout.
+
+* hash_tar can now index multiple tar files together into one .hash
+  file. hash_list -l has been extended to list the originating .tar.
+  Additionally "hash_tar -m map_file" allows renaming of tar filenames
+  prior to indexing, allowing for a hacky way to work around modified
+  names, cases, directory layouts, etc.
+
+
 Version 1.12.2 (15th Jan 2010)
 --------------
 
