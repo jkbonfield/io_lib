@@ -756,18 +756,20 @@ void HashTableStats(HashTable *h, FILE *fp) {
  *    x1     (HASH_FUNC_? function used)
  *    x1     (number of file headers: FH. These count from 1 to FH inclusive)
  *    x1     (number of file footers: FF. These count from 1 to FF inclusive)
- *    x1     (reserved - zero for now)
+ *    x1     (number of archives indexed: NA)
  *    x4     (4-bytes big-endian; number of hash buckets)
  *    x8     (offset to add to item positions. eg size of this index)
  *    x4     (4-bytes big-endian; number of bytes in hash file, inc. header)
- * Archive name:
- *    x1     (length, zero => no name)
+ * Archive name: (NH copies of, or just 1 zero byte if none)
+ *    x1     (length, zero => no name, eg when same file as hash index)
  *    ?      (archive filename)
  * File headers (FH copies of):
- *    x8     (position)
+ *    x1     (archive no.)
+ *    x7     (position)
  *    x4     (size)
  * File footers (FH copies of):
- *    x8     (position)
+ *    x1     (archive no.)
+ *    x7     (position)
  *    x4     (size)
  * Buckets (multiples of)
  *    x4     (4-byte offset of linked list pos,  rel. to the start of the hdr)
@@ -799,15 +801,18 @@ uint64_t HashFileSave(HashFile *hf, FILE *fp, int64_t offset) {
     HashFileFooter foot;
    
     /* Compute the coordinates of the hash items */
-    hfsize = HHSIZE;				/* header */
-    hfsize += 1 + (hf->archive
-		   ? strlen(hf->archive)
-		   : 0);			/* filename */
-    hfsize += h->nbuckets * 4; 			/* buckets */
-    for (i = 0; i < hf->nheaders; i++)		/* headers */
+    hfsize = HHSIZE;				 /* header */
+    hfsize += h->nbuckets * 4; 			 /* buckets */
+    for (i = 0; i < hf->nheaders; i++)		 /* headers */
 	hfsize += 12;
-    for (i = 0; i < hf->nfooters; i++)		/* footers */
+    for (i = 0; i < hf->nfooters; i++)		 /* footers */
 	hfsize += 12;
+    if (hf->narchives) {
+	for (i = 0; i < hf->narchives; i++)
+	    hfsize += strlen(hf->archives[i])+1; /* archive filename */
+    } else {
+	hfsize++;
+    }
     bucket_pos = (uint32_t *)calloc(h->nbuckets, sizeof(uint32_t));
     for (i = 0; i < h->nbuckets; i++) {
 	bucket_pos[i] = hfsize;
@@ -823,22 +828,29 @@ uint64_t HashFileSave(HashFile *hf, FILE *fp, int64_t offset) {
 
     /* Write the header: */
     memcpy(hf->hh.magic, HASHFILE_MAGIC, 4);
-    memcpy(hf->hh.vers,  HASHFILE_VERSION, 4);
-    hf->hh.hfunc    = h->options & HASH_FUNC_MASK;
-    hf->hh.nheaders = hf->nheaders;
-    hf->hh.nfooters = hf->nfooters;
-    hf->hh.nbuckets = be_int4(h->nbuckets);
-    hf->hh.offset   = offset == HASHFILE_PREPEND
-	? be_int8(hfsize) /* archive will be append to this file */
+    if (hf->narchives > 1)
+	memcpy(hf->hh.vers,  HASHFILE_VERSION, 4);
+    else
+	memcpy(hf->hh.vers,  HASHFILE_VERSION100, 4);
+    hf->hh.hfunc     = h->options & HASH_FUNC_MASK;
+    hf->hh.nheaders  = hf->nheaders;
+    hf->hh.nfooters  = hf->nfooters;
+    hf->hh.narchives = hf->narchives == 1 ? 0 : hf->narchives;
+    hf->hh.nbuckets  = be_int4(h->nbuckets);
+    hf->hh.offset    = offset == HASHFILE_PREPEND
+	? be_int8(hfsize) /* archive will be appended to this file */
 	: be_int8(offset);
     hf->hh.size     = be_int4(hfsize);
     fwrite(&hf->hh, HHSIZE, 1, fp);
 
     /* Write the archive filename, if known */
-    if (hf->archive && *hf->archive) {
-	fputc(strlen(hf->archive), fp);
-	fputs(hf->archive, fp);
+    if (hf->narchives) {
+	for (i = 0; i < hf->narchives; i++) {
+	    fputc(strlen(hf->archives[i]), fp);
+	    fputs(hf->archives[i], fp);
+	}
     } else {
+	/* Compatibility with v1.00 file format */
 	fputc(0, fp);
     }
 
@@ -846,6 +858,7 @@ uint64_t HashFileSave(HashFile *hf, FILE *fp, int64_t offset) {
     for (i = 0; i < hf->nheaders; i++) {
 	HashFileSection hs;
 	hs.pos  = be_int8(hf->headers[i].pos);
+	*(char *)&hs.pos = hf->headers[i].archive_no;
 	fwrite(&hs.pos, 8, 1, fp);
 	hs.size = be_int4(hf->headers[i].size);
 	fwrite(&hs.size, 4, 1, fp);
@@ -854,6 +867,7 @@ uint64_t HashFileSave(HashFile *hf, FILE *fp, int64_t offset) {
     for (i = 0; i < hf->nfooters; i++) {
 	HashFileSection hs;
 	hs.pos  = be_int8(hf->footers[i].pos);
+	*(char *)&hs.pos = hf->footers[i].archive_no;
 	fwrite(&hs.pos, 8, 1, fp);
 	hs.size = be_int4(hf->footers[i].size);
 	fwrite(&hs.size, 4, 1, fp);
@@ -894,6 +908,7 @@ uint64_t HashFileSave(HashFile *hf, FILE *fp, int64_t offset) {
 	    headfoot = (((hfi->header) & 0xf) << 4) | ((hfi->footer) & 0xf);
 	    fwrite(&headfoot, 1, 1, fp);
 	    be64 = be_int8(hfi->pos);
+	    *(char *)&be64 = hfi->archive;
 	    fwrite(&be64, 8, 1, fp);
 	    be32 = be_int4(hfi->size);
 	    fwrite(&be32, 4, 1, fp);
@@ -910,6 +925,7 @@ uint64_t HashFileSave(HashFile *hf, FILE *fp, int64_t offset) {
     return hfsize;
 }
 
+#if 0
 /*
  * Reads an entire HashTable from fp.
  *
@@ -943,15 +959,22 @@ HashFile *HashFileLoad_old(FILE *fp) {
     bucket_pos = (uint32_t *)calloc(h->nbuckets, sizeof(uint32_t));
 
     /* Load the archive filename */
-    fnamelen = fgetc(fp);
-    if (fnamelen) {
-	hf->archive = (char *)malloc(fnamelen+1);
-	fread(hf->archive, 1, fnamelen, fp);
-	hf->archive[fnamelen] = 0;
-	if (hf->archive[0] == 0) {
-	    free(hf->archive);
-	    hf->archive = NULL;
+    if (hf->narchives) {
+	hf->archives = (char **)malloc(hf->narchives * sizeof(char *));
+    } else {
+	hf->archives = NULL;
+    }
+
+    if (hf->narchives) {
+	for (i = 0; i < hf->narchives; i++) {
+	    fnamelen = fgetc(fp);
+	    hf->archives[i] = malloc(fnamelen+1);
+	    fread(hf->archives[i], 1, fnamelen, fp);
+	    hf->archives[i][fnamelen] = 0;
 	}
+    } else {
+	/* Consume 0 byte for v1.00 format */
+	fgetc(fp);
     }
 
     /* Load the rest of the hash table to memory */
@@ -1029,6 +1052,7 @@ HashFile *HashFileLoad_old(FILE *fp) {
 
     return hf;
 }
+#endif
 
 /*
  * Opens a stored hash table file. It also internally keeps an open file to
@@ -1040,13 +1064,12 @@ HashFile *HashFileLoad_old(FILE *fp) {
 HashFile *HashFileFopen(FILE *fp) {
     HashFile *hf = HashFileCreate(0, 0);
     int archive_len;
-    int i;
+    int i, fnamelen;
 
     /* Set the stdio buffer to be small to avoid massive I/O wastage */
 
     /* Read the header */
     hf->hfp = fp;
-    hf->afp = fp;
     hf->hf_start = ftello(hf->hfp);
 
     if (HHSIZE != fread(&hf->hh, 1, HHSIZE, hf->hfp)) {
@@ -1076,7 +1099,8 @@ HashFile *HashFileFopen(FILE *fp) {
 	    return NULL;
 	}
     }
-    if (memcmp(hf->hh.vers, HASHFILE_VERSION, 4) != 0) {
+    if (memcmp(hf->hh.vers, HASHFILE_VERSION,    4) != 0 &&
+	memcmp(hf->hh.vers, HASHFILE_VERSION100, 4) != 0) {
 	/* incorrect version */
 	HashFileDestroy(hf);
 	return NULL;
@@ -1086,18 +1110,40 @@ HashFile *HashFileFopen(FILE *fp) {
     hf->hh.offset   = be_int8(hf->hh.offset);
     hf->hh.size     = be_int4(hf->hh.size);
 
-    /* Load the main archive filename */
-    if ((archive_len = fgetc(hf->hfp))) {
-	hf->archive = (char *)malloc(archive_len+1);
-	fread(hf->archive, 1, archive_len, hf->hfp);
-	hf->archive[archive_len] = 0;
-	if (hf->archive[0] == 0) {
-	    free(hf->archive);
-	    hf->archive = NULL;
+    /* Load the archive filename(s) */
+    hf->narchives = hf->hh.narchives;
+
+    /* Old archives had narchives fixed as zero, so check again */
+    if (!hf->narchives) {
+	int n = fgetc(fp);
+	if (!n) {
+	    archive_len = 1;
+	} else {
+	    ungetc(n, fp);
+	    hf->narchives = 1;
 	}
     }
 
-    hf->header_size = HHSIZE + 1 + archive_len +
+    if (hf->narchives) {
+	hf->archives = (char **)malloc(hf->narchives * sizeof(char *));
+	hf->afp = calloc(hf->narchives, sizeof(FILE *));
+    } else {
+	hf->archives = NULL;
+	hf->afp = &hf->hfp;
+    }
+
+    if (hf->narchives) {
+	archive_len = 0;
+	for (i = 0; i < hf->narchives; i++) {
+	    fnamelen = fgetc(fp);
+	    hf->archives[i] = malloc(fnamelen+1);
+	    fread(hf->archives[i], 1, fnamelen, fp);
+	    hf->archives[i][fnamelen] = 0;
+	    archive_len += fnamelen+1;
+	}
+    }
+
+    hf->header_size = HHSIZE + archive_len +
 	12 * (hf->hh.nheaders + hf->hh.nfooters);
     hf->nheaders = hf->hh.nheaders;
     hf->nfooters = hf->hh.nfooters;
@@ -1109,6 +1155,8 @@ HashFile *HashFileFopen(FILE *fp) {
     for (i = 0; i < hf->nheaders; i++) {
 	fread(&hf->headers[i].pos,  8, 1, hf->hfp);
 	fread(&hf->headers[i].size, 4, 1, hf->hfp);
+	hf->headers[i].archive_no = *(char *)&hf->headers[i].pos;
+	*(char *)&hf->headers[i].pos = 0;
 	hf->headers[i].pos  = be_int8(hf->headers[i].pos) + hf->hh.offset;
 	hf->headers[i].size = be_int4(hf->headers[i].size);
 	hf->headers[i].cached_data = NULL;
@@ -1120,6 +1168,8 @@ HashFile *HashFileFopen(FILE *fp) {
     for (i = 0; i < hf->nfooters; i++) {
 	fread(&hf->footers[i].pos,  8, 1, hf->hfp);
 	fread(&hf->footers[i].size, 4, 1, hf->hfp);
+	hf->footers[i].archive_no = *(char *)&hf->footers[i].pos;
+	*(char *)&hf->footers[i].pos = 0;
 	hf->footers[i].pos  = be_int8(hf->footers[i].pos) + hf->hh.offset;
 	hf->footers[i].size = be_int4(hf->footers[i].size);
 	hf->footers[i].cached_data = NULL;
@@ -1139,24 +1189,38 @@ HashFile *HashFileOpen(char *fname) {
     if (!(hf = HashFileFopen(fp)))
 	return NULL;
 
-    /* Open the main archive too */
-    if (hf->archive) {
-	if (NULL == (hf->afp = fopen(hf->archive, "rb"))) {
-	    /* Possibly done via a relative pathname (optimal infact) */
-	    char *cp;
-	    char aname[1024];
-	    if (NULL == (cp = strrchr(fname, '/'))) {
-		HashFileDestroy(hf);
-		return NULL;
-	    }
-	    sprintf(aname, "%.*s%s", (int)(cp-fname+1), fname, hf->archive);
-	    if (NULL == (hf->afp = fopen(aname, "rb"))) {
+    /* Open the main archive too? Usually deferred */
+    if (hf->narchives) {
+	int i;
 
-		return NULL;
-	    }
+	hf->afp = malloc(hf->narchives * sizeof(FILE *));
+	if (hf->afp == NULL)
+	    return NULL;
+
+	/* Delay opening the main archive until required */
+	for (i = 0; i < hf->narchives; i++) {
+	    hf->afp[i] = NULL;
 	}
+
+#if 0
+	    if (NULL == (hf->afp[i] = fopen(hf->archives[i], "rb"))) {
+		/* Possibly done via a relative pathname (optimal infact) */
+		char *cp;
+		char aname[1024];
+		if (NULL == (cp = strrchr(fname, '/'))) {
+		    HashFileDestroy(hf);
+		    return NULL;
+		}
+		sprintf(aname, "%.*s%s", (int)(cp-fname+1), fname,
+			hf->archives[i]);
+		if (NULL == (hf->afp[i] = fopen(aname, "rb"))) {
+
+		    return NULL;
+		}
+	    }
+#endif
     } else {
-	hf->afp = hf->hfp;
+	hf->afp = &hf->hfp;
     }
 
     return hf;
@@ -1230,9 +1294,11 @@ HashFile *HashFileLoad(FILE *fp) {
 	    hfi->header = (uc >> 4) & 0xf;
 	    hfi->footer = uc & 0xf;
 
-	    /* pos */
+	    /* archive no. + pos */
 	    memcpy(&pos, &htable[htable_pos], 8);
 	    htable_pos += 8;
+	    hfi->archive = *(char *)&pos;
+	    *(char *)&pos = 0;
 	    hfi->pos = be_int8(pos) + hf->hh.offset;
 
 	    /* size */
@@ -1254,6 +1320,7 @@ HashFile *HashFileLoad(FILE *fp) {
 
     fflush(stderr);
     free(bucket_pos);
+    free(htable);
 
     return hf;
 }
@@ -1303,6 +1370,8 @@ int HashFileQuery(HashFile *hf, uint8_t *key, int key_len,
 	item->header = (headfoot >> 4) & 0xf;
 	item->footer = headfoot & 0xf;
 	fread(&pos, 8, 1, hf->hfp);
+	item->archive = *(char *)&pos;
+	*(char *)&pos = 0;
 	pos = be_int8(pos) + hf->hh.offset;
 	fread(&size, 4, 1, hf->hfp);
 	size = be_int4(size);
@@ -1333,8 +1402,15 @@ void HashFileDestroy(HashFile *hf) {
 
     if (hf->h)
 	HashTableDestroy(hf->h, 1);
-    if (hf->archive)
-	free(hf->archive);
+
+    if (hf->narchives) {
+	int i;
+	for (i = 0; i < hf->narchives; i++)
+	    if (hf->archives[i])
+		free(hf->archives[i]);
+	free(hf->archives);
+    }
+
     if (hf->headers) {
 	int i;
 	for (i = 0; i < hf->nheaders; i++) {
@@ -1343,6 +1419,7 @@ void HashFileDestroy(HashFile *hf) {
 	}
 	free(hf->headers);
     }
+
     if (hf->footers) {
 	int i;
 	for (i = 0; i < hf->nfooters; i++) {
@@ -1352,13 +1429,42 @@ void HashFileDestroy(HashFile *hf) {
 	free(hf->footers);
     }
 
-    if (hf->afp)
-	fclose(hf->afp);
-    if (hf->hfp && hf->hfp != hf->afp)
+    if (hf->afp) {
+	int i;
+
+	for (i = 0; i < hf->narchives; i++)
+	    if (hf->afp[i] && hf->afp[i] != hf->hfp)
+		fclose(hf->afp[i]);
+
+	if (hf->afp != &hf->hfp)
+	    free(hf->afp);
+    }
+
+    if (hf->hfp)
 	fclose(hf->hfp);
 
     free(hf);
 }
+
+
+/*
+ * Opens a specific archive number.
+ * Returns 0 on success,
+ *        -1 on failure
+ */
+static int HashFileOpenArchive(HashFile *hf, int archive_no) {
+    if (hf->narchives && archive_no > hf->narchives)
+	return -1;
+
+    if (hf->afp[archive_no])
+	return 0;
+
+    if (NULL == (hf->afp[archive_no] = fopen(hf->archives[archive_no], "rb")))
+	return -1;
+
+    return 0;
+}
+
 
 /*
  * Extracts the contents for a file out of the HashFile.
@@ -1392,20 +1498,35 @@ char *HashFileExtract(HashFile *hf, char *fname, size_t *len) {
     /* Header */
     pos = 0;
     if (head) {
-	fseeko(hf->afp, head->pos, SEEK_SET);
-	fread(&data[pos], head->size, 1, hf->afp);
+	if (!HashFileOpenArchive(hf, head->archive_no))
+	    return NULL;
+	if (!hf->afp[head->archive_no])
+	    return NULL;
+
+	fseeko(hf->afp[head->archive_no], head->pos, SEEK_SET);
+	fread(&data[pos], head->size, 1, hf->afp[head->archive_no]);
 	pos += head->size;
     }
 
     /* Main file */
-    fseeko(hf->afp, hfi.pos, SEEK_SET);
-    fread(&data[pos], hfi.size, 1, hf->afp);
+    if (!HashFileOpenArchive(hf, hfi.archive))
+	return NULL;
+    if (!hf->afp[hfi.archive])
+	return NULL;
+
+    fseeko(hf->afp[hfi.archive], hfi.pos, SEEK_SET);
+    fread(&data[pos], hfi.size, 1, hf->afp[hfi.archive]);
     pos += hfi.size;
 
     /* Footer */
     if (foot) {
-	fseeko(hf->afp, foot->pos, SEEK_SET);
-	fread(&data[pos], foot->size, 1, hf->afp);
+	if (!HashFileOpenArchive(hf, foot->archive_no))
+	    return NULL;
+	if (!hf->afp[foot->archive_no])
+	    return NULL;
+
+	fseeko(hf->afp[foot->archive_no], foot->pos, SEEK_SET);
+	fread(&data[pos], foot->size, 1, hf->afp[foot->archive_no]);
 	pos += foot->size;
     }
 
