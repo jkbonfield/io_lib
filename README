@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.12.2
+			IO_LIB VERSION 1.12.3
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -25,6 +25,15 @@ all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
 
+
+
+What's new in 1.12.3
+====================
+
+Primarily this release is to resolve compilation issues on some platforms. 
+
+Additionally there are a few improvements to srf2fastq, srf_dump_all,
+srf_filter, hash_tar and hash_list. See CHANGES for the full list.
 
 
 What's new in 1.12.2
