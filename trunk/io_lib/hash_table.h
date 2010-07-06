@@ -43,7 +43,8 @@ typedef struct {
 } HashIter;
 
 #define HASHFILE_MAGIC ".hsh"
-#define HASHFILE_VERSION "1.00"
+#define HASHFILE_VERSION100 "1.00"
+#define HASHFILE_VERSION "1.01"
 #define HASHFILE_PREPEND -1
 
 /* File format: the hash table header */
@@ -53,7 +54,7 @@ typedef struct {
     char hfunc;
     unsigned char nheaders;
     unsigned char nfooters;
-    char reserved; /* 0 */
+    unsigned char narchives;
     uint32_t nbuckets;
     int64_t offset;
     uint32_t size;
@@ -71,12 +72,14 @@ typedef struct {
 typedef struct {
     uint64_t pos;
     uint32_t size;
+    unsigned char archive;
     unsigned char header; /* zero if not set */
     unsigned char footer; /* zero if not set */
 } HashFileItem;
 
 /* Common headers or footers to prepend to the archive contents */
 typedef struct {
+    unsigned char archive_no;
     uint64_t pos;
     uint32_t size;
     unsigned char *cached_data;
@@ -96,9 +99,10 @@ typedef struct {
     HashFileSection *headers;	/* on-disk common file headers struct */
     int nfooters;		/* number of common file footers */
     HashFileSection *footers;	/* on-disk common file footers struct */
+    int narchives;		/* number of archive files, 0 if inline file */
+    char **archives;		/* archive filenames */
     FILE *hfp;			/* hash FILE */
-    FILE *afp;			/* archive FILE */
-    char *archive;		/* archive filename */
+    FILE **afp;			/* archive FILE(s) */
     int header_size;		/* size of header + filename + N(head/feet) */
     off_t hf_start;		/* location of HashFile header in file */
 } HashFile;

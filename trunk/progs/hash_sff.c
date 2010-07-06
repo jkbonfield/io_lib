@@ -242,7 +242,9 @@ int main(int argc, char **argv) {
 	printf("Saving index\n");
 
 	if (!copy_archive) {
-	    hf->archive = strdup(argv[0]);
+	    hf->narchives = 1;
+	    hf->archives = malloc(sizeof(char **));
+	    hf->archives[0] = strdup(argv[0]);
 	    index_offset = 0;
 	}
 
