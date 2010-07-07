@@ -1498,8 +1498,7 @@ char *HashFileExtract(HashFile *hf, char *fname, size_t *len) {
     /* Header */
     pos = 0;
     if (head) {
-	if (!HashFileOpenArchive(hf, head->archive_no))
-	    return NULL;
+	HashFileOpenArchive(hf, head->archive_no);
 	if (!hf->afp[head->archive_no])
 	    return NULL;
 
@@ -1509,8 +1508,7 @@ char *HashFileExtract(HashFile *hf, char *fname, size_t *len) {
     }
 
     /* Main file */
-    if (!HashFileOpenArchive(hf, hfi.archive))
-	return NULL;
+    HashFileOpenArchive(hf, hfi.archive);
     if (!hf->afp[hfi.archive])
 	return NULL;
 
@@ -1520,8 +1518,7 @@ char *HashFileExtract(HashFile *hf, char *fname, size_t *len) {
 
     /* Footer */
     if (foot) {
-	if (!HashFileOpenArchive(hf, foot->archive_no))
-	    return NULL;
+	HashFileOpenArchive(hf, foot->archive_no);
 	if (!hf->afp[foot->archive_no])
 	    return NULL;
 
