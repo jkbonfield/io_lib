@@ -71,16 +71,10 @@ void ztr2fasta(ztr_t *z, char *name) {
 
     for (i = 1; i < chunks[0]->dlength; i++) {
 	char base = chunks[0]->data[i];
-	switch (base) {
-	case 'A': case 'a':
-	case 'C': case 'c':
-	case 'G': case 'g':
-	case 'T': case 't':
-	    *seq++ = base;
-	    break;
-	default:
+	if (base == '.')
 	    *seq++ = 'N';
-	}
+	else
+	    *seq++ = base;
     }
     *seq++ = '\n';
 
