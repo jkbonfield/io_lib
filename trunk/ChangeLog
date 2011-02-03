@@ -1,9 +1,46 @@
 ===============================================================================
-2010-07-06: RELEASE 1.12.4
+2011-02-03: RELEASE 1.12.5
 
 
 ===============================================================================
+2010-07-06: RELEASE 1.12.4
+
+r2183 | jkbonfield | 2010-07-14 09:51:32 +0100 (Wed, 14 Jul 2010) | 3 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Version updates (which should have been committed prior to 1.2.4,
+although they're in the tarball).
+
+------------------------------------------------------------------------
+r2182 | jkbonfield | 2010-07-14 09:38:16 +0100 (Wed, 14 Jul 2010) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/srf2fasta.c
+
+Fixed to work on SOLiD SRFs.
+
+------------------------------------------------------------------------
+r2173 | jkbonfield | 2010-07-07 10:26:57 +0100 (Wed, 07 Jul 2010) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/hash_table.c
+
+Bug fix to HashFileOpenArchive error checking. This caused the
+previous release to completely fail at extracting data. (Argh)
+
+===============================================================================
 2010-07-06: RELEASE 1.12.3
+
+r2171 | jkbonfield | 2010-07-06 17:39:18 +0100 (Tue, 06 Jul 2010) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Updating to version 1.12.3
 
 ------------------------------------------------------------------------
 r2170 | jkbonfield | 2010-07-06 17:32:43 +0100 (Tue, 06 Jul 2010) | 14 lines
