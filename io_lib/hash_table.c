@@ -439,7 +439,7 @@ int HashTableResize(HashTable *h, int newsize) {
 
     /* Create a new hash table and rehash everything into it */
     h2 = HashTableCreate(newsize, h->options);
-    
+
     for (i = 0; i < h->nbuckets; i++) {
 	HashItem *hi, *next;
 	for (hi = h->bucket[i]; hi; hi = next) {
@@ -456,6 +456,9 @@ int HashTableResize(HashTable *h, int newsize) {
     h->bucket   = h2->bucket;
     h->nbuckets = h2->nbuckets;
     h->mask     = h2->mask;
+
+    if (h2->hi_pool)
+	pool_destroy(h2->hi_pool);
     free(h2);
 
     return 0;
@@ -501,7 +504,7 @@ HashItem *HashTableAdd(HashTable *h, char *key, int key_len, HashData data,
     /* Already exists? */
     if (!(h->options & HASH_ALLOW_DUP_KEYS)) {
 	for (hi = h->bucket[hv]; hi; hi = hi->next) {
-	    if (key_len == hi->key_len &&
+	    if (key_len == hi->key_len && key[0] == hi->key[0] &&
 		memcmp(key, hi->key, key_len) == 0) {
 		if (new) *new = 0;
 		return hi;
