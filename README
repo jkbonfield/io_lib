@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.12.4
+			IO_LIB VERSION 1.12.5
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -25,6 +25,12 @@ all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
 
+
+What's new in 1.12.5
+====================
+
+Improvements for MacOS X builds and maybe other platforms (related to
+the use of va_copy function call).
 
 
 What's new in 1.12.4

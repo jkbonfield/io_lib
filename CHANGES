@@ -1,3 +1,16 @@
+Version 1.12.5 (3rd Feb 2011)
+--------------
+
+* Fixed detection of requirement for va_copy(); affecting some Mac
+  builds.
+
+* Added hash_exp. I'm not sure this is of pratical use, but it was in
+  the source tree and in theory at least still works.
+
+* Removed minor memory leak in HashTableResize().
+
+
+
 Version 1.12.4 (7th July 2010)
 --------------
 
