@@ -67,10 +67,10 @@ int vflen(char *fmt, va_list ap)
      * provides a va_copy macro to work around this problem. The only system
      * I have seen needing this so far was Linux on AMD64.
      */
-#if defined(NEED_VA_COPY)
+#if defined(HAVE_VA_COPY)
     va_list ap_local;
     va_copy(ap_local, ap);
-    #define ap ap_local
+#    define ap ap_local
 #endif
 
     for(cp = fmt; *cp; cp++) {
