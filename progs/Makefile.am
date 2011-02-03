@@ -1,4 +1,4 @@
-bin_PROGRAMS = convert_trace makeSCF extract_seq extract_qual extract_fastq index_tar scf_dump scf_info scf_update get_comment hash_tar hash_extract hash_list trace_dump hash_sff append_sff ztr_dump srf_dump_all srf_index_hash srf_extract_linear srf_extract_hash srf2fastq srf2fasta srf_filter srf_info srf_list
+bin_PROGRAMS = convert_trace makeSCF extract_seq extract_qual extract_fastq index_tar scf_dump scf_info scf_update get_comment hash_tar hash_extract hash_list trace_dump hash_sff append_sff ztr_dump srf_dump_all srf_index_hash srf_extract_linear srf_extract_hash srf2fastq srf2fasta srf_filter srf_info srf_list hash_exp
 
 convert_trace_SOURCES = convert_trace.c
 convert_trace_LDADD = $(top_builddir)/io_lib/libstaden-read.la
@@ -28,6 +28,9 @@ scf_info_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 scf_update_SOURCES = scf_update.c
 scf_update_LDADD = $(top_builddir)/io_lib/libstaden-read.la
+
+hash_exp_SOURCES = hash_exp.c
+hash_exp_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 hash_tar_SOURCES = hash_tar.c
 hash_tar_LDADD = $(top_builddir)/io_lib/libstaden-read.la
