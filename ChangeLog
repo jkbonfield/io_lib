@@ -1,6 +1,38 @@
 ===============================================================================
 2011-02-03: RELEASE 1.12.5
 
+r2388 | jkbonfield | 2011-02-03 16:34:35 +0000 (Thu, 03 Feb 2011) | 7 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/io_lib/os.h.in
+   M /io_lib/trunk/io_lib/vlen.c
+
+Fixed detection of va_copy(); now done via autoconf check. This avoids
+bugs caused on some MacOS X builds when using the vflen() io_lib
+call. (This bug fix may also work for others hosts that we haven't
+tested the code on.)
+
+Updated version to 1.12.5
+
+------------------------------------------------------------------------
+r2387 | jkbonfield | 2011-02-03 16:33:05 +0000 (Thu, 03 Feb 2011) | 1 line
+Changed paths:
+   M /io_lib/trunk/progs/Makefile.am
+   M /io_lib/trunk/progs/hash_exp.c
+
+Added hash_exp to the programs listing. Code always existed, but not compiled
+for some reason.
+------------------------------------------------------------------------
+r2386 | jkbonfield | 2011-02-03 16:32:05 +0000 (Thu, 03 Feb 2011) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/hash_table.c
+
+Fixed minor memory leak in HashTableResize.
+
+
 
 ===============================================================================
 2010-07-06: RELEASE 1.12.4
@@ -29,6 +61,8 @@ Changed paths:
 
 Bug fix to HashFileOpenArchive error checking. This caused the
 previous release to completely fail at extracting data. (Argh)
+
+
 
 ===============================================================================
 2010-07-06: RELEASE 1.12.3
@@ -240,6 +274,7 @@ Changed paths:
 Removed - should have been culled when we removed illumina2srf itself.
 
 
+
 ===============================================================================
 2010-01-15: RELEASE 1.12.2
 
@@ -344,6 +379,7 @@ srf_index_add_trace
 _body use pooled storage for trace names.
 
 
+
 ===============================================================================
 2009-07-29: RELEASE 1.12.1
 
@@ -393,6 +429,7 @@ Changed paths:
    M /io_lib/trunk/README
 
 Minor updates to state version 1.12.0
+
 
 
 ===============================================================================
@@ -703,6 +740,7 @@ Changed paths:
 
 Changed dump_qcal so it handles negative log-odds scores. In practice
 I've never seen these occur with the 1.0 solexa pipeline release though.
+
 
 
 ===============================================================================
