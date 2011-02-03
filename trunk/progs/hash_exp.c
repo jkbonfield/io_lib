@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
     }
 
     hf = build_index(fp);
-    hf->archive = NULL;
+    //hf->archive = NULL;
 
     HashFileSave(hf, fp, 0);
 
