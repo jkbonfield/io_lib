@@ -454,7 +454,7 @@ void dump_read_filter(read_filter_t *read_filter) {
         for (ibucket=0; ibucket<read_filter->reads_hash->nbuckets; ibucket++) {
             HashItem *hi;
             for (hi = read_filter->reads_hash->bucket[ibucket]; hi; hi = hi->next) {
-                printf("\tread[%d] = %s\n", hi->data.i, hi->key);
+                printf("\tread[%"PRId64"] = %s\n", hi->data.i, hi->key);
             }
         }
     }
