@@ -70,7 +70,7 @@ AC_PROG_LIBTOOL
 # This define should be improbable enough to not conflict with anything.
 echo host=$host
 case ${host} in
-  *-linux-gnu)
+  *-linux-gnu | *-apple-darwin*)
     AC_MSG_RESULT([Fixing libtool for -rpath problems.])
     sed < libtool > libtool-2 \
     's/^hardcode_libdir_flag_spec.*$'/'hardcode_libdir_flag_spec=""/'

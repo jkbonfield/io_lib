@@ -687,12 +687,15 @@ HashItem *HashTableNext(HashItem *hi, char *key, int key_len) {
 /*
  * Dumps a textual represenation of the hash table to stdout.
  */
-void HashTableDump(HashTable *h, FILE *fp) {
+void HashTableDump(HashTable *h, FILE *fp, char *prefix) {
     int i;
     for (i = 0; i < h->nbuckets; i++) {
 	HashItem *hi;
 	for (hi = h->bucket[i]; hi; hi = hi->next) {
-	    fprintf(fp, "%.*s\n", hi->key_len, hi->key);
+            fprintf(fp, "%s%.*s => %"PRId64" (0x%"PRIx64")\n",
+                    prefix ? prefix : "",
+                    hi->key_len, hi->key,
+                    hi->data.i, hi->data.i);
 	}
     }
 }

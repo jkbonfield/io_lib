@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
 	    return 1;
 
 	if (opts.verbose)
-	    printf("%s: %d sequences\n", argv[i], c);
+	    printf("%s: %"PRId64" sequences\n", argv[i], c);
 	count += c;
     }
     

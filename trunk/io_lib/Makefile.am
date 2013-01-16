@@ -66,7 +66,17 @@ libstaden_read_la_SOURCES = \
 	mFILE.h \
 	stdio_hack.h \
 	pooled_alloc.c \
-	pooled_alloc.h
+	pooled_alloc.h \
+	bam.h \
+	bam.c \
+	cram.h \
+	cram_encodings.c \
+	cram_encodings.h \
+	cram_io.c \
+	cram_io.h \
+	cram_structs.h \
+	dstring.c \
+	dstring.h
 
 libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
 
