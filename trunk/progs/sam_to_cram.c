@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     cram_SAM_hdr *hdr;
     size_t pos, pos2;
     bam_file_t *in;
-    bam_seq_t *s = NULL;;
+    bam_seq_t *s = NULL;
     refs *refs;
     size_t bam_alloc = 0;
 
