@@ -567,6 +567,16 @@ bam_file_t *bam_open(char *fn, char *mode) {
 	inflateInit2(&b->s, -15);
     }
 
+    bam_more_output(b);
+    /* Auto-correct open file type if we detect a BAM */
+    if (b->out_sz >= 3 && strncmp("BAM", b->out_p, 3) != 0) {
+	b->mode &= ~O_BINARY;
+	mode = "r";
+    } else if (b->out_sz >= 3 && strncmp("BAM", b->out_p, 3) == 0) {
+	b->mode |= O_BINARY;
+	mode = "rb";
+    }
+
     /* Load header */
     if (strcmp(mode, "rb") == 0) {
 	if (-1 == load_bam_header(b))
