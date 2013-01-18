@@ -602,6 +602,8 @@ cram_container *cram_read_container(cram_fd *fd) {
 	return NULL;
     }
 
+    c->slices = NULL;
+
     return c;
 }
 
@@ -2067,6 +2069,8 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
 /*
  * Write iterator: put BAM format sequences into a CRAM file.
  * We buffer up a containers worth of data at a time.
+ *
+ * FIXME: break this into smaller pieces.
  *
  * Returns 0 on success
  *        -1 on failure
