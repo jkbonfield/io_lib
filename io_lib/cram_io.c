@@ -503,6 +503,13 @@ cram_SAM_hdr *cram_create_SAM_hdr(char *str, size_t len) {
     hdr->rg_hash  = b.rg_hash;
     if (b.rg_id)  free(b.rg_id);
     if (b.rg_len) free(b.rg_len);
+    if (b.ref) {
+	int i;
+	for (i = 0; i < b.nref; i++)
+	    if (b.ref[i].name)
+		free(b.ref[i].name);
+	free(b.ref);
+    }
 
     return hdr;
 }
@@ -1078,7 +1085,7 @@ void cram_free_slice_header(cram_block_slice_hdr *hdr) {
 cram_slice *cram_read_slice(cram_fd *fd) {
     cram_block *b = cram_read_block(fd);
     cram_slice *s = calloc(1, sizeof(*s));
-    int i, n;
+    int i, n, max_id;
 
     if (!b || !s) {
 	if (b) cram_free_block(b);
@@ -1107,8 +1114,21 @@ cram_slice *cram_read_slice(cram_fd *fd) {
 	return NULL;
     }
 
-    for (i = 0; i < n; i++) {
+    for (max_id = i = 0; i < n; i++) {
 	s->block[i] = cram_read_block(fd);
+	if (s->block[i]->content_type == EXTERNAL &&
+	    max_id < s->block[i]->content_id)
+	    max_id = s->block[i]->content_id;
+    }
+    if (max_id < 1024) {
+	if (!(s->block_by_id = calloc(max_id+1, sizeof(s->block[0]))))
+	    return NULL;
+
+	for (i = 0; i < n; i++) {
+	    if (s->block[i]->content_type != EXTERNAL)
+		continue;
+	    s->block_by_id[s->block[i]->content_id] = s->block[i];
+	}
     }
 
     cram_free_block(b);
@@ -1122,6 +1142,7 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->seqs_ds = dstring_create(NULL);
     s->qual_ds = dstring_create(NULL);
     s->aux_ds  = dstring_create(NULL);
+    s->base_ds = dstring_create(NULL);
 
     s->crecs = NULL;
 
@@ -1148,6 +1169,7 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->hdr->content_type = type;
 
     s->block = NULL;
+    s->block_by_id = NULL;
     s->last_apos = 0;
     s->id = 0;
     s->crecs = malloc(nrecs * sizeof(cram_record));
@@ -1159,6 +1181,10 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->seqs_ds = dstring_create(NULL);
     s->qual_ds = dstring_create(NULL);
     s->aux_ds  = dstring_create(NULL);
+    s->base_ds = dstring_create(NULL);
+
+    s->features = NULL;
+    s->nfeatures = s->afeatures = 0;
 
     return s;
 }
@@ -1178,6 +1204,9 @@ void cram_free_slice(cram_slice *s) {
 	free(s->block);
     }
 
+    if (s->block_by_id)
+	free(s->block_by_id);
+
     if (s->hdr)
 	cram_free_slice_header(s->hdr);
 
@@ -1193,13 +1222,112 @@ void cram_free_slice(cram_slice *s) {
     if (s->aux_ds)
 	dstring_destroy(s->aux_ds);
 
+    if (s->base_ds)
+	dstring_destroy(s->base_ds);
+
     if (s->cigar)
 	free(s->cigar);
 
     if (s->crecs)
 	free(s->crecs);
 
+    if (s->features)
+	free(s->features);
+
     free(s);
+}
+
+
+/*
+ * Encodes all slices in a container into blocks.
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_encode_container(cram_container *c) {
+    int i;
+    for (i = 0; i < c->max_slice; i++) {
+	cram_slice *s = c->slices[i];
+
+	/*
+	 * Slice external blocks:
+	 * ID 0 => base calls (insertions, soft-clip)
+	 * ID 1 => qualities
+	 * ID 2 => names
+	 * ID 3 => TS (insert size), NP (next frag)
+	 * ID 4 => tags
+	 */
+	fprintf(stderr, "Encode slice %d\n", i);
+
+	/* Create cram slice header, num_blocks etc */
+	/* Reuse old blocks? */
+	/* Store into external blocks */
+	/* Generate core block */
+    }
+
+    return 0;
+}
+
+/*
+ * Adds a feature code to a read within a slice. For purposes of minimising
+ * memory allocations and fragmentation we have one array of features for all
+ * reads within the slice. We return the index into this array for this new
+ * feature.
+ *
+ * Returns feature index on success
+ *         -1 on failure.
+ */
+int cram_add_feature(cram_slice *s, cram_record *r, cram_feature *f) {
+    if (s->nfeatures >= s->afeatures) {
+	s->afeatures = s->afeatures ? s->afeatures*2 : 1024;
+	s->features = realloc(s->features, s->afeatures * sizeof(*s->features));
+	if (!s->features)
+	    return -1;
+    }
+
+    if (!r->nfeature++)
+	r->feature = s->nfeatures;
+
+    s->features[s->nfeatures++] = *f;
+}
+
+static int cram_add_substitution(cram_slice *s, cram_record *r,
+				 int pos, char base) {
+    cram_feature f;
+    f.X.pos = pos;
+    f.X.code = 'X';
+    f.X.base = base;
+    return cram_add_feature(s, r, &f);
+}
+
+static int cram_add_deletion(cram_slice *s, cram_record *r,
+			     int pos, int len, char *base) {
+    cram_feature f;
+    f.D.pos = pos;
+    f.D.code = 'D';
+    f.D.len = len;
+    return cram_add_feature(s, r, &f);
+}
+
+static int cram_add_softclip(cram_slice *s, cram_record *r,
+			     int pos, int len, char *base) {
+    cram_feature f;
+    f.S.pos = pos;
+    f.S.code = 'S';
+    f.S.len = len;
+    f.S.seq_idx = DSTRING_LEN(s->base_ds);
+    dstring_nappend(s->base_ds, base, len);
+    return cram_add_feature(s, r, &f);
+}
+
+static int cram_add_insertion(cram_slice *s, cram_record *r,
+			      int pos, int len, char *base) {
+    cram_feature f;
+    f.I.pos = pos;
+    f.I.code = len > 1 ? 'I' : 'i';
+    f.I.len = len;
+    f.I.seq_idx = DSTRING_LEN(s->base_ds);
+    dstring_nappend(s->base_ds, base, len);
+    return cram_add_feature(s, r, &f);
 }
 
 /*
@@ -1264,7 +1392,7 @@ refs *load_reference(char *fn) {
 	    j = 0;
 	} else {
 	    if (ref[i] != '\n')
-		seq[j++] = ref[i];
+		seq[j++] = toupper(ref[i]);
 	}
     }
     if (name) {
@@ -1912,6 +2040,10 @@ int cram_close(cram_fd *fd) {
     if (!fd)
 	return -1;
 
+    if (fd->mode == 'w' && fd->ctr) {
+	cram_encode_container(fd->ctr);
+    }
+
     if (fclose(fd->fp) != 0)
 	return -1;
 
@@ -1922,6 +2054,9 @@ int cram_close(cram_fd *fd) {
 	cram_free_SAM_hdr(fd->SAM_hdr);
 
     free(fd->prefix);
+
+    if (fd->ctr)
+	cram_free_container(fd->ctr);
 
     free(fd);
     return 0;
@@ -2081,6 +2216,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cram_slice *s;
     int i;
     char *cp, *rg;
+    char *ref, *seq;
 
     if (!fd->ctr) {
 	fd->ctr = cram_new_container(10000, 10);
@@ -2090,6 +2226,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     if (!c->slice || c->curr_rec == c->max_rec ||
 	(b->ref != c->curr_ref && c->curr_ref >= -1)) {
 	c->curr_ref = b->ref;
+
 	if (c->slice) {
 	    s = c->slice;
 	    s->hdr->ref_seq_id    = c->curr_ref;
@@ -2131,9 +2268,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    /* Basic strat atm: encoded with NONE */
 
 	    /* Encode slices */
-	    for (i = 0; i < c->max_slice; i++) {
-		fprintf(stderr, "Encode slice %d\n", i);
-	    }
+	    cram_encode_container(c);
 	    
 
 	    // Move to sep func, as we need cram_flush_container for
@@ -2199,7 +2334,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cr->qual        = DSTRING_LEN(s->seqs_ds);
     dstring_resize(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
     dstring_resize(s->qual_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
-    cp = DSTRING_STR(s->seqs_ds) + cr->seq;
+    seq = cp = DSTRING_STR(s->seqs_ds) + cr->seq;
+    ref = fd->refs->ref_id[b->ref];
     for (i = 0; i < cr->len; i++) {
 	// do 2 char at a time for efficiency
 	cp[i] = bam_nt16_rev_table[bam_seqi(bam_seq(b), i)];
@@ -2222,30 +2358,77 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	int ncigar = cr->ncigar;
 	int32_t *cig_to = s->cigar;
 	int32_t *cig_from = bam_cigar(b);
-	int aend = cr->apos;
+	int apos = cr->apos, spos = 0;
 
+	cr->feature = 0;
+	cr->nfeature = 0;
 	for (i = 0; i < cr->ncigar; i++) {
 	    enum cigar_op cig_op = cig_from[i] & BAM_CIGAR_MASK;
-	    int cig_len = cig_from[i] > BAM_CIGAR_SHIFT;
+	    int cig_len = cig_from[i] >> BAM_CIGAR_SHIFT;
 	    cig_to[i] = cig_from[i];
 
+	    /* Can also generate events from here for CRAM diffs */
+
 	    switch (cig_op) {
+		int l;
+
 	    case BAM_CMATCH:
+		fprintf(stderr, "\nBAM_CMATCH\nR: %.*s\nS: %.*s\n",
+			cig_len, &ref[apos], cig_len, &seq[spos]);
+		for (l = 0; l < cig_len; l++, apos++, spos++) {
+		    if (ref[apos] != seq[spos]) {
+			fprintf(stderr, "Subst: %d; %c vs %c\n",
+				spos, ref[apos], seq[spos]);
+			cram_add_substitution(s, cr, spos, seq[spos]);
+		    }
+		}
+		break;
+
 	    case BAM_CBASE_MATCH:
+		fprintf(stderr, "\nBAM_CBASE_MATCH\nR: %.*s\nS: %.*s\n",
+			cig_len, &ref[apos], cig_len, &seq[spos]);
+		apos += cig_len;
+		spos += cig_len;
+		break;
+
 	    case BAM_CBASE_MISMATCH:
+		fprintf(stderr, "\nBAM_CBASE_MISMATCH\nR: %.*s\nS: %.*s\n",
+			cig_len, &ref[apos], cig_len, &seq[spos]);
+		for (l = 0; l < cig_len; l++, apos++, spos++) {
+		    cram_add_substitution(s, cr, spos, seq[spos]);
+		}
+		break;
+		
 	    case BAM_CDEL:
+		cram_add_deletion(s, cr, spos, cig_len, &seq[spos]);
+		apos += cig_len;
+		break;
+
 	    case BAM_CREF_SKIP:
-		aend += cig_len;
+		fprintf(stderr, "BAM_CREF_SKIP unimplemented\n");
+		apos += cig_len;
 		break;
 
 	    case BAM_CINS:
+		cram_add_insertion(s, cr, spos, cig_len, &seq[spos]);
+		spos += cig_len;
+		break;
+
 	    case BAM_CSOFT_CLIP:
+		cram_add_softclip(s, cr, spos, cig_len, &seq[spos]);
+		spos += cig_len;
+		break;
+
 	    case BAM_CHARD_CLIP:
+		fprintf(stderr, "BAM_HARD_CLIP unimplemented\n");
+		break;
+	
 	    case BAM_CPAD:
+		fprintf(stderr, "BAM_HARD_CLIP unimplemented\n");
 		break;
 	    }
 	}
-	cr->aend = aend;
+	cr->aend = apos;
     }
 
     cr->mqual       = bam_map_qual(b);
