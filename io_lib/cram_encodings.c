@@ -17,15 +17,20 @@ int cram_external_decode(cram_slice *slice, cram_codec *c, block_t *in, char *ou
     cram_block *b = NULL;
 
     /* Find the external block: FIXME replace with a lookup table */
-    for (i = 0; i < slice->hdr->num_blocks; i++) {
-	b = slice->block[i];
-	if (b->content_type == EXTERNAL &&
-	    b->content_id == c->external.content_id) {
-	    break;
+    if (slice->block_by_id) {
+	if (!(b = slice->block_by_id[c->external.content_id]))
+	    return -1;
+    } else {
+	for (i = 0; i < slice->hdr->num_blocks; i++) {
+	    b = slice->block[i];
+	    if (b->content_type == EXTERNAL &&
+		b->content_id == c->external.content_id) {
+		break;
+	    }
 	}
+	if (i == slice->hdr->num_blocks)
+	    return -1;
     }
-    if (i == slice->hdr->num_blocks)
-	return -1;
 
     /* FIXME: how to tell string externals from integer externals? */
     if (c->external.type == E_INT || c->external.type == E_LONG) {
@@ -482,15 +487,20 @@ int cram_byte_array_stop_decode(cram_slice *slice, cram_codec *c, block_t *in, c
     cram_block *b = NULL;
     char *cp, ch;
 
-    for (i = 0; i < slice->hdr->num_blocks; i++) {
-	b = slice->block[i];
-	if (b->content_type == EXTERNAL &&
-	    b->content_id == c->byte_array_stop.content_id) {
-	    break;
+    if (slice->block_by_id) {
+	if (!(b = slice->block_by_id[c->byte_array_stop.content_id]))
+	    return -1;
+    } else {
+	for (i = 0; i < slice->hdr->num_blocks; i++) {
+	    b = slice->block[i];
+	    if (b->content_type == EXTERNAL &&
+		b->content_id == c->byte_array_stop.content_id) {
+		break;
+	    }
 	}
+	if (i == slice->hdr->num_blocks)
+	    return -1;
     }
-    if (i == slice->hdr->num_blocks)
-	return -1;
 
     cp = b->data + b->idx;
     while ((ch = *cp) != c->byte_array_stop.stop) {
