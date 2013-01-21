@@ -50,8 +50,8 @@ typedef struct {
 } cram_byte_array_len_decoder;
 
 typedef struct {
-    struct cram_codec *len_codec;
-    struct cram_codec *value_codec;
+    unsigned char stop;
+    int32_t content_id;
 } cram_byte_array_stop_decoder;
 
 /*
