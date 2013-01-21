@@ -475,6 +475,69 @@ cram_codec *cram_byte_array_len_decode_init(char *data, int size, enum cram_exte
 
 /*
  * ---------------------------------------------------------------------------
+ * BYTE_ARRAY_STOP
+ */
+int cram_byte_array_stop_decode(cram_slice *slice, cram_codec *c, block_t *in, char *out, int *out_size) {
+    int i;
+    cram_block *b = NULL;
+    char *cp, ch;
+
+    for (i = 0; i < slice->hdr->num_blocks; i++) {
+	b = slice->block[i];
+	if (b->content_type == EXTERNAL &&
+	    b->content_id == c->byte_array_stop.content_id) {
+	    break;
+	}
+    }
+    if (i == slice->hdr->num_blocks)
+	return -1;
+
+    cp = b->data + b->idx;
+    while ((ch = *cp) != c->byte_array_stop.stop) {
+	*out++ = ch;
+	cp++;
+    }
+
+    *out_size = cp - (b->data + b->idx);
+    b->idx = cp - b->data + 1;
+
+    return 0;
+}
+
+void cram_byte_array_stop_decode_free(cram_codec *c) {
+    if (!c) return;
+
+    free(c);
+}
+
+cram_codec *cram_byte_array_stop_decode_init(char *data, int size, enum cram_external_type option) {
+    cram_codec *c;
+    unsigned char *cp = (unsigned char *)data;
+    int32_t encoding;
+    int32_t sub_size;
+
+    if (!(c = malloc(sizeof(*c))))
+	return NULL;
+
+    c->codec  = E_BYTE_ARRAY_STOP;
+    c->decode = cram_byte_array_stop_decode;
+    c->free   = cram_byte_array_stop_decode_free;
+    
+    c->byte_array_stop.stop = *cp++;
+    c->byte_array_stop.content_id = cp[0] + (cp[1]<<8) + (cp[2]<<16) + (cp[3]<<24);
+    cp += 4;
+
+    if ((char *)cp - data != size) {
+	fprintf(stderr, "Malformed byte_array_stop header stream\n");
+	free(c);
+	return NULL;
+    }
+
+    return c;
+}
+
+/*
+ * ---------------------------------------------------------------------------
  */
 
 char *cram_encoding2str(enum cram_encoding t) {
@@ -499,7 +562,7 @@ static cram_codec *(*codec_init[])(char *data, int size, enum cram_external_type
     NULL,
     cram_huffman_decode_init,
     cram_byte_array_len_decode_init,
-    NULL,
+    cram_byte_array_stop_decode_init,
     cram_beta_decode_init,
     cram_subexp_decode_init,
     NULL,
