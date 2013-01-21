@@ -302,6 +302,13 @@ int bam_parse_header(bam_file_t *b) {
     if (!b->header)
 	return -1;
 
+    /* Deallocate any existing header structs */
+    if (b->ref) {
+	for (i = 0; i < b->nref; i++)
+	    if (b->ref[i].name)
+		free(b->ref[i].name);
+    }
+
     if (!b->rg_hash)
 	b->rg_hash = HashTableCreate(4, HASH_FUNC_HSIEH |
 				     HASH_DYNAMIC_SIZE |
