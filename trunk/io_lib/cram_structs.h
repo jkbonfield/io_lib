@@ -226,7 +226,45 @@ typedef struct {
     int32_t qual;         // idx to s->qual_ds
     int32_t aux;          // idx to s->aux_ds
     int32_t aux_size;     // total size of packed ntags in aux_ds
+    int32_t feature;      // idx to s->feature
+    int32_t nfeature;     // number of features
 } cram_record;
+
+/*
+ * A feature is a base difference, used for the sequence reference encoding.
+ * (We generate these internally when writing CRAM.)
+ */
+typedef struct {
+    union {
+	struct {
+	    int pos;
+	    int code;
+	    int base;    // substitution code
+	} X;
+	struct {
+	    int pos;
+	    int code;
+	    int len;
+	    int seq_idx; // soft-clip multiple bases
+	} S;
+	struct {
+	    int pos;
+	    int code;
+	    int len;
+	    int seq_idx; // insertion multiple bases
+	} I;
+	struct {
+	    int pos;
+	    int code;
+	    int seq_idx; // insertion single base
+	} i;
+	struct {
+	    int pos;
+	    int code;
+	    int len;
+	} D;
+    };
+} cram_feature;
 
 /*
  * A slice is really just a set of blocks, but it
@@ -236,6 +274,7 @@ typedef struct {
 typedef struct cram_slice {
     cram_block_slice_hdr *hdr;
     cram_block **block;
+    cram_block **block_by_id;
 
     /* State used during encoding/decoding */
     int last_apos;
@@ -256,7 +295,18 @@ typedef struct cram_slice {
     dstring_t *seqs_ds;
     dstring_t *qual_ds;
     dstring_t *aux_ds;
+
+    dstring_t    *base_ds; // substitutions, soft-clips
+    cram_feature *features;
+    int           nfeatures;
+    int           afeatures; // allocated size of features
 } cram_slice;
+
+typedef struct {
+    HashTable *h;
+    char **ref_id;
+    char *file;
+} refs;
 
 /* CRAM File handle */
 typedef struct {
@@ -269,6 +319,8 @@ typedef struct {
     int            slice_num;
     int            err;
 
+    refs	  *refs; // FIXME: move load ref into here and free()s too
+
     // Most recent compression header decoded
     //cram_block_compression_hdr *comp_hdr;
     //cram_block_slice_hdr       *slice_hdr;
@@ -280,11 +332,6 @@ typedef struct {
     int first_base, last_base;
 } cram_fd;
 
-typedef struct {
-    HashTable *h;
-    char **ref_id;
-    char *file;
-} refs;
 
 /* BF bitfields */
 /* FIXME: still not correct? */

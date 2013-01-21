@@ -27,11 +27,13 @@ int main(int argc, char **argv) {
     } else {
 	refs = NULL;
     }
+    refs2id(refs, in);
 
     if (NULL == (out = cram_open("-", "wb"))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[1]);
 	return 1;
     }
+    out->refs = refs;
 
 
     /* SAM Header */
@@ -54,6 +56,9 @@ int main(int argc, char **argv) {
 
     if (refs)
 	free_refs(refs);
+
+    if (s)
+	free(s);
 
     return 0;
 }
