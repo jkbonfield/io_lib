@@ -1377,6 +1377,7 @@ refs *load_reference(char *fn) {
     /* Parse it */
     for (i = 0; i < sb.st_size; i++) {
 	if (ref[i] == '>') {
+	    char nl;
 	    if (name) {
 		seq[j] = 0;
 
@@ -1385,9 +1386,13 @@ refs *load_reference(char *fn) {
 	    }
 
 	    name = &ref[i+1];
-	    while (ref[i] != '\n')
-		i++;
-	    ref[i] = 0;
+            while (!isspace(ref[i]))
+                i++;
+            nl = ref[i];
+            ref[i] = 0;
+            if (nl != '\n')
+                while (ref[i] != '\n')
+                    i++;
 	    seq = &ref[i+1];
 	    j = 0;
 	} else {
@@ -1939,6 +1944,7 @@ int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
 	    cr->ncigar = 0;
 	    cr->cigar = 0;
 	    cr->mqual = 0;
+	    cr->aend = -1;
 
 	    r |= c->comp_hdr->BA_codec->decode(s, c->comp_hdr->BA_codec, blk,
 					       (char *)seq, &out_sz2);
