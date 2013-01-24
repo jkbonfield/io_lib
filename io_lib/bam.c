@@ -286,6 +286,9 @@ int load_sam_header(bam_file_t *b) {
 	b->header[header_pos] = '\0';
     b->header_len = header_pos;
 
+    if (str)
+	free(str);
+
     return 0;
 }
 
@@ -303,11 +306,11 @@ int bam_parse_header(bam_file_t *b) {
 	return -1;
 
     /* Deallocate any existing header structs */
-    if (b->ref) {
-	for (i = 0; i < b->nref; i++)
-	    if (b->ref[i].name)
-		free(b->ref[i].name);
-    }
+//    if (b->ref) {
+//	for (i = 0; i < b->nref; i++)
+//	    if (b->ref[i].name)
+//		free(b->ref[i].name);
+//    }
 
     if (!b->rg_hash)
 	b->rg_hash = HashTableCreate(4, HASH_FUNC_HSIEH |
@@ -835,8 +838,6 @@ static int bam_more_output(bam_file_t *b) {
  * Decodes the next line of SAM into a bam_seq_t struct.
  */
 int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
-    unsigned char *str = b->sam_str;
-    size_t alloc_l = b->alloc_l;
     int used_l, n, sign;
     unsigned char *cpf, *cpt, *cp;
     int cigar_len;
@@ -862,7 +863,7 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};/* f0 */
 
     /* Fetch a single line */
-    if ((used_l = bam_get_line(b, &str, &alloc_l)) <= 0) {
+    if ((used_l = bam_get_line(b, &b->sam_str, &b->alloc_l)) <= 0) {
 	return used_l;
     }
 
@@ -881,7 +882,7 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     bs->bin_mq_nl = 0;
     
     /* Decode line */
-    cpf = str;
+    cpf = b->sam_str;
     cpt = (unsigned char *)&bs->data;
     
     /* Name */
