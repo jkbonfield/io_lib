@@ -129,6 +129,8 @@ int main(int argc, char **argv) {
 
 	    s = cram_read_slice(fd);
 	    printf("\n    Slice %d/%d, container offset %d\n", j+1, c->num_landmarks, (int)(pos2 - pos - c->offset));
+	    printf("\tSlice content type %s\n",
+		   cram_content_type2str(s->hdr->content_type));
 
 	    if (s->hdr->content_type == MAPPED_SLICE) {
 		printf("\tSlice ref seq    %d\n", s->hdr->ref_seq_id);
@@ -143,7 +145,7 @@ int main(int argc, char **argv) {
 	    }
 	    printf("}\n");
 	    if (s->hdr->content_type == MAPPED_SLICE) {
-		printf("\tRef seq id:      %d\n", s->hdr->ref_base_id);
+		printf("\tRef base id:     %d\n", s->hdr->ref_base_id);
 	    }
 	
 	    for (id = 0; id < s->hdr->num_blocks; id++)
