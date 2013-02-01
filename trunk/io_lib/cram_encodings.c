@@ -4,8 +4,26 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include "io_lib/cram.h"
+
+static char *codec2str(enum cram_encoding codec) {
+    switch (codec) {
+    case E_NULL:            return "NULL";
+    case E_EXTERNAL:        return "EXTERNAL";
+    case E_GOLOMB:          return "GOLOMB";
+    case E_HUFFMAN:         return "HUFFMAN";
+    case E_BYTE_ARRAY_LEN:  return "BYTE_ARRAY_LEN";
+    case E_BYTE_ARRAY_STOP: return "BYTE_ARRAY_STOP";
+    case E_BETA:            return "BETA";
+    case E_SUBEXP:          return "SUBEXP";
+    case E_GOLOMB_RICE:     return "GOLOMB_RICE";
+    case E_GAMMA:           return "GAMMA";
+    }
+
+    return "(unknown)";
+}
 
 /*
  * ---------------------------------------------------------------------------
@@ -81,6 +99,51 @@ cram_codec *cram_external_decode_init(char *data, int size, enum cram_external_t
     }
 
     c->external.type = option;
+
+    return c;
+}
+
+int cram_external_encode(cram_slice *slice, cram_codec *c,
+			block_t *out, char *in, int in_size) {
+    return -1; // not imp.
+}
+
+void cram_external_encode_free(cram_codec *c) {
+    if (!c)
+	return;
+    free(c);
+}
+
+int cram_external_encode_store(cram_codec *c, char *buf, char *prefix) {
+    char tmp[8192], *cp = buf, *tp = tmp;
+
+    if (prefix) {
+	while (*cp++ = *prefix++)
+	    ;
+	cp--; // skip nul
+    }
+
+    tp += itf8_put(tp, c->e_external.content_id);
+    cp += itf8_put(cp, c->codec);
+    cp += itf8_put(cp, tp-tmp);
+    memcpy(cp, tmp, tp-tmp);
+    cp += tp-tmp;
+
+    return cp - buf;
+}
+
+cram_codec *cram_external_encode_init(cram_stats *st) {
+    cram_codec *c;
+
+    c = malloc(sizeof(*c));
+    if (!c)
+	return NULL;
+    c->codec = E_EXTERNAL;
+    c->free = cram_external_encode_free;
+    c->encode = cram_external_encode;
+    c->store = cram_external_encode_store;
+
+    c->e_external.content_id = (int)st;
 
     return c;
 }
@@ -173,7 +236,7 @@ int cram_subexp_decode(cram_slice *slice, cram_codec *c, block_t *in, char *out,
 	    }
 	}
 
-	out_i[count] = val;
+	out_i[count] = val - c->subexp.offset;
     }
 
     return 0;
@@ -395,6 +458,7 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
 //    for (i = 0; i <= last_len; i++) {
 //	printf("len %d=%d\n", i, h->huffman.lengths[i]); 
 //    }
+//    puts("===HUFFMAN CODES===");
 //    for (i = 0; i < ncodes; i++) {
 //	int j;
 //	printf("%d: %d %d %d ", i, codes[i].symbol, codes[i].len, codes[i].code);
@@ -410,6 +474,219 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
     h->free   = cram_huffman_decode_free;
 
     return (cram_codec *)h;
+}
+
+int cram_huffman_encode(cram_slice *slice, cram_codec *c,
+			block_t *out, char *in, int in_size) {
+    int i, code, len;
+    int *syms = (int *)in;
+
+    /* Special case of 0 length codes */
+    if (c->e_huffman.codes[0].len == 0)
+	return 0;
+
+    do {
+	int sym = *syms++;
+	/* Slow - use a lookup table for when sym < MAX_HUFFMAN_SYM? */
+	for (i = 0; i < c->e_huffman.nvals; i++) {
+	    if (c->e_huffman.codes[i].symbol == sym)
+		break;
+	}
+	if (i == c->e_huffman.nvals)
+	    return -1;
+    
+	code = c->e_huffman.codes[i].code;
+	len  = c->e_huffman.codes[i].len;
+
+	store_bits_MSB(out, code, len);
+    } while (--in_size);
+
+    return 0;
+}
+
+void cram_huffman_encode_free(cram_codec *c) {
+    if (!c)
+	return;
+
+    if (c->e_huffman.codes)
+	free(c->e_huffman.codes);
+    free(c);
+}
+
+/*
+ * Encodes a huffman tree.
+ * Returns number of bytes written.
+ */
+int cram_huffman_encode_store(cram_codec *c, char *buf, char *prefix) {
+    int i;
+    cram_huffman_code *codes = c->e_huffman.codes;
+    char tmp[8192]; // FIXME. 2*MAX_HUFFMAN_CODES + 2?
+    char *cp = buf, *tp = tmp;
+
+    if (prefix) {
+	while (*cp++ = *prefix++)
+	    ;
+	cp--; // skip nul
+    }
+
+    tp += itf8_put(tp, c->e_huffman.nvals);
+    for (i = 0; i < c->e_huffman.nvals; i++) {
+	tp += itf8_put(tp, codes[i].symbol);
+    }
+
+    tp += itf8_put(tp, c->e_huffman.nvals);
+    for (i = 0; i < c->e_huffman.nvals; i++) {
+	tp += itf8_put(tp, codes[i].len);
+    }
+
+    cp += itf8_put(cp, c->codec);
+    cp += itf8_put(cp, tp-tmp);
+    memcpy(cp, tmp, tp-tmp);
+    cp += tp-tmp;
+
+    return cp - buf;
+}
+
+cram_codec *cram_huffman_encode_init(cram_stats *st) {
+    int *vals = NULL, *freqs = NULL, vals_alloc = 0, *lens, code, len;
+    int nvals, i, ntot = 0, max_val = 0, min_val = INT_MAX, k;
+    cram_codec *c;
+    cram_huffman_code *codes;
+
+    c = malloc(sizeof(*c));
+    if (!c)
+	return NULL;
+    c->codec = E_HUFFMAN;
+    c->free = cram_huffman_encode_free;
+    c->encode = cram_huffman_encode;
+    c->store = cram_huffman_encode_store;
+
+    /* Count number of unique symbols */
+    for (nvals = i = 0; i < MAX_STAT_VAL; i++) {
+	if (!st->freqs[i])
+	    continue;
+	if (nvals >= vals_alloc) {
+	    vals_alloc = vals_alloc ? vals_alloc*2 : 1024;
+	    vals  = realloc(vals,  vals_alloc * sizeof(int));
+	    freqs = realloc(freqs, vals_alloc * sizeof(int));
+	}
+	vals[nvals] = i;
+	freqs[nvals] = st->freqs[i];
+	ntot += freqs[nvals];
+	if (max_val < i) max_val = i;
+	if (min_val > i) min_val = i;
+	nvals++;
+    }
+    if (st->h) {
+	HashIter *iter=  HashTableIterCreate();
+	HashItem *hi;
+
+	while ((hi = HashTableIterNext(st->h, iter))) {
+	    if (nvals >= vals_alloc) {
+		vals_alloc = vals_alloc ? vals_alloc*2 : 1024;
+		vals  = realloc(vals,  vals_alloc * sizeof(int));
+		freqs = realloc(freqs, vals_alloc * sizeof(int));
+	    }
+	    vals[nvals]=(int)hi->key;
+	    freqs[nvals] = hi->data.i;
+	    ntot += freqs[nvals];
+	    if (max_val < i) max_val = i;
+	    if (min_val > i) min_val = i;
+	    nvals++;
+	}
+	HashTableIterDestroy(iter);
+    }
+
+    assert(nvals > 0);
+
+    freqs = realloc(freqs, 2*nvals*sizeof(*freqs));
+    lens = calloc(2*nvals, sizeof(*lens));
+
+    /* Inefficient, use pointers to form chain so we can insert and maintain
+     * a sorted list? This is currently O(nvals^2) complexity.
+     */
+    for (;;) {
+	int low1 = INT_MAX, low2 = INT_MAX;
+	int ind1 = 0, ind2 = 0;
+	for (i = 0; i < nvals; i++) {
+	    if (freqs[i] < 0)
+		continue;
+	    if (low1 > freqs[i]) 
+		low2 = low1, ind2 = ind1, low1 = freqs[i], ind1 = i;
+	    else if (low2 > freqs[i])
+		low2 = freqs[i], ind2 = i;
+	}
+	if (low2 == INT_MAX)
+	    break;
+
+	freqs[nvals] = low1 + low2;
+	lens[ind1] = nvals;
+	lens[ind2] = nvals;
+	freqs[ind1] *= -1;
+	freqs[ind2] *= -1;
+	nvals++;
+    }
+    nvals = nvals/2+1;
+
+    /* Assign lengths */
+    for (i = 0; i < nvals; i++) {
+	int code_len = 0;
+	for (k = lens[i]; k; k = lens[k])
+	    code_len++;
+	lens[i] = code_len;
+	freqs[i] *= -1;
+	fprintf(stderr, "%d / %d => %d\n", vals[i], freqs[i], lens[i]);
+    }
+
+
+    /* Sort, need in a struct */
+    codes = malloc(nvals * sizeof(*codes));
+    for (i = 0; i < nvals; i++) {
+	codes[i].symbol = vals[i];
+	codes[i].len = lens[i];
+    }
+    qsort(codes, nvals, sizeof(*codes), code_sort);
+
+    /*
+     * Generate canonical codes from lengths.
+     * Sort by length.
+     * Start with 0.
+     * Every new code of same length is +1.
+     * Every new code of new length is +1 then <<1 per extra length.
+     *
+     * /\
+     * a/\
+     * /\/\
+     * bcd/\
+     *    ef
+     * 
+     * a 1  0
+     * b 3  4 (0+1)<<2
+     * c 3  5
+     * d 3  6
+     * e 4  14  (6+1)<<1
+     * f 5  15     
+     */
+    code = 0; len = codes[0].len;
+    for (i = 0; i < nvals; i++) {
+	while (len != codes[i].len) {
+	    code<<=1;
+	    len++;
+	}
+	codes[i].code = code++;
+
+	fprintf(stderr, "sym %d, code %d, len %d\n",
+		codes[i].symbol, codes[i].code, codes[i].len);
+    }
+
+    free(lens);
+    free(vals);
+    free(freqs);
+
+    c->e_huffman.codes = codes;
+    c->e_huffman.nvals = nvals;
+
+    return c;
 }
 
 /*
@@ -546,6 +823,54 @@ cram_codec *cram_byte_array_stop_decode_init(char *data, int size, enum cram_ext
     return c;
 }
 
+int cram_byte_array_stop_encode(cram_slice *slice, cram_codec *c,
+			block_t *out, char *in, int in_size) {
+    return -1; // not imp.
+}
+
+void cram_byte_array_stop_encode_free(cram_codec *c) {
+    if (!c)
+	return;
+    free(c);
+}
+
+int cram_byte_array_stop_encode_store(cram_codec *c, char *buf, char *prefix) {
+    char tmp[8192], *cp = buf, *tp = tmp;
+
+    if (prefix) {
+	while (*cp++ = *prefix++)
+	    ;
+	cp--; // skip nul
+    }
+
+    cp += itf8_put(cp, c->codec);
+    cp += itf8_put(cp, 5);
+    *cp++ = c->e_byte_array_stop.stop;
+    *cp++ = (c->e_byte_array_stop.content_id >>  0) & 0xff;
+    *cp++ = (c->e_byte_array_stop.content_id >>  8) & 0xff;
+    *cp++ = (c->e_byte_array_stop.content_id >> 16) & 0xff;
+    *cp++ = (c->e_byte_array_stop.content_id >> 23) & 0xff;
+
+    return cp - buf;
+}
+
+cram_codec *cram_byte_array_stop_encode_init(cram_stats *st) {
+    cram_codec *c;
+
+    c = malloc(sizeof(*c));
+    if (!c)
+	return NULL;
+    c->codec = E_BYTE_ARRAY_STOP;
+    c->free = cram_byte_array_stop_encode_free;
+    c->encode = cram_byte_array_stop_encode;
+    c->store = cram_byte_array_stop_encode_store;
+
+    c->e_byte_array_stop.stop = ((int *)st)[0];
+    c->e_byte_array_stop.content_id = ((int *)st)[1];
+
+    return c;
+}
+
 /*
  * ---------------------------------------------------------------------------
  */
@@ -566,7 +891,7 @@ char *cram_encoding2str(enum cram_encoding t) {
     return "?";
 }
 
-static cram_codec *(*codec_init[])(char *data, int size, enum cram_external_type option) = {
+static cram_codec *(*decode_init[])(char *data, int size, enum cram_external_type option) = {
     NULL,
     cram_external_decode_init,
     NULL,
@@ -580,9 +905,36 @@ static cram_codec *(*codec_init[])(char *data, int size, enum cram_external_type
 };
 
 cram_codec *cram_decoder_init(enum cram_encoding codec, char *data, int size, enum cram_external_type option) {
-    if (codec_init[codec]) {
-	return codec_init[codec](data, size, option);
+    if (decode_init[codec]) {
+	return decode_init[codec](data, size, option);
     } else {
+	fprintf(stderr, "Unimplemented codec of type %s\n", codec2str(codec));
+	return NULL;
+    }
+}
+
+static cram_codec *(*encode_init[])(cram_stats *stx) = {
+    NULL,
+    cram_external_encode_init,
+    NULL,
+    cram_huffman_encode_init,
+    NULL, //cram_byte_array_len_encode_init,
+    cram_byte_array_stop_encode_init,
+    NULL, //cram_beta_encode_init,
+    NULL, //cram_subexp_encode_init,
+    NULL,
+    NULL, //cram_gamma_encode_init,
+};
+
+cram_codec *cram_encoder_init(enum cram_encoding codec,
+			      cram_stats *st) {
+    if (!st->nvals)
+	return NULL;
+
+    if (encode_init[codec]) {
+	return encode_init[codec](st);
+    } else {
+	fprintf(stderr, "Unimplemented codec of type %s\n", codec2str(codec));
 	return NULL;
     }
 }
