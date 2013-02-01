@@ -26,6 +26,11 @@ typedef struct {
 } cram_huffman_decoder;
 
 typedef struct {
+    cram_huffman_code *codes;
+    int nvals;
+} cram_huffman_encoder;
+
+typedef struct {
     int32_t offset;
     int32_t nbits;
 } cram_beta_decoder;
@@ -61,6 +66,8 @@ typedef struct cram_codec {
     enum cram_encoding codec;
     void (*free)(struct cram_codec *codec);
     int (*decode)(cram_slice *slice, struct cram_codec *codec, block_t *in, char *out, int *out_size);
+    int (*encode)(cram_slice *slice, struct cram_codec *codec, block_t *out, char *in, int in_size);
+    int (*store)(struct cram_codec *codec, char *buf, char *prefix);
     union {
 	cram_huffman_decoder         huffman;
 	cram_external_decoder        external;
@@ -69,12 +76,17 @@ typedef struct cram_codec {
 	cram_subexp_decoder          subexp;
 	cram_byte_array_len_decoder  byte_array_len;
 	cram_byte_array_stop_decoder byte_array_stop;
+
+	cram_huffman_encoder         e_huffman;
+	cram_external_decoder        e_external;
+	cram_byte_array_stop_decoder e_byte_array_stop;
     };
 } cram_codec;
 
 char *cram_encoding2str(enum cram_encoding t);
 
 cram_codec *cram_decoder_init(enum cram_encoding codec, char *data, int size, enum cram_external_type option);
+cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st);
 
 //int cram_decode(void *codes, char *in, int in_size, char *out, int *out_size);
 //void cram_decoder_free(void *codes);
