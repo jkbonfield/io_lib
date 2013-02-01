@@ -120,6 +120,7 @@ typedef struct {
 #define HASH_DYNAMIC_SIZE     (1<<5)
 #define HASH_OWN_KEYS	      (1<<6)
 #define HASH_POOL_ITEMS       (1<<7)
+#define HASH_INT_KEYS 	      (1<<8)
 
 /* Hashing prototypes */
 uint32_t hash(int func, uint8_t *key, int key_len);
