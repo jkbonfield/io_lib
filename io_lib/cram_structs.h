@@ -24,6 +24,11 @@
 
 #define MAX_NAME_LEN 1024
 
+#define SEQS_PER_SLICE 10000
+#define SLICE_PER_CNT  1
+
+#define CRAM_SUBST_MATRIX "CGTNAGTNACTNACGNACGT"
+
 /* NB: matches java impl, not the spec */
 enum cram_encoding {
     E_NULL               = 0,
@@ -162,9 +167,19 @@ typedef struct {
     int32_t ref_seq_span;   /* if content_type == MAPPED_SLICE */
     int32_t num_records;
     int32_t num_blocks;
+    int32_t num_content_ids;
     int32_t *block_content_ids;
     int32_t ref_base_id;    /* if content_type == MAPPED_SLICE */
 } cram_block_slice_hdr;
+
+#define MAX_STAT_VAL 1024
+//#define MAX_STAT_VAL 16
+typedef struct {
+    int freqs[MAX_STAT_VAL];
+    HashTable *h;
+    int nsamp; // total number of values added
+    int nvals; // total number of unique values added
+} cram_stats;
 
 /*
  * Container.
@@ -197,7 +212,34 @@ typedef struct {
     int max_rec, curr_rec;       // current and max recs per slice
     int curr_ref;                // current ref ID. -2 for no previous
     int curr_ctr_rec;            // current record number in total container
+    int last_pos;                // last record position
     struct cram_slice **slices, *slice;
+
+    /* Statistics for encoding */
+    cram_stats *TS_stats;
+    cram_stats *RG_stats;
+    cram_stats *FP_stats;
+    cram_stats *NS_stats;
+    cram_stats *RN_stats;
+    cram_stats *CF_stats;
+    cram_stats *TN_stats;
+    cram_stats *BA_stats;
+    cram_stats *TV_stats;
+    cram_stats *BS_stats;
+    cram_stats *FC_stats;
+    cram_stats *BF_stats;
+    cram_stats *AP_stats;
+    cram_stats *NF_stats;
+    cram_stats *MF_stats;
+    cram_stats *FN_stats;
+    cram_stats *RL_stats;
+    cram_stats *DL_stats;
+    cram_stats *TC_stats;
+    cram_stats *MQ_stats;
+    cram_stats *TM_stats;
+    cram_stats *IN_stats;
+    cram_stats *QS_stats;
+    cram_stats *NP_stats;
 } cram_container;
 
 /*
@@ -206,7 +248,7 @@ typedef struct {
 typedef struct {
     int32_t ref_id;       // fixed for all recs in slice?
     int32_t flags;        // BF
-//  int32_t cram_flags;   // CF
+    int32_t cram_flags;   // CF
     int32_t len;          // RL
     int32_t apos;         // AP
     int32_t rg;           // RG
@@ -256,7 +298,7 @@ typedef struct {
 	struct {
 	    int pos;
 	    int code;
-	    int seq_idx; // insertion single base
+	    int base; // insertion single base
 	} i;
 	struct {
 	    int pos;
@@ -273,6 +315,7 @@ typedef struct {
  */
 typedef struct cram_slice {
     cram_block_slice_hdr *hdr;
+    cram_block *hdr_block;
     cram_block **block;
     cram_block **block_by_id;
 

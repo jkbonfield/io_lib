@@ -55,10 +55,21 @@ int get_zero_bits_MSB(block_t *block);
 
 #define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, (--b->bit == -1) && (b->bit = 7, b->byte++))
 
+void store_bit_MSB(block_t *block, unsigned int bit);
+void store_bits_MSB(block_t *block, unsigned int val, int nbits);
+
 /* ----------------------------------------------------------------------------
  * Mid level I/O functions for manipulating CRAM file structures:
  * Headers, containers, blocks, etc
  */
+
+/*
+ * Statistics gathering functions.
+ */
+cram_stats *cram_stats_create(void);
+void cram_stats_add(cram_stats *st, int32_t val);
+enum cram_encoding cram_stats_encoding(cram_stats *st);
+void cram_stats_free(cram_stats *st);
 
 /*
  * Reads a CRAM file definition structure.
