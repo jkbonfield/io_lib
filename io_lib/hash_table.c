@@ -443,8 +443,11 @@ int HashTableResize(HashTable *h, int newsize) {
     for (i = 0; i < h->nbuckets; i++) {
 	HashItem *hi, *next;
 	for (hi = h->bucket[i]; hi; hi = next) {
-	    uint64_t hv = hash64(h2->options & HASH_FUNC_MASK,
-				 (uint8_t *)hi->key, hi->key_len) & h2->mask;
+	    uint64_t hv = h2->options & HASH_INT_KEYS
+		? hash64(h2->options & HASH_FUNC_MASK,
+			 (uint8_t *)&hi->key, hi->key_len) & h2->mask
+		: hash64(h2->options & HASH_FUNC_MASK,
+			 (uint8_t *)hi->key, hi->key_len) & h2->mask;
 	    next = hi->next;
 	    hi->next = h2->bucket[hv];
 	    h2->bucket[hv] = hi;
@@ -498,16 +501,24 @@ HashItem *HashTableAdd(HashTable *h, char *key, int key_len, HashData data,
     if (!key_len)
 	key_len = strlen(key);
 
-    hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)key, key_len)
-	& h->mask;
+    hv = h->options & HASH_INT_KEYS
+	? hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, key_len) & h->mask
+	: hash64(h->options & HASH_FUNC_MASK, (uint8_t *)key, key_len) & h->mask;
 
     /* Already exists? */
     if (!(h->options & HASH_ALLOW_DUP_KEYS)) {
 	for (hi = h->bucket[hv]; hi; hi = hi->next) {
-	    if (key_len == hi->key_len && key[0] == hi->key[0] &&
-		memcmp(key, hi->key, key_len) == 0) {
-		if (new) *new = 0;
-		return hi;
+	    if (h->options & HASH_INT_KEYS) {
+		if ((int)hi->key == (int)key) {
+		    if (new) *new = 0;
+		    return hi;
+		}
+	    } else {
+		if (key_len == hi->key_len && key[0] == hi->key[0] &&
+		    memcmp(key, hi->key, key_len) == 0) {
+		    if (new) *new = 0;
+		    return hi;
+		}
 	    }
 	}
     }
@@ -557,8 +568,11 @@ int HashTableDel(HashTable *h, HashItem *hi, int deallocate_data) {
     uint64_t hv;
     HashItem *next, *last;
 
-    hv = hash64(h->options & HASH_FUNC_MASK,
-		(uint8_t *)hi->key, hi->key_len) & h->mask;
+    hv = h->options & HASH_INT_KEYS
+	? hash64(h->options & HASH_FUNC_MASK,
+		 (uint8_t *)&hi->key, hi->key_len) & h->mask
+	: hash64(h->options & HASH_FUNC_MASK,
+		 (uint8_t *)hi->key, hi->key_len) & h->mask;
 
     for (last = NULL, next = h->bucket[hv]; next;
 	 last = next, next = next->next) {
@@ -603,16 +617,18 @@ int HashTableRemove(HashTable *h, char *key, int key_len,
     if (!key_len)
 	key_len = strlen(key);
 
-    hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)key, key_len)
-	& h->mask;
+    hv = h->options & HASH_INT_KEYS
+	? hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, key_len) & h->mask
+	: hash64(h->options & HASH_FUNC_MASK, (uint8_t *)key, key_len) & h->mask;
 
     last = NULL;
     next = h->bucket[hv];
 
     while (next) {
 	hi = next;
-	if (key_len == hi->key_len &&
-	    memcmp(key, hi->key, key_len) == 0) {
+	if (((h->options & HASH_INT_KEYS)
+	     ? ((int)key == (int)hi->key)
+	     : (key_len == hi->key_len && memcmp(key, hi->key, key_len) == 0))) {
 	    /* An item to remove, adjust links and destroy */
 	    if (last)
 		last->next = hi->next;
@@ -652,12 +668,21 @@ HashItem *HashTableSearch(HashTable *h, char *key, int key_len) {
     if (!key_len)
 	key_len = strlen(key);
 
-    hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)key, key_len)
-	& h->mask;
-    for (hi = h->bucket[hv]; hi; hi = hi->next) {
-	if (key_len == hi->key_len &&
-	    memcmp(key, hi->key, key_len) == 0)
-	    return hi;
+    if (h->options & HASH_INT_KEYS) {
+	hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, key_len)& h->mask;
+
+	for (hi = h->bucket[hv]; hi; hi = hi->next) {
+	    if ((int)key == (int)hi->key)
+		return hi;
+	}
+    } else {
+	hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)key, key_len) & h->mask;
+
+	for (hi = h->bucket[hv]; hi; hi = hi->next) {
+	    if (key_len == hi->key_len &&
+		memcmp(key, hi->key, key_len) == 0)
+		return hi;
+	}
     }
 
     return NULL;
@@ -665,7 +690,8 @@ HashItem *HashTableSearch(HashTable *h, char *key, int key_len) {
 
 /*
  * Find the next HashItem (starting from 'hi') to also match this key.
- * This is only valid when the HASH_ALLOW_DUP_KEYS is in use.
+ * This is only valid when the HASH_ALLOW_DUP_KEYS is in use and
+ * we're not using HASH_INT_KEYS.
  *
  * Returns
  *    HashItem if found
@@ -692,10 +718,17 @@ void HashTableDump(HashTable *h, FILE *fp, char *prefix) {
     for (i = 0; i < h->nbuckets; i++) {
 	HashItem *hi;
 	for (hi = h->bucket[i]; hi; hi = hi->next) {
-            fprintf(fp, "%s%.*s => %"PRId64" (0x%"PRIx64")\n",
-                    prefix ? prefix : "",
-                    hi->key_len, hi->key,
-                    hi->data.i, hi->data.i);
+	    if (h->options & HASH_INT_KEYS) {
+		fprintf(fp, "%s%d => %"PRId64" (0x%"PRIx64")\n",
+			prefix ? prefix : "",
+			(int)hi->key,
+			hi->data.i, hi->data.i);
+	    } else {
+		fprintf(fp, "%s%.*s => %"PRId64" (0x%"PRIx64")\n",
+			prefix ? prefix : "",
+			hi->key_len, hi->key,
+			hi->data.i, hi->data.i);
+	    }
 	}
     }
 }
