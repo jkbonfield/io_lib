@@ -48,7 +48,10 @@ int main(int argc, char **argv) {
     while (bam_next_seq(in, &s) > 0) {
 	//if (-1 == bam_put_seq(out, s))
 	//return 1;
-	cram_put_bam_seq(out, s);
+	if (-1 == cram_put_bam_seq(out, s)) {
+	    fprintf(stderr, "Failed in cram_put_bam_seq()\n");
+	    return 1;
+	}
     }
 
     bam_close(in);
