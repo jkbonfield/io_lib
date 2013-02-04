@@ -59,6 +59,13 @@ typedef struct {
     int32_t content_id;
 } cram_byte_array_stop_decoder;
 
+typedef struct {
+    uint32_t len_len;
+    unsigned char *len_dat;
+    uint32_t val_len;
+    unsigned char *val_dat;
+} cram_byte_array_len_encoder;
+
 /*
  * A generic codec structure.
  */
@@ -80,13 +87,14 @@ typedef struct cram_codec {
 	cram_huffman_encoder         e_huffman;
 	cram_external_decoder        e_external;
 	cram_byte_array_stop_decoder e_byte_array_stop;
+	cram_byte_array_len_encoder  e_byte_array_len;
     };
 } cram_codec;
 
 char *cram_encoding2str(enum cram_encoding t);
 
 cram_codec *cram_decoder_init(enum cram_encoding codec, char *data, int size, enum cram_external_type option);
-cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st);
+cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st, void *option);
 
 //int cram_decode(void *codes, char *in, int in_size, char *out, int *out_size);
 //void cram_decoder_free(void *codes);
