@@ -69,6 +69,8 @@ int main(int argc, char **argv) {
     cram_container *c;
     size_t pos, pos2;
 
+    static int bsize[100], bmax = 0;
+
     if (argc != 2) {
 	fprintf(stderr, "Usage: cram_dump filename.cram\n");
 	return 1;
@@ -148,6 +150,11 @@ int main(int argc, char **argv) {
 		printf("\tRef base id:     %d\n", s->hdr->ref_base_id);
 	    }
 	
+	    for (id = 0; id < s->hdr->num_blocks; id++)
+		bsize[id] += s->block[id]->comp_size;
+	    if (bmax < s->hdr->num_blocks)
+		bmax = s->hdr->num_blocks;
+
 	    for (id = 0; id < s->hdr->num_blocks; id++)
 		cram_uncompress_block(s->block[id]);
 
@@ -369,5 +376,13 @@ int main(int argc, char **argv) {
     }
 
     cram_close(fd);
+
+    {
+	int id;
+	puts("");
+	for (id = 0; id < bmax; id++)
+	    printf("Block %d, total size %d\n", id, bsize[id]);
+    }
+
     return 0;
 }
