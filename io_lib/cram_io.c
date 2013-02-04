@@ -40,7 +40,7 @@ static char *zlib_mem_deflate(char *data, size_t size, size_t *cdata_size,
     int cdata_pos = 0;
     int err;
 
-    cdata = malloc(cdata_alloc = size*1.05+10);
+    cdata = malloc(cdata_alloc = size*1.05+100);
     cdata_pos = 0;
 
     /* Initialise zlib stream */
