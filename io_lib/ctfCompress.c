@@ -267,8 +267,8 @@ static Array ctfCompress2 (Array a)
 	}
     }
   arrayMax(b) = cp - cp0 ;
-  printf ("compress2 : %d zeros in %d bytes, %d < 7 , %d byte, %d short total %d char for %d shrt\n",
-	  n0, n1, n2, n3, n4, arrayMax(b), arrayMax(a)) ;
+  printf ("compress2 : %d zeros in %d bytes, %d < 7 , %d byte, %d short total %ld char for %ld shrt\n",
+	  n0, n1, n2, n3, n4, (long)arrayMax(b), (long)arrayMax(a)) ;
   return b ;
 }
 /*
@@ -604,8 +604,8 @@ static Array ctfCompress3 (Array a)
     }
   arrayMax(b) = cp - cp0 ;
   if (debug) 
-    printf (" // compress3:\n//  %d zeros in %d bytes, %d values coded in %d byte, %d bytes, %d short. \n// Total %d char for %d shrt\n",
-	  n0, n1, n10, n2, n3, n4, arrayMax(b), arrayMax(a)) ;
+    printf (" // compress3:\n//  %d zeros in %d bytes, %d values coded in %d byte, %d bytes, %d short. \n// Total %ld char for %ld shrt\n",
+	    n0, n1, n10, n2, n3, n4, (long)arrayMax(b), (long)arrayMax(a)) ;
   if (arrayMax(a) != n0 + n10 + n3 + n4)
     { 
       fprintf (stderr, "FATAL ERROR in ctfCompress3, codind error in compress 3") ;
