@@ -25,7 +25,6 @@ void HashTableLongDump(HashFile *hf, FILE *fp, int long_format) {
 		char *aname;
 		
 		if (hf->archives &&
-		    hfi->archive >= 0 &&
 		    hfi->archive < hf->narchives) {
 		    aname = hf->archives[hfi->archive];
 		} else {
