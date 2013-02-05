@@ -1433,7 +1433,8 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
     memcpy(cp, map, mp-map);
     cp += mp-map;
 
-    fprintf(stderr, "Wrote compression block header in %d bytes\n", cp-buf);
+    fprintf(stderr, "Wrote compression block header in %d bytes\n",
+	    (int)(cp-buf));
 
     cb->data = buf;
     cb->comp_size = cb->uncomp_size = cp - buf;

@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
 
-	printf("\nContainer pos %d, size %d\n", pos, c->length);
+	printf("\nContainer pos %"PRId64" size %d\n", (int64_t)pos, c->length);
 	printf("    Ref id:            %d\n", c->ref_seq_id);
 	printf("    Ref pos:           %d + %d\n", c->ref_seq_start, c->ref_seq_span);
 	printf("    No. recs:          %d\n", c->num_records);

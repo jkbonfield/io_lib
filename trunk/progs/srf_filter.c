@@ -637,6 +637,9 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
 	ztr_chunk_t *chunk;
 
 	switch(type = srf_next_block_type(in_srf)) {
+	    mFILE *mf;
+	    uint32_t trace_hdr_size;
+
 	case SRFB_CONTAINER:
 	    if (0 != srf_read_cont_hdr(in_srf, &in_srf->ch)) {
 		fprintf(stderr, "Error reading container header.\nExiting.\n");
@@ -686,7 +689,7 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
 	    mrewind(in_srf->mf);
 
 	    /* create the trace header data */
-	    mFILE *mf = mfcreate(NULL, 0);
+	    mf = mfcreate(NULL, 0);
 
 	    if (NULL != (in_srf->ztr = partial_decode_ztr(in_srf, in_srf->mf, NULL))) {
 		in_srf->mf_pos = mftell(in_srf->mf);
@@ -784,7 +787,7 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
 	    in_srf->mf_end = mftell(in_srf->mf);
 
 	    /* construct the new trace header */
-            uint32_t trace_hdr_size = mftell(mf);
+            trace_hdr_size = mftell(mf);
 	    char *trace_hdr;
             if (NULL == (trace_hdr = malloc(trace_hdr_size))) {
                 fprintf(stderr, "Error making trace header.\nExiting.\n");
