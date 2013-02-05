@@ -42,7 +42,7 @@ extern "C" {
  */
 
 /* The SCF magic number */
-#define SCF_MAGIC (((((uint_4)'.'<<8)+(uint_4)'s'<<8)+(uint_4)'c'<<8)+(uint_4)'f')
+#define SCF_MAGIC (((((((uint_4)'.'<<8)+(uint_4)'s')<<8)+(uint_4)'c')<<8)+(uint_4)'f')
 
 /* prior to this was a different format */
 #define SCF_VERSION_OLDEST 2.00

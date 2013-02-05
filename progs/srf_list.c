@@ -69,10 +69,8 @@ int64_t list_file(char *fname, opts *opts) {
 int64_t count_file(char *fname, opts *opts) {
     srf_t *srf;
     srf_index_hdr_t hdr;
-    int64_t count = 0;
     off_t ipos, skip;
-    int item_sz = 9, i;
-    unsigned char data[16];
+    int item_sz = 9;
 
     if (NULL == (srf = srf_open(fname, "r"))) {
 	perror(fname);

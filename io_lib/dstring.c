@@ -256,7 +256,7 @@ int dstring_append(dstring_t *ds, const char *str) {
 int dstring_append_hex_encoded(dstring_t *ds, const char *str,
 			       const char *meta) {
     unsigned char escape[256];
-    const unsigned char *ustr = str;
+    const unsigned char *ustr = (const unsigned char *)str;
     int i, j;
     char hex[3];
 
@@ -269,10 +269,10 @@ int dstring_append_hex_encoded(dstring_t *ds, const char *str,
     escape['%'] = 1;
     if (meta) {
 	for (i = 0; meta[i]; i++)
-	    escape[meta[i]] = 1;
+	    escape[(uc)meta[i]] = 1;
     } else {
 	for (i = 0; "<>&"[i]; i++)
-	    escape["<>&"[i]] = 1;
+	    escape[(uc)"<>&"[i]] = 1;
     }
 
     j = 0;

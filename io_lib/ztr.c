@@ -332,7 +332,7 @@ ztr_t *fread_ztr(FILE *fp) {
 	return NULL;
 
     /* Load chunks */
-    while (chunk = ztr_read_chunk_hdr(fp)) {
+    while ((chunk = ztr_read_chunk_hdr(fp))) {
 	/*
 	char str[5];
 

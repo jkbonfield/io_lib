@@ -135,7 +135,9 @@ int main(int argc, char **argv) {
     srf_index_write(srf, idx);
 
     /* Truncate incase we've somehow overwritten an old longer index */
-    ftruncate(fileno(srf->fp), ftello(srf->fp));
+    if (ftello(srf->fp) != -1 &&
+	ftruncate(fileno(srf->fp), ftello(srf->fp)) == -1)
+	return -1;
 
     srf_index_destroy(idx);
     srf_destroy(srf, 1);

@@ -195,7 +195,7 @@ int exp_print_mline(FILE *fp, Exp_info *e, int eflt, int i) {
     p = arr(char *, e->entries[eflt], i);
 
     /* first line */
-    if (c = strchr(p, '\n'))
+    if ((c = strchr(p, '\n')))
 	*c = '\0';
     if (-1 == exp_print_line_(fp, eflt_feature_ids[eflt], p))
 	return -1;
@@ -204,7 +204,7 @@ int exp_print_mline(FILE *fp, Exp_info *e, int eflt, int i) {
 	*c = '\n';
 	p = c+1;
 	
-	if (c = strchr(p, '\n')) {
+	if ((c = strchr(p, '\n'))) {
 	    *c = '\0';
 	}
 	
@@ -390,11 +390,12 @@ char *opos2str(int2 *opos, int len, char *buf) {
     
     f = opos[st = 0];
     for (i = 1; i < len; f=opos[i++]) {
-	if (dir == 0)
+	if (dir == 0) {
 	    if (opos[i] == f+1)
 		dir=1;
 	    else if (opos[i] == f-1)
 		dir=-1;
+	}
 
 	if (dir && opos[i] != f + dir) {
 	    if (st != i-1)

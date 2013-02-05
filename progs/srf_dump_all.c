@@ -306,7 +306,8 @@ void dump_solexa(ztr_t *z, char *name, char mode, FILE **files) {
 	    return;
 	}
 
-	dump_conf4_solexa(files[1], seq, chunks[0]->data+1, chunks[0]->dlength-1);
+	dump_conf4_solexa(files[1], seq, (sc *)chunks[0]->data+1,
+			  chunks[0]->dlength-1);
     }
 
     /* Traces */
@@ -316,8 +317,10 @@ void dump_solexa(ztr_t *z, char *name, char mode, FILE **files) {
 	    char *key = ztr_lookup_mdata_value(z, chunks[i], "TYPE");
 	    if (!key || 0 == strcmp(key, "PROC")) {
 		key = ztr_lookup_mdata_value(z, chunks[i], "OFFS");
-		dump_samples4_solexa(files[2], lane, tile, x, y, key ? atoi(key) : 0,
-				     chunks[i]->data+2, chunks[i]->dlength-2);
+		dump_samples4_solexa(files[2], lane, tile, x, y,
+				     key ? atoi(key) : 0,
+				     (uc *)chunks[i]->data+2,
+				     chunks[i]->dlength-2);
 		break;
 	    }
 	}
@@ -329,8 +332,10 @@ void dump_solexa(ztr_t *z, char *name, char mode, FILE **files) {
 	    char *key = ztr_lookup_mdata_value(z, chunks[i], "TYPE");
 	    if (key && 0 == strcmp(key, "SLXI")) {
 		key = ztr_lookup_mdata_value(z, chunks[i], "OFFS");
-		dump_samples4_solexa(files[3], lane, tile, x, y, key ? atoi(key) : 0,
-				     chunks[i]->data+2, chunks[i]->dlength-2);
+		dump_samples4_solexa(files[3], lane, tile, x, y,
+				     key ? atoi(key) : 0,
+				     (uc *)chunks[i]->data+2,
+				     chunks[i]->dlength-2);
 		break;
 	    }
 	}
@@ -342,8 +347,10 @@ void dump_solexa(ztr_t *z, char *name, char mode, FILE **files) {
 	    char *key = ztr_lookup_mdata_value(z, chunks[i], "TYPE");
 	    if (key && 0 == strcmp(key, "SLXN")) {
 		key = ztr_lookup_mdata_value(z, chunks[i], "OFFS");
-		dump_samples4_solexa(files[4], lane, tile, x, y, key ? atoi(key) : 0,
-				     chunks[i]->data+2, chunks[i]->dlength-2);
+		dump_samples4_solexa(files[4], lane, tile, x, y,
+				     key ? atoi(key) : 0,
+				     (uc *)chunks[i]->data+2,
+				     chunks[i]->dlength-2);
 		break;
 	    }
 	}
@@ -487,7 +494,7 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
     char *cFile;                  /* Dynamically allocated buffer (entire file) */
     char *cThisPtr;               /* Pointer to current position in cFile */
 
-    char *filter_type;
+    char *filter_type = NULL;
     char *prefix;
     char *read;
 
@@ -500,10 +507,12 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
     if(cFile == NULL )
 	{
 	    fprintf(stderr, "\nInsufficient memory to read file.\n");
-	    return 0;
+	    return -1;
 	}
 
-    fread(cFile, lFileLen, 1, input); /* Read the entire file into cFile */
+    /* Read the entire file into cFile */
+    if (1 != fread(cFile, lFileLen, 1, input))
+	return -1;
 
     lLineCount  = 0L;
     lTotalChars = 0L;

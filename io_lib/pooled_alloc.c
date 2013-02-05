@@ -32,9 +32,8 @@ pool_alloc_t *pool_create(size_t dsize) {
 }
 
 static pool_t *new_pool(pool_alloc_t *p) {
-    size_t i, n = PSIZE / p->dsize;
+    size_t n = PSIZE / p->dsize;
     pool_t *pool;
-    char *cp;
     
     pool = realloc(p->pools, (p->npools + 1) * sizeof(*p->pools));
     if (NULL == pool) return NULL;
@@ -62,7 +61,6 @@ void pool_destroy(pool_alloc_t *p) {
 }
 
 void *pool_alloc(pool_alloc_t *p) {
-    size_t i;
     pool_t *pool;
     void *ret;
 
@@ -92,8 +90,6 @@ void *pool_alloc(pool_alloc_t *p) {
 }
 
 void pool_free(pool_alloc_t *p, void *ptr) {
-    size_t psize, i;
-
     *(void **)ptr = p->free;
     p->free = ptr;
 }

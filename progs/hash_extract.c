@@ -17,7 +17,7 @@ int extract(HashFile *hf, char *file) {
     size_t len;
     char *data;
 
-    if (data = HashFileExtract(hf, file, &len)) {
+    if ((data = HashFileExtract(hf, file, &len))) {
 	fwrite(data, len, 1, stdout);
 	free(data);
 	return 0;
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
 
 	while (fgets(file, 255, fofnfp)) {
 	    char *c;
-	    if (c = strchr(file, '\n'))
+	    if ((c = strchr(file, '\n')))
 		*c = 0;
 
 	    ret |= extract(hf, file);

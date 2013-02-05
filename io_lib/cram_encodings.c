@@ -118,7 +118,7 @@ int cram_external_encode_store(cram_codec *c, char *buf, char *prefix) {
     char tmp[8192], *cp = buf, *tp = tmp;
 
     if (prefix) {
-	while (*cp++ = *prefix++)
+	while ((*cp++ = *prefix++))
 	    ;
 	cp--; // skip nul
     }
@@ -524,7 +524,7 @@ int cram_huffman_encode_store(cram_codec *c, char *buf, char *prefix) {
     char *cp = buf, *tp = tmp;
 
     if (prefix) {
-	while (*cp++ = *prefix++)
+	while ((*cp++ = *prefix++))
 	    ;
 	cp--; // skip nul
     }
@@ -767,10 +767,10 @@ void cram_byte_array_len_encode_free(cram_codec *c) {
 }
 
 int cram_byte_array_len_encode_store(cram_codec *c, char *buf, char *prefix) {
-    char tmp[8192], *cp = buf, *tp = tmp;
+    char *cp = buf;
 
     if (prefix) {
-	while (*cp++ = *prefix++)
+	while ((*cp++ = *prefix++))
 	    ;
 	cp--; // skip nul
     }
@@ -851,8 +851,6 @@ void cram_byte_array_stop_decode_free(cram_codec *c) {
 cram_codec *cram_byte_array_stop_decode_init(char *data, int size, enum cram_external_type option) {
     cram_codec *c;
     unsigned char *cp = (unsigned char *)data;
-    int32_t encoding;
-    int32_t sub_size;
 
     if (!(c = malloc(sizeof(*c))))
 	return NULL;
@@ -886,10 +884,10 @@ void cram_byte_array_stop_encode_free(cram_codec *c) {
 }
 
 int cram_byte_array_stop_encode_store(cram_codec *c, char *buf, char *prefix) {
-    char tmp[8192], *cp = buf, *tp = tmp;
+    char *cp = buf;
 
     if (prefix) {
-	while (*cp++ = *prefix++)
+	while ((*cp++ = *prefix++))
 	    ;
 	cp--; // skip nul
     }
