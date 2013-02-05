@@ -768,6 +768,7 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->BA_stats = cram_stats_create();
     c->BS_stats = cram_stats_create();
     c->TC_stats = cram_stats_create();
+    c->TN_stats = cram_stats_create();
 
     c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE);
 
@@ -1134,7 +1135,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 	else if (key[0] == 'T' && key[1] == 'C')
 	    hdr->TC_codec = cram_decoder_init(encoding, cp, size, E_BYTE);
 	else if (key[0] == 'T' && key[1] == 'N')
-	    hdr->TN_codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY);
+	    hdr->TN_codec = cram_decoder_init(encoding, cp, size, E_INT);
 	else if (key[0] == 'F' && key[1] == 'N')
 	    hdr->FN_codec = cram_decoder_init(encoding, cp, size, E_INT);
 	else if (key[0] == 'F' && key[1] == 'C')
@@ -1373,7 +1374,7 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
 		// string as byte_array_stop
 		*mp++ = 5; // byte_array_stop
 		*mp++ = 5;
-		*mp++ = -1;
+		*mp++ = '\t';
 		*mp++ = 4;
 		*mp++ = 0;
 		*mp++ = 0;
@@ -1734,6 +1735,11 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->features = NULL;
     s->nfeatures = s->afeatures = 0;
 
+#ifndef TN_AS_EXT
+    s->TN = NULL;
+    s->nTN = s->aTN = 0;
+#endif
+
     return s;
 }
 
@@ -1784,6 +1790,11 @@ void cram_free_slice(cram_slice *s) {
 
     if (s->features)
 	free(s->features);
+
+#ifndef TN_AS_EXT
+    if (s->TN)
+	free(s->TN);
+#endif
 
     free(s);
 }
@@ -1875,7 +1886,7 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
     int nvals, i, ntot = 0, max_val = 0, min_val = INT_MAX, k;
     int *vals = NULL, *freqs = NULL, vals_alloc = 0, *codes;
 
-    cram_stats_dump(st);
+    //cram_stats_dump(st);
 
     /* Count number of unique symbols */
     for (nvals = i = 0; i < MAX_STAT_VAL; i++) {
@@ -2095,9 +2106,9 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     h->CF_codec = cram_encoder_init(cram_stats_encoding(c->CF_stats),
 				    c->CF_stats, NULL);
 
-    fprintf(stderr, "=== RN ===\n");
-    h->RN_codec = cram_encoder_init(cram_stats_encoding(c->RN_stats),
-				    c->RN_stats, NULL);
+//    fprintf(stderr, "=== RN ===\n");
+//    h->RN_codec = cram_encoder_init(cram_stats_encoding(c->RN_stats),
+//				    c->RN_stats, NULL);
 
     fprintf(stderr, "=== AP ===\n");
     h->AP_codec = cram_encoder_init(cram_stats_encoding(c->AP_stats),
@@ -2160,7 +2171,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 				    c->TC_stats, NULL);
 
     fprintf(stderr, "=== TN ===\n");
-    {
+    if (0) {
 	//h->TN_codec = cram_encoder_init(cram_stats_encoding(c->TN_stats),
 	//				    c->TN_stats, NULL);
 	cram_byte_array_len_encoder e;
@@ -2169,6 +2180,13 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	e.val_len = 3;
 	e.val_dat = "\001\001\004\001\003\001\000";
 	h->TN_codec = cram_encoder_init(E_BYTE_ARRAY_LEN, NULL, (void *)&e);
+    } else {
+#ifdef TN_AS_EXT
+	h->TN_codec = cram_encoder_init(E_EXTERNAL, NULL, (void *)4);
+#else
+	h->TN_codec = cram_encoder_init(cram_stats_encoding(c->TN_stats),
+					c->TN_stats, NULL);
+#endif
     }
     
     if (1) {
@@ -2300,13 +2318,13 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 #if 1
 	    r |= h->TC_codec->encode(s, h->TC_codec, core,
 				     (char *)&cr->ntags, 1);
-
-	    // TN/<tag map> encoded in external block already
-//	    for (j = 0; j < cr->ntags; j++) {
-//		i32 = 0; // id
-//		r |= h->TN_codec->encode(s, h->TN_codec, core,
-//					 (char *)&i32, 1);
-//	    }
+#ifndef TN_AS_EXT
+	    for (j = 0; j < cr->ntags; j++) {
+		uint32_t i32 = s->TN[cr->TN_idx + j]; // id
+		r |= h->TN_codec->encode(s, h->TN_codec, core,
+					 (char *)&i32, 1);
+	    }
+#endif
 #else
 	    i32 = 0; // no tags
 	    r |= h->TC_codec->encode(s, h->TC_codec, core,
@@ -2386,14 +2404,13 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	block_destroy(core, 1);
 
 	/* Compress the other blocks */
-	//for (j = 1; j < 6; j++) {
-	//cram_compress_block(s->block[j]);
-	//}
+#if 1
 	cram_compress_block(s->block[1], 4, Z_FILTERED);
 	cram_compress_block(s->block[2], 1, Z_RLE);
 	cram_compress_block(s->block[3], 4, Z_FILTERED);
 	cram_compress_block(s->block[4], 4, Z_FILTERED);
 	cram_compress_block(s->block[5], 6, Z_DEFAULT_STRATEGY);
+#endif
 	if (r)
 	    return -1;
     }
@@ -3302,7 +3319,8 @@ int cram_close(cram_fd *fd) {
     if (fd->mode == 'w' && fd->ctr) {
 	if(fd->ctr->slice)
 	    fd->ctr->curr_slice++;
-	cram_encode_container(fd, fd->ctr);
+	if (-1 == cram_encode_container(fd, fd->ctr))
+	    return -1;
     }
 
     if (fclose(fd->fp) != 0)
@@ -3575,7 +3593,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     //cr->mate_flags;   // MF
     //cr->ntags;        // TC
     cr->mate_flags = 0; cram_stats_add(c->MF_stats, cr->mate_flags);
-    //cr->ntags      = 0; cram_stats_add(c->TC_stats, cr->ntags);
+    cr->ntags      = 0; //cram_stats_add(c->TC_stats, cr->ntags);
     rg = NULL;
     {
 	char *aux, *tmp;
@@ -3586,8 +3604,12 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	tmp = DSTRING_STR(s->aux_ds) + DSTRING_LEN(s->aux_ds);
 
 	aux = bam_aux(b);
+#ifndef TN_AS_EXT
+	cr->TN_idx = s->nTN;
+#endif
 	while (aux[0] != 0) {
 	    HashData hd; hd.i = 0;
+	    int32_t i32;
 
 	    if (aux[0] == 'R' && aux[1] == 'G' && aux[2] == 'Z') {
 		rg = &aux[3];
@@ -3597,32 +3619,44 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    cr->ntags++;
 	    HashTableAdd(c->tags_used, aux, 3, hd, NULL);
 
+	    i32 = (aux[0]<<16) | (aux[1]<<8) | aux[2];
+#ifndef TN_AS_EXT
+	    if (s->nTN >= s->aTN) {
+		s->aTN = s->aTN ? s->aTN*2 : 1024;
+		s->TN = realloc(s->TN, s->aTN * sizeof(*s->TN));
+	    }
+	    s->TN[s->nTN++] = i32;
+	    cram_stats_add(c->TN_stats, i32);
+#else
+	    tmp += itf8_put(tmp, i32);
+#endif
+
 	    switch(aux[2]) {
 	    case 'A': case 'C': case 'c':
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		*tmp++=*aux++;
 		break;
 
 	    case 'S': case 's':
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		*tmp++=*aux++; *tmp++=*aux++;
 		break;
 
 	    case 'I': case 'i': case 'f':
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		break;
 
 	    case 'd':
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		break;
 
 	    case 'Z': case 'H':
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		while (*tmp++=*aux++);
-		*tmp++ = -1;
+		*tmp++ = '\t'; // stop byte
 		break;
 
 	    case 'B': {
@@ -3631,7 +3665,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 					    (((unsigned char *)aux)[5]<< 8) +
 					    (((unsigned char *)aux)[6]<<16) +
 					    (((unsigned char *)aux)[7]<<24));
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		*tmp++=*aux++;
 		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 		switch (type) {

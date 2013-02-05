@@ -635,7 +635,7 @@ cram_codec *cram_huffman_encode_init(cram_stats *st, void *option) {
 	    code_len++;
 	lens[i] = code_len;
 	freqs[i] *= -1;
-	fprintf(stderr, "%d / %d => %d\n", vals[i], freqs[i], lens[i]);
+	//fprintf(stderr, "%d / %d => %d\n", vals[i], freqs[i], lens[i]);
     }
 
 
@@ -675,8 +675,8 @@ cram_codec *cram_huffman_encode_init(cram_stats *st, void *option) {
 	}
 	codes[i].code = code++;
 
-	fprintf(stderr, "sym %d, code %d, len %d\n",
-		codes[i].symbol, codes[i].code, codes[i].len);
+	//fprintf(stderr, "sym %d, code %d, len %d\n",
+	//	codes[i].symbol, codes[i].code, codes[i].len);
     }
 
     free(lens);
