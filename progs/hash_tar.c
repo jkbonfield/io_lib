@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include <unistd.h>
 #include <io_lib/tar_format.h>
 #include <io_lib/hash_table.h>
 
@@ -75,7 +76,7 @@ HashTable *load_map(char *fn) {
 	    return NULL;
     }
 
-    close(fp);
+    fclose(fp);
 
     return h;
 }
@@ -133,17 +134,19 @@ int accumulate(HashFile *hf, FILE *fp, char *archive, options_t *opt) {
             if (strcmp(member, "././@LongLink") == 0) {
                 /* still expect filenames to fit into 256 bytes */
                 if (size > 256) {
-                    fread(member, 1, size > 256 ? 256 : size, fp);
+                    int r = fread(member, 1, size > 256 ? 256 : size, fp);
                     fprintf(stderr,"././@LongLink too long size=%ld\n",
 			    (long)size);
-                    fprintf(stderr,"%s...\n", member);
+		    if (r > 0)
+			fprintf(stderr,"%s...\n", member);
                     exit(1);
                 }
                 /*
 		 * extract full name of next member then rewind to start
 		 * of header
 		 */
-                fread(member, 1, size > 256 ? 256 : size, fp);
+                if (size != fread(member, 1, size > 256 ? 256 : size, fp))
+		    exit(1);
                 fseek(fp, -size, SEEK_CUR);
                 LongLink = 1;
             } else {
@@ -201,6 +204,8 @@ int accumulate(HashFile *hf, FILE *fp, char *archive, options_t *opt) {
 	seek_forward(fp, size);
         offset += sizeof(blk) + size;
     }
+
+    return 0;
 }
 
 void link_footers(HashFile *hf, options_t *opt) {
@@ -270,7 +275,6 @@ void save_hash(HashFile *hf, options_t *opt) {
 
 int main(int argc, char **argv) {
     options_t opt;
-    FILE *fp;
     HashFile *hf;
 
     /* process command line arguments of the form -arg */
@@ -283,6 +287,8 @@ int main(int argc, char **argv) {
     opt.footer       = NULL;
     opt.archive      = NULL;
     opt.map          = NULL;
+
+    hf = HashFileCreate(0, HASH_DYNAMIC_SIZE);
 
     for (argc--, argv++; argc > 0; argc--, argv++) {
 	if (**argv != '-' || strcmp(*argv, "--") == 0)
@@ -361,7 +367,6 @@ int main(int argc, char **argv) {
 
 
     /* Load the tar file index into memory */
-    hf = HashFileCreate(0, HASH_DYNAMIC_SIZE);
     if (argc < 1) {
 	if (!opt.archive) {
 	    fprintf(stderr, "If reading from stdin you must use the "

@@ -204,7 +204,7 @@ int main(int argc, char **argv) {
 	    printf("\nCopying archive\n");
 
 	    fseek(fp, 0, SEEK_SET);
-	    while (len = fread(block, 1, 8192, fp)) {
+	    while ((len = fread(block, 1, 8192, fp))) {
 		/* Skip previous index */
 		if (pos < ch->index_offset && pos+len > ch->index_offset) {
 		    len = ch->index_offset - pos;
@@ -227,7 +227,8 @@ int main(int argc, char **argv) {
 
 	    /* Update the common header */
 	    fseek(fp, 0, SEEK_SET);
-	    fread(hdr, 1, 31, fp);
+	    if (31 != fread(hdr, 1, 31, fp))
+		exit(1);
 	    *(uint64_t *)(hdr+8)  = be_int8(index_offset);
 	    *(uint32_t *)(hdr+16) = be_int4(index_size);
 	    fseek(fp, 0, SEEK_SET);
@@ -255,7 +256,8 @@ int main(int argc, char **argv) {
 	/* Update the common header to indicate index location */
 	if (copy_archive) {
 	    fseek(fpout, 0, SEEK_SET);
-	    fread(hdr, 1, 31, fpout);
+	    if (31 != fread(hdr, 1, 31, fpout))
+		exit(1);
 	    *(uint64_t *)(hdr+8)  = be_int8(index_offset);
 	    *(uint32_t *)(hdr+16) = be_int4(index_size);
 	    fseek(fpout, 0, SEEK_SET);

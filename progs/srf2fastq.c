@@ -245,7 +245,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
     char *seq, *qual, *sdata, *qdata, *key;
     ztr_chunk_t **chunks;
     HashItem *hi;
-    regn_t *regn;
+    regn_t *regn = NULL;
     int logodds;
     char *cset;
 

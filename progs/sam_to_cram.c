@@ -8,13 +8,10 @@
 
 int main(int argc, char **argv) {
     cram_fd *out;
-    cram_container *c;
     cram_SAM_hdr *hdr;
-    size_t pos, pos2;
     bam_file_t *in;
     bam_seq_t *s = NULL;
     refs *refs;
-    size_t bam_alloc = 0;
 
     /* opening */
     if (NULL == (in = bam_open(argv[1], "rb"))) {

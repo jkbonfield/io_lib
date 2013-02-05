@@ -12,7 +12,6 @@
 #include <io_lib/os.h>
 
 int main(int argc, char **argv) {
-    size_t i;
     bam_file_t *in, *out;
     bam_seq_t *s;
     int nr = 0;

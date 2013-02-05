@@ -140,7 +140,7 @@ static mFILE *find_file_tar(char *file, char *tarname, size_t offset) {
 	
 	if (fpind) {
 	    while (fgets(path, PATH_MAX+100, fpind)) {
-		if (cp = strchr(path, '\n'))
+		if ((cp = strchr(path, '\n')))
 		    *cp = 0;
 		tmp_off = strtol(path, &cp, 10);
 		while (isspace(*cp))
@@ -534,7 +534,7 @@ static mFILE *sff_hash_query(char *sff, char *entry, FILE *fp) {
     /* Cache an open HashFile for fast accessing */
     if (strcmp(sff, sff_copy) != 0) {
 	if (hf) {
-	    hf->afp = hf->hfp = NULL; /* will be closed by our parent */
+	    hf->afp = NULL; hf->hfp = NULL; /* will be closed by our parent */
 	    HashFileDestroy(hf);
 	}
 	fseek(fp, -4, SEEK_CUR);
@@ -592,7 +592,7 @@ static mFILE *sff_sorted_query(char *sff, char *accno, FILE *fp,
     static char sff_copy[1024];
     unsigned char *us;
     uint32_t start, end;
-    uint32_t offset;
+    uint32_t offset = 0;
     char *data = NULL;
     static char chdr[1024];
     static int chdrlen = 0, nflows = 0;
@@ -745,7 +745,7 @@ static mFILE *find_file_sff(char *entry, char *sff) {
     static FILE *fp = NULL;
     static char sff_copy[1024];
     char chdr[65536], rhdr[65536]; /* generous, but worst case */
-    uint32_t nkey, nflows, chdrlen, rhdrlen, dlen, magic;
+    uint32_t nkey, nflows, chdrlen, rhdrlen = 0, dlen = 0, magic;
     uint64_t file_pos;
     static uint64_t index_offset = 0;
     static uint32_t index_length = 0;
@@ -795,7 +795,8 @@ static mFILE *find_file_sff(char *entry, char *sff) {
     if (index_length != 0) {
 	long orig_pos = ftell(fp);
 	fseek(fp, index_offset, SEEK_SET);
-	fread(index_format, 1, 8, fp);
+	if (8 != fread(index_format, 1, 8, fp))
+	    return NULL;
 
 	if (memcmp(index_format, ".hsh1.00", 8) == 0) {
 	    /* HASH index v1.00 */
@@ -911,7 +912,7 @@ static mFILE *find_file_dir(char *file, char *dirname) {
      * and we attempt to work out what type by reading the first and last
      * bits of the file.
      */
-    if (cp = strrchr(file, '/')) {
+    if ((cp = strrchr(file, '/'))) {
 	strcpy(path2, path); /* path contains / too as it's from file */
 	*strrchr(path2, '/') = 0;
 
@@ -926,7 +927,8 @@ static mFILE *find_file_dir(char *file, char *dirname) {
 	    if (NULL == (fp = fopen(path2, "rb")))
 		return NULL;
 	    memcpy(magic, "\0\0\0\0\0\0", 4);
-	    fread(magic, 1, 4, fp);
+	    if (4 != fread(magic, 1, 4, fp))
+		return NULL;
 
 	    /* .hsh or .sff at start */
 	    if (memcmp(magic, ".hsh", 4) == 0)
@@ -937,7 +939,8 @@ static mFILE *find_file_dir(char *file, char *dirname) {
 	    /* Or .hsh or Ihsh at the end */
 	    if (NONE == type) {
 		fseek(fp, -16, SEEK_END);
-		fread(magic, 1, 8, fp);
+		if (8 != fread(magic, 1, 8, fp))
+		    return NULL;
 		if (memcmp(magic+4, ".hsh", 4) == 0)
 		    type = HASH;
 		else if (memcmp(magic, "Ihsh", 4) == 0)
@@ -947,7 +950,8 @@ static mFILE *find_file_dir(char *file, char *dirname) {
 	    /* or ustar 257 bytes in to indicate un-hashed tar */
 	    if (NONE == type) {
 		fseek(fp, 257, SEEK_SET);
-		fread(magic, 1, 5, fp);
+		if (5 != fread(magic, 1, 5, fp))
+		    return NULL;
 		if (memcmp(magic, "ustar", 5) == 0)
 		    type = TAR;
 	    }
@@ -1084,9 +1088,9 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 	char *cp;
 	char relative_path[PATH_MAX+1];
 	strcpy(relative_path, relative_to);
-	if (cp = strrchr(relative_path, '/'))
+	if ((cp = strrchr(relative_path, '/')))
 	    *cp = 0;
-	if (fp = find_file_dir(file, relative_path))
+	if ((fp = find_file_dir(file, relative_path)))
 	    return fp;
     }
 

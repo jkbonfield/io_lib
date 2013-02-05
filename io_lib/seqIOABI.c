@@ -256,7 +256,7 @@ int getABIString(FILE *fp, off_t indexO, uint_4 label, uint_4 count,
     if (!off)
 	return -1;
 
-    if (off = getABIIndexEntryLW(fp, indexO, label, count, 4, &len)) {
+    if ((off = getABIIndexEntryLW(fp, indexO, label, count, 4, &len))) {
 	uint_1 len2;
 
 	if (!len)
@@ -654,12 +654,12 @@ Read *fread_abi(FILE *fp) {
 	    do {
 		char line[300];
 		
-		if (p = strchr(commstrp, '\n'))
+		if ((p = strchr(commstrp, '\n')))
 		    *p++ = 0;
 		
 		sprintf(line, "COMM=%s\n", commstrp);
 		strcat(comment, line);
-	    } while(commstrp = p);
+	    } while ((commstrp = p));
 	}
 
 	

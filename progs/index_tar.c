@@ -69,17 +69,19 @@ int main(int argc, char **argv) {
             if (strcmp(member, "././@LongLink") == 0) {
                 /* still expect filenames to fit into 256 bytes */
                 if (size > 256) {
-                    fread(member, 1, size > 256 ? 256 : size, fp);
+                    int r = fread(member, 1, 256, fp);
                     fprintf(stderr,"././@LongLink too long size=%ld\n",
 			    (long)size);
-                    fprintf(stderr,"%s...\n", member);
+		    if (r > 0)
+			fprintf(stderr,"%s...\n", member);
                     exit(1);
                 }
                 /*
 		 * extract full name of next member then rewind to start
 		 * of header
 		 */
-                fread(member, 1, size > 256 ? 256 : size, fp);
+                if (size != fread(member, 1, size > 256 ? 256 : size, fp))
+		    exit(1);
                 fseek(fp, -size, SEEK_CUR);
                 LongLink = 1;
             } else {

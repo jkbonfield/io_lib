@@ -1103,7 +1103,7 @@ static uint32_t get_hi_bits(block_t *block, int nbits) {
         return -1;
 
     /* Fetch the partial byte of data */
-    val = (block->data[block->byte]) & (1<<(8-block->bit))-1;
+    val = (block->data[block->byte]) & ((1<<(8-block->bit))-1);
     bnum = 8 - block->bit;
 
     if (bnum >= nbits) {
@@ -1123,7 +1123,7 @@ static uint32_t get_hi_bits(block_t *block, int nbits) {
     /* The remaining partial byte */
     val <<= nbits-bnum;
     val |= (block->data[++block->byte] >> (8-(nbits-bnum)))
-	& (1<<(nbits-bnum))-1;
+	& ((1<<(nbits-bnum))-1);
     block->bit = nbits-bnum;
 
     return val;
@@ -1601,7 +1601,7 @@ ztr_t *partial_decode_ztr(srf_t *srf, mFILE *mf, ztr_t *z) {
 
     /* Load chunks */
     pos = mftell(mf);
-    while (chunk = ztr_read_chunk_hdr(mf)) {
+    while ((chunk = ztr_read_chunk_hdr(mf))) {
 	chunk->data = (char *)xmalloc(chunk->dlength);
 	if (chunk->dlength != mfread(chunk->data, 1, chunk->dlength, mf))
 	    break;
@@ -2022,7 +2022,8 @@ int srf_find_trace(srf_t *srf, char *tname,
 	     * Use fread instead as it's likely already cached and linux
 	     * fseeko involves a real system call (lseek).
 	     */
-	    fread(dpos, 1, item_sz, srf->fp);
+	    if (item_sz != fread(dpos, 1, item_sz, srf->fp))
+		return -1;
 	    continue;
 	}
 

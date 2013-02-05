@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
 	    if (fofn_fp) {
 		while (fgets(line, 8192, fofn_fp) != NULL) {
 		    char *cp;
-		    if (cp = strchr(line, '\n'))
+		    if ((cp = strchr(line, '\n')))
 			*cp = 0;
 		    if (format == TT_EXP) {
 			infp = open_exp_mfile(line, NULL);

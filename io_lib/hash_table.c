@@ -1176,7 +1176,8 @@ HashFile *HashFileFopen(FILE *fp) {
 	for (i = 0; i < hf->narchives; i++) {
 	    fnamelen = fgetc(fp);
 	    hf->archives[i] = malloc(fnamelen+1);
-	    fread(hf->archives[i], 1, fnamelen, fp);
+	    if (fnamelen != fread(hf->archives[i], 1, fnamelen, fp))
+		return NULL;
 	    hf->archives[i][fnamelen] = 0;
 	    archive_len += fnamelen+1;
 	}
@@ -1192,8 +1193,10 @@ HashFile *HashFileFopen(FILE *fp) {
 	? (HashFileSection *)malloc(hf->nheaders * sizeof(HashFileSection))
 	: NULL;
     for (i = 0; i < hf->nheaders; i++) {
-	fread(&hf->headers[i].pos,  8, 1, hf->hfp);
-	fread(&hf->headers[i].size, 4, 1, hf->hfp);
+	if (1 != fread(&hf->headers[i].pos,  8, 1, hf->hfp))
+	    return NULL;
+	if (1 != fread(&hf->headers[i].size, 4, 1, hf->hfp))
+	    return NULL;
 	hf->headers[i].archive_no = *(char *)&hf->headers[i].pos;
 	*(char *)&hf->headers[i].pos = 0;
 	hf->headers[i].pos  = be_int8(hf->headers[i].pos) + hf->hh.offset;
@@ -1205,8 +1208,10 @@ HashFile *HashFileFopen(FILE *fp) {
 	? (HashFileSection *)malloc(hf->nfooters * sizeof(HashFileSection))
 	: NULL;
     for (i = 0; i < hf->nfooters; i++) {
-	fread(&hf->footers[i].pos,  8, 1, hf->hfp);
-	fread(&hf->footers[i].size, 4, 1, hf->hfp);
+	if (1 != fread(&hf->footers[i].pos,  8, 1, hf->hfp))
+	    return NULL;
+	if (1 != fread(&hf->footers[i].size, 4, 1, hf->hfp))
+	    return NULL;
 	hf->footers[i].archive_no = *(char *)&hf->footers[i].pos;
 	*(char *)&hf->footers[i].pos = 0;
 	hf->footers[i].pos  = be_int8(hf->footers[i].pos) + hf->hh.offset;
@@ -1404,15 +1409,19 @@ int HashFileQuery(HashFile *hf, uint8_t *key, int key_len,
 	uint64_t pos;
 	uint32_t size;
 
-	fread(k, klen, 1, hf->hfp);
-	fread(&headfoot, 1, 1, hf->hfp);
+	if (1 != fread(k, klen, 1, hf->hfp))
+	    return -1;
+	if (1 != fread(&headfoot, 1, 1, hf->hfp))
+	    return -1;
 	item->header = (headfoot >> 4) & 0xf;
 	item->footer = headfoot & 0xf;
-	fread(&pos, 8, 1, hf->hfp);
+	if (1 != fread(&pos, 8, 1, hf->hfp))
+	    return -1;
 	item->archive = *(char *)&pos;
 	*(char *)&pos = 0;
 	pos = be_int8(pos) + hf->hh.offset;
-	fread(&size, 4, 1, hf->hfp);
+	if (1 != fread(&size, 4, 1, hf->hfp))
+	    return -1;
 	size = be_int4(size);
 	if (klen == key_len && 0 == memcmp(key, k, key_len)) {
 	    item->pos = pos;
@@ -1542,7 +1551,8 @@ char *HashFileExtract(HashFile *hf, char *fname, size_t *len) {
 	    return NULL;
 
 	fseeko(hf->afp[head->archive_no], head->pos, SEEK_SET);
-	fread(&data[pos], head->size, 1, hf->afp[head->archive_no]);
+	if (1 != fread(&data[pos], head->size, 1, hf->afp[head->archive_no]))
+	    return NULL;
 	pos += head->size;
     }
 
@@ -1552,7 +1562,8 @@ char *HashFileExtract(HashFile *hf, char *fname, size_t *len) {
 	return NULL;
 
     fseeko(hf->afp[hfi.archive], hfi.pos, SEEK_SET);
-    fread(&data[pos], hfi.size, 1, hf->afp[hfi.archive]);
+    if (1 != fread(&data[pos], hfi.size, 1, hf->afp[hfi.archive]))
+	return NULL;
     pos += hfi.size;
 
     /* Footer */
@@ -1562,7 +1573,8 @@ char *HashFileExtract(HashFile *hf, char *fname, size_t *len) {
 	    return NULL;
 
 	fseeko(hf->afp[foot->archive_no], foot->pos, SEEK_SET);
-	fread(&data[pos], foot->size, 1, hf->afp[foot->archive_no]);
+	if (1 != fread(&data[pos], foot->size, 1, hf->afp[foot->archive_no]))
+	    return NULL;
 	pos += foot->size;
     }
 
