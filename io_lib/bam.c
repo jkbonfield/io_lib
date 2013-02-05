@@ -524,6 +524,7 @@ bam_file_t *bam_open(char *fn, char *mode) {
     b->line     = 0;
     b->binary   = 0;
     b->level    = Z_DEFAULT_COMPRESSION;
+    b->sam_str  = NULL;
 
     /* Creation */
     if (*mode == 'w') {
@@ -660,6 +661,9 @@ void bam_close(bam_file_t *b) {
 	free(b->rg_id);
     if (b->rg_len)
 	free(b->rg_len);
+
+    if (b->sam_str)
+	free(b->sam_str);
 
     close(b->fd);
 
