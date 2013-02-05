@@ -167,7 +167,7 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
     char *cFile;                  /* Dynamically allocated buffer (entire file) */
     char *cThisPtr;               /* Pointer to current position in cFile */
 
-    char *filter_type;
+    char *filter_type = NULL;
     char *prefix;
     char *read;
 
@@ -180,10 +180,12 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
     if(cFile == NULL )
 	{
 	    fprintf(stderr, "\nInsufficient memory to read file.\n");
-	    return 0;
+	    return -1;
 	}
 
-    fread(cFile, lFileLen, 1, input); /* Read the entire file into cFile */
+    /* Read the entire file into cFile */
+    if (1 != fread(cFile, lFileLen, 1, input))
+	return -1;
 
     lLineCount  = 0L;
     lTotalChars = 0L;
@@ -584,7 +586,7 @@ static int add_readpair_region(unsigned int rev_cycle, mFILE *mf) {
 
     /* Initialise */
     c.type     = ZTR_TYPE_REGN;
-    c.data     = data;
+    c.data     = (char *)data;
     c.dlength  = 5;
     c.mdata    = mdata;
     c.mdlength = mdlen;
@@ -610,7 +612,7 @@ static int add_readpair_region(unsigned int rev_cycle, mFILE *mf) {
  */
 int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, int filter_mode, read_filter_t *read_filter, int read_mask, int rev_cycle) {
     srf_t *in_srf;
-    int output_trace_header;
+    int output_trace_header = 0;
     char name[1024];
 
     if (0 == strcmp(input, "-")) {
@@ -696,7 +698,7 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
 		mfseek(in_srf->mf, sizeof(ztr_header_t), SEEK_CUR);
 
 		int pos = mftell(in_srf->mf);
-		while (chunk = ztr_read_chunk_hdr(in_srf->mf)) {
+		while ((chunk = ztr_read_chunk_hdr(in_srf->mf))) {
 		    char *key = ztr_lookup_mdata_value(in_srf->ztr, chunk, "TYPE");
 		    int flag = 0;
 
@@ -785,13 +787,14 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
             uint32_t trace_hdr_size = mftell(mf);
 	    char *trace_hdr;
             if (NULL == (trace_hdr = malloc(trace_hdr_size))) {
-                stderr, "Error making trace header.\nExiting.\n";
+                fprintf(stderr, "Error making trace header.\nExiting.\n");
 		exit(1);
             }
             memcpy(trace_hdr, mf->data, trace_hdr_size);
  	    if (out_srf->th.trace_hdr)
   	        free(out_srf->th.trace_hdr);
-	    srf_construct_trace_hdr(&out_srf->th, in_srf->th.id_prefix, trace_hdr, trace_hdr_size);
+	    srf_construct_trace_hdr(&out_srf->th, in_srf->th.id_prefix,
+				    (uc *)trace_hdr, trace_hdr_size);
             output_trace_header = 1;
 
 	    mfdestroy(mf);
@@ -891,7 +894,7 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
 		}
 
 		int pos = mftell(in_srf->mf);
-		while (chunk = ztr_read_chunk_hdr(in_srf->mf)) {
+		while ((chunk = ztr_read_chunk_hdr(in_srf->mf))) {
 		    char *key = ztr_lookup_mdata_value(ztr_tmp, chunk, "TYPE");
 		    int flag = 0;
 
@@ -977,7 +980,10 @@ int srf_filter(char *input, srf_t *out_srf, char chunk_mode, char mdata_mode, in
 
                 /* construct the new trace body */
 		srf_trace_body_t new_tb;
-		srf_construct_trace_body(&new_tb, name+strlen(in_srf->th.id_prefix), -1, mf->data, mf->size, old_tb.flags);
+		srf_construct_trace_body(&new_tb,
+					 name+strlen(in_srf->th.id_prefix), -1,
+					 (uc *)mf->data, mf->size,
+					 old_tb.flags);
 
 		if (0 != srf_write_trace_body(out_srf, &new_tb)) {
 		    fprintf(stderr, "Error writing trace body.\nExiting.\n");

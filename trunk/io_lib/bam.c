@@ -299,8 +299,8 @@ int load_sam_header(bam_file_t *b) {
  */
 int bam_parse_header(bam_file_t *b) {
     int i, j, lno = 0, num_rg = 0, num_rg_alloc = 0;
-    int ntabs, ref_len;
-    tag_list_t *tags;
+    int ntabs = 0, ref_len = 0;
+    tag_list_t *tags = NULL;
 
     if (!b->header)
 	return -1;
@@ -328,7 +328,7 @@ int bam_parse_header(bam_file_t *b) {
     b->nref = 0;
     for (i = 0; i < b->header_len; i++) {
 	char *id = NULL;
-	int id_len;
+	int id_len = 0;
 	HashData hd;
 	int i_start = i, i_len;
 	int is_rg;
@@ -580,10 +580,10 @@ bam_file_t *bam_open(char *fn, char *mode) {
 
     bam_more_output(b);
     /* Auto-correct open file type if we detect a BAM */
-    if (b->out_sz >= 3 && strncmp("BAM", b->out_p, 3) != 0) {
+    if (b->out_sz >= 3 && strncmp("BAM", (char *)b->out_p, 3) != 0) {
 	b->mode &= ~O_BINARY;
 	mode = "r";
-    } else if (b->out_sz >= 3 && strncmp("BAM", b->out_p, 3) == 0) {
+    } else if (b->out_sz >= 3 && strncmp("BAM", (char *)b->out_p, 3) == 0) {
 	b->mode |= O_BINARY;
 	mode = "rb";
     }
@@ -1447,7 +1447,7 @@ char *bam_aux_find(bam_seq_t *b, char *key) {
 	if (cp[0] == key[0] && cp[1] == key[1])
 	    return cp+3;
 	
-	if ((sz = type_size[cp[2]])) {
+	if ((sz = type_size[(unsigned char)cp[2]])) {
 	    /* Fixed length fields */
 	    cp += sz;
 	} else {
@@ -1584,7 +1584,7 @@ int bam_aux_iter(bam_seq_t *b, char **iter_handle,
 	if (val) {
 	    val->B.n = count;
 	    val->B.t = s[3];
-	    val->B.s = s+8;
+	    val->B.s = (unsigned char *)s+8;
 	}
 	s+=8;
 
@@ -1706,10 +1706,10 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
 
     /* Seq */
     for (i = 0; i < len-1; i += 2) {
-	*cp++ = (L[seq[i]]<<4) + L[seq[i+1]];
+	*cp++ = (L[(uc)seq[i]]<<4) + L[(uc)seq[i+1]];
     }
     if (i < len)
-	*cp++ = L[seq[i]]<<4;
+	*cp++ = L[(uc)seq[i]]<<4;
 
     /* Qual */
     if (qual) {
@@ -1729,7 +1729,7 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
 }
 		      
 
-static char *append_int(char *cp, int32_t i) {
+static unsigned char *append_int(unsigned char *cp, int32_t i) {
     int32_t j;
 
     if (i < 0) {
@@ -1785,7 +1785,7 @@ static char *append_int(char *cp, int32_t i) {
  * Unsigned version of above.
  * Only differs when the int has the top bit set (~2.15 billion and above).
  */
-static char *append_uint(char *cp, uint32_t i) {
+static unsigned char *append_uint(unsigned char *cp, uint32_t i) {
     uint32_t j;
 
     if (i == 0) {
@@ -1934,7 +1934,6 @@ static int bgzf_write(int fd, int level, const void *buf, size_t count) {
  *        -1 on failure
  */
 int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
-    size_t len;
     char *auxh, aux_key[2], type;
     bam_aux_t val;
 
@@ -2014,7 +2013,8 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* FLAG */
 	if (end-fp->out_p < 5) BF_FLUSH();
-	fp->out_p = append_int(fp->out_p, bam_flag(b)); *fp->out_p++ = '\t';
+	fp->out_p = append_int(fp->out_p, bam_flag(b));
+	*fp->out_p++ = '\t';
 
 	/* RNAME */
 	if (b->ref != -1) {
@@ -2037,7 +2037,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	fp->out_p = append_int(fp->out_p, bam_map_qual(b)); *fp->out_p++ = '\t';
 
 	/* CIGAR */
-	n = bam_cigar_len(b); dat = (char *)bam_cigar(b);
+	n = bam_cigar_len(b);dat = (uc *)bam_cigar(b);
 	for (i = 0; i < n; i++, dat+=4) {
 	    uint32_t c = dat[0] + (dat[1]<<8) + (dat[2]<<16) + (dat[3]<<24);
 	    if (end-fp->out_p < 13) BF_FLUSH();
@@ -2077,7 +2077,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* SEQ */
 	n = (b->len+1)/2;
-	dat = bam_seq(b);
+	dat = (uc *)bam_seq(b);
 
 	/* BAM encoding */
 //	while (n) {
@@ -2100,7 +2100,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		    *fp->out_p++ = "=ACMGRSVTWYHKDBN"[*dat >> 4];
 		}
 	    } else {
-		char *cp = fp->out_p;
+		unsigned char *cp = fp->out_p;
 		int n = b->len & ~1;
 		for (i = 0; i < n; i+=2) {
 #ifdef ALLOW_UAC
@@ -2125,7 +2125,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* QUAL */
 	n = b->len;
-	dat = bam_qual(b);
+	dat = (uc *)bam_qual(b);
 	/* BAM encoding */
 //	while (n) {
 //	    int l = end-fp->out_p < n ? end-fp->out_p : n;
@@ -2147,7 +2147,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 			*fp->out_p++ = *dat++ + '!';
 		    }
 		} else {
-		    char *cp = fp->out_p;
+		    unsigned char *cp = fp->out_p;
 		    int n = b->len & ~3;
 		    i = 0;
 #ifdef ALLOW_UAC
@@ -2209,11 +2209,11 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		break;
 
 	    case 'f':
-		fp->out_p += sprintf(fp->out_p, "%g", val.f);
+		fp->out_p += sprintf((char *)fp->out_p, "%g", val.f);
 		break;
 
 	    case 'd':
-		fp->out_p += sprintf(fp->out_p, "%g", val.d);
+		fp->out_p += sprintf((char *)fp->out_p, "%g", val.d);
 		break;
 
 	    case 'Z':
@@ -2226,7 +2226,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    }
 
 	    case 'B': {
-		uint32_t count = val.B.n, sz, j, i_end;
+		uint32_t count = val.B.n, sz, j;
 		unsigned char *s = val.B.s;
 		*fp->out_p++ = val.B.t;
 
@@ -2314,7 +2314,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 			    u.c[1] = s[1];
 			    u.c[2] = s[2];
 			    u.c[3] = s[3];
-			    fp->out_p += sprintf(fp->out_p, "%g", u.f);
+			    fp->out_p += sprintf((char *)fp->out_p, "%g", u.f);
 			}
 			break;
 		    }

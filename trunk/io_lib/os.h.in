@@ -332,6 +332,12 @@ typedef int mode_t;
  */
 
 /*
+ * Convenience of type casting
+ */
+typedef unsigned char uc;
+typedef   signed char sc;
+
+/*
  * One byte integers
  */ 
 typedef unsigned char	int1;

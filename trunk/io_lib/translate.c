@@ -289,7 +289,7 @@ Exp_info *read2exp(Read *read, char *EN) {
     /* Otherwise create our EN, ID, LN and LT lines */
     } else {
 	/* Entry name and ID lines */
-	if (p = strrchr(EN, '/'))
+	if ((p = strrchr(EN, '/')))
 	    EN = p+1;
 	extend(e, EFLT_EN, l);
 	sprintf(exp_get_entry(e, EFLT_EN), "%s", EN);
@@ -299,7 +299,7 @@ Exp_info *read2exp(Read *read, char *EN) {
 	/* Trace file & type */
 	if (read->trace_name) {
 	    char *cp;
-	    if (cp = strrchr(read->trace_name, '/'))
+	    if ((cp = strrchr(read->trace_name, '/')))
 		cp++;
 	    else
 		cp = read->trace_name;
@@ -647,7 +647,7 @@ Read *exp2read(Exp_info *e, char *fn) {
 	ttype = exp_Nentries(e,EFLT_LT)
 	    ? trace_type_str2int(exp_get_entry(e, EFLT_LT)) : TT_ANYTR;
 
-	if (fp = open_trace_file(exp_get_entry(e, EFLT_LN), fn)) {
+	if ((fp = open_trace_file(exp_get_entry(e, EFLT_LN), fn))) {
 	    if (NULLRead == (r = fread_reading(fp, NULL, ttype)))
 		err = 1;
 	} else {

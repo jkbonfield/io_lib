@@ -113,7 +113,8 @@ int main(int argc, char **argv) {
 
     /* Seek back and update the header with the new nreads */
     fseek(fpout, 0, SEEK_SET);
-    fread(chdr, 1, 31, fpout);
+    if (31 != fread(chdr, 1, 31, fpout))
+	exit(1);
     *(uint64_t *)(chdr+8)  = be_int8(0);
     *(uint32_t *)(chdr+16) = be_int4(0);
     *(uint32_t *)(chdr+20) = be_int4(ch->nreads);

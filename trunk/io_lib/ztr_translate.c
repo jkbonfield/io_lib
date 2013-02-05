@@ -9,6 +9,8 @@
 #include "io_lib/xalloc.h"
 #include "io_lib/Read.h"
 
+#define DO_SMP4
+
 /* Return the A,C,G,T samples */
 static char *ztr_encode_samples_4(ztr_t *z,
 				  Read *r, int *nbytes, char **mdata,
@@ -60,6 +62,7 @@ static char *ztr_encode_samples_4(ztr_t *z,
     return bytes;
 }
 
+#ifdef DO_SMP4
 static void ztr_decode_samples_4(ztr_t *z, ztr_chunk_t *chunk, Read *r) {
     int i, j;
     int maxTraceVal = 0;
@@ -108,6 +111,8 @@ static void ztr_decode_samples_4(ztr_t *z, ztr_chunk_t *chunk, Read *r) {
 
     r->maxTraceVal = maxTraceVal;
 }
+
+#else
 
 /* Return the [A,C,G,T] samples */
 static char *ztr_encode_samples_common(ztr_t *z,
@@ -185,6 +190,7 @@ static char *ztr_encode_samples_T(ztr_t *z,
     return ztr_encode_samples_common(z, "T\0\0", r, r->traceT,
 				     nbytes, mdata, mdbytes);
 }
+#endif
 
 /* ARGSUSED */
 static void ztr_decode_samples(ztr_t *z, ztr_chunk_t *chunk, Read *r) {
@@ -331,6 +337,7 @@ static void ztr_decode_positions(ztr_t *z, ztr_chunk_t *chunk, Read *r) {
     }
 }
 
+#if 0
 /* Encode the main base confidence (called base) */
 static char *ztr_encode_confidence_1(ztr_t *z,
 				     Read *r, int *nbytes, char **mdata,
@@ -396,6 +403,7 @@ static char *ztr_encode_confidence_1(ztr_t *z,
     bytes[0] = ZTR_FORM_RAW;
     return bytes;
 }
+#endif
 
 static int ztr_decode_confidence_1(ztr_t *z, ztr_chunk_t *chunk, Read *r) {
     char *bytes = chunk->data;
@@ -914,7 +922,6 @@ ztr_t *read2ztr(Read *r) {
     char *bytes;
     char *mdata;
 
-#define DO_SMP4
     int chunk_type[] = {
 #ifdef DO_SMP4
 	ZTR_TYPE_SMP4,

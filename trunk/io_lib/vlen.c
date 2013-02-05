@@ -83,7 +83,7 @@ int vflen(char *fmt, va_list ap)
 	    signed int arg_size;
 
 	    /* Firstly, strip the modifier flags (+-#0 and [space]) */
-	    for(; c=*++cp;) {
+	    for(; (c=*++cp);) {
 		if ('#' == c)
 		    len+=2; /* Worst case of "0x" */
 		else if ('-' == c || '+' == c || ' ' == c)

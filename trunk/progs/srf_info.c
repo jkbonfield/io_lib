@@ -408,7 +408,7 @@ ztr_t *partial_decode_ztr2(srf_t *srf, mFILE *mf, ztr_t *z) {
 
     /* Load chunks */
     pos = mftell(mf);
-    while (chunk = ztr_read_chunk_hdr(mf)) {
+    while ((chunk = ztr_read_chunk_hdr(mf))) {
 	chunk->data = (char *)xmalloc(chunk->dlength);
 	if (chunk->dlength != mfread(chunk->data, 1, chunk->dlength, mf))
 	    break;

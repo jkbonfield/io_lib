@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <math.h>
+#include <ctype.h>
 
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
@@ -30,8 +31,6 @@
  */
 
 /* zlib compression code - from Gap5's tg_iface_g.c */
-static int tg_zlevel = 6;
-
 static char *zlib_mem_deflate(char *data, size_t size, size_t *cdata_size,
 			      int level, int strat) {
     z_stream s;
@@ -55,9 +54,6 @@ static char *zlib_mem_deflate(char *data, size_t size, size_t *cdata_size,
     s.total_out = 0;
     s.data_type = Z_BINARY;
 
-    //    err = deflateInit2(&s, tg_zlevel == -1 ? Z_DEFAULT_COMPRESSION : tg_zlevel,
-    //		       Z_DEFLATED, 15|16, 9, Z_DEFAULT_STRATEGY);
-    //err = deflateInit2(&s, 4, Z_DEFLATED, 15|16, 9, Z_FILTERED);
     err = deflateInit2(&s, level, Z_DEFLATED, 15|16, 9, strat);
     if (err != Z_OK) {
 	fprintf(stderr, "zlib deflateInit2 error: %s\n", s.msg);
@@ -175,7 +171,7 @@ static char cram_sub_matrix[32][32];
  * Initialise lookup tables. Used within cram_decode_seq().
  */
 static void cram_init(void) {
-    int i, j;
+    int i;
 
     if (cram_init_done)
 	return;
@@ -1213,7 +1209,7 @@ static int sub_idx(char *key, char val) {
 cram_block *cram_encode_compression_header(cram_container *c, cram_block_compression_hdr *h) {
     cram_block *cb = cram_new_block(COMPRESSION_HEADER, 0);
     char *buf = malloc(8192); // FIXME, is 8192 guaranteed large enough?
-    char *cp = buf, *cp2;
+    char *cp = buf;
     int i, mc;
     char map[8192], *mp, cnt_buf[5];
 
@@ -1246,7 +1242,7 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
         HashIter *iter = HashTableIterCreate();
 
         while ((hi = HashTableIterNext(h->preservation_map, iter))) {
-            cram_map *m = hi->data.p;
+            //cram_map *m = hi->data.p;
 
 	    *mp++ = hi->key[0];
 	    *mp++ = hi->key[1];
@@ -1848,6 +1844,7 @@ void cram_stats_dump(cram_stats *st) {
     }
 }
 
+#if 0
 /* Returns the number of bits set in val; it the highest bit used */
 static int nbits(int v) {
     static const int MultiplyDeBruijnBitPosition[32] = {
@@ -1870,6 +1867,7 @@ static int sort_freqs(const void *vp1, const void *vp2) {
     const int i2 = *(const int *)vp2;
     return i1-i2;
 }
+#endif
 
 /*
  * Computes entropy from integer frequencies for various encoding methods and
@@ -1882,7 +1880,7 @@ static int sort_freqs(const void *vp1, const void *vp2) {
  */
 enum cram_encoding cram_stats_encoding(cram_stats *st) {
     enum cram_encoding best_encoding = E_NULL;
-    int best_size = INT_MAX, bits, bits2;
+    int best_size = INT_MAX, bits;
     int nvals, i, ntot = 0, max_val = 0, min_val = INT_MAX, k;
     int *vals = NULL, *freqs = NULL, vals_alloc = 0, *codes;
 
@@ -1932,6 +1930,9 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
 	free(freqs);
 	return E_HUFFMAN;
     }
+
+    /* We only support huffman now anyway... */
+    return E_HUFFMAN;
 
     fprintf(stderr, "Range = %d..%d, nvals=%d, ntot=%d\n",
 	    min_val, max_val, nvals, ntot);
@@ -2069,8 +2070,7 @@ void cram_stats_free(cram_stats *st) {
  * decode_container / encode_container.
  */
 int cram_encode_container(cram_fd *fd, cram_container *c) {
-    int i, j, last_pos, slice_offset;
-    char buf[1024], *cp;
+    int i, j, slice_offset;
     cram_block_compression_hdr *h = cram_new_compression_header();
     cram_block *c_hdr;
 
@@ -2176,9 +2176,9 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	//				    c->TN_stats, NULL);
 	cram_byte_array_len_encoder e;
 	e.len_len = 6;
-	e.len_dat = "\003\004\001\003\001\000";
+	e.len_dat = (uc *)"\003\004\001\003\001\000";
 	e.val_len = 3;
-	e.val_dat = "\001\001\004\001\003\001\000";
+	e.val_dat = (uc *)"\001\001\004\001\003\001\000";
 	h->TN_codec = cram_encoder_init(E_BYTE_ARRAY_LEN, NULL, (void *)&e);
     } else {
 #ifdef TN_AS_EXT
@@ -2353,7 +2353,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 		prev_pos = f->X.pos;
 
 		switch(f->X.code) {
-		    int k;
 		    char *seq;
 
 		case 'X':
@@ -2398,7 +2397,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 				     (char *)&cr->mqual, 1);
 
 	}
-	s->block[0]->data = core->data;
+	s->block[0]->data = (char *)core->data;
 	s->block[0]->uncomp_size = core->byte + (core->bit < 7);
 	s->block[0]->comp_size = s->block[0]->uncomp_size;
 	block_destroy(core, 1);
@@ -2540,6 +2539,8 @@ int cram_add_feature(cram_container *c, cram_slice *s,
     counter++;
 
     s->features[s->nfeatures++] = *f;
+
+    return 0;
 }
 
 static int cram_add_substitution(cram_container *c, cram_slice *s, cram_record *r,
@@ -3058,7 +3059,7 @@ int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
     block_t *blk = block_create((unsigned char *)b->data, b->uncomp_size);
     int rec;
     char *seq, *qual;
-    int unknown_rg = -1, i;
+    int unknown_rg = -1;
 
     blk->bit = 7; // MSB first
 
@@ -3655,7 +3656,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	    case 'Z': case 'H':
 		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		while (*tmp++=*aux++);
+		while ((*tmp++=*aux++));
 		*tmp++ = '\t'; // stop byte
 		break;
 
@@ -3770,9 +3771,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     /* Copy and parse */
     {
-	int ncigar = cr->ncigar;
-	int32_t *cig_to = s->cigar;
-	int32_t *cig_from = bam_cigar(b);
+	int32_t *cig_to = (int32_t *)s->cigar;
+	int32_t *cig_from = (int32_t *)bam_cigar(b);
 	int apos = cr->apos-1, spos = 0;
 
 	cr->feature = 0;

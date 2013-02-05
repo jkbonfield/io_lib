@@ -484,13 +484,15 @@ int mfflush(mFILE *mf) {
     /* only flush when opened in write mode */
     if (mf->mode & MF_WRITE) {
 	if (mf->flush_pos < mf->size) {
-	    if (!mf->mode & MF_MODEX)
+	    if (!(mf->mode & MF_MODEX))
 		fseek(mf->fp, mf->flush_pos, SEEK_SET);
 	    fwrite(mf->data + mf->flush_pos, 1,
 		   mf->size - mf->flush_pos, mf->fp);
 	    fflush(mf->fp);
 	}
-	ftruncate(fileno(mf->fp), ftell(mf->fp));
+	if (ftell(mf->fp) != -1 &&
+	    ftruncate(fileno(mf->fp), ftell(mf->fp)) == -1)
+		return -1;
 	mf->flush_pos = mf->size;
     }
 

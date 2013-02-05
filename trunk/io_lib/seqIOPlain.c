@@ -147,7 +147,7 @@ Read *fread_pln(FILE *fp) {
 				&d, &d, &d, type, name)) {
 		    char * p;
 
-		    if (p = strchr(type, ' '))
+		    if ((p = strchr(type, ' ')))
 			*p = 0;
 
 		    read->format = trace_type_str2int(type);

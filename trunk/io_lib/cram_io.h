@@ -34,6 +34,13 @@ int itf8_decode(cram_fd *fd, int32_t *val);
  */
 int itf8_get(char *cp, int32_t *val_p);
 
+/*
+ * Stores a value to memory in ITF-8 format.
+ *
+ * Returns the number of bytes required to store the number.
+ * This is a maximum of 5 bytes.
+ */
+int itf8_put(char *cp, int32_t val);
 
 /*
  * Reads up to 24-bits worth of data and returns. Updates the block
@@ -202,5 +209,16 @@ char *cram_extract_block(cram_block *b, int size);
  */
 int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
 		int rec, bam_seq_t **bam, size_t *bam_alloc);
+
+/*
+ * Write iterator: put BAM format sequences into a CRAM file.
+ * We buffer up a containers worth of data at a time.
+ *
+ * FIXME: break this into smaller pieces.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b);
 
 #endif /* _CRAM_IO_H_ */
