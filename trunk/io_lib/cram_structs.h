@@ -29,6 +29,9 @@
 
 #define CRAM_SUBST_MATRIX "CGTNAGTNACTNACGNACGT"
 
+// Seems to gzip better than just using a huffman encoder in CORE
+#define TN_AS_EXT
+
 /* NB: matches java impl, not the spec */
 enum cram_encoding {
     E_NULL               = 0,
@@ -261,6 +264,9 @@ typedef struct {
     int32_t mate_pos;     // NP
     int32_t tlen;         // TS
     int32_t ntags;        // TC
+#ifndef TN_AS_EXT
+    int32_t TN_idx;       // TN; idx to s->TN;
+#endif
     int32_t seq;          // idx to s->seqs_ds
     int32_t cigar;        // idx to s->cigar
     int32_t ncigar;
@@ -345,6 +351,12 @@ typedef struct cram_slice {
     cram_feature *features;
     int           nfeatures;
     int           afeatures; // allocated size of features
+
+#ifndef TN_AS_EXT
+    // TN field (Tag Name)
+    uint32_t      *TN;
+    int           nTN, aTN;  // used and allocated size for TN[]
+#endif
 } cram_slice;
 
 typedef struct {
