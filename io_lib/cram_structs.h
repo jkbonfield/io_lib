@@ -357,6 +357,8 @@ typedef struct cram_slice {
     uint32_t      *TN;
     int           nTN, aTN;  // used and allocated size for TN[]
 #endif
+
+    HashTable *pair;         // for identifying read-pairs in this slice.
 } cram_slice;
 
 typedef struct {
@@ -401,6 +403,10 @@ typedef struct {
 #define CRAM_FSECONDARY     4
 #define CRAM_FQCFAIL        2
 #define CRAM_FDUP           1
+
+#define CRAM_M_REVERSE  1
+#define CRAM_M_UNMAP    2
+
 
 /* CF bitfields */
 #define CRAM_FLAG_PRESERVE_QUAL_SCORES (1<<0)
