@@ -328,8 +328,7 @@ int itf8_put(char *cp, int32_t val) {
 	*cp++ = (val >> 24) & 0xff;
 	*cp++ = (val >> 16) & 0xff;
 	*cp++ = (val >> 8 ) & 0xff;
-	*cp++ = (val >> 4 ) & 0xff;
-	*cp   = val & 0xff;
+	*cp = val & 0xff;
 	return 5;
     }
 }
