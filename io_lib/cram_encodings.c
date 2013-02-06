@@ -520,7 +520,16 @@ void cram_huffman_encode_free(cram_codec *c) {
 int cram_huffman_encode_store(cram_codec *c, char *buf, char *prefix) {
     int i;
     cram_huffman_code *codes = c->e_huffman.codes;
-    char tmp[8192]; // FIXME. 2*MAX_HUFFMAN_CODES + 2?
+    /*
+     * Up to code length 127 means 2.5e+26 bytes of data required (worst
+     * case huffman tree needs symbols with freqs matching the Fibonacci
+     * series). So guaranteed 1 byte per code.
+     *
+     * Symbols themselves could be 5 bytes (eg -1 is 5 bytes in itf8).
+     *
+     * Therefore 6*ncodes + 5 + 5 + 1 + 5 is max memory
+     */
+    char *tmp = malloc(6*c->e_huffman.nvals+16);
     char *cp = buf, *tp = tmp;
 
     if (prefix) {
@@ -543,6 +552,9 @@ int cram_huffman_encode_store(cram_codec *c, char *buf, char *prefix) {
     cp += itf8_put(cp, tp-tmp);
     memcpy(cp, tmp, tp-tmp);
     cp += tp-tmp;
+
+    //assert(cp-buf < 8192);
+    free(tmp);
 
     return cp - buf;
 }
@@ -572,6 +584,7 @@ cram_codec *cram_huffman_encode_init(cram_stats *st, void *option) {
 	}
 	vals[nvals] = i;
 	freqs[nvals] = st->freqs[i];
+	assert(st->freqs[i] > 0);
 	ntot += freqs[nvals];
 	if (max_val < i) max_val = i;
 	if (min_val > i) min_val = i;
@@ -589,6 +602,7 @@ cram_codec *cram_huffman_encode_init(cram_stats *st, void *option) {
 	    }
 	    vals[nvals]=(int)hi->key;
 	    freqs[nvals] = hi->data.i;
+	    assert(hi->data.i > 0);
 	    ntot += freqs[nvals];
 	    if (max_val < i) max_val = i;
 	    if (min_val > i) min_val = i;
@@ -830,8 +844,10 @@ int cram_byte_array_stop_decode(cram_slice *slice, cram_codec *c, block_t *in, c
 	    return -1;
     }
 
+    assert(b->idx < b->uncomp_size);
     cp = b->data + b->idx;
     while ((ch = *cp) != (char)c->byte_array_stop.stop) {
+	assert(cp - b->data < b->uncomp_size);
 	*out++ = ch;
 	cp++;
     }
