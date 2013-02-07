@@ -161,7 +161,8 @@ int main(int argc, char **argv) {
 	    /* Test decoding of 1st seq */
 	    {
 		cram_block *b = s->block[0];
-		int32_t i32, bf, cf, fn, prev_pos, rl;
+		int32_t i32, bf, fn, prev_pos, rl;
+		unsigned char cf;
 		int out_sz, r, f;
 		block_t *blk = block_create((unsigned char *)b->data, b->uncomp_size);
 		int rec;
@@ -198,10 +199,11 @@ int main(int argc, char **argv) {
 		    }
 
 		    if (cf & CRAM_FLAG_DETACHED) {
+			char mf;
 			puts("Detached");
 			/* MF, RN if !captureReadNames, NS, NP, IS */
-			r = c->comp_hdr->MF_codec->decode(s,c->comp_hdr->MF_codec, blk, (char *)&i32, &out_sz);
-			printf("MF = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
+			r = c->comp_hdr->MF_codec->decode(s,c->comp_hdr->MF_codec, blk, &mf, &out_sz);
+			printf("MF = %d (ret %d, out_sz %d)\n", mf, r, out_sz);
 
 			if (!c->comp_hdr->read_names_included) {
 			    char dat[100];
@@ -235,9 +237,10 @@ int main(int argc, char **argv) {
 
 			prev_pos = 0;
 			for (f = 0; f < fn; f++) {
-			    int32_t op, pos;
+			    char op;
+			    int32_t pos;
 
-			    r = c->comp_hdr->FC_codec->decode(s,c->comp_hdr->FC_codec, blk, (char *)&op, &out_sz);
+			    r = c->comp_hdr->FC_codec->decode(s,c->comp_hdr->FC_codec, blk, &op, &out_sz);
 			    printf("  %d: FC = %c (ret %d, out_sz %d)\n", f, op, r, out_sz);
 
 			    r = c->comp_hdr->FP_codec->decode(s,c->comp_hdr->FP_codec, blk, (char *)&pos, &out_sz);
@@ -260,8 +263,9 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'X': { // Substitution; BS
-				r = c->comp_hdr->BS_codec->decode(s,c->comp_hdr->BS_codec, blk, (char *)&i32, &out_sz);
-				printf("  %d: BS = %d (ret %d)\n", f, i32, r);
+				char bs;
+				r = c->comp_hdr->BS_codec->decode(s,c->comp_hdr->BS_codec, blk, &bs, &out_sz);
+				printf("  %d: BS = %d (ret %d)\n", f, bs, r);
 				break;
 			    }
 
@@ -282,22 +286,23 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'i': { // Insertion (single base); BA
-				r = c->comp_hdr->BA_codec->decode(s,c->comp_hdr->BA_codec, blk, (char *)&i32, &out_sz);
-				printf("  %d: BA = %c (ret %d)\n", f, i32, r);
+				char cc;
+				r = c->comp_hdr->BA_codec->decode(s,c->comp_hdr->BA_codec, blk, &cc, &out_sz);
+				printf("  %d: BA = %c (ret %d)\n", f, cc, r);
 				break;
 			    }
 
 			    case 'B': { // Read base; BA, QS
-				int32_t qc;
-				r  = c->comp_hdr->BA_codec->decode(s,c->comp_hdr->BA_codec, blk, (char *)&i32, &out_sz);
-				r |= c->comp_hdr->QS_codec->decode(s,c->comp_hdr->QS_codec, blk, (char *)&qc, &out_sz);
-				printf("  %d: BA/QS(B) = %c/%d (ret %d)\n", f, i32, qc, r);
+				char cc, qc;
+				r  = c->comp_hdr->BA_codec->decode(s,c->comp_hdr->BA_codec, blk, &cc, &out_sz);
+				r |= c->comp_hdr->QS_codec->decode(s,c->comp_hdr->QS_codec, blk, &qc, &out_sz);
+				printf("  %d: BA/QS(B) = %c/%d (ret %d)\n", f, cc, qc, r);
 				break;
 			    }
 
 			    case 'Q': { // Quality score; QS
-				int32_t qc;
-				r = c->comp_hdr->QS_codec->decode(s,c->comp_hdr->QS_codec, blk, (char *)&qc, &out_sz);
+				char qc;
+				r = c->comp_hdr->QS_codec->decode(s,c->comp_hdr->QS_codec, blk, &qc, &out_sz);
 				printf("  %d: QS = %d (ret %d)\n", f, qc, r);
 			    }
 
