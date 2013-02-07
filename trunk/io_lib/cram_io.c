@@ -244,7 +244,6 @@ int itf8_decode(cram_fd *fd, int32_t *val_p) {
 	0x0f,                                           // 1111xxxx
     };
 
-    int sz = 1;
     int32_t val = getc(fd->fp);
     if (val == -1)
 	return -1;
@@ -252,14 +251,38 @@ int itf8_decode(cram_fd *fd, int32_t *val_p) {
     int i = nbytes[val>>4];
     val &= nbits[val>>4];
 
-    while (i) {
+    switch(i) {
+    case 0:
+	*val_p = val;
+	return 1;
+
+    case 1:
 	val = (val<<8) | (unsigned char)getc(fd->fp);
-	i--;
-	sz++;
+	*val_p = val;
+	return 2;
+
+    case 2:
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val;
+	return 3;
+
+    case 3:
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val;
+	return 4;
+
+    case 4: // really 3.5 more, why make it different?
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<4) | (((unsigned char)getc(fd->fp)) & 0x0f);
+	*val_p = val;
     }
-    *val_p = val;
-    
-    return sz;
+
+    return 5;
 }
 
 /*
@@ -282,20 +305,43 @@ int itf8_get(char *cp, int32_t *val_p) {
 	0x0f,                                           // 1111xxxx
     };
 
-    int sz = 1;
     int32_t val = (unsigned char)*cp++;
 
     int i = nbytes[val>>4];
     val &= nbits[val>>4];
 
-    while (i) {
+    switch(i) {
+    case 0:
+	*val_p = val;
+	return 1;
+
+    case 1:
 	val = (val<<8) | (unsigned char)*cp++;
-	i--;
-	sz++;
+	*val_p = val;
+	return 2;
+
+    case 2:
+	val = (val<<8) | (unsigned char)*cp++;
+	val = (val<<8) | (unsigned char)*cp++;
+	*val_p = val;
+	return 3;
+
+    case 3:
+	val = (val<<8) | (unsigned char)*cp++;
+	val = (val<<8) | (unsigned char)*cp++;
+	val = (val<<8) | (unsigned char)*cp++;
+	*val_p = val;
+	return 4;
+
+    case 4: // really 4.5, why make it different?
+	val = (val<<8) | (unsigned char)*cp++;
+	val = (val<<8) | (unsigned char)*cp++;
+	val = (val<<8) | (unsigned char)*cp++;
+	val = (val<<4) | (((unsigned char)*cp++) & 0x0f);
+	*val_p = val;
     }
-    *val_p = val;
-    
-    return sz;
+
+    return 5;
 }
 
 /*
@@ -324,11 +370,11 @@ int itf8_put(char *cp, int32_t val) {
 	*cp   = val & 0xff;
 	return 4;
     } else {                           // 5 byte
-	*cp++ = 0xf0;
-	*cp++ = (val >> 24) & 0xff;
-	*cp++ = (val >> 16) & 0xff;
-	*cp++ = (val >> 8 ) & 0xff;
-	*cp = val & 0xff;
+	*cp++ = 0xf0 | ((val>>28) & 0xff);
+	*cp++ = (val >> 20) & 0xff;
+	*cp++ = (val >> 12) & 0xff;
+	*cp++ = (val >> 4 ) & 0xff;
+	*cp = val & 0x0f;
 	return 5;
     }
 }
@@ -543,19 +589,19 @@ cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	return NULL;
 
     /* Length */
-    if (1 != fread(&hdr->length, 4, 1, fd->fp)) {
+    if (1 != fread(&hdr->header_len, 4, 1, fd->fp)) {
 	free(hdr);
 	return NULL;
     }
-    hdr->length = le_int4(hdr->length);
+    hdr->header_len = le_int4(hdr->header_len);
 
     /* Alloc and read */
-    if (NULL == (hdr->header = malloc(hdr->length+1))) {
+    if (NULL == (hdr->header = malloc(hdr->header_len+100))) {
 	free(hdr);
 	return NULL;
     }
 
-    if (hdr->length != fread(hdr->header, 1, hdr->length, fd->fp)) {
+    if (hdr->header_len != fread(hdr->header, 1, hdr->header_len, fd->fp)) {
 	free(hdr);
 	return NULL;
     }
@@ -580,38 +626,27 @@ cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
  *         NULL on failure
  */
 cram_SAM_hdr *cram_create_SAM_hdr(char *str, size_t len) {
-    bam_file_t b;
+    cram_SAM_hdr *hdr;
+    HashItem *hi;
 
-    cram_SAM_hdr *hdr = calloc(1, sizeof(*hdr));
-    if (!hdr)
+    if (!(hdr = calloc(1, sizeof(*hdr))))
 	return NULL;
 
-    if (NULL == (hdr->header = malloc(len))) {
+    if (NULL == (hdr->header = malloc(len+100))) {
 	free(hdr);
 	return NULL;
     }
 
     memcpy(hdr->header, str, len);
-    hdr->length = len;
+    hdr->header_len = len;
     hdr->ref_hash = NULL;
     hdr->rg_hash = NULL;
 
-    /* Reuse bam parsing. FIXME: this is ugly and needs merging */
-    memset(&b, 0, sizeof(b));
-    b.header = str;
-    b.header_len = len;
-    bam_parse_header(&b);
+    bam_parse_header(hdr);
 
-    hdr->ref_hash = b.ref_hash;
-    hdr->rg_hash  = b.rg_hash;
-    if (b.rg_id)  free(b.rg_id);
-    if (b.rg_len) free(b.rg_len);
-    if (b.ref) {
-	int i;
-	for (i = 0; i < b.nref; i++)
-	    if (b.ref[i].name)
-		free(b.ref[i].name);
-	free(b.ref);
+    // If no UNKNOWN read-group, add one.
+    if (!(hi = HashTableSearch(hdr->rg_hash, "UNKNOWN", 0))) {
+	bam_add_rg(hdr, "UNKNOWN", "UNKNOWN");
     }
 
     return hdr;
@@ -624,14 +659,14 @@ cram_SAM_hdr *cram_create_SAM_hdr(char *str, size_t len) {
  *        -1 on failure
  */
 int cram_write_SAM_hdr(cram_fd *fd, cram_SAM_hdr *hdr) {
-    int32_t le_len = le_int4(hdr->length);
+    int32_t le_len = le_int4(hdr->header_len);
 
     /* Length */
     if (1 != fwrite(&le_len, 4, 1, fd->fp))
 	return -1;
 
     /* Text data */
-    if (hdr->length != fwrite(hdr->header, 1, hdr->length, fd->fp))
+    if (hdr->header_len != fwrite(hdr->header, 1, hdr->header_len, fd->fp))
 	return -1;
 
     fflush(fd->fp);
@@ -3765,7 +3800,9 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	tag_list_t *tl = hi->data.p;
 	cr->rg = hi ? tl->key : -1;
     } else {
-	cr->rg = -1;
+	HashItem *hi = HashTableSearch(fd->SAM_hdr->rg_hash, "UNKNOWN", 0);
+	assert(hi);
+	cr->rg = ((tag_list_t *)hi->data.p)->key;
     }
     cram_stats_add(c->RG_stats, cr->rg);
 
