@@ -3473,7 +3473,7 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
     /* Resolve mate-pair cross-references */
     if (cr->mate_line >= 0) {
 	if (cr->mate_line < s->hdr->num_records) {
-	    cr->tlen = s->crecs[cr->mate_line].apos >= cr->apos
+	    cr->tlen = cr->mate_line > rec
 		?   (s->crecs[cr->mate_line].aend - cr->apos + 1)
 		: - (cr->aend - s->crecs[cr->mate_line].apos + 1);
 	    cr->mate_pos = s->crecs[cr->mate_line].apos;
