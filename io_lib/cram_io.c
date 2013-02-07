@@ -1150,7 +1150,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 	else if (key[0] == 'R' && key[1] == 'L')
 	    hdr->RL_codec = cram_decoder_init(encoding, cp, size, E_INT);
 	else if (key[0] == 'A' && key[1] == 'P')
-	    hdr->AP_codec = cram_decoder_init(encoding, cp, size, E_LONG);
+	    hdr->AP_codec = cram_decoder_init(encoding, cp, size, E_INT);
 	else if (key[0] == 'R' && key[1] == 'G')
 	    hdr->RG_codec = cram_decoder_init(encoding, cp, size, E_INT);
 	else if (key[0] == 'M' && key[1] == 'F')
@@ -2173,117 +2173,121 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     fprintf(stderr, "=== BF ===\n");
     h->BF_codec = cram_encoder_init(cram_stats_encoding(c->BF_stats),
-				    c->BF_stats, NULL);
+				    c->BF_stats, E_INT, NULL);
 
     fprintf(stderr, "=== CF ===\n");
     h->CF_codec = cram_encoder_init(cram_stats_encoding(c->CF_stats),
-				    c->CF_stats, NULL);
+				    c->CF_stats, E_BYTE, NULL);
 
 //    fprintf(stderr, "=== RN ===\n");
 //    h->RN_codec = cram_encoder_init(cram_stats_encoding(c->RN_stats),
-//				    c->RN_stats, NULL);
+//				    c->RN_stats, E_BYTE_ARRAY, NULL);
 
     fprintf(stderr, "=== AP ===\n");
     h->AP_codec = cram_encoder_init(cram_stats_encoding(c->AP_stats),
-				    c->AP_stats, NULL);
+				    c->AP_stats, E_INT, NULL);
 
     fprintf(stderr, "=== RG ===\n");
     h->RG_codec = cram_encoder_init(cram_stats_encoding(c->RG_stats),
-				    c->RG_stats, NULL);
+				    c->RG_stats, E_INT, NULL);
 
     fprintf(stderr, "=== MQ ===\n");
     h->MQ_codec = cram_encoder_init(cram_stats_encoding(c->MQ_stats),
-				    c->MQ_stats, NULL);
+				    c->MQ_stats, E_INT, NULL);
 
     fprintf(stderr, "=== NS ===\n");
     h->NS_codec = cram_encoder_init(cram_stats_encoding(c->NS_stats),
-				    c->NS_stats, NULL);
+				    c->NS_stats, E_INT, NULL);
 
     fprintf(stderr, "=== NP ===\n");
     h->NP_codec = cram_encoder_init(cram_stats_encoding(c->NP_stats),
-				    c->NP_stats, NULL);
+				    c->NP_stats, E_INT, NULL);
 
     fprintf(stderr, "=== MF ===\n");
     h->MF_codec = cram_encoder_init(cram_stats_encoding(c->MF_stats),
-				    c->MF_stats, NULL);
+				    c->MF_stats, E_BYTE, NULL);
 
     fprintf(stderr, "=== TS ===\n");
     h->TS_codec = cram_encoder_init(cram_stats_encoding(c->TS_stats),
-				    c->TS_stats, NULL);
+				    c->TS_stats, E_INT, NULL);
 
     fprintf(stderr, "=== NF ===\n");
     h->NF_codec = cram_encoder_init(cram_stats_encoding(c->NF_stats),
-				    c->NF_stats, NULL);
+				    c->NF_stats, E_INT, NULL);
 
     fprintf(stderr, "=== RL ===\n");
     h->RL_codec = cram_encoder_init(cram_stats_encoding(c->RL_stats),
-				    c->RL_stats, NULL);
+				    c->RL_stats, E_INT, NULL);
 
     fprintf(stderr, "=== FN ===\n");
     h->FN_codec = cram_encoder_init(cram_stats_encoding(c->FN_stats),
-				    c->FN_stats, NULL);
+				    c->FN_stats, E_INT, NULL);
 
     fprintf(stderr, "=== FC ===\n");
     h->FC_codec = cram_encoder_init(cram_stats_encoding(c->FC_stats),
-				    c->FC_stats, NULL);
+				    c->FC_stats, E_BYTE, NULL);
 
     fprintf(stderr, "=== FP ===\n");
     h->FP_codec = cram_encoder_init(cram_stats_encoding(c->FP_stats),
-				    c->FP_stats, NULL);
+				    c->FP_stats, E_INT, NULL);
 
     fprintf(stderr, "=== DL ===\n");
     h->DL_codec = cram_encoder_init(cram_stats_encoding(c->DL_stats),
-				    c->DL_stats, NULL);
+				    c->DL_stats, E_INT, NULL);
 
     fprintf(stderr, "=== BA ===\n");
     h->BA_codec = cram_encoder_init(cram_stats_encoding(c->BA_stats),
-				    c->BA_stats, NULL);
+				    c->BA_stats, E_BYTE, NULL);
 
     fprintf(stderr, "=== BS ===\n");
     h->BS_codec = cram_encoder_init(cram_stats_encoding(c->BS_stats),
-				    c->BS_stats, NULL);
+				    c->BS_stats, E_BYTE, NULL);
 
     fprintf(stderr, "=== TC ===\n");
     h->TC_codec = cram_encoder_init(cram_stats_encoding(c->TC_stats),
-				    c->TC_stats, NULL);
+				    c->TC_stats, E_BYTE, NULL);
 
     fprintf(stderr, "=== TN ===\n");
     if (0) {
 	//h->TN_codec = cram_encoder_init(cram_stats_encoding(c->TN_stats),
-	//				    c->TN_stats, NULL);
+	//				    c->TN_stats, E_INT, NULL);
 	cram_byte_array_len_encoder e;
 	e.len_len = 6;
 	e.len_dat = (uc *)"\003\004\001\003\001\000";
 	e.val_len = 3;
 	e.val_dat = (uc *)"\001\001\004\001\003\001\000";
-	h->TN_codec = cram_encoder_init(E_BYTE_ARRAY_LEN, NULL, (void *)&e);
+	h->TN_codec = cram_encoder_init(E_BYTE_ARRAY_LEN, NULL,
+					E_INT, (void *)&e);
     } else {
 #ifdef TN_AS_EXT
-	h->TN_codec = cram_encoder_init(E_EXTERNAL, NULL, (void *)4);
+	h->TN_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)4);
 #else
 	h->TN_codec = cram_encoder_init(cram_stats_encoding(c->TN_stats),
-					c->TN_stats, NULL);
+					c->TN_stats, E_INT, NULL);
 #endif
     }
     
     if (1) {
 	// HACK
 	int i2[2] = {0, 0};
-	h->IN_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL, (void *)i2);
+	h->IN_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL,
+					E_BYTE_ARRAY, (void *)i2);
     } else {
 	// Do we know the length in soft-clips? Maybe this is impossible.
-	h->IN_codec = cram_encoder_init(E_EXTERNAL, NULL, (void *)0);
+	h->IN_codec = cram_encoder_init(E_EXTERNAL, NULL,
+					E_BYTE_ARRAY, (void *)0);
     }
     {
 	// HACK
 	//int i2[2] = {0, 1};
 	//h->QS_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL, (void *)i2);
-	h->QS_codec = cram_encoder_init(E_EXTERNAL, NULL, (void *)1);
+	h->QS_codec = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE, (void *)1);
     }
     {
 	// HACK
 	int i2[2] = {0, 2};
-	h->RN_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL, (void *)i2);
+	h->RN_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL,
+					E_BYTE_ARRAY, (void *)i2);
     }
 
 
@@ -2344,14 +2348,16 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	for (rec = 0; rec < s->hdr->num_records; rec++) {
 	    cram_record *cr = &s->crecs[rec];
 	    int32_t i32;
+	    unsigned char uc;
 
 	    //printf("BF=0x%x\n", cr->flags);
 	    //	    bf = cram_flag_swap[cr->flags];
 	    i32 = cram_flag_swap[cr->flags & 511];
 	    r |= h->BF_codec->encode(s, h->BF_codec, core, (char *)&i32, 1);
 
+	    uc = cr->cram_flags;
 	    r |= h->CF_codec->encode(s, h->CF_codec, core,
-				     (char *)&cr->cram_flags, 1);
+				     (char *)&uc, 1);
 
 	    r |= h->RL_codec->encode(s, h->RL_codec, core,
 				     (char *)&cr->len, 1);
@@ -2369,9 +2375,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    }
 
 	    if (cr->cram_flags & CRAM_FLAG_DETACHED) {
-
-		r |= h->MF_codec->encode(s, h->MF_codec, core,
-					 (char *)&cr->mate_flags, 1);
+		char mf = cr->mate_flags;
+		r |= h->MF_codec->encode(s, h->MF_codec, core, &mf, 1);
 
 		if (!c->comp_hdr->read_names_included) {
 		    // FIXME: RN codec
@@ -2393,8 +2398,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
 	    /* Aux tags */
 #if 1
-	    r |= h->TC_codec->encode(s, h->TC_codec, core,
-				     (char *)&cr->ntags, 1);
+	    uc = cr->ntags;
+	    r |= h->TC_codec->encode(s, h->TC_codec, core, (char *)&uc, 1);
 #ifndef TN_AS_EXT
 	    for (j = 0; j < cr->ntags; j++) {
 		uint32_t i32 = s->TN[cr->TN_idx + j]; // id
@@ -2403,9 +2408,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    }
 #endif
 #else
-	    i32 = 0; // no tags
-	    r |= h->TC_codec->encode(s, h->TC_codec, core,
-				     (char *)&i32, 1);
+	    uc = 0; // no tags
+	    r |= h->TC_codec->encode(s, h->TC_codec, core, (char *)&uc, 1);
 #endif
 
 	    // qual
@@ -2415,59 +2419,64 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    //fprintf(stderr, "Encode seq %d, FN=%d, %d/%d\n", rec, cr->nfeature, core->byte, core->bit);
 
 	    // features (diffs)
-	    r |= h->FN_codec->encode(s, h->FN_codec, core,
-				     (char *)&cr->nfeature, 1);
-	    int prev_pos = 0;
-	    for (j = 0; j < cr->nfeature; j++) {
-		cram_feature *f = &s->features[cr->feature + j];
+	    if (!(cr->flags & BAM_FUNMAP)) {
+		r |= h->FN_codec->encode(s, h->FN_codec, core,
+					 (char *)&cr->nfeature, 1);
+		int prev_pos = 0;
+		for (j = 0; j < cr->nfeature; j++) {
+		    cram_feature *f = &s->features[cr->feature + j];
 
-		i32 = f->X.code;
-		r |= h->FC_codec->encode(s, h->FC_codec, core,
-					 (char *)&i32, 1);
-		i32 = f->X.pos - prev_pos;
-		r |= h->FP_codec->encode(s, h->FP_codec, core,
-					 (char *)&i32, 1);
-		prev_pos = f->X.pos;
+		    uc = f->X.code;
+		    r |= h->FC_codec->encode(s, h->FC_codec, core,
+					     (char *)&uc, 1);
+		    i32 = f->X.pos - prev_pos;
+		    r |= h->FP_codec->encode(s, h->FP_codec, core,
+					     (char *)&i32, 1);
+		    prev_pos = f->X.pos;
 
-		switch(f->X.code) {
-		    char *seq;
+		    switch(f->X.code) {
+			//char *seq;
 
-		case 'X':
-		    //fprintf(stderr, "    FC=%c FP=%d base=%d\n", f->X.code, i32, f->X.base);
+		    case 'X':
+			//fprintf(stderr, "    FC=%c FP=%d base=%d\n", f->X.code, i32, f->X.base);
 		
-		    i32 = f->X.base;
-		    r |= h->BS_codec->encode(s, h->BS_codec, core,
-					     (char *)&i32, 1);
-		    break;
-		case 'S':
-		    seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
-		    //r |= h->IN_codec->encode(s, h->IN_codec, core,
-		    //			     seq, f->S.len);
-		    break;
-		case 'I':
-		    seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
-		    //r |= h->IN_codec->encode(s, h->IN_codec, core,
-		    //			     seq, f->S.len);
-		    break;
-		case 'i':
-		    i32 = f->i.base;
-		    r |= h->BA_codec->encode(s, h->BA_codec, core,
-					     (char *)&i32, 1);
-		    seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
-		    //r |= h->IN_codec->encode(s, h->IN_codec, core,
-		    //			     seq, 1);
-		    break;
-		case 'D':
-		    i32 = f->D.len;
-		    r |= h->DL_codec->encode(s, h->DL_codec, core,
-					     (char *)&i32, 1);
-		    break;
+			uc = f->X.base;
+			r |= h->BS_codec->encode(s, h->BS_codec, core,
+						 (char *)&uc, 1);
+			break;
+		    case 'S':
+			//seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
+			//r |= h->IN_codec->encode(s, h->IN_codec, core,
+			//			     seq, f->S.len);
+			break;
+		    case 'I':
+			//seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
+			//r |= h->IN_codec->encode(s, h->IN_codec, core,
+			//			     seq, f->S.len);
+			break;
+		    case 'i':
+			uc = f->i.base;
+			r |= h->BA_codec->encode(s, h->BA_codec, core,
+						 (char *)&uc, 1);
+			//seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
+			//r |= h->IN_codec->encode(s, h->IN_codec, core,
+			//			     seq, 1);
+			break;
+		    case 'D':
+			i32 = f->D.len;
+			r |= h->DL_codec->encode(s, h->DL_codec, core,
+						 (char *)&i32, 1);
+			break;
 
-		default:
-		    fprintf(stderr, "unhandled feature code %c\n",
-			    f->X.code);
-		    return -1;
+		    default:
+			fprintf(stderr, "unhandled feature code %c\n",
+				f->X.code);
+			return -1;
+		    }
 		}
+	    } else {
+		char *seq = DSTRING_STR(s->seqs_ds) + cr->seq;
+		r |= h->BA_codec->encode(s, h->BA_codec, core, seq, cr->len);
 	    }
 
 	    r |= h->MQ_codec->encode(s, h->MQ_codec, core,
@@ -2800,7 +2809,8 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
     ref_pos--; // count from 0
     cr->cigar = ncigar;
     for (f = 0; f < fn; f++) {
-	int32_t op, pos;
+	int32_t pos;
+	char op;
 
 	if (ncigar+1 >= cigar_alloc) {
 	    cigar_alloc = cigar_alloc ? cigar_alloc*2 : 1024;
@@ -2808,14 +2818,14 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 	}
 
 	r |= c->comp_hdr->FC_codec->decode(s, c->comp_hdr->FC_codec, blk,
-					   (char *)&op,  &out_sz);
+					   &op,  &out_sz);
 	r |= c->comp_hdr->FP_codec->decode(s, c->comp_hdr->FP_codec, blk,
 					   (char *)&pos, &out_sz);
 	pos += prev_pos;
 
 	if (pos > seq_pos) {
-	    if (refs) {
-		if (ref_pos + pos - seq_pos >= bfd->ref[s->hdr->ref_seq_id].len) {
+	    if (refs && s->hdr->ref_seq_id >= 0) {
+		if (ref_pos + pos - seq_pos > bfd->ref[s->hdr->ref_seq_id].len) {
 		    static int whinged = 0;
 		    if (!whinged)
 			fprintf(stderr, "Ref pos outside of ref sequence boundary\n");
@@ -2864,14 +2874,15 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 	}
 
 	case 'X': { // Substitution; BS
+	    unsigned char base;
 #ifdef USE_X
 	    if (cig_len && cig_op != BAM_CBASE_MISMATCH) {
 		cigar[ncigar++] = (cig_len<<4) + cig_op;
 		cig_len = 0;
 	    }
 	    r |= c->comp_hdr->BS_codec->decode(s, c->comp_hdr->BS_codec, blk,
-					       (char *)&i32, &out_sz);
-	    seq[pos-1] = 'N'; // FIXME look up BS=i32 value
+					       (char *)&base, &out_sz);
+	    seq[pos-1] = 'N'; // FIXME look up BS=base value
 	    cig_op = BAM_CBASE_MISMATCH;
 #else
 	    int ref_base;
@@ -2880,12 +2891,12 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 		cig_len = 0;
 	    }
 	    r |= c->comp_hdr->BS_codec->decode(s, c->comp_hdr->BS_codec, blk,
-					       (char *)&i32, &out_sz);
+					       (char *)&base, &out_sz);
 	    if (ref_pos >= bfd->ref[s->hdr->ref_seq_id].len || !refs) {
 		seq[pos-1] = 'N';
 	    } else {
 		ref_base = L[(unsigned char)refs->ref_id[s->hdr->ref_seq_id][ref_pos]];
-		seq[pos-1] = c->comp_hdr->substitution_matrix[ref_base][i32];
+		seq[pos-1] = c->comp_hdr->substitution_matrix[ref_base][base];
 	    }
 	    cig_op = BAM_CMATCH;
 #endif
@@ -2932,17 +2943,15 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 		cig_len = 0;
 	    }
 	    r |= c->comp_hdr->BA_codec->decode(s, c->comp_hdr->BA_codec, blk,
-					       (char *)&i32, &out_sz);
-	    seq[pos-1] = i32;
+					       (char *)&seq[pos-1], &out_sz);
 	    cig_op = BAM_CINS;
 	    cig_len++;
 	    seq_pos++;
-	    //printf("  %d: BA = %c (ret %d)\n", f, i32, r);
+	    //printf("  %d: BA = %c (ret %d)\n", f, seq[pos-1], r);
 	    break;
 	}
 
 	case 'B': { // Read base; BA, QS
-	    int32_t qc;
 #ifdef USE_X
 	    if (cig_len && cig_op != BAM_CBASE_MISMATCH) {
 		cigar[ncigar++] = (cig_len<<4) + cig_op;
@@ -2955,10 +2964,9 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 	    }
 #endif
 	    r  = c->comp_hdr->BA_codec->decode(s, c->comp_hdr->BA_codec, blk,
-					       (char *)&i32, &out_sz);
+					       (char *)&seq[pos-1], &out_sz);
 	    r |= c->comp_hdr->QS_codec->decode(s, c->comp_hdr->QS_codec, blk,
-					       (char *)&qc, &out_sz);
-	    seq[pos-1] = i32;
+					       (char *)&qual[pos-1], &out_sz);
 #ifdef USE_X
 	    cig_op = BAM_CBASE_MISMATCH;
 #else
@@ -2972,7 +2980,6 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 	}
 
 	case 'Q': { // Quality score; QS
-	    int32_t qc;
 #ifdef USE_X
 	    if (cig_len && cig_op != BAM_CBASE_MISMATCH) {
 		cigar[ncigar++] = (cig_len<<4) + cig_op;
@@ -2985,7 +2992,7 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 	    }
 #endif
 	    r |= c->comp_hdr->QS_codec->decode(s, c->comp_hdr->QS_codec, blk,
-					       (char *)&qc, &out_sz);
+					       (char *)&qual[pos-1], &out_sz);
 #ifdef USE_X
 	    cig_op = BAM_CBASE_MISMATCH;
 #else
@@ -3073,9 +3080,11 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 static int cram_decode_aux(cram_container *c, cram_slice *s,
 			   block_t *blk, cram_record *cr) {
     int i, r = 0, out_sz = 1;
+    unsigned char ntags;
 	    
     r |= c->comp_hdr->TC_codec->decode(s, c->comp_hdr->TC_codec, blk,
-				       (char *)&cr->ntags, &out_sz);
+				       (char *)&ntags, &out_sz);
+    cr->ntags = ntags;
 
     //printf("TC=%d\n", cr->ntags);
     cr->aux_size = 0;
@@ -3131,7 +3140,8 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
 		      refs *refs) {
     cram_block *b = s->block[0];
-    int32_t bf, cf, ref_id;
+    int32_t bf, ref_id;
+    unsigned char cf;
     int out_sz, r = 0;
     block_t *blk = block_create((unsigned char *)b->data, b->uncomp_size);
     int rec;
@@ -3207,8 +3217,10 @@ int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
 
 	cr->mate_line = -1;
 	if (cf & CRAM_FLAG_DETACHED) {
+	    unsigned char mf;
 	    r |= c->comp_hdr->MF_codec->decode(s, c->comp_hdr->MF_codec, blk,
-					       (char *)&cr->mate_flags, &out_sz);
+					       (char *)&mf, &out_sz);
+	    cr->mate_flags = mf;
 
 	    if (!c->comp_hdr->read_names_included) {
 		int32_t out_sz2 = 1;
@@ -3468,8 +3480,17 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
 	    s->crecs[cr->mate_line].mate_line = rec;
 	    cr->mate_ref_id = cr->ref_id;
 
-	    cr->flags |= BAM_FPAIRED; // paired
-	    cr->flags &= ~BAM_FMUNMAP;
+	    // paired
+	    cr->flags |= BAM_FPAIRED;
+	    s->crecs[cr->mate_line].flags |= BAM_FPAIRED;
+
+	    // set mate unmapped if needed
+	    if (s->crecs[cr->mate_line].flags & BAM_FUNMAP)
+		cr->flags |= BAM_FMUNMAP;
+	    if (cr->flags & BAM_FUNMAP)
+		s->crecs[cr->mate_line].flags |= BAM_FMUNMAP;
+
+	    // set mate reversed if needed
 	    if (s->crecs[cr->mate_line].flags & BAM_FREVERSE)
 		cr->flags |= BAM_FMREVERSE;
 	    if (cr->flags & BAM_FREVERSE) 
@@ -3581,18 +3602,16 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     c = fd->ctr;
 
-    /*
-     * FIXME:
-     * Hash by name (hash per slice):
-     * If new - cr->mate_flags = 0, cf = detached.
-     * If exists - copy cr->flags into hi->mate_flags and vice versa,
-     *    clear hi->detached. Set hi->tlen too?
-     * 
-     */
+    if (b->ref == -1 || c->curr_ref == -1) {
+	fprintf(stderr, "Ref = %d, cref = %d\n", b->ref, c->curr_ref);
+    }
 
     if (!c->slice || c->curr_rec == c->max_rec ||
 	(b->ref != c->curr_ref && c->curr_ref >= -1)) {
-	c->curr_ref = b->ref;
+
+	/* First occurence */
+	if (c->curr_ref == -2)
+	    c->curr_ref = b->ref;
 
 	if (c->slice) {
 	    s = c->slice;
@@ -3600,10 +3619,6 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    s->hdr->ref_seq_start = fd->first_base;
 	    s->hdr->ref_seq_span  = fd->last_base - fd->first_base + 1;
 	    s->hdr->num_records   = c->curr_rec;
-
-	    fprintf(stderr, "End of slice %d, %d/%d..%d\n", c->curr_slice,
-		    s->hdr->ref_seq_id, s->hdr->ref_seq_start,
-		    s->hdr->ref_seq_start + s->hdr->ref_seq_span-1);
 
 	    if (c->curr_slice == 0) {
 		if (c->ref_seq_id != s->hdr->ref_seq_id)
@@ -3652,6 +3667,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    /* Easy approach for purposes of freeing stats */
 	    cram_free_container(c);
 	    c = fd->ctr = cram_new_container(SEQS_PER_SLICE, SLICE_PER_CNT);
+	    c->curr_ref = b->ref;
 	}
 
 	c->last_pos = fd->first_base = fd->last_base = b->pos+1;
@@ -3671,6 +3687,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     // Create a cram_record
     s = c->slice;
+
     cr = &s->crecs[c->curr_rec++]; // cache c->slice->crecs as c->rec?
 
 
@@ -3809,6 +3826,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     
     cr->ref_id      = b->ref;
     cr->flags       = bam_flag(b);
+    if (bam_cigar_len(b) == 0)
+	cr->flags |= BAM_FUNMAP;
     cram_stats_add(c->BF_stats, cram_flag_swap[cr->flags & 511]);
 
     cr->cram_flags  = CRAM_FLAG_PRESERVE_QUAL_SCORES; // FIXME
@@ -3854,8 +3873,12 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	s->cigar = realloc(s->cigar, s->cigar_alloc * sizeof(*s->cigar));
     }
 
+    if (b->ref == -1) {
+	fprintf(stderr, "unmapped read\n");
+    }
+
     /* Copy and parse */
-    {
+    if (!(cr->flags & BAM_FUNMAP)) {
 	int32_t *cig_to = (int32_t *)s->cigar;
 	int32_t *cig_from = (int32_t *)bam_cigar(b);
 	int apos = cr->apos-1, spos = 0;
@@ -3936,6 +3959,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	}
 	cr->aend = apos;
 	cram_stats_add(c->FN_stats, cr->nfeature);
+    } else {
+	// Unmapped
+	cr->nfeature = 0;
+	for (i = 0; i < cr->len; i++)
+	    cram_stats_add(c->BA_stats, seq[i]);
     }
 
     /* Now we know apos and aend both, update mate-pair information */
