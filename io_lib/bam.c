@@ -162,7 +162,7 @@ int load_bam_header(bam_file_t *b) {
     if (4 != bam_read(b, &b->header_len, 4))
 	return -1;
     b->header_len = le_int4(b->header_len);
-    if (!(b->header = malloc(b->header_len)))
+    if (!(b->header = malloc(b->header_len+100))) // FIXME, for bam_add_rg()
 	return -1;
     if (b->header_len != bam_read(b, b->header, b->header_len))
 	return -1;
@@ -494,6 +494,57 @@ int bam_parse_header(bam_file_t *b) {
     }
 
     return 0;
+}
+
+/*
+ * Creates a new read-group.
+ * Returns the read-group ID on success
+ *         -1 on failure
+ */
+int bam_add_rg(bam_file_t *b, char *id, char *sm) {
+    tag_list_t *tags = malloc(4 * sizeof(*tags));
+    HashData hd;
+    char *id_value, *sm_value, *hdr;
+    size_t id_len, sm_len;
+
+    if (!b || !b->rg_hash)
+	return -1;
+
+    if (!tags)
+	return -1;
+
+    /* Append a line to the string header */
+    // FIXME: Only works as we allocated extra space.
+    // We need a proper header structure we can manipulate and
+    // stringify.
+    hdr = b->header + b->header_len;
+    strncpy(hdr, "@RG\tID:", 7); hdr += 7; b->header_len += 7;
+    id_value = hdr;
+    id_len = strlen(id);
+    strncpy(hdr, id, id_len); hdr += id_len; b->header_len += id_len;
+
+    strncpy(hdr, "\tSM:", 4); hdr += 4; b->header_len += 4;
+    sm_value = hdr;
+    sm_len = strlen(sm);
+    strncpy(hdr, sm, sm_len); hdr += sm_len; b->header_len += sm_len;
+    *hdr = '\n'; b->header_len++;
+
+    /* Add to the hash table */
+    tags[0].key    = b->nrg;
+    tags[0].value  = "RG_ID";
+    tags[0].length = 0;
+    tags[1].key    = ('I'<<8)|'D';
+    tags[1].value  = id_value;
+    tags[1].length = id_len;
+    tags[2].key    = ('S'<<8)|'M';
+    tags[2].value  = sm_value;
+    tags[2].length = sm_len;
+    tags[3].value  = NULL;
+    
+    hd.p = tags;
+    HashTableAdd(b->rg_hash, tags[1].value, tags[1].length, hd, NULL);
+
+    return b->nrg++;
 }
 
 tag_list_t *bam_find_rg(bam_file_t *b, char *id) {

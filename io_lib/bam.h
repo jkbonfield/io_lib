@@ -229,4 +229,11 @@ int bam_write_header(bam_file_t *out);
  */
 int bam_parse_header(bam_file_t *b);
 
+/*
+ * Creates a new read-group.
+ * Returns the read-group ID on success
+ *         -1 on failure
+ */
+int bam_add_rg(bam_file_t *b, char *id, char *sm);
+
 #endif /* _BAM_H_ */

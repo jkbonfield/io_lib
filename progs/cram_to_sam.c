@@ -85,9 +85,9 @@ int main(int argc, char **argv) {
     if (prefix)
 	cram_set_prefix(fd, prefix);
 
-    bfd->header_len = fd->SAM_hdr->length;
-    bfd->header = malloc(fd->SAM_hdr->length);
-    memcpy(bfd->header, fd->SAM_hdr->header, fd->SAM_hdr->length);
+    bfd->header_len = fd->SAM_hdr->header_len;
+    bfd->header = malloc(fd->SAM_hdr->header_len);
+    memcpy(bfd->header, fd->SAM_hdr->header, fd->SAM_hdr->header_len);
 
     if (-1 == bam_parse_header(bfd))
         return -1;
