@@ -30,6 +30,127 @@ static char *codec2str(enum cram_encoding codec) {
     return "(unknown)";
 }
 
+/* Local optimised copy for inlining */
+static signed int get_bits_MSB_(block_t *block, int nbits) {
+    unsigned int val = 0;
+    int i;
+
+#if 0
+    // Fits within the current byte */
+    if (nbits <= block->bit+1) {
+	val = (block->data[block->byte]>>(block->bit-(nbits-1))) & ((1<<nbits)-1);
+	if ((block->bit -= nbits) == -1) {
+	    block->bit = 7;
+	    block->byte++;
+	}
+	return val;
+    }
+
+    // partial first byte
+    val = block->data[block->byte] & ((1<<(block->bit+1))-1);
+    nbits -= block->bit+1;
+    block->bit = 7;
+    block->byte++;
+
+    // whole middle bytes
+    while (nbits >= 8) {
+	val = (val << 8) | block->data[block->byte++];
+	nbits -= 8;
+    }
+
+    val <<= nbits;
+    val |= (block->data[block->byte]>>(block->bit-(nbits-1))) & ((1<<nbits)-1);
+    block->bit -= nbits;
+    return val;
+#endif
+
+#if 0
+    /* Inefficient implementation! */
+    //printf("{");
+    for (i = 0; i < nbits; i++)
+	//val = (val << 1) | get_bit_MSB(block);
+	GET_BIT_MSB(block, val);
+#endif
+
+#if 1
+    /* Combination of 1st two methods */
+    if (nbits <= block->bit+1) {
+	val = (block->data[block->byte]>>(block->bit-(nbits-1))) & ((1<<nbits)-1);
+	if ((block->bit -= nbits) == -1) {
+	    block->bit = 7;
+	    block->byte++;
+	}
+	return val;
+    }
+
+    for (i = 0; i < nbits; i++)
+	//val = (val << 1) | get_bit_MSB(block);
+	GET_BIT_MSB(block, val);
+#endif
+
+    //printf("=0x%x}", val);
+
+    return val;
+}
+
+/*
+ * Can store up to 24-bits worth of data encoded in an integer value
+ * Possibly we'd want to have a less optimal store_bits function when dealing
+ * with nbits > 24, but for now we assume the codes generated are never
+ * that big. (Given this is only possible with 121392 or more
+ * characters with exactly the correct frequency distribution we check
+ * for it elsewhere.)
+ */
+static void store_bits_MSB_(block_t *block, unsigned int val, int nbits) {
+    /* fprintf(stderr, " store_bits: %02x %d\n", val, nbits); */
+
+    /*
+     * Use slow mode until we tweak the huffman generator to never generate
+     * codes longer than 24-bits.
+     */
+    unsigned int mask;
+
+    if (block->byte+4 >= block->alloc) {
+	if (block->byte) {
+	    block->alloc *= 2;
+	    block->data = realloc(block->data, block->alloc + 4);
+	} else {
+	    block->alloc = 1024;
+	    block->data = realloc(block->data, block->alloc + 4);
+	    block->data[0] = 0; // initialise first byte of buffer
+	}
+    }
+
+    
+    
+    if (nbits <= block->bit+1) {
+	block->data[block->byte] |= (val << (block->bit+1-nbits));
+	if ((block->bit-=nbits) == -1) {
+	    block->bit = 7;
+	    block->byte++;
+	    block->data[block->byte] = 0;
+	}
+	return;
+    }
+
+    block->data[block->byte] |= (val >> (nbits -= block->bit+1));
+    block->bit = 7;
+    block->byte++;
+    block->data[block->byte] = 0;
+				 
+    mask = 1<<(nbits-1);
+    do {
+	if (val & mask)
+	    block->data[block->byte] |= (1 << block->bit);
+	if (--block->bit == -1) {
+	    block->bit = 7;
+	    block->byte++;
+	    block->data[block->byte] = 0;
+	}
+	mask >>= 1;
+    } while(--nbits);
+}
+
 /*
  * ---------------------------------------------------------------------------
  * EXTERNAL
@@ -165,7 +286,7 @@ int cram_beta_decode(cram_slice *slice, cram_codec *c, block_t *in, char *out, i
 
     if (c->beta.nbits) {
 	for (i = 0, n = *out_size; i < n; i++)
-	    out_i[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
+	    out_i[i] = get_bits_MSB_(in, c->beta.nbits) - c->beta.offset;
     } else {
 	for (i = 0, n = *out_size; i < n; i++)
 	    out_i[i] = 0;
@@ -353,6 +474,8 @@ void cram_huffman_decode_free(cram_codec *c) {
 	free(c->huffman.codes);
     if (c->huffman.lengths)
 	free(c->huffman.lengths);
+    if (c->huffman.prefix)
+	free(c->huffman.prefix);
     free(c);
 }
 
@@ -364,31 +487,27 @@ int cram_huffman_decode_char(cram_slice *slice, cram_codec *c, block_t *in, char
 	for (i = 0, n = *out_size; i < n; i++) {
 	    out[i] = c->huffman.codes[0].symbol;
 	}
-	*out_size = n;
-
 	return 0;
     }
 
     for (i = 0, n = *out_size; i < n; i++) {
 	int idx = 0;
-	int val = 0, len = 0;
+	int val = 0, len = 0, last_len = 0;
 
 	for (;;) {
-	    //val = (val<<1) | get_bit_MSB(in);
+#if 0
 	    GET_BIT_MSB(in, val);
 	    len++;
+#else    
+	    int dlen = c->huffman.codes[idx].len - last_len;
+	    val <<= dlen;
+	    val  |= get_bits_MSB_(in, dlen);
+	    last_len = (len  += dlen);
+#endif
 
-	    //printf("val=%d, len=%d\n", val, len);
-	    idx = c->huffman.lengths[len];
-	    while (c->huffman.codes[idx].len == len) {
-		//printf("   check val %d\n", c->huffman.codes[idx].code);
-		if (c->huffman.codes[idx].code == val)
-		    break;
-		idx++;
-	    }
-
-	    if (c->huffman.codes[idx].code == val &&
-		c->huffman.codes[idx].len  == len) {
+	    idx = c->huffman.lengths[len] + val-c->huffman.prefix[len];
+	    if (c->huffman.codes[idx].code == val && 
+		c->huffman.codes[idx].len == len) {
 		out[i] = c->huffman.codes[idx].symbol;
 		break;
 	    }
@@ -407,31 +526,28 @@ int cram_huffman_decode_int(cram_slice *slice, cram_codec *c, block_t *in, char 
 	for (i = 0, n = *out_size; i < n; i++) {
 	    out_i[i] = c->huffman.codes[0].symbol;
 	}
-	*out_size = n;
-
 	return 0;
     }
 
     for (i = 0, n = *out_size; i < n; i++) {
 	int idx = 0;
-	int val = 0, len = 0;
+	int val = 0, len = 0, last_len = 0;
 
+	// Now one bit at a time for remaining checks
 	for (;;) {
-	    //val = (val<<1) | get_bit_MSB(in);
+#if 0
 	    GET_BIT_MSB(in, val);
 	    len++;
+#else    
+	    int dlen = c->huffman.codes[idx].len - last_len;
+	    val <<= dlen;
+	    val  |= get_bits_MSB_(in, dlen);
+	    last_len = (len  += dlen);
+#endif
 
-	    //printf("val=%d, len=%d\n", val, len);
-	    idx = c->huffman.lengths[len];
-	    while (c->huffman.codes[idx].len == len) {
-		//printf("   check val %d\n", c->huffman.codes[idx].code);
-		if (c->huffman.codes[idx].code == val)
-		    break;
-		idx++;
-	    }
-
-	    if (c->huffman.codes[idx].code == val &&
-		c->huffman.codes[idx].len  == len) {
+	    idx = c->huffman.lengths[len] + val-c->huffman.prefix[len];
+	    if (c->huffman.codes[idx].code == val && 
+		c->huffman.codes[idx].len == len) {
 		out_i[i] = c->huffman.codes[idx].symbol;
 		break;
 	    }
@@ -449,7 +565,7 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
     char *cp = data;
     cram_codec *h;
     cram_huffman_code *codes;
-    int32_t val, last_len;
+    int32_t val, last_len, max_len = 0;
     
     cp += itf8_get(cp, &ncodes);
     h = malloc(sizeof(*h));
@@ -472,6 +588,8 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
 
     for (i = 0; i < ncodes; i++) {
 	cp += itf8_get(cp, &codes[i].len);
+	if (max_len < codes[i].len)
+	    max_len = codes[i].len;
     }
     if (cp - data != size) {
 	fprintf(stderr, "Malformed huffman header stream\n");
@@ -483,18 +601,24 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
     qsort(codes, ncodes, sizeof(*codes), code_sort);
 
     /* Assign canonical codes */
+    h->huffman.prefix = calloc(max_len+2, sizeof(int));
     val = -1, last_len = 0;
     for (i = 0; i < ncodes; i++) {
 	val++;
-	while (codes[i].len > last_len) {
-	    val <<= 1;
-	    last_len++;
+	if (codes[i].len > last_len) {
+	    while (codes[i].len > last_len) {
+		val <<= 1;
+		last_len++;
+	    }
+	    h->huffman.prefix[last_len] = val;
 	}
 	codes[i].code = val;
     }
+    h->huffman.prefix[last_len+1] = -1;
 
     /* Identify length starting points */
-    h->huffman.lengths = malloc((last_len+1) * sizeof(int));
+    h->huffman.lengths = malloc((last_len+2) * sizeof(int));
+    h->huffman.lengths[last_len+1] = -1;
     last_len = -1;
     for (i = j = 0; i < ncodes; i++) {
 	if (codes[i].len > last_len) {
@@ -504,8 +628,9 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
 	}
     }
 
-//    for (i = 0; i <= last_len; i++) {
-//	printf("len %d=%d\n", i, h->huffman.lengths[i]); 
+//    puts("==HUFF LEN==");
+//    for (i = 0; i <= last_len+1; i++) {
+//	printf("len %d=%d prefix %d\n", i, h->huffman.lengths[i], h->huffman.prefix[i]); 
 //    }
 //    puts("===HUFFMAN CODES===");
 //    for (i = 0; i < ncodes; i++) {
@@ -515,7 +640,7 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
 //	while (j) {
 //	    putchar(codes[i].code & (1 << --j) ? '1' : '0');
 //	}
-//	putchar('\n');
+//	printf(" %d\n", codes[i].code);
 //    }
 
     h->codec  = E_HUFFMAN;
@@ -539,18 +664,25 @@ int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
 
     do {
 	int sym = *syms++;
-	/* Slow - use a lookup table for when sym < MAX_HUFFMAN_SYM? */
-	for (i = 0; i < c->e_huffman.nvals; i++) {
-	    if (c->e_huffman.codes[i].symbol == sym)
-		break;
-	}
-	if (i == c->e_huffman.nvals)
-	    return -1;
+	if (sym >= -1 && sym < MAX_HUFF) {
+	    i = c->e_huffman.val2code[sym+1];
+	    assert(c->e_huffman.codes[i].symbol == sym);
+	    code = c->e_huffman.codes[i].code;
+	    len  = c->e_huffman.codes[i].len;
+	} else {
+	    /* Slow - use a lookup table for when sym < MAX_HUFF? */
+	    for (i = 0; i < c->e_huffman.nvals; i++) {
+		if (c->e_huffman.codes[i].symbol == sym)
+		    break;
+	    }
+	    if (i == c->e_huffman.nvals)
+		return -1;
     
-	code = c->e_huffman.codes[i].code;
-	len  = c->e_huffman.codes[i].len;
+	    code = c->e_huffman.codes[i].code;
+	    len  = c->e_huffman.codes[i].len;
+	}
 
-	store_bits_MSB(out, code, len);
+	store_bits_MSB_(out, code, len);
     } while (--in_size);
 
     return 0;
@@ -567,18 +699,26 @@ int cram_huffman_encode_int(cram_slice *slice, cram_codec *c,
 
     do {
 	int sym = *syms++;
-	/* Slow - use a lookup table for when sym < MAX_HUFFMAN_SYM? */
-	for (i = 0; i < c->e_huffman.nvals; i++) {
-	    if (c->e_huffman.codes[i].symbol == sym)
-		break;
-	}
-	if (i == c->e_huffman.nvals)
-	    return -1;
-    
-	code = c->e_huffman.codes[i].code;
-	len  = c->e_huffman.codes[i].len;
 
-	store_bits_MSB(out, code, len);
+	if (sym >= -1 && sym < MAX_HUFF) {
+	    i = c->e_huffman.val2code[sym+1];
+	    assert(c->e_huffman.codes[i].symbol == sym);
+	    code = c->e_huffman.codes[i].code;
+	    len  = c->e_huffman.codes[i].len;
+	} else {
+	    /* Slow - use a lookup table for when sym < MAX_HUFFMAN_SYM? */
+	    for (i = 0; i < c->e_huffman.nvals; i++) {
+		if (c->e_huffman.codes[i].symbol == sym)
+		    break;
+	    }
+	    if (i == c->e_huffman.nvals)
+		return -1;
+    
+	    code = c->e_huffman.codes[i].code;
+	    len  = c->e_huffman.codes[i].len;
+	}
+
+	store_bits_MSB_(out, code, len);
     } while (--in_size);
 
     return 0;
@@ -773,6 +913,9 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 	    len++;
 	}
 	codes[i].code = code++;
+
+	if (codes[i].symbol >= -1 && codes[i].symbol < MAX_HUFF)
+	    c->e_huffman.val2code[codes[i].symbol+1] = i;
 
 	//fprintf(stderr, "sym %d, code %d, len %d\n",
 	//	codes[i].symbol, codes[i].code, codes[i].len);
