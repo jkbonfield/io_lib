@@ -79,8 +79,8 @@ typedef struct {
 typedef struct cram_codec {
     enum cram_encoding codec;
     void (*free)(struct cram_codec *codec);
-    int (*decode)(cram_slice *slice, struct cram_codec *codec, block_t *in, char *out, int *out_size);
-    int (*encode)(cram_slice *slice, struct cram_codec *codec, block_t *out, char *in, int in_size);
+    int (*decode)(cram_slice *slice, struct cram_codec *codec, cram_block *in, char *out, int *out_size);
+    int (*encode)(cram_slice *slice, struct cram_codec *codec, cram_block *out, char *in, int in_size);
     int (*store)(struct cram_codec *codec, char *buf, char *prefix);
     union {
 	cram_huffman_decoder         huffman;
@@ -107,5 +107,7 @@ cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st,
 
 //int cram_decode(void *codes, char *in, int in_size, char *out, int *out_size);
 //void cram_decoder_free(void *codes);
+
+#define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, (--b->bit == -1) && (b->bit = 7, b->byte++))
 
 #endif /* _CRAM_ENCODINGS_H_ */

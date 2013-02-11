@@ -102,7 +102,12 @@ typedef struct {
     int32_t  comp_size;
     int32_t  uncomp_size;
     int32_t  idx; /* offset into data */
-    char    *data;
+    unsigned char    *data;
+
+    // For bit I/O
+    size_t alloc;
+    size_t byte;
+    int bit;
 } cram_block;
 
 struct cram_codec; /* defined in cram_encodings.h */

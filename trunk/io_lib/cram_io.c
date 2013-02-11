@@ -744,6 +744,7 @@ cram_block *cram_read_block(cram_fd *fd) {
     //	    b->method, b->content_type, b->content_id, b->comp_size, b->uncomp_size);
 
     if (b->method == RAW) {
+	b->alloc = b->uncomp_size;
 	if (!(b->data = malloc(b->uncomp_size))){ free(b); return NULL; }
 	if (b->uncomp_size != fread(b->data, 1, b->uncomp_size, fd->fp)) {
 	    free(b->data);
@@ -751,6 +752,7 @@ cram_block *cram_read_block(cram_fd *fd) {
 	    return NULL;
 	}
     } else {
+	b->alloc = b->comp_size;
 	if (!(b->data = malloc(b->comp_size)))  { free(b); return NULL; }
 	if (b->comp_size != fread(b->data, 1, b->comp_size, fd->fp)) {
 	    free(b->data);
@@ -761,6 +763,8 @@ cram_block *cram_read_block(cram_fd *fd) {
 
     b->orig_method = b->method;
     b->idx = 0;
+    b->byte = 0;
+    b->bit = 7; // MSB
 
     return b;
 }
@@ -779,13 +783,17 @@ int cram_write_block(cram_fd *fd, cram_block *b) {
     if (itf8_encode(fd, b->comp_size)   ==  -1) return -1;
     if (itf8_encode(fd, b->uncomp_size) ==  -1) return -1;
 
+    FILE *tmp = fopen("/dev/null", "wb");
     if (b->method == RAW) {
+	fwrite(b->data, 1, b->uncomp_size, tmp); 
 	if (b->uncomp_size != fwrite(b->data, 1, b->uncomp_size, fd->fp)) 
 	    return -1;
     } else {
+	fwrite(b->data, 1, b->comp_size, tmp); 
 	if (b->comp_size != fwrite(b->data, 1, b->comp_size, fd->fp)) 
 	    return -1;
     }
+    fclose(tmp);
 
     return 0;
 }
@@ -808,6 +816,9 @@ cram_block *cram_new_block(enum cram_content_type content_type, int content_id) 
     b->comp_size = 0;
     b->uncomp_size = 0;
     b->data = NULL;
+    b->alloc = 0;
+    b->byte = 0;
+    b->bit = 7; // MSB
 
     return b;
 }
@@ -847,6 +858,14 @@ void cram_uncompress_block(cram_block *b) {
 	abort();
 	break;
     }
+}
+
+void xor(unsigned char *b, size_t l) {
+    int x = 0;
+    size_t i;
+    for (i = 0; i < l; i++)
+	x ^= b[i];
+    fprintf(stderr, "XOR[] = %d\n", x);
 }
 
 void cram_compress_block(cram_block *b, int level, int strat) {
@@ -1003,7 +1022,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 
 	m->encoding = encoding;
 	m->size     = size;
-	m->offset   = cp - b->data;
+	m->offset   = cp - (char *)b->data;
 	hd.p = m;
 
 	//printf("%s codes for %.2s\n", cram_encoding2str(encoding), key);
@@ -1079,7 +1098,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 
 	m->encoding = encoding;
 	m->size     = size;
-	m->offset   = cp - b->data;
+	m->offset   = cp - (char *)b->data;
 	m->codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY);
 	hd.p = m;
 	
@@ -1868,7 +1887,7 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
     }
 
     /* We only support huffman now anyway... */
-    return E_HUFFMAN;
+    free(vals); free(freqs); return E_HUFFMAN;
 
     fprintf(stderr, "Range = %d..%d, nvals=%d, ntot=%d\n",
 	    min_val, max_val, nvals, ntot);
@@ -2007,8 +2026,7 @@ void cram_stats_free(cram_stats *st) {
 static int cram_encode_slice(cram_fd *fd, cram_container *c,
 			     cram_block_compression_hdr *h, cram_slice *s) {
     int rec, r = 0, last_pos;
-    block_t *core = block_create(NULL, 0);
-    core->bit = 7; // MSB first
+    cram_block *core;
 
     /*
      * Slice external blocks:
@@ -2037,6 +2055,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[3] = cram_new_block(EXTERNAL, 2); // Names
     s->block[4] = cram_new_block(EXTERNAL, 3); // TS/NP
     s->block[5] = cram_new_block(EXTERNAL, 4); // Tags
+
+    core = s->block[0];
 		 
     /* Create a formal method for stealing from dstrings! */
     //s->block[4]->data = calloc(5, s->hdr->num_records);
@@ -2214,10 +2234,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 				 (char *)&cr->mqual, 1);
 
     }
-    s->block[0]->data = (char *)core->data;
-    s->block[0]->uncomp_size = core->byte + (core->bit < 7);
+    s->block[0]->uncomp_size = s->block[0]->byte + (s->block[0]->bit < 7);
     s->block[0]->comp_size = s->block[0]->uncomp_size;
-    block_destroy(core, 1);
 
     s->block[1]->data = s->base_ds->str; s->base_ds->str = NULL;
     s->block[1]->comp_size = s->block[1]->uncomp_size = s->base_ds->length;
@@ -2228,15 +2246,14 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[3]->data = s->name_ds->str; s->name_ds->str = NULL;
     s->block[3]->comp_size = s->block[3]->uncomp_size = s->name_ds->length;
 
+    s->block[4]->comp_size = s->block[4]->uncomp_size;
+
     /* Compress the other blocks */
-#if 1
     cram_compress_block(s->block[1], 4, Z_FILTERED);
     cram_compress_block(s->block[2], 1, Z_RLE);
     cram_compress_block(s->block[3], 4, Z_FILTERED);
-    //cram_compress_block(s->block[4], 4, Z_FILTERED);
     cram_compress_block(s->block[4], 5, Z_DEFAULT_STRATEGY);
     cram_compress_block(s->block[5], 6, Z_DEFAULT_STRATEGY);
-#endif
 
     return r ? -1 : 0;
 }
@@ -2711,7 +2728,7 @@ void refs2id(refs *r, bam_file_t *bfd) {
  * Internal part of cram_decode_slice().
  * Generates the sequence, quality and cigar components.
  */
-static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
+static int cram_decode_seq(cram_container *c, cram_slice *s, cram_block *blk,
 			   cram_record *cr, bam_file_t *bfd, refs *refs,
 			   int bf, int cf, char *seq, char *qual) {
     int prev_pos = 0, f, r = 0, out_sz = 1;
@@ -2997,7 +3014,7 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, block_t *blk,
 }
 
 static int cram_decode_aux(cram_container *c, cram_slice *s,
-			   block_t *blk, cram_record *cr) {
+			   cram_block *blk, cram_record *cr) {
     int i, r = 0, out_sz = 1;
     unsigned char ntags;
 	    
@@ -3058,11 +3075,10 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 
 int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
 		      refs *refs) {
-    cram_block *b = s->block[0];
+    cram_block *blk = s->block[0];
     int32_t bf, ref_id;
     unsigned char cf;
     int out_sz, r = 0;
-    block_t *blk = block_create((unsigned char *)b->data, b->uncomp_size);
     int rec;
     char *seq, *qual;
     int unknown_rg = -1;
@@ -3074,7 +3090,7 @@ int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
 	!strncmp(bfd->rg_id[bfd->nrg-1], "UNKNOWN", bfd->rg_len[bfd->nrg-1]))
 	unknown_rg = bfd->nrg-1;
 
-    assert(b->content_type == CORE);
+    assert(blk->content_type == CORE);
 
     if (s->crecs)
 	free(s->crecs);
@@ -3235,8 +3251,6 @@ int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
 	    }
 	}
     }
-
-    block_destroy(blk, 1);
 
     return r;
 }
@@ -3786,7 +3800,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     dstring_resize(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
     dstring_resize(s->qual_ds, DSTRING_LEN(s->qual_ds) + cr->len);
     seq = cp = DSTRING_STR(s->seqs_ds) + cr->seq;
-    ref = fd->refs->ref_id[b->ref];
+    ref = b->ref >= 0 ? fd->refs->ref_id[b->ref] : NULL;
     for (i = 0; i < cr->len; i++) {
 	// FIXME: do 2 char at a time for efficiency
 	cp[i] = bam_nt16_rev_table[bam_seqi(bam_seq(b), i)];
@@ -3895,6 +3909,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     } else {
 	// Unmapped
 	cr->nfeature = 0;
+	cr->aend = cr->apos;
 	for (i = 0; i < cr->len; i++)
 	    cram_stats_add(c->BA_stats, seq[i]);
     }
