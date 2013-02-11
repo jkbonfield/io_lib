@@ -26,6 +26,9 @@
 //Whether CIGAR has just M or uses = and X to indicate match and mismatch
 //#define USE_X
 
+//#define NS_external
+#define TS_external
+
 /* -----------------------------------------------------------------------------
  * Utility / debugging functions
  */
@@ -2155,6 +2158,249 @@ void cram_stats_free(cram_stats *st) {
 }
 
 /*
+ * Encodes a single slice from a container
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+static int cram_encode_slice(cram_fd *fd, cram_container *c,
+			     cram_block_compression_hdr *h, cram_slice *s) {
+    int rec, r = 0, last_pos;
+    block_t *core = block_create(NULL, 0);
+    core->bit = 7; // MSB first
+
+    /*
+     * Slice external blocks:
+     * ID 0 => base calls (insertions, soft-clip)
+     * ID 1 => qualities
+     * ID 2 => names
+     * ID 3 => TS (insert size), NP (next frag)
+     * ID 4 => tags
+     */
+
+    /* Create cram slice header, num_blocks etc */
+    s->hdr->ref_base_id = 0;
+    s->hdr->num_blocks = 6;
+    s->block = calloc(6, sizeof(s->block[0]));
+    s->hdr->num_content_ids = 5;
+    s->hdr->block_content_ids = malloc(5 * sizeof(int32_t));
+    s->hdr->block_content_ids[0] = 0;
+    s->hdr->block_content_ids[1] = 1;
+    s->hdr->block_content_ids[2] = 2;
+    s->hdr->block_content_ids[3] = 3;
+    s->hdr->block_content_ids[4] = 4;
+
+    s->block[0] = cram_new_block(CORE, 0);     // Core 
+    s->block[1] = cram_new_block(EXTERNAL, 0); // Bases
+    s->block[2] = cram_new_block(EXTERNAL, 1); // Qual
+    s->block[3] = cram_new_block(EXTERNAL, 2); // Names
+    s->block[4] = cram_new_block(EXTERNAL, 3); // TS/NP
+    s->block[5] = cram_new_block(EXTERNAL, 4); // Tags
+		 
+    /* Create a formal method for stealing from dstrings! */
+    //s->block[4]->data = calloc(5, s->hdr->num_records);
+    s->block[4]->data = calloc(10, s->hdr->num_records); // NP TS
+    s->block[4]->comp_size = s->block[4]->uncomp_size = 0;
+
+    s->block[5]->data = s->aux_ds->str; s->aux_ds->str = NULL;
+    s->block[5]->comp_size = s->block[5]->uncomp_size = s->aux_ds->length;
+
+    /* Generate core block */
+    s->hdr_block = cram_encode_slice_header(s);
+
+    last_pos = s->hdr->ref_seq_start;
+    for (rec = 0; rec < s->hdr->num_records; rec++) {
+	cram_record *cr = &s->crecs[rec];
+	int32_t i32;
+	unsigned char uc;
+
+	//printf("BF=0x%x\n", cr->flags);
+	//	    bf = cram_flag_swap[cr->flags];
+	i32 = cram_flag_swap[cr->flags & 511];
+	r |= h->BF_codec->encode(s, h->BF_codec, core, (char *)&i32, 1);
+
+	uc = cr->cram_flags;
+	r |= h->CF_codec->encode(s, h->CF_codec, core,
+				 (char *)&uc, 1);
+
+	r |= h->RL_codec->encode(s, h->RL_codec, core,
+				 (char *)&cr->len, 1);
+
+	i32 = cr->apos - last_pos;
+	r |= h->AP_codec->encode(s, h->AP_codec, core, (char *)&i32, 1);
+	last_pos = cr->apos;
+
+	r |= h->RG_codec->encode(s, h->RG_codec, core,
+				 (char *)&cr->rg, 1);
+
+	if (c->comp_hdr->read_names_included) {
+	    // FIXME: RN codec
+	    // Already stored in block[3].
+	}
+
+	if (cr->cram_flags & CRAM_FLAG_DETACHED) {
+	    char mf = cr->mate_flags;
+	    r |= h->MF_codec->encode(s, h->MF_codec, core, &mf, 1);
+
+	    if (!c->comp_hdr->read_names_included) {
+		// FIXME: RN codec
+		// Already stored in block[3].
+	    }
+
+#ifndef NS_external
+	    r |= h->NS_codec->encode(s, h->NS_codec, core,
+				     (char *)&cr->mate_ref_id, 1);
+#else
+	    s->block[4]->uncomp_size +=
+		itf8_put(&s->block[4]->data[s->block[4]->uncomp_size],
+			 cr->mate_ref_id);
+#endif
+
+#ifndef TS_external
+	    r |= h->NP_codec->encode(s, h->NP_codec, core,
+				     (char *)&cr->mate_pos, 1);
+
+	    r |= h->TS_codec->encode(s, h->TS_codec, core,
+				     (char *)&cr->tlen, 1);
+#else
+	    s->block[4]->uncomp_size +=
+		itf8_put(&s->block[4]->data[s->block[4]->uncomp_size],
+			 cr->mate_pos);
+	    s->block[4]->uncomp_size +=
+		itf8_put(&s->block[4]->data[s->block[4]->uncomp_size],
+			 cr->tlen);
+#endif
+	} else if (cr->cram_flags & CRAM_FLAG_MATE_DOWNSTREAM) {
+	    r |= h->NF_codec->encode(s, h->NF_codec, core,
+				     (char *)&cr->mate_line, 1);
+	}
+
+	/* Aux tags */
+#if 1
+	uc = cr->ntags;
+	r |= h->TC_codec->encode(s, h->TC_codec, core, (char *)&uc, 1);
+#ifndef TN_AS_EXT
+	for (j = 0; j < cr->ntags; j++) {
+	    uint32_t i32 = s->TN[cr->TN_idx + j]; // id
+	    r |= h->TN_codec->encode(s, h->TN_codec, core,
+				     (char *)&i32, 1);
+	}
+#endif
+#else
+	uc = 0; // no tags
+	r |= h->TC_codec->encode(s, h->TC_codec, core, (char *)&uc, 1);
+#endif
+
+	// qual
+	// FIXME: QS codec
+	// Already stored in block[2].
+
+	//fprintf(stderr, "Encode seq %d, FN=%d, %d/%d\n", rec, cr->nfeature, core->byte, core->bit);
+
+	// features (diffs)
+	if (!(cr->flags & BAM_FUNMAP)) {
+	    int prev_pos = 0, j;
+
+	    r |= h->FN_codec->encode(s, h->FN_codec, core,
+				     (char *)&cr->nfeature, 1);
+	    for (j = 0; j < cr->nfeature; j++) {
+		cram_feature *f = &s->features[cr->feature + j];
+
+		uc = f->X.code;
+		r |= h->FC_codec->encode(s, h->FC_codec, core,
+					 (char *)&uc, 1);
+		i32 = f->X.pos - prev_pos;
+		r |= h->FP_codec->encode(s, h->FP_codec, core,
+					 (char *)&i32, 1);
+		prev_pos = f->X.pos;
+
+		switch(f->X.code) {
+		    //char *seq;
+
+		case 'X':
+		    //fprintf(stderr, "    FC=%c FP=%d base=%d\n", f->X.code, i32, f->X.base);
+		
+		    uc = f->X.base;
+		    r |= h->BS_codec->encode(s, h->BS_codec, core,
+					     (char *)&uc, 1);
+		    break;
+		case 'S':
+		    //seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
+		    //r |= h->IN_codec->encode(s, h->IN_codec, core,
+		    //			     seq, f->S.len);
+		    break;
+		case 'I':
+		    //seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
+		    //r |= h->IN_codec->encode(s, h->IN_codec, core,
+		    //			     seq, f->S.len);
+		    break;
+		case 'i':
+		    uc = f->i.base;
+#ifdef BA_external
+		    s->block[4]->data[s->block[4]->uncomp_size++] = uc;
+#else
+		    r |= h->BA_codec->encode(s, h->BA_codec, core,
+					     (char *)&uc, 1);
+#endif
+		    //seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
+		    //r |= h->IN_codec->encode(s, h->IN_codec, core,
+		    //			     seq, 1);
+		    break;
+		case 'D':
+		    i32 = f->D.len;
+		    r |= h->DL_codec->encode(s, h->DL_codec, core,
+					     (char *)&i32, 1);
+		    break;
+
+		default:
+		    fprintf(stderr, "unhandled feature code %c\n",
+			    f->X.code);
+		    return -1;
+		}
+	    }
+	} else {
+	    char *seq = DSTRING_STR(s->seqs_ds) + cr->seq;
+#ifdef BA_external
+	    memcpy(&s->block[4]->data[s->block[4]->uncomp_size],
+		   seq, cr->len);
+	    s->block[4]->uncomp_size += cr->len;
+#else
+	    r |= h->BA_codec->encode(s, h->BA_codec, core, seq, cr->len);
+#endif
+	}
+
+	r |= h->MQ_codec->encode(s, h->MQ_codec, core,
+				 (char *)&cr->mqual, 1);
+
+    }
+    s->block[0]->data = (char *)core->data;
+    s->block[0]->uncomp_size = core->byte + (core->bit < 7);
+    s->block[0]->comp_size = s->block[0]->uncomp_size;
+    block_destroy(core, 1);
+
+    s->block[1]->data = s->base_ds->str; s->base_ds->str = NULL;
+    s->block[1]->comp_size = s->block[1]->uncomp_size = s->base_ds->length;
+
+    s->block[2]->data = s->qual_ds->str; s->qual_ds->str = NULL;
+    s->block[2]->comp_size = s->block[2]->uncomp_size = s->qual_ds->length;
+
+    s->block[3]->data = s->name_ds->str; s->name_ds->str = NULL;
+    s->block[3]->comp_size = s->block[3]->uncomp_size = s->name_ds->length;
+
+    /* Compress the other blocks */
+#if 1
+    cram_compress_block(s->block[1], 4, Z_FILTERED);
+    cram_compress_block(s->block[2], 1, Z_RLE);
+    cram_compress_block(s->block[3], 4, Z_FILTERED);
+    //cram_compress_block(s->block[4], 4, Z_FILTERED);
+    cram_compress_block(s->block[4], 5, Z_DEFAULT_STRATEGY);
+    cram_compress_block(s->block[5], 6, Z_DEFAULT_STRATEGY);
+#endif
+
+    return r ? -1 : 0;
+}
+
+/*
  * Encodes all slices in a container into blocks.
  * Returns 0 on success
  *        -1 on failure
@@ -2216,7 +2462,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     h->MQ_codec = cram_encoder_init(cram_stats_encoding(c->MQ_stats),
 				    c->MQ_stats, E_INT, NULL);
 
-//#define NS_external
     fprintf(stderr, "=== NS ===\n");
 #ifdef NS_external
     h->NS_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)3);
@@ -2229,7 +2474,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     h->MF_codec = cram_encoder_init(cram_stats_encoding(c->MF_stats),
 				    c->MF_stats, E_BYTE, NULL);
 
-#define TS_external
 #ifdef TS_external
     h->TS_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)3);
     h->NP_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)3);
@@ -2329,239 +2573,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     /* Encode slices */
     for (i = 0; i < c->curr_slice; i++) {
-	cram_slice *s = c->slices[i];
-	int rec, r = 0, last_pos;
-	block_t *core = block_create(NULL, 0);
-	core->bit = 7; // MSB first
-
-	/*
-	 * Slice external blocks:
-	 * ID 0 => base calls (insertions, soft-clip)
-	 * ID 1 => qualities
-	 * ID 2 => names
-	 * ID 3 => TS (insert size), NP (next frag)
-	 * ID 4 => tags
-	 */
 	fprintf(stderr, "Encode slice %d\n", i);
-
-	/* Create cram slice header, num_blocks etc */
-	s->hdr->ref_base_id = 0;
-	s->hdr->num_blocks = 6;
-	s->block = calloc(6, sizeof(s->block[0]));
-	s->hdr->num_content_ids = 5;
-	s->hdr->block_content_ids = malloc(5 * sizeof(int32_t));
-	s->hdr->block_content_ids[0] = 0;
-	s->hdr->block_content_ids[1] = 1;
-	s->hdr->block_content_ids[2] = 2;
-	s->hdr->block_content_ids[3] = 3;
-	s->hdr->block_content_ids[4] = 4;
-
-	s->block[0] = cram_new_block(CORE, 0);     // Core 
-	s->block[1] = cram_new_block(EXTERNAL, 0); // Bases
-	s->block[2] = cram_new_block(EXTERNAL, 1); // Qual
-	s->block[3] = cram_new_block(EXTERNAL, 2); // Names
-	s->block[4] = cram_new_block(EXTERNAL, 3); // TS/NP
-	s->block[5] = cram_new_block(EXTERNAL, 4); // Tags
-		 
-	/* Create a formal method for stealing from dstrings! */
-	//s->block[4]->data = calloc(5, s->hdr->num_records);
-	s->block[4]->data = calloc(10, s->hdr->num_records); // NP TS
-	s->block[4]->comp_size = s->block[4]->uncomp_size = 0;
-
-	s->block[5]->data = s->aux_ds->str; s->aux_ds->str = NULL;
-	s->block[5]->comp_size = s->block[5]->uncomp_size = s->aux_ds->length;
-
-	/* Generate core block */
-	s->hdr_block = cram_encode_slice_header(s);
-
-	last_pos = s->hdr->ref_seq_start;
-	for (rec = 0; rec < s->hdr->num_records; rec++) {
-	    cram_record *cr = &s->crecs[rec];
-	    int32_t i32;
-	    unsigned char uc;
-
-	    //printf("BF=0x%x\n", cr->flags);
-	    //	    bf = cram_flag_swap[cr->flags];
-	    i32 = cram_flag_swap[cr->flags & 511];
-	    r |= h->BF_codec->encode(s, h->BF_codec, core, (char *)&i32, 1);
-
-	    uc = cr->cram_flags;
-	    r |= h->CF_codec->encode(s, h->CF_codec, core,
-				     (char *)&uc, 1);
-
-	    r |= h->RL_codec->encode(s, h->RL_codec, core,
-				     (char *)&cr->len, 1);
-
-	    i32 = cr->apos - last_pos;
-	    r |= h->AP_codec->encode(s, h->AP_codec, core, (char *)&i32, 1);
-	    last_pos = cr->apos;
-
-	    r |= h->RG_codec->encode(s, h->RG_codec, core,
-				     (char *)&cr->rg, 1);
-
-	    if (c->comp_hdr->read_names_included) {
-		// FIXME: RN codec
-		// Already stored in block[3].
-	    }
-
-	    if (cr->cram_flags & CRAM_FLAG_DETACHED) {
-		char mf = cr->mate_flags;
-		r |= h->MF_codec->encode(s, h->MF_codec, core, &mf, 1);
-
-		if (!c->comp_hdr->read_names_included) {
-		    // FIXME: RN codec
-		    // Already stored in block[3].
-		}
-
-#ifndef NS_external
-		r |= h->NS_codec->encode(s, h->NS_codec, core,
-					 (char *)&cr->mate_ref_id, 1);
-#else
-		s->block[4]->uncomp_size +=
-		    itf8_put(&s->block[4]->data[s->block[4]->uncomp_size],
-			     cr->mate_ref_id);
-#endif
-
-#ifndef TS_external
-		r |= h->NP_codec->encode(s, h->NP_codec, core,
-					 (char *)&cr->mate_pos, 1);
-
-		r |= h->TS_codec->encode(s, h->TS_codec, core,
-					 (char *)&cr->tlen, 1);
-#else
-		s->block[4]->uncomp_size +=
-		    itf8_put(&s->block[4]->data[s->block[4]->uncomp_size],
-			     cr->mate_pos);
-		s->block[4]->uncomp_size +=
-		    itf8_put(&s->block[4]->data[s->block[4]->uncomp_size],
-			     cr->tlen);
-#endif
-	    } else if (cr->cram_flags & CRAM_FLAG_MATE_DOWNSTREAM) {
-		r |= h->NF_codec->encode(s, h->NF_codec, core,
-					 (char *)&cr->mate_line, 1);
-	    }
-
-	    /* Aux tags */
-#if 1
-	    uc = cr->ntags;
-	    r |= h->TC_codec->encode(s, h->TC_codec, core, (char *)&uc, 1);
-#ifndef TN_AS_EXT
-	    for (j = 0; j < cr->ntags; j++) {
-		uint32_t i32 = s->TN[cr->TN_idx + j]; // id
-		r |= h->TN_codec->encode(s, h->TN_codec, core,
-					 (char *)&i32, 1);
-	    }
-#endif
-#else
-	    uc = 0; // no tags
-	    r |= h->TC_codec->encode(s, h->TC_codec, core, (char *)&uc, 1);
-#endif
-
-	    // qual
-	    // FIXME: QS codec
-	    // Already stored in block[2].
-
-	    //fprintf(stderr, "Encode seq %d, FN=%d, %d/%d\n", rec, cr->nfeature, core->byte, core->bit);
-
-	    // features (diffs)
-	    if (!(cr->flags & BAM_FUNMAP)) {
-		r |= h->FN_codec->encode(s, h->FN_codec, core,
-					 (char *)&cr->nfeature, 1);
-		int prev_pos = 0;
-		for (j = 0; j < cr->nfeature; j++) {
-		    cram_feature *f = &s->features[cr->feature + j];
-
-		    uc = f->X.code;
-		    r |= h->FC_codec->encode(s, h->FC_codec, core,
-					     (char *)&uc, 1);
-		    i32 = f->X.pos - prev_pos;
-		    r |= h->FP_codec->encode(s, h->FP_codec, core,
-					     (char *)&i32, 1);
-		    prev_pos = f->X.pos;
-
-		    switch(f->X.code) {
-			//char *seq;
-
-		    case 'X':
-			//fprintf(stderr, "    FC=%c FP=%d base=%d\n", f->X.code, i32, f->X.base);
-		
-			uc = f->X.base;
-			r |= h->BS_codec->encode(s, h->BS_codec, core,
-						 (char *)&uc, 1);
-			break;
-		    case 'S':
-			//seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
-			//r |= h->IN_codec->encode(s, h->IN_codec, core,
-			//			     seq, f->S.len);
-			break;
-		    case 'I':
-			//seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
-			//r |= h->IN_codec->encode(s, h->IN_codec, core,
-			//			     seq, f->S.len);
-			break;
-		    case 'i':
-			uc = f->i.base;
-#ifdef BA_external
-			s->block[4]->data[s->block[4]->uncomp_size++] = uc;
-#else
-			r |= h->BA_codec->encode(s, h->BA_codec, core,
-						 (char *)&uc, 1);
-#endif
-			//seq = DSTRING_STR(s->seqs_ds) + f->S.seq_idx;
-			//r |= h->IN_codec->encode(s, h->IN_codec, core,
-			//			     seq, 1);
-			break;
-		    case 'D':
-			i32 = f->D.len;
-			r |= h->DL_codec->encode(s, h->DL_codec, core,
-						 (char *)&i32, 1);
-			break;
-
-		    default:
-			fprintf(stderr, "unhandled feature code %c\n",
-				f->X.code);
-			return -1;
-		    }
-		}
-	    } else {
-		char *seq = DSTRING_STR(s->seqs_ds) + cr->seq;
-#ifdef BA_external
-		memcpy(&s->block[4]->data[s->block[4]->uncomp_size],
-		       seq, cr->len);
-		s->block[4]->uncomp_size += cr->len;
-#else
-		r |= h->BA_codec->encode(s, h->BA_codec, core, seq, cr->len);
-#endif
-	    }
-
-	    r |= h->MQ_codec->encode(s, h->MQ_codec, core,
-				     (char *)&cr->mqual, 1);
-
-	}
-	s->block[0]->data = (char *)core->data;
-	s->block[0]->uncomp_size = core->byte + (core->bit < 7);
-	s->block[0]->comp_size = s->block[0]->uncomp_size;
-	block_destroy(core, 1);
-
-	s->block[1]->data = s->base_ds->str; s->base_ds->str = NULL;
-	s->block[1]->comp_size = s->block[1]->uncomp_size = s->base_ds->length;
-
-	s->block[2]->data = s->qual_ds->str; s->qual_ds->str = NULL;
-	s->block[2]->comp_size = s->block[2]->uncomp_size = s->qual_ds->length;
-
-	s->block[3]->data = s->name_ds->str; s->name_ds->str = NULL;
-	s->block[3]->comp_size = s->block[3]->uncomp_size = s->name_ds->length;
-
-	/* Compress the other blocks */
-#if 1
-	cram_compress_block(s->block[1], 4, Z_FILTERED);
-	cram_compress_block(s->block[2], 1, Z_RLE);
-	cram_compress_block(s->block[3], 4, Z_FILTERED);
-	//cram_compress_block(s->block[4], 4, Z_FILTERED);
-	cram_compress_block(s->block[4], 5, Z_DEFAULT_STRATEGY);
-	cram_compress_block(s->block[5], 6, Z_DEFAULT_STRATEGY);
-#endif
-	if (r)
+	if (cram_encode_slice(fd, c, h, c->slices[i]) != 0)
 	    return -1;
     }
 
@@ -3762,6 +3775,83 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 }
 
 /*
+ * Handles creation of a new container, flushing any existing slices as
+ * appropriate.
+ *
+ * Returns cram_container pointer on success
+ *         NULL on failure.
+ */
+static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
+    cram_container *c = fd->ctr;
+    cram_slice *s;
+    int i;
+
+    /* First occurence */
+    if (c->curr_ref == -2)
+	c->curr_ref = b->ref;
+
+    if (c->slice) {
+	s = c->slice;
+	s->hdr->ref_seq_id    = c->curr_ref;
+	s->hdr->ref_seq_start = fd->first_base;
+	s->hdr->ref_seq_span  = fd->last_base - fd->first_base + 1;
+	s->hdr->num_records   = c->curr_rec;
+
+	if (c->curr_slice == 0) {
+	    if (c->ref_seq_id != s->hdr->ref_seq_id)
+		c->ref_seq_id  = s->hdr->ref_seq_id;
+	    c->ref_seq_start = fd->first_base;
+	}
+
+	c->curr_slice++;
+    }
+
+    /* Flush container */
+    if (c->curr_slice == c->max_slice) {
+	c->ref_seq_span = fd->last_base - c->ref_seq_start + 1;
+	fprintf(stderr, "Flush container %d/%d..%d\n",
+		c->ref_seq_id, c->ref_seq_start,
+		c->ref_seq_start + c->ref_seq_span -1);
+
+	/* Encode slices */
+	if (-1 == cram_encode_container(fd, c))
+	    return NULL;
+
+	// Move to sep func, as we need cram_flush_container for
+	// the closing phase to flush the partial container.
+	for (i = 0; i < c->max_slice; i++) {
+	    cram_free_slice(c->slices[i]);
+	    c->slices[i] = NULL;
+	}
+
+	c->slice = NULL;
+	c->curr_slice = 0;
+
+	/* Easy approach for purposes of freeing stats */
+	cram_free_container(c);
+	c = fd->ctr = cram_new_container(SEQS_PER_SLICE, SLICE_PER_CNT);
+	c->curr_ref = b->ref;
+    }
+
+    c->last_pos = fd->first_base = fd->last_base = b->pos+1;
+
+    /* New slice */
+    c->slice = c->slices[c->curr_slice] =
+	cram_new_slice(MAPPED_SLICE, c->max_rec);
+    if (!c->slice)
+	return NULL;
+
+    c->slice->hdr->ref_seq_id = b->ref;
+    c->slice->hdr->ref_seq_start = b->pos+1;
+    c->slice->last_apos = b->pos+1;
+
+    c->curr_rec = 0;
+
+    return c;
+}
+					      
+
+/*
  * Write iterator: put BAM format sequences into a CRAM file.
  * We buffer up a containers worth of data at a time.
  *
@@ -3790,80 +3880,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     if (!c->slice || c->curr_rec == c->max_rec ||
 	(b->ref != c->curr_ref && c->curr_ref >= -1)) {
 
-	/* First occurence */
-	if (c->curr_ref == -2)
-	    c->curr_ref = b->ref;
-
-	if (c->slice) {
-	    s = c->slice;
-	    s->hdr->ref_seq_id    = c->curr_ref;
-	    s->hdr->ref_seq_start = fd->first_base;
-	    s->hdr->ref_seq_span  = fd->last_base - fd->first_base + 1;
-	    s->hdr->num_records   = c->curr_rec;
-
-	    if (c->curr_slice == 0) {
-		if (c->ref_seq_id != s->hdr->ref_seq_id)
-		    c->ref_seq_id  = s->hdr->ref_seq_id;
-		c->ref_seq_start = fd->first_base;
-	    }
-
-	    c->curr_slice++;
-	}
-
-	/* Flush container */
-	if (c->curr_slice == c->max_slice) {
-	    c->ref_seq_span = fd->last_base - c->ref_seq_start + 1;
-	    fprintf(stderr, "Flush container %d/%d..%d\n",
-		    c->ref_seq_id, c->ref_seq_start,
-		    c->ref_seq_start + c->ref_seq_span -1);
-
-	    /*
-	     * Write header
-	     * Gather stats
-	     * Create container compression header
-	     * Write container header
-	     * Encode slices
-	     * Write slices
-	     * Free slices
-	     */
-
-	    /* Gather stats */
-
-	    /* Basic strat atm: encoded with NONE */
-
-	    /* Encode slices */
-	    if (-1 == cram_encode_container(fd, c))
-		return -1;
-
-	    // Move to sep func, as we need cram_flush_container for
-	    // the closing phase to flush the partial container.
-	    for (i = 0; i < c->max_slice; i++) {
-		cram_free_slice(c->slices[i]);
-		c->slices[i] = NULL;
-	    }
-
-	    c->slice = NULL;
-	    c->curr_slice = 0;
-
-	    /* Easy approach for purposes of freeing stats */
-	    cram_free_container(c);
-	    c = fd->ctr = cram_new_container(SEQS_PER_SLICE, SLICE_PER_CNT);
-	    c->curr_ref = b->ref;
-	}
-
-	c->last_pos = fd->first_base = fd->last_base = b->pos+1;
-
-	/* New slice */
-	c->slice = c->slices[c->curr_slice] =
-	    cram_new_slice(MAPPED_SLICE, c->max_rec);
-	if (!c->slice)
+	if (NULL == (c = cram_next_container(fd, b)))
 	    return -1;
-
-	c->slice->hdr->ref_seq_id = b->ref;
-	c->slice->hdr->ref_seq_start = b->pos+1;
-	c->slice->last_apos = b->pos+1;
-
-	c->curr_rec = 0;
     }
 
     // Create a cram_record
