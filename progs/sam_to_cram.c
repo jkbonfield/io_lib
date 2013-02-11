@@ -12,6 +12,7 @@ int main(int argc, char **argv) {
     bam_file_t *in;
     bam_seq_t *s = NULL;
     refs *refs;
+    char *out_fn;
 
     /* opening */
     if (NULL == (in = bam_open(argv[1], "rb"))) {
@@ -19,15 +20,16 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    if (argc == 3) {
+    if (argc >= 3) {
 	refs = load_reference(argv[2]);
+	refs2id(refs, in);
     } else {
 	refs = NULL;
     }
-    refs2id(refs, in);
 
-    if (NULL == (out = cram_open("-", "wb"))) {
-	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[1]);
+    out_fn = argc == 4 ? argv[3] : "-";
+    if (NULL == (out = cram_open(out_fn, "wb"))) {
+	fprintf(stderr, "Error opening CRAM file '%s'.\n", out_fn);
 	return 1;
     }
     out->refs = refs;
