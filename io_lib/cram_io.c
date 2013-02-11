@@ -2024,7 +2024,7 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
     }
 
     /* We only support huffman now anyway... */
-    return E_HUFFMAN;
+    //return E_HUFFMAN;
 
     fprintf(stderr, "Range = %d..%d, nvals=%d, ntot=%d\n",
 	    min_val, max_val, nvals, ntot);
@@ -3644,6 +3644,122 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
     return bam_idx;
 }
 
+/*
+ * Encodes auxiliary data.
+ * Returns the read-group parsed out of the BAM aux fields on success
+ *         NULL on failure or no rg present (FIXME)
+ */
+static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
+			     cram_slice *s, cram_record *cr) {
+    char *aux, *tmp, *rg = NULL;
+    int aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
+	
+    /* Worst case is 1 nul char on every ??:Z: string, so +33% */
+    dstring_resize(s->aux_ds, DSTRING_LEN(s->aux_ds) + aux_size*1.34 + 1);
+    tmp = DSTRING_STR(s->aux_ds) + DSTRING_LEN(s->aux_ds);
+
+    aux = bam_aux(b);
+#ifndef TN_AS_EXT
+    cr->TN_idx = s->nTN;
+#endif
+    while (aux[0] != 0) {
+	HashData hd; hd.i = 0;
+	int32_t i32;
+
+	if (aux[0] == 'R' && aux[1] == 'G' && aux[2] == 'Z') {
+	    rg = &aux[3];
+	    while (*aux++);
+	    continue;
+	}
+	cr->ntags++;
+	HashTableAdd(c->tags_used, aux, 3, hd, NULL);
+
+	i32 = (aux[0]<<16) | (aux[1]<<8) | aux[2];
+#ifndef TN_AS_EXT
+	if (s->nTN >= s->aTN) {
+	    s->aTN = s->aTN ? s->aTN*2 : 1024;
+	    s->TN = realloc(s->TN, s->aTN * sizeof(*s->TN));
+	}
+	s->TN[s->nTN++] = i32;
+	cram_stats_add(c->TN_stats, i32);
+#else
+	tmp += itf8_put(tmp, i32);
+#endif
+
+	switch(aux[2]) {
+	case 'A': case 'C': case 'c':
+	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    *tmp++=*aux++;
+	    break;
+
+	case 'S': case 's':
+	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    *tmp++=*aux++; *tmp++=*aux++;
+	    break;
+
+	case 'I': case 'i': case 'f':
+	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    break;
+
+	case 'd':
+	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    break;
+
+	case 'Z': case 'H':
+	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    while ((*tmp++=*aux++));
+	    *tmp++ = '\t'; // stop byte
+	    break;
+
+	case 'B': {
+	    int type = aux[3];
+	    uint32_t count = (uint32_t)((((unsigned char *)aux)[4]<< 0) +
+					(((unsigned char *)aux)[5]<< 8) +
+					(((unsigned char *)aux)[6]<<16) +
+					(((unsigned char *)aux)[7]<<24));
+	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    *tmp++=*aux++;
+	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    switch (type) {
+	    case 'c': case 'C':
+		memcpy(tmp, aux, count);
+		tmp += count;
+		aux += count;
+		break;
+	    case 's': case 'S':
+		memcpy(tmp, aux, 2*count);
+		tmp += 2*count;
+		aux += 2*count;
+		break;
+	    case 'i': case 'I': case 'f':
+		memcpy(tmp, aux, 4*count);
+		tmp += 4*count;
+		aux += 4*count;
+		break;
+	    default:
+		fprintf(stderr, "Unknown sub-type '%c' for aux type 'B'\n",
+			type);
+		return NULL;
+		    
+	    }
+	}
+	default:
+	    fprintf(stderr, "Unknown aux type '%c'\n", aux[2]);
+	    return NULL;
+	}
+    }
+    cram_stats_add(c->TC_stats, cr->ntags);
+
+    cr->aux = DSTRING_LEN(s->aux_ds);
+    cr->aux_size = tmp - (DSTRING_STR(s->aux_ds) + cr->aux);
+    DSTRING_LEN(s->aux_ds) = tmp - DSTRING_STR(s->aux_ds);
+    assert(s->aux_ds->length <= s->aux_ds->allocated);
+
+    return rg;
+}
 
 /*
  * Write iterator: put BAM format sequences into a CRAM file.
@@ -3763,115 +3879,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     //cr->mate_flags;   // MF
     //cr->ntags;        // TC
     cr->ntags      = 0; //cram_stats_add(c->TC_stats, cr->ntags);
-    rg = NULL;
-    {
-	char *aux, *tmp;
-	int aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
-	
-	/* Worst case is 1 nul char on every ??:Z: string, so +33% */
-	dstring_resize(s->aux_ds, DSTRING_LEN(s->aux_ds) + aux_size*1.34 + 1);
-	tmp = DSTRING_STR(s->aux_ds) + DSTRING_LEN(s->aux_ds);
+    rg = cram_encode_aux(fd, b, c, s, cr);
 
-	aux = bam_aux(b);
-#ifndef TN_AS_EXT
-	cr->TN_idx = s->nTN;
-#endif
-	while (aux[0] != 0) {
-	    HashData hd; hd.i = 0;
-	    int32_t i32;
-
-	    if (aux[0] == 'R' && aux[1] == 'G' && aux[2] == 'Z') {
-		rg = &aux[3];
-		while (*aux++);
-		continue;
-	    }
-	    cr->ntags++;
-	    HashTableAdd(c->tags_used, aux, 3, hd, NULL);
-
-	    i32 = (aux[0]<<16) | (aux[1]<<8) | aux[2];
-#ifndef TN_AS_EXT
-	    if (s->nTN >= s->aTN) {
-		s->aTN = s->aTN ? s->aTN*2 : 1024;
-		s->TN = realloc(s->TN, s->aTN * sizeof(*s->TN));
-	    }
-	    s->TN[s->nTN++] = i32;
-	    cram_stats_add(c->TN_stats, i32);
-#else
-	    tmp += itf8_put(tmp, i32);
-#endif
-
-	    switch(aux[2]) {
-	    case 'A': case 'C': case 'c':
-		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		*tmp++=*aux++;
-		break;
-
-	    case 'S': case 's':
-		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		*tmp++=*aux++; *tmp++=*aux++;
-		break;
-
-	    case 'I': case 'i': case 'f':
-		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		break;
-
-	    case 'd':
-		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		break;
-
-	    case 'Z': case 'H':
-		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		while ((*tmp++=*aux++));
-		*tmp++ = '\t'; // stop byte
-		break;
-
-	    case 'B': {
-		int type = aux[3];
-		uint32_t count = (uint32_t)((((unsigned char *)aux)[4]<< 0) +
-					    (((unsigned char *)aux)[5]<< 8) +
-					    (((unsigned char *)aux)[6]<<16) +
-					    (((unsigned char *)aux)[7]<<24));
-		aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		*tmp++=*aux++;
-		*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-		switch (type) {
-		case 'c': case 'C':
-		    memcpy(tmp, aux, count);
-		    tmp += count;
-		    aux += count;
-		    break;
-		case 's': case 'S':
-		    memcpy(tmp, aux, 2*count);
-		    tmp += 2*count;
-		    aux += 2*count;
-		    break;
-		case 'i': case 'I': case 'f':
-		    memcpy(tmp, aux, 4*count);
-		    tmp += 4*count;
-		    aux += 4*count;
-		    break;
-		default:
-		    fprintf(stderr, "Unknown sub-type '%c' for aux type 'B'\n",
-			    type);
-		    return -1;
-		    
-		}
-	    }
-	    default:
-		fprintf(stderr, "Unknown aux type '%c'\n", aux[2]);
-		return -1;
-	    }
-	}
-	cram_stats_add(c->TC_stats, cr->ntags);
-
-	cr->aux = DSTRING_LEN(s->aux_ds);
-	cr->aux_size = tmp - (DSTRING_STR(s->aux_ds) + cr->aux);
-	DSTRING_LEN(s->aux_ds) = tmp - DSTRING_STR(s->aux_ds);
-	assert(s->aux_ds->length <= s->aux_ds->allocated);
-    }
     //cr->aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
     //cr->aux = DSTRING_LEN(s->aux_ds);
     //dstring_nappend(s->aux_ds, bam_aux(b), cr->aux_size);
