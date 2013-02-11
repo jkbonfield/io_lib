@@ -472,10 +472,8 @@ void cram_huffman_decode_free(cram_codec *c) {
 
     if (c->huffman.codes)
 	free(c->huffman.codes);
-    if (c->huffman.lengths)
-	free(c->huffman.lengths);
-    if (c->huffman.prefix)
-	free(c->huffman.prefix);
+    if (c->huffman.plen)
+	free(c->huffman.plen);
     free(c);
 }
 
@@ -505,7 +503,8 @@ int cram_huffman_decode_char(cram_slice *slice, cram_codec *c, block_t *in, char
 	    last_len = (len  += dlen);
 #endif
 
-	    idx = c->huffman.lengths[len] + val-c->huffman.prefix[len];
+	    //idx = c->huffman.lengths[len] + val-c->huffman.prefix[len];
+	    idx = val-c->huffman.plen[len].p + c->huffman.plen[len].l;
 	    if (c->huffman.codes[idx].code == val && 
 		c->huffman.codes[idx].len == len) {
 		out[i] = c->huffman.codes[idx].symbol;
@@ -545,7 +544,8 @@ int cram_huffman_decode_int(cram_slice *slice, cram_codec *c, block_t *in, char 
 	    last_len = (len  += dlen);
 #endif
 
-	    idx = c->huffman.lengths[len] + val-c->huffman.prefix[len];
+	    //idx = c->huffman.lengths[len] + val-c->huffman.prefix[len];
+	    idx = val-c->huffman.plen[len].p + c->huffman.plen[len].l;
 	    if (c->huffman.codes[idx].code == val && 
 		c->huffman.codes[idx].len == len) {
 		out_i[i] = c->huffman.codes[idx].symbol;
@@ -601,7 +601,7 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
     qsort(codes, ncodes, sizeof(*codes), code_sort);
 
     /* Assign canonical codes */
-    h->huffman.prefix = calloc(max_len+2, sizeof(int));
+    h->huffman.plen = calloc(max_len+2, sizeof(prefix_len));
     val = -1, last_len = 0;
     for (i = 0; i < ncodes; i++) {
 	val++;
@@ -610,21 +610,20 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
 		val <<= 1;
 		last_len++;
 	    }
-	    h->huffman.prefix[last_len] = val;
+	    h->huffman.plen[last_len].p = val;
 	}
 	codes[i].code = val;
     }
-    h->huffman.prefix[last_len+1] = -1;
+    h->huffman.plen[last_len+1].p = -1;
 
     /* Identify length starting points */
-    h->huffman.lengths = malloc((last_len+2) * sizeof(int));
-    h->huffman.lengths[last_len+1] = -1;
+    h->huffman.plen[last_len+1].l = -1;
     last_len = -1;
     for (i = j = 0; i < ncodes; i++) {
 	if (codes[i].len > last_len) {
 	    last_len = codes[i].len;
 	    while (j <= last_len)
-		h->huffman.lengths[j++] = i;
+		h->huffman.plen[j++].l = i;
 	}
     }
 

@@ -21,11 +21,13 @@ typedef struct {
 } cram_huffman_code;
 
 typedef struct {
+    int p;
+    int l;
+} prefix_len;
+
+typedef struct {
     cram_huffman_code *codes;
-    // FIXME, use array of pairs rather than two arrays as we access
-    // lengths[x] and prefix[x] together. Keep them in same cache line.
-    int *lengths;
-    int *prefix;
+    prefix_len *plen;
 } cram_huffman_decoder;
 
 #define MAX_HUFF 128
