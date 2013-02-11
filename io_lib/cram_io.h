@@ -49,21 +49,21 @@ int itf8_put(char *cp, int32_t val);
  * Returns unsigned value on success (>=0)
  *         -1 on failure
  */
-signed int get_bits_MSB(block_t *block, int nbits);
+//signed int get_bits_MSB(block_t *block, int nbits);
 
 /* Get a single bit, MSB first */
-signed int get_bit_MSB(block_t *block);
+//signed int get_bit_MSB(block_t *block);
 
 /*
  * Count number of successive 0 and 1 bits
  */
-int get_one_bits_MSB(block_t *block);
-int get_zero_bits_MSB(block_t *block);
+//int get_one_bits_MSB(block_t *block);
+//int get_zero_bits_MSB(block_t *block);
 
 #define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, (--b->bit == -1) && (b->bit = 7, b->byte++))
 
-void store_bit_MSB(block_t *block, unsigned int bit);
-void store_bits_MSB(block_t *block, unsigned int val, int nbits);
+//void store_bit_MSB(block_t *block, unsigned int bit);
+//void store_bits_MSB(block_t *block, unsigned int val, int nbits);
 
 /* ----------------------------------------------------------------------------
  * Mid level I/O functions for manipulating CRAM file structures:

@@ -29,6 +29,16 @@ typedef struct {
  */
 dstring_t *dstring_create(const char *str);
 
+/*
+ * As per dstring_create(), but using str,len as the internal data.
+ * Ie the caller is giving this data to the dstring object. str should
+ * be a malloced pointer.
+ *
+ * Returns dstring_t pointer on success.
+ *         NULL on failure.
+ */
+dstring_t *dstring_create_with(const char *str, size_t len);
+
 /* Deallocates a dstring */
 void dstring_destroy(dstring_t *ds);
 

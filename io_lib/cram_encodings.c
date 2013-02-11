@@ -30,8 +30,98 @@ static char *codec2str(enum cram_encoding codec) {
     return "(unknown)";
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * Block bit-level I/O functions.
+ * All defined static here to promote easy inlining by the compiler.
+ */
+
+/* Get a single bit, MSB first */
+static signed int get_bit_MSB(block_t *block) {
+    unsigned int val;
+
+    if (block->byte > block->alloc)
+	return -1;
+
+    val = block->data[block->byte] >> block->bit;
+    if (--block->bit == -1) {
+	block->bit = 7;
+	block->byte++;
+	//printf("(%02X)", block->data[block->byte]);
+    }
+
+    //printf("-B%d-", val&1);
+
+    return val & 1;
+}
+
+/*
+ * Count number of successive 0 and 1 bits
+ */
+static int get_one_bits_MSB(block_t *block) {
+    int n = 0, b;
+    do {
+	b = block->data[block->byte] >> block->bit;
+	if (--block->bit == -1) {
+	    block->bit = 7;
+	    block->byte++;
+	}
+	n++;
+    } while (b&1);
+
+    return n-1;
+}
+
+static int get_zero_bits_MSB(block_t *block) {
+    int n = 0, b;
+    do {
+	b = block->data[block->byte] >> block->bit;
+	if (--block->bit == -1) {
+	    block->bit = 7;
+	    block->byte++;
+	}
+	n++;
+    } while (!(b&1));
+
+    return n-1;
+}
+
+/* Stores a single bit */
+static void store_bit_MSB(block_t *block, unsigned int bit) {
+    if (block->byte >= block->alloc) {
+	block->alloc = block->alloc ? block->alloc*2 : 1024;
+	block->data = realloc(block->data, block->alloc);
+    }
+
+    if (bit)
+	block->data[block->byte] |= (1 << block->bit);
+
+    if (--block->bit == -1) {
+	block->bit = 7;
+	block->byte++;
+	block->data[block->byte] = 0;
+    }
+}
+
+
+/* Rounds to the next whole byte boundary first */
+static void store_bytes_MSB(block_t *block, char *bytes, int len) {
+    if (block->bit != 7) {
+	block->bit = 7;
+	block->byte++;
+    }
+
+    while (block->byte + len >= block->alloc) {
+	block->alloc = block->alloc ? block->alloc*2 : 1024;
+	block->data = realloc(block->data, block->alloc);
+    }
+
+    memcpy(&block->data[block->byte], bytes, len);
+    block->byte += len;
+}
+
 /* Local optimised copy for inlining */
-static signed int get_bits_MSB_(block_t *block, int nbits) {
+static signed int get_bits_MSB(block_t *block, int nbits) {
     unsigned int val = 0;
     int i;
 
@@ -101,7 +191,7 @@ static signed int get_bits_MSB_(block_t *block, int nbits) {
  * characters with exactly the correct frequency distribution we check
  * for it elsewhere.)
  */
-static void store_bits_MSB_(block_t *block, unsigned int val, int nbits) {
+static void store_bits_MSB(block_t *block, unsigned int val, int nbits) {
     /* fprintf(stderr, " store_bits: %02x %d\n", val, nbits); */
 
     /*
@@ -286,7 +376,7 @@ int cram_beta_decode(cram_slice *slice, cram_codec *c, block_t *in, char *out, i
 
     if (c->beta.nbits) {
 	for (i = 0, n = *out_size; i < n; i++)
-	    out_i[i] = get_bits_MSB_(in, c->beta.nbits) - c->beta.offset;
+	    out_i[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
     } else {
 	for (i = 0, n = *out_size; i < n; i++)
 	    out_i[i] = 0;
@@ -499,7 +589,7 @@ int cram_huffman_decode_char(cram_slice *slice, cram_codec *c, block_t *in, char
 #else    
 	    int dlen = c->huffman.codes[idx].len - last_len;
 	    val <<= dlen;
-	    val  |= get_bits_MSB_(in, dlen);
+	    val  |= get_bits_MSB(in, dlen);
 	    last_len = (len  += dlen);
 #endif
 
@@ -540,7 +630,7 @@ int cram_huffman_decode_int(cram_slice *slice, cram_codec *c, block_t *in, char 
 #else    
 	    int dlen = c->huffman.codes[idx].len - last_len;
 	    val <<= dlen;
-	    val  |= get_bits_MSB_(in, dlen);
+	    val  |= get_bits_MSB(in, dlen);
 	    last_len = (len  += dlen);
 #endif
 
@@ -681,7 +771,7 @@ int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
 	    len  = c->e_huffman.codes[i].len;
 	}
 
-	store_bits_MSB_(out, code, len);
+	store_bits_MSB(out, code, len);
     } while (--in_size);
 
     return 0;
@@ -717,7 +807,7 @@ int cram_huffman_encode_int(cram_slice *slice, cram_codec *c,
 	    len  = c->e_huffman.codes[i].len;
 	}
 
-	store_bits_MSB_(out, code, len);
+	store_bits_MSB(out, code, len);
     } while (--in_size);
 
     return 0;
