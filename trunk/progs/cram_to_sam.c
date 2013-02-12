@@ -72,18 +72,16 @@ int main(int argc, char **argv) {
     }
 
 
-    if (argc == 3) {
-	refs = load_reference(argv[2]);
-    } else {
-	refs = NULL;
-    }
-
     if (NULL == (fd = cram_open(argv[1], "rb"))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[1]);
 	return 1;
     }
     if (prefix)
 	cram_set_prefix(fd, prefix);
+
+    if (argc == 3) {
+	cram_load_reference(fd, argv[2]);
+    }
 
     bfd->header_len = fd->SAM_hdr->header_len;
     bfd->header = malloc(fd->SAM_hdr->header_len);
@@ -93,8 +91,8 @@ int main(int argc, char **argv) {
         return -1;
 
     bam_write_header(bfd);
-    if (refs)
-	refs2id(refs, bfd);
+    if (fd->refs)
+	refs2id(fd->refs, bfd);
 
     pos = ftello(fd->fp);
     while ((c = cram_read_container(fd))) {
@@ -122,7 +120,7 @@ int main(int argc, char **argv) {
 		cram_uncompress_block(s->block[id]);
 
 	    /* Test decoding of 1st seq */
-	    if (cram_decode_slice(c, s, bfd, refs) != 0) {
+	    if (cram_decode_slice(fd, c, s, bfd) != 0) {
 		fprintf(stderr, "Failure to decode slice\n");
 		return 1;
 	    }
@@ -142,9 +140,6 @@ int main(int argc, char **argv) {
 
     cram_close(fd);
     bam_close(bfd);
-
-    if (refs)
-	free_refs(refs);
 
     free(bam);
 

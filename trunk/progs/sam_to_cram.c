@@ -32,8 +32,10 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", out_fn);
 	return 1;
     }
-    out->refs = refs;
-
+    if (argc >= 3) {
+	cram_load_reference(out, argv[2]);
+	refs2id(out->refs, in);
+    }
 
     /* SAM Header */
     if (NULL == (hdr = cram_create_SAM_hdr(in->header, in->header_len)))
@@ -55,9 +57,6 @@ int main(int argc, char **argv) {
 
     bam_close(in);
     cram_close(out);
-
-    if (refs)
-	free_refs(refs);
 
     if (s)
 	free(s);

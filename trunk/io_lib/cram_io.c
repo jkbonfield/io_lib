@@ -2630,68 +2630,74 @@ refs *load_reference(char *fn) {
     off_t i, j = 0;
     char *name = NULL, *seq = NULL;
     HashData hd;
-    HashTable *h;
+    char fai_fn[PATH_MAX];
+    char line[1024];
 
     refs *r = malloc(sizeof(*r));
     if (!r)
 	return NULL;
 
-    h = r->h = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
-
-    /* Load reference */
+    /* Open reference, for later use */
     if (stat(fn, &sb) != 0) {
 	perror(fn);
 	return NULL;
     }
 
-    if (!(fp = fopen(fn, "r"))) {
+    if (!(r->fp = fopen(fn, "r"))) {
 	perror(fn);
 	return NULL;
     }
 
-    if (!(r->file = ref = malloc(sb.st_size)))
-	return NULL;
-
-    if (sb.st_size != fread(ref, 1, sb.st_size, fp)) {
-	fprintf(stderr, "Failed to load reference file\n");
-	free(ref);
-	return NULL;
-    }
-    fclose(fp);
-
-    /* Parse it */
-    for (i = 0; i < sb.st_size; i++) {
-	if (ref[i] == '>') {
-	    char nl;
-	    if (name) {
-		seq[j] = 0;
-
-		hd.p = seq;
-		HashTableAdd(h, name, strlen(name), hd, NULL);
-	    }
-
-	    name = &ref[i+1];
-	    while (!isspace(ref[i]))
-		i++;
-	    nl = ref[i];
-	    ref[i] = 0;
-	    if (nl != '\n')
-		while (ref[i] != '\n')
-		    i++;
-	    seq = &ref[i+1];
-	    j = 0;
-	} else {
-	    if (ref[i] != '\n')
-		seq[j++] = toupper(ref[i]);
-	}
-    }
-    if (name) {
-	seq[j] = 0;
-	hd.p = seq;
-	HashTableAdd(h, name, strlen(name), hd, NULL);
-    }
-
     r->ref_id = NULL;
+    r->h_meta = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
+    //r->h_seq  = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
+
+    /* Parse .fai file and load meta-data */
+    sprintf(fai_fn, "%.*s.fai", PATH_MAX-5, fn);
+    if (stat(fai_fn, &sb) != 0) {
+	perror(fai_fn);
+	return NULL;
+    }
+    if (!(fp = fopen(fai_fn, "r"))) {
+	perror(fai_fn);
+	return NULL;
+    }
+    while (fgets(line, 1024, fp) != NULL) {
+	ref_entry *e = malloc(sizeof(*e));
+	char *cp;
+
+	if (!r)
+	    return NULL;
+
+	// id
+	for (cp = line; *cp && !isspace(*cp); cp++)
+	    ;
+	*cp++ = 0;
+	strncpy(e->name, line, 255); e->name[255] = 0;
+	
+	// length
+	while (*cp && isspace(*cp))
+	    cp++;
+	e->length = strtoll(cp, &cp, 10);
+
+	// offset
+	while (*cp && isspace(*cp))
+	    cp++;
+	e->offset = strtoll(cp, &cp, 10);
+
+	// bases per line
+	while (*cp && isspace(*cp))
+	    cp++;
+	e->bases_per_line = strtol(cp, &cp, 10);
+
+	// line length
+	while (*cp && isspace(*cp))
+	    cp++;
+	e->line_length = strtol(cp, &cp, 10);
+
+	hd.p = e;
+	HashTableAdd(r->h_meta, e->name, strlen(e->name), hd, NULL);
+    }
 
     return r;
 }
@@ -2699,14 +2705,21 @@ refs *load_reference(char *fn) {
 void free_refs(refs *r) {
     if (r->ref_id)
 	free(r->ref_id);
-    if (r->h)
-	HashTableDestroy(r->h, 0);
-    if (r->file)
-	free(r->file);
+    //if (r->h_seq)
+    //    HashTableDestroy(r->h_seq, 0);
+    if (r->h_meta)
+	HashTableDestroy(r->h_meta, 1);
+
+    if (r->fp)
+	fclose(r->fp);
 
     free(r);
 }
 
+/*
+ * Indexes references by the order they appear in a BAM file. This may not
+ * necessarily be the same order they appear in the fasta reference file.
+ */
 void refs2id(refs *r, bam_file_t *bfd) {
     int i;
     if (r->ref_id)
@@ -2715,7 +2728,7 @@ void refs2id(refs *r, bam_file_t *bfd) {
     r->ref_id = malloc(bfd->nref * sizeof(*r->ref_id));
     for (i = 0; i < bfd->nref; i++) {
 	HashItem *hi;
-	if ((hi = HashTableSearch(r->h, bfd->ref[i].name, 0))) {
+	if ((hi = HashTableSearch(r->h_meta, bfd->ref[i].name, 0))) {
 	    r->ref_id[i] = hi->data.p;
 	} else {
 	    fprintf(stderr, "Unable to find ref name '%s'\n",
@@ -2725,11 +2738,84 @@ void refs2id(refs *r, bam_file_t *bfd) {
 }
 
 /*
+ * Returns a portion of a reference sequence from start to end inclusive.
+ * The returned pointer is owned by the cram_file fd and should not be freed
+ * by the caller. It is valid only until the next cram_get_ref is called
+ * with the same fd parameter (so is thread-safe if given multiple files).
+ *
+ * To return the entire reference sequence, specify start as 1 and end
+ * as 0.
+ *
+ * Returns reference on success
+ *         NULL on failure
+ */
+char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
+    ref_entry *r;
+    off_t offset, len;
+    char *cp_from, *cp_to;
+
+    //fd->first_base = start;
+    //fd->last_base = end;
+
+    if (id < 0) {
+	if (fd->ref)
+	    free(fd->ref);
+	fd->ref = NULL;
+	return NULL;
+    }
+
+    if (!fd->refs->ref_id[id])
+	return NULL;
+
+    if (!(r = fd->refs->ref_id[id])) {
+	fprintf(stderr, "No reference found for id %d\n", id);
+	return NULL;
+    }
+    if (end < 1)
+	end = r->length;
+    assert(start >= 1 && end <= r->length);
+    
+    // Compute location in file
+    offset = r->offset + (start-1)/r->bases_per_line * r->line_length + 
+	(start-1)%r->bases_per_line;
+    if (0 != fseeko(fd->refs->fp, offset, SEEK_SET)) {
+	perror("fseeko() on reference file");
+	return NULL;
+    }
+
+    len = r->offset + (end-1)/r->bases_per_line * r->line_length + 
+	(end-1)%r->bases_per_line - offset + 1;
+
+    // Load the data enmasse and then strip whitespace as we go 
+    fd->ref = realloc(fd->ref, len);     // FIXME: grow only?
+
+    if (len != fread(fd->ref, 1, len, fd->refs->fp)) {
+	perror("fread() on reference file");
+	return NULL;
+    }
+
+    for (cp_from = cp_to = fd->ref; len; len--, cp_from++) {
+	if (!isspace(*cp_from))
+	    *cp_to++ = *cp_from;
+    }
+    if (cp_to - fd->ref != end-start+1) {
+	fprintf(stderr, "Malformed reference file?\n");
+	return NULL;
+    }
+
+    fd->ref_id    = id;
+    fd->ref_start = start;
+    fd->ref_end   = end;
+
+    return fd->ref;
+}
+
+/*
  * Internal part of cram_decode_slice().
  * Generates the sequence, quality and cigar components.
  */
 static int cram_decode_seq(cram_container *c, cram_slice *s, cram_block *blk,
-			   cram_record *cr, bam_file_t *bfd, refs *refs,
+			   cram_record *cr, bam_file_t *bfd,
 			   int bf, int cf, char *seq, char *qual) {
     int prev_pos = 0, f, r = 0, out_sz = 1;
     int seq_pos = 1;
@@ -2760,14 +2846,14 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, cram_block *blk,
 	pos += prev_pos;
 
 	if (pos > seq_pos) {
-	    if (refs && s->hdr->ref_seq_id >= 0) {
+	    if (s->ref && s->hdr->ref_seq_id >= 0) {
 		if (ref_pos + pos - seq_pos > bfd->ref[s->hdr->ref_seq_id].len) {
 		    static int whinged = 0;
 		    if (!whinged)
 			fprintf(stderr, "Ref pos outside of ref sequence boundary\n");
 		    whinged = 1;
 		} else {
-		    memcpy(&seq[seq_pos-1], &refs->ref_id[s->hdr->ref_seq_id][ref_pos],
+		    memcpy(&seq[seq_pos-1], &s->ref[ref_pos - s->ref_start +1],
 			   pos - seq_pos);
 		}
 	    }
@@ -2828,10 +2914,10 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, cram_block *blk,
 	    }
 	    r |= c->comp_hdr->BS_codec->decode(s, c->comp_hdr->BS_codec, blk,
 					       (char *)&base, &out_sz);
-	    if (ref_pos >= bfd->ref[s->hdr->ref_seq_id].len || !refs) {
+	    if (ref_pos >= bfd->ref[s->hdr->ref_seq_id].len || !s->ref) {
 		seq[pos-1] = 'N';
 	    } else {
-		ref_base = L[(unsigned char)refs->ref_id[s->hdr->ref_seq_id][ref_pos]];
+		ref_base = L[(unsigned char)s->ref[ref_pos - s->ref_start +1]];
 		seq[pos-1] = c->comp_hdr->substitution_matrix[ref_base][base];
 	    }
 	    cig_op = BAM_CMATCH;
@@ -2947,14 +3033,14 @@ static int cram_decode_seq(cram_container *c, cram_slice *s, cram_block *blk,
 
     /* An implement match op for any unaccounted for bases */
     if (cr->len >= seq_pos) {
-	if (refs) {
+	if (s->ref) {
 	    if (ref_pos + cr->len - seq_pos + 1 > bfd->ref[s->hdr->ref_seq_id].len) {
 		static int whinged = 0;
 		if (!whinged)
 		    fprintf(stderr, "Ref pos outside of ref sequence boundary\n");
 		whinged = 1;
 	    } else {
-		memcpy(&seq[seq_pos-1], &refs->ref_id[s->hdr->ref_seq_id][ref_pos],
+		memcpy(&seq[seq_pos-1], &s->ref[ref_pos - s->ref_start +1],
 		       cr->len - seq_pos + 1);
 		ref_pos += cr->len - seq_pos + 1;
 	    }
@@ -3073,8 +3159,8 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
     return r;
 }
 
-int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
-		      refs *refs) {
+int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
+		      bam_file_t *bfd) {
     cram_block *blk = s->block[0];
     int32_t bf, ref_id;
     unsigned char cf;
@@ -3097,6 +3183,9 @@ int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
     s->crecs = malloc(s->hdr->num_records * sizeof(*s->crecs));
 
     ref_id = s->hdr->ref_seq_id;
+    s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, s->hdr->ref_seq_start,
+			  s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
+    s->ref_start = s->hdr->ref_seq_start;
 
     for (rec = 0; rec < s->hdr->num_records; rec++) {
 	cram_record *cr = &s->crecs[rec];
@@ -3224,12 +3313,12 @@ int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
 	DSTRING_LEN(s->seqs_ds) += cr->len;
 	DSTRING_LEN(s->qual_ds) += cr->len;
 
-	if (!refs)
+	if (!s->ref)
 	    memset(seq, '=', cr->len);
 
 	if (!(bf & CRAM_FUNMAP)) {
 	    /* Decode sequence and generate CIGAR */
-	    r |= cram_decode_seq(c, s, blk, cr, bfd, refs, bf, cf, seq, qual);
+	    r |= cram_decode_seq(c, s, blk, cr, bfd, bf, cf, seq, qual);
 	} else {
 	    int out_sz2 = cr->len;
 
@@ -3317,6 +3406,8 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->first_base = fd->last_base = -1;
 
     fd->ctr = NULL;
+    fd->refs = NULL; // refs meta-data structure
+    fd->ref  = NULL; // current ref as char*
 
     return fd;
 
@@ -3329,6 +3420,10 @@ cram_fd *cram_open(char *filename, char *mode) {
     return NULL;
 }
 
+
+void cram_load_reference(cram_fd *fd, char *fn) {
+    fd->refs = load_reference(fn);
+}
 
 /*
  * Closes a CRAM file.
@@ -3359,6 +3454,11 @@ int cram_close(cram_fd *fd) {
 
     if (fd->ctr)
 	cram_free_container(fd->ctr);
+
+    if (fd->refs)
+	free_refs(fd->refs);
+    if (fd->ref)
+	free(fd->ref);
 
     free(fd);
     return 0;
@@ -3728,20 +3828,19 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     c = fd->ctr;
 
-    if (b->ref == -1 || c->curr_ref == -1) {
-	fprintf(stderr, "Ref = %d, cref = %d\n", b->ref, c->curr_ref);
-    }
-
     if (!c->slice || c->curr_rec == c->max_rec ||
 	(b->ref != c->curr_ref && c->curr_ref >= -1)) {
 
 	if (NULL == (c = cram_next_container(fd, b)))
 	    return -1;
+
+	cram_get_ref(fd, b->ref, 1, 0);
     }
+
+    ref = fd->ref;
 
     // Create a cram_record
     s = c->slice;
-
     cr = &s->crecs[c->curr_rec++]; // cache c->slice->crecs as c->rec?
 
 
@@ -3800,7 +3899,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     dstring_resize(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
     dstring_resize(s->qual_ds, DSTRING_LEN(s->qual_ds) + cr->len);
     seq = cp = DSTRING_STR(s->seqs_ds) + cr->seq;
-    ref = b->ref >= 0 ? fd->refs->ref_id[b->ref] : NULL;
+
     for (i = 0; i < cr->len; i++) {
 	// FIXME: do 2 char at a time for efficiency
 	cp[i] = bam_nt16_rev_table[bam_seqi(bam_seq(b), i)];
@@ -3818,10 +3917,6 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     if (cr->cigar + cr->ncigar >= s->cigar_alloc) {
 	s->cigar_alloc = s->cigar_alloc ? s->cigar_alloc*2 : 1024;
 	s->cigar = realloc(s->cigar, s->cigar_alloc * sizeof(*s->cigar));
-    }
-
-    if (b->ref == -1) {
-	fprintf(stderr, "unmapped read\n");
     }
 
     /* Copy and parse */
