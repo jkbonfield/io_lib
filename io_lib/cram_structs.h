@@ -369,14 +369,33 @@ typedef struct cram_slice {
 #endif
 
     HashTable *pair;         // for identifying read-pairs in this slice.
+
+    char *ref;               // slice of current reference
+    int ref_start;           // start position of current reference;
 } cram_slice;
 
+/*-----------------------------------------------------------------------------
+ * Consider moving reference handling to cram_refs.[ch]
+ */
+// from fa.fai / samtools faidx files
 typedef struct {
-    HashTable *h;
-    char **ref_id;
-    char *file;
+    char name[256];
+    int64_t length;
+    int64_t offset;
+    int bases_per_line;
+    int line_length;
+} ref_entry;
+
+// References structure.
+typedef struct {
+    HashTable *h_seq;
+    HashTable *h_meta;
+    ref_entry **ref_id;
+    FILE *fp;
 } refs;
 
+/*-----------------------------------------------------------------------------
+ */
 /* CRAM File handle */
 typedef struct {
     FILE          *fp;
@@ -388,8 +407,6 @@ typedef struct {
     int            slice_num;
     int            err;
 
-    refs	  *refs; // FIXME: move load ref into here and free()s too
-
     // Most recent compression header decoded
     //cram_block_compression_hdr *comp_hdr;
     //cram_block_slice_hdr       *slice_hdr;
@@ -397,8 +414,15 @@ typedef struct {
     // Current container being processed.
     cram_container *ctr;
 
-    // positions for encoding
+    // positions for encoding or decoding
     int first_base, last_base;
+
+    // cached reference portion
+    refs *refs;     // ref meta-data structure
+    char *ref;      // current portion held in memory
+    int   ref_id;
+    int   ref_start;
+    int   ref_end;
 } cram_fd;
 
 
