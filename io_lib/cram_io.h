@@ -120,8 +120,8 @@ void cram_free_slice_header(cram_block_slice_hdr *hdr);
 cram_slice *cram_read_slice(cram_fd *fd);
 void cram_free_slice(cram_slice *s);
 
-int cram_decode_slice(cram_container *c, cram_slice *s, bam_file_t *bfd,
-		      refs *refs);
+int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
+		      bam_file_t *bfd);
 
 /*
  * Loads a reference.
