@@ -3,11 +3,12 @@
  * It's an abomination frankly, but isn't intended for production use.
  */
 
+#include "io_lib_config.h"
+
 #include <stdio.h>
 #include <assert.h>
 
 #include <io_lib/cram.h>
-
 
 void HashTableDumpMap(HashTable *h, FILE *fp, char *prefix, char *data) {
     int i, j, k;
@@ -80,7 +81,7 @@ void dump_tag_block(cram_block *b, int verbose) {
 int main(int argc, char **argv) {
     cram_fd *fd;
     cram_container *c;
-    size_t pos, pos2;
+    off_t pos, pos2;
     int verbose = 0;
 
     static int bsize[100], bmax = 0;
