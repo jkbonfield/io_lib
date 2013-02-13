@@ -1,5 +1,6 @@
 /*
  * A debugging program to dump out information on the layout of a CRAM file.
+ * It's an abomination frankly, but isn't intended for production use.
  */
 
 #include <stdio.h>
@@ -27,11 +28,11 @@ void HashTableDumpMap(HashTable *h, FILE *fp, char *prefix, char *data) {
     }
 }
 
-void dump_core_block(cram_block *b) {
+void dump_core_block(cram_block *b, int verbose) {
     int i;
 
     printf("Data = {");
-    for (i = 0; i < 16 && i < b->uncomp_size; i++) {
+    for (i = 0; (verbose || i < 100) && i < b->uncomp_size; i++) {
 	printf(i ? ", %02x" : "%02x", (unsigned char)b->data[i]);
     }
     if (i < b->uncomp_size)
@@ -40,39 +41,58 @@ void dump_core_block(cram_block *b) {
 	printf("}\n");
 }
 
-void dump_seq_block(cram_block *b) {
-    printf("%.*s\n", b->uncomp_size, b->data);
+void dump_seq_block(cram_block *b, int verbose) {
+    int i;
+    for (i = 0; (verbose || i < 100) && i < b->uncomp_size; i++) {
+	if (isprint(b->data[i]))
+	    putchar(b->data[i]);
+	else
+	    printf("\\%03o", b->data[i]);
+    }
 }
 
-void dump_quality_block(cram_block *b) {
+void dump_quality_block(cram_block *b, int verbose) {
     int i;
-    for (i = 0; i < b->uncomp_size; i++) {
+    for (i = 0; (verbose || i < 100) && i < b->uncomp_size; i++) {
 	putchar(b->data[i] + '!');
     }
     putchar('\n');
 }
 
-void dump_name_block(cram_block *b) {
-    printf("%.*s\n", b->uncomp_size, b->data);
+void dump_name_block(cram_block *b, int verbose) {
+    int i;
+    for (i = 0; (verbose || i < 100) && i < b->uncomp_size; i++) {
+	if (isprint(b->data[i]))
+	    putchar(b->data[i]);
+	else
+	    printf("\\%03o", b->data[i]);
+    }
 }
 
-void dump_mate_info_block(cram_block *b) {
-    return dump_core_block(b);
+void dump_mate_info_block(cram_block *b, int verbose) {
+    return dump_core_block(b, verbose);
 }
 
-void dump_tag_block(cram_block *b) {
-    return dump_core_block(b);
+void dump_tag_block(cram_block *b, int verbose) {
+    return dump_core_block(b, verbose);
 }
 
 int main(int argc, char **argv) {
     cram_fd *fd;
     cram_container *c;
     size_t pos, pos2;
+    int verbose = 0;
 
     static int bsize[100], bmax = 0;
 
-    if (argc != 2) {
-	fprintf(stderr, "Usage: cram_dump filename.cram\n");
+    if (argc >= 2 && strcmp(argv[1], "-v") == 0) {
+	argc--;
+	argv++;
+	verbose = 1;
+    }
+
+    if (argc < 2) {
+	fprintf(stderr, "Usage: cram_dump [-v] filename.cram\n");
 	return 1;
     }
 
@@ -159,7 +179,7 @@ int main(int argc, char **argv) {
 		cram_uncompress_block(s->block[id]);
 
 	    /* Test decoding of 1st seq */
-	    {
+	    if (verbose) {
 		cram_block *b = s->block[0];
 		int32_t i32, bf, fn, prev_pos, rl;
 		unsigned char cf;
@@ -169,7 +189,10 @@ int main(int argc, char **argv) {
 		assert(b->content_type == CORE);
 
 		for (rec = 0; rec < s->hdr->num_records; rec++) {
-		    printf("Rec %d/%d\n", rec+1, s->hdr->num_records);
+		    unsigned char ntags;
+
+		    printf("Rec %d/%d at %d,%d\n", rec+1, s->hdr->num_records,
+			   b->byte, b->bit);
 
 		    out_sz = 1; /* decode 1 item */
 		    r = c->comp_hdr->BF_codec->decode(s,c->comp_hdr->BF_codec, b, (char *)&bf, &out_sz);
@@ -226,8 +249,39 @@ int main(int argc, char **argv) {
 			printf("NF = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
 		    }
 
-		    r = c->comp_hdr->TC_codec->decode(s,c->comp_hdr->TC_codec, b, (char *)&i32, &out_sz);
-		    printf("TC = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
+		    r = c->comp_hdr->TC_codec->decode(s,c->comp_hdr->TC_codec, b, (char *)&ntags, &out_sz);
+		    printf("TC = %d (ret %d, out_sz %d)\n", ntags, r, out_sz);
+
+		    for (f = 0; f < ntags; f++) {
+			int32_t id;
+			HashItem *hi;
+			char tag[1024];
+			char key[3];
+
+			r = c->comp_hdr->TN_codec->decode(s, c->comp_hdr->TN_codec,
+							  b, (char *)&id, &out_sz);
+			key[0] = (id>>16)&0xff;
+			key[1] = (id>>8)&0xff;
+			key[2] = id&0xff;
+			printf("%3d: TN= %.3s\n", f, key);
+
+			hi = HashTableSearch(c->comp_hdr->tag_encoding_map, key, 3);
+			if (hi) {
+			    cram_map *m = (cram_map *)hi->data.p;
+			    int i, out_sz;
+
+			    r = m->codec->decode(s, m->codec, b, tag, &out_sz);
+			    printf("%3d: Val", f);
+			    for(i = 0; i < out_sz; i++) {
+				printf(" %02x", tag[i]);
+			    }
+			    printf("\n");
+			} else {
+			    fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
+			}
+			// skip decoding of tag data itself and hope it's
+			// in an external block.
+		    }
 
 		    if (!(bf & CRAM_FUNMAP)) {
 			r = c->comp_hdr->FN_codec->decode(s,c->comp_hdr->FN_codec, b, (char *)&fn, &out_sz);
@@ -313,7 +367,7 @@ int main(int argc, char **argv) {
 			printf("MQ = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
 
 			if (cf & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
-			    char dat[100];
+			    char dat[1024];
 			    int32_t out_sz2 = rl, i;
 
 			    dat[0]='?';dat[1]=0;
@@ -324,6 +378,28 @@ int main(int argc, char **argv) {
 			}
 		    } else {
 			puts("Unmapped");
+			char dat[1024];
+			int len = rl;
+
+			do {
+			    int32_t out_sz2 = len > 1024 ? 1024 : len;
+			    r = c->comp_hdr->BA_codec->decode(s, c->comp_hdr->BA_codec, b, dat, &out_sz2);
+			    printf("SQ = %.*s (out_sz %d)\n", out_sz2, dat, out_sz2);
+			    len -= 1024;
+			} while (len > 0);
+
+			if (cf & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
+			    int len = rl, i;
+
+			    do {
+				int32_t out_sz2 = len > 1024 ? 1024 : len;
+				r = c->comp_hdr->Qs_codec->decode(s, c->comp_hdr->Qs_codec, b, dat, &out_sz2);
+				for (i = 0; i < len; i++)
+				    dat[i] += '!';
+				printf("Qs = %.*s (out_sz %d)\n", out_sz2, dat, out_sz2);
+				len -= 1024;
+			    } while (len > 0);
+			}
 		    }
 		}
 	    }
@@ -343,27 +419,27 @@ int main(int argc, char **argv) {
 		    cram_uncompress_block(b);
 
 		if (b->content_type == CORE) {
-		    dump_core_block(b);
+		    dump_core_block(b, verbose);
 		} else {
 		    switch (b->content_id) {
 		    case 0:
-			dump_seq_block(b);
+			dump_seq_block(b, verbose);
 			break;
 			
 		    case 1:
-			dump_quality_block(b);
+			dump_quality_block(b, verbose);
 			break;
 			
 		    case 2:
-			dump_name_block(b);
+			dump_name_block(b, verbose);
 			break;
 			
 		    case 3:
-			dump_mate_info_block(b);
+			dump_mate_info_block(b, verbose);
 			break;
 			
 		    case 4:
-			dump_tag_block(b);
+			dump_tag_block(b, verbose);
 			break;
 		    }
 		}
