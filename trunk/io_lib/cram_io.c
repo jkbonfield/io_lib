@@ -1,7 +1,18 @@
 /*
  * TODO: 
- * - Test I/O performance of reading block at a time vs reading
- *   container at a time and decoding the blocks in memory.
+ *
+ * - Remove MD and NM aux tags and add the option to recreate when extracting.
+ *
+ * - Add options to control what to store / retrieve.
+ *
+ * - Investigate generating one block per tag type or encoding tags
+ *   via huffman into core?
+ *
+ * - Replace dstring usage with cram_blocks.
+ *
+ * - Write an external encoder and use it instead of appending to dstrings.
+ *   This means we store the data in the correct place in the code rather than
+ *   upfront. But do we need a buffer to copy from anyway?
  */
 
 #ifdef HAVE_CONFIG_H
@@ -848,6 +859,7 @@ void cram_uncompress_block(cram_block *b) {
 
     switch (b->method) {
     case RAW:
+	b->uncomp_size = b->comp_size;
 	return;
 
     case GZIP:
@@ -865,24 +877,77 @@ void cram_uncompress_block(cram_block *b) {
     }
 }
 
-void xor(unsigned char *b, size_t l) {
-    int x = 0;
-    size_t i;
-    for (i = 0; i < l; i++)
-	x ^= b[i];
-    fprintf(stderr, "XOR[] = %d\n", x);
+cram_metrics *cram_new_metrics(void) {
+    cram_metrics *m = malloc(sizeof(*m));
+    m->m1 = m->m2 = 0;
+    m->trial = 2;
+    m->next_trial = 100;
+    return m;
 }
 
-void cram_compress_block(cram_block *b, int level, int strat) {
+/*
+ * Compresses a block using one of two different zlib strategies. If we only
+ * want one choice set strat2 to be -1.
+ *
+ * The logic here is that sometimes Z_RLE does a better job than Z_FILTERED
+ * or Z_DEFAULT_STRATEGY on quality data. If so, we'd rather use it as it is
+ * significantly faster.
+ */
+void cram_compress_block(cram_block *b, cram_metrics *metrics,
+			 int level,  int strat,
+			 int level2, int strat2) {
     char *comp;
     size_t comp_size = 0;
+
+    if (level == 0) {
+	b->method = RAW;
+	b->comp_size = b->uncomp_size;
+	return;
+    }
 
     if (b->method != RAW) {
 	fprintf(stderr, "Attempt to compress an already compressed block.\n");
 	return;
     }
 
-    comp = zlib_mem_deflate(b->data, b->uncomp_size, &comp_size, level, strat);
+    if (strat2 >= 0)
+	fprintf(stderr, "metrics trial %d, next_trial %d, m1 %d, m2 %d\n",
+		metrics->trial, metrics->next_trial, metrics->m1, metrics->m2);
+
+    if (strat2 >= 0 && (metrics->trial || --metrics->next_trial == 0)) {
+	char *c1, *c2;
+	size_t s1, s2;
+
+	if (metrics->next_trial == 0) {
+	    metrics->next_trial = 100;
+	    metrics->trial = 2;
+	    metrics->m1 = metrics->m2 = 0;
+	} else {
+	    metrics->trial--;
+	}
+
+	c1 = zlib_mem_deflate(b->data, b->uncomp_size, &s1, level, strat);
+	c2 = zlib_mem_deflate(b->data, b->uncomp_size, &s2, level2, strat2);
+	if (s1 < s2) {
+	    fprintf(stderr, "M1 wins\n");
+	    comp = c1; comp_size = s1;
+	    free(c2);
+	    metrics->m1++;
+	} else {
+	    fprintf(stderr, "M2 wins\n");
+	    comp = c2; comp_size = s2;
+	    free(c1);
+	    metrics->m2++;
+	}
+    } else if (strat2 >= 0) {
+	comp = zlib_mem_deflate(b->data, b->uncomp_size, &comp_size,
+				metrics->m1 > metrics->m2 ? level : level2,
+				metrics->m1 > metrics->m2 ? strat : strat2);
+    } else {
+	comp = zlib_mem_deflate(b->data, b->uncomp_size, &comp_size,
+				level, strat);
+    }
+
     free(b->data);
     b->data = comp;
     b->method = GZIP;
@@ -2053,6 +2118,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->hdr->block_content_ids[2] = 2;
     s->hdr->block_content_ids[3] = 3;
     s->hdr->block_content_ids[4] = 4;
+    //s->hdr->block_content_ids[5] = 5;
 
     s->block[0] = cram_new_block(CORE, 0);     // Core 
     s->block[1] = cram_new_block(EXTERNAL, 0); // Bases
@@ -2060,6 +2126,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[3] = cram_new_block(EXTERNAL, 2); // Names
     s->block[4] = cram_new_block(EXTERNAL, 3); // TS/NP
     s->block[5] = cram_new_block(EXTERNAL, 4); // Tags
+    //s->block[6] = cram_new_block(EXTERNAL, 5); // Tags
 
     core = s->block[0];
 		 
@@ -2070,6 +2137,9 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 
     s->block[5]->data = s->aux_ds->str; s->aux_ds->str = NULL;
     s->block[5]->comp_size = s->block[5]->uncomp_size = s->aux_ds->length;
+
+    //s->block[6]->data = calloc(1, s->aux_ds->length);
+    //s->block[6]->comp_size = s->block[6]->uncomp_size = 0;
 
     /* Generate core block */
     s->hdr_block = cram_encode_slice_header(s);
@@ -2253,11 +2323,12 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[4]->comp_size = s->block[4]->uncomp_size;
 
     /* Compress the other blocks */
-    cram_compress_block(s->block[1], 4, Z_FILTERED);
-    cram_compress_block(s->block[2], 1, Z_RLE);
-    cram_compress_block(s->block[3], 4, Z_FILTERED);
-    cram_compress_block(s->block[4], 5, Z_DEFAULT_STRATEGY);
-    cram_compress_block(s->block[5], 6, Z_DEFAULT_STRATEGY);
+    cram_compress_block(s->block[1], fd->m[0], fd->level,Z_FILTERED, -1, -1);
+    cram_compress_block(s->block[2], fd->m[1], fd->level,Z_FILTERED,  1,Z_RLE);
+    cram_compress_block(s->block[3], fd->m[2], fd->level,Z_FILTERED, -1, -1);
+    cram_compress_block(s->block[4], fd->m[3], fd->level,Z_FILTERED, -1, -1);
+    cram_compress_block(s->block[5], fd->m[4], fd->level,Z_FILTERED, -1, -1);
+    //cram_compress_block(s->block[6], fd->m[5], fd->level,Z_FILTERED, -1, -1);
 
     return r ? -1 : 0;
 }
@@ -2484,7 +2555,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	cram_slice *s = c->slices[i];
 	
 	c->num_records += s->hdr->num_records;
-	c->num_blocks += 8; // FIXME: query s meta-data.
+	c->num_blocks += s->hdr->num_blocks + 2;
 	c->landmark[i] = slice_offset;
 
 	if (s->hdr->ref_seq_start + s->hdr->ref_seq_span >
@@ -2497,7 +2568,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    ? s->hdr_block->uncomp_size
 	    : s->hdr_block->comp_size;
 
-	for (j = 0; j < 6; j++) {
+	for (j = 0; j < s->hdr->num_blocks; j++) {
 	    slice_offset += s->block[j]->method == RAW
 		? s->block[j]->uncomp_size
 		: s->block[j]->comp_size;
@@ -2524,7 +2595,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
 	cram_write_block(fd, s->hdr_block);
 
-	for (j = 0; j < 6; j++) {
+	for (j = 0; j < s->hdr->num_blocks; j++) {
 	    if (-1 == cram_write_block(fd, s->block[j]))
 		return -1;
 	}
@@ -3363,10 +3434,15 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
  *         NULL on failure.
  */
 cram_fd *cram_open(char *filename, char *mode) {
+    int i;
     char *cp;
     cram_fd *fd = calloc(1, sizeof(*fd));
     if (!fd)
 	return NULL;
+
+    fd->level = 5;
+    if (strlen(mode) > 2 && mode[2] >= '0' && mode[2] <= '9')
+	fd->level = mode[2] - '0';
 
     cram_init();
 
@@ -3415,6 +3491,9 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->refs = NULL; // refs meta-data structure
     fd->ref  = NULL; // current ref as char*
 
+    for (i = 0; i < 6; i++)
+	fd->m[i] = cram_new_metrics();
+
     return fd;
 
  err:
@@ -3437,6 +3516,8 @@ void cram_load_reference(cram_fd *fd, char *fn) {
  *        -1 on failure
  */
 int cram_close(cram_fd *fd) {
+    int i;
+
     if (!fd)
 	return -1;
 
@@ -3465,6 +3546,10 @@ int cram_close(cram_fd *fd) {
 	free_refs(fd->refs);
     if (fd->ref)
 	free(fd->ref);
+
+    for (i = 0; i < 6; i++)
+	if (fd->m[i])
+	    free(fd->m[i]);
 
     free(fd);
     return 0;
