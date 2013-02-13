@@ -7,13 +7,14 @@
  *     sam_to_cram [-level] input.sam reference.fasta [output.cram]
  */
 
+#include "io_lib_config.h"
+
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
 #include <unistd.h>
 
 #include <io_lib/cram.h>
-
 
 int main(int argc, char **argv) {
     cram_fd *out;
