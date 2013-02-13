@@ -94,6 +94,14 @@ enum cram_content_type {
     CORE               = 5,
 };
 
+/* Compression metrics */
+typedef struct {
+    int m1;
+    int m2;
+    int trial;
+    int next_trial;
+} cram_metrics;
+
 /* Block */
 typedef struct {
     enum cram_block_method  method, orig_method;
@@ -286,6 +294,8 @@ typedef struct {
     int32_t qual;         // idx to s->qual_ds
     int32_t aux;          // idx to s->aux_ds
     int32_t aux_size;     // total size of packed ntags in aux_ds
+    int32_t aux2;          // idx to s->aux2_ds
+    int32_t aux2_size;     // total size of packed ntags in aux2_ds
     int32_t feature;      // idx to s->feature
     int32_t nfeature;     // number of features
 } cram_record;
@@ -356,6 +366,7 @@ typedef struct cram_slice {
     dstring_t *seqs_ds;
     dstring_t *qual_ds;
     dstring_t *aux_ds;
+    dstring_t *aux2_ds;
 
     dstring_t    *base_ds; // substitutions, soft-clips
     cram_feature *features;
@@ -423,6 +434,10 @@ typedef struct {
     int   ref_id;
     int   ref_start;
     int   ref_end;
+
+    // compression level and metrics
+    int level;
+    cram_metrics *m[6];
 } cram_fd;
 
 

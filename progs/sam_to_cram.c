@@ -1,3 +1,12 @@
+/*
+ * Author: James Bonfield, Sanger Institute, 2013.
+ *
+ * Converts a SAM or BAM file into a CRAM file.
+ *
+ * Usage:
+ *     sam_to_cram [-level] input.sam reference.fasta [output.cram]
+ */
+
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
@@ -13,6 +22,14 @@ int main(int argc, char **argv) {
     bam_seq_t *s = NULL;
     refs *refs;
     char *out_fn;
+    int level = '\0';
+    char out_mode[4];
+
+    if (argc >= 2 && argv[1][0] == '-' && isdigit(argv[1][1])) {
+	level = argv[1][1];
+	argc--;
+	argv++;
+    }
 
     /* opening */
     if (NULL == (in = bam_open(argv[1], "rb"))) {
@@ -28,7 +45,8 @@ int main(int argc, char **argv) {
     }
 
     out_fn = argc == 4 ? argv[3] : "-";
-    if (NULL == (out = cram_open(out_fn, "wb"))) {
+    sprintf(out_mode, "wb%c", level);
+    if (NULL == (out = cram_open(out_fn, out_mode))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", out_fn);
 	return 1;
     }
