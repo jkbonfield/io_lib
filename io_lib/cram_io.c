@@ -304,7 +304,7 @@ int itf8_decode(cram_fd *fd, int32_t *val_p) {
 /*
  * As above, but decoding from memory
  */
-int itf8_get(char *cp, int32_t *val_p) {
+int itf8_get_1(char *cp, int32_t *val_p) {
     static int nbytes[16] = {
 	0,0,0,0, 0,0,0,0,                               // 0000xxxx - 0111xxxx
 	1,1,1,1,                                        // 1000xxxx - 1011xxxx
@@ -358,6 +358,27 @@ int itf8_get(char *cp, int32_t *val_p) {
     }
 
     return 5;
+}
+
+int itf8_get(char *cp, int32_t *val_p) {
+    unsigned char *up = (unsigned char *)cp;
+    
+    if (up[0] < 0x80) {
+	*val_p =   up[0];
+	return 1;
+    } else if (up[0] < 0xc0) {
+	*val_p = ((up[0] <<8) |  up[1])                           & 0x3fff;
+	return 2;
+    } else if (up[0] < 0xe0) {
+	*val_p = ((up[0]<<16) | (up[1]<< 8) |  up[2])             & 0x1fffff;
+	return 3;
+    } else if (up[0] < 0xf0) {
+	*val_p = ((up[0]<<24) | (up[1]<<16) | (up[2]<<8) | up[3]) & 0x0fffffff;
+	return 4;
+    } else {
+	*val_p = ((up[0] & 0x0f)<<28) | (up[1]<<20) | (up[2]<<12) | (up[3]<<4) | (up[4] & 0x0f);
+	return 5;
+    }
 }
 
 /*
@@ -2872,7 +2893,9 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     }
     if (end < 1)
 	end = r->length;
-    assert(start >= 1 && end <= r->length);
+    if (end >= r->length)
+	end  = r->length; 
+    assert(start >= 1);
     
     // Compute location in file
     offset = r->offset + (start-1)/r->bases_per_line * r->line_length + 
@@ -3324,7 +3347,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
     ref_id = s->hdr->ref_seq_id;
     s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, s->hdr->ref_seq_start,
-			  s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
+			  s->hdr->ref_seq_start + s->hdr->ref_seq_span -1
+			  + 1000 /* bug fix for Java cram output */);
     s->ref_start = s->hdr->ref_seq_start;
 
     for (rec = 0; rec < s->hdr->num_records; rec++) {

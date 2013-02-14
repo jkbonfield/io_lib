@@ -13,6 +13,9 @@
 
 #include "io_lib/cram.h"
 
+// Scary scary quite contrary, maybe time for bloody mary!
+#define itf8_get(c,v) (((uc)(c)[0]<0x80)?(*(v)=(uc)(c)[0],1):(((uc)(c)[0]<0xc0)?(*(v)=(((uc)(c)[0]<<8)|(uc)(c)[1])&0x3fff,2):(((uc)(c)[0]<0xe0)?(*(v)=(((uc)(c)[0]<<16)|((uc)(c)[1]<<8)|(uc)(c)[2])&0x1fffff,3):(((uc)(c)[0]<0xf0)?(*(v)=(((uc)(c)[0]<<24)|((uc)(c)[1]<<16)|((uc)(c)[2]<<8)|(uc)(c)[3])&0x0fffffff,4):(*(v)=(((uc)(c)[0]&0x0f)<<28)|((uc)(c)[1]<<20)|((uc)(c)[2]<<12)|((uc)(c)[3]<<4)|((uc)(c)[4]&0x0f),5)))))
+
 static char *codec2str(enum cram_encoding codec) {
     switch (codec) {
     case E_NULL:            return "NULL";
@@ -245,7 +248,8 @@ static void store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
  * ---------------------------------------------------------------------------
  * EXTERNAL
  */
-int cram_external_decode(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+int cram_external_decode_int(cram_slice *slice, cram_codec *c,
+			     cram_block *in, char *out, int *out_size) {
     int i;
     char *cp;
     cram_block *b = NULL;
@@ -267,26 +271,54 @@ int cram_external_decode(cram_slice *slice, cram_codec *c, cram_block *in, char 
     }
 
     /* FIXME: how to tell string externals from integer externals? */
-    if (c->external.type == E_INT || c->external.type == E_LONG) {
+    {
 	int32_t i32;
 	int n;
 
 	cp = b->data + b->idx;
 
+#if 0
 	for (i = 0, n = *out_size; i < n; i+=4) {
 	    cp += itf8_get(cp, &i32);
 	    ((int32_t *)out)[i] = i32;
 	}
-
 	b->idx = cp - (char *)b->data;
-    } else {
-	cp = cram_extract_block(b, *out_size);
-	if (!cp)
-	    return -1;
-
-	memcpy(out, cp, *out_size);
+#else
+	// E_INT and E_LONG are guaranteed single item queries
+	b->idx += itf8_get(cp, (int32_t *)out);
+#endif
     }
 
+    return 0;
+}
+
+int cram_external_decode_char(cram_slice *slice, cram_codec *c,
+			      cram_block *in, char *out, int *out_size) {
+    int i;
+    char *cp;
+    cram_block *b = NULL;
+
+    /* Find the external block: FIXME replace with a lookup table */
+    if (slice->block_by_id) {
+	if (!(b = slice->block_by_id[c->external.content_id]))
+	    return -1;
+    } else {
+	for (i = 0; i < slice->hdr->num_blocks; i++) {
+	    b = slice->block[i];
+	    if (b->content_type == EXTERNAL &&
+		b->content_id == c->external.content_id) {
+		break;
+	    }
+	}
+	if (i == slice->hdr->num_blocks)
+	    return -1;
+    }
+
+    cp = cram_extract_block(b, *out_size);
+    if (!cp)
+	return -1;
+
+    memcpy(out, cp, *out_size);
     return 0;
 }
 
@@ -303,7 +335,9 @@ cram_codec *cram_external_decode_init(char *data, int size, enum cram_external_t
 	return NULL;
 
     c->codec  = E_EXTERNAL;
-    c->decode = cram_external_decode;
+    c->decode = (option == E_INT || option == E_LONG)
+	? cram_external_decode_int
+	: cram_external_decode_char;
     c->free   = cram_external_decode_free;
     
     cp += itf8_get(cp, &c->external.content_id);
