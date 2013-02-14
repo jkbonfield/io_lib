@@ -155,12 +155,14 @@ cram_fd *cram_open(char *filename, char *mode);
  */
 int cram_close(cram_fd *fd);
 
-/*
- * Sets the read-name prefix for auto-generated sequence names.
+/* 
+ * Sets options on the cram_fd. See CRAM_OPT_* definitions in cram_structs.h.
+ * Use this immediately after opening.
+ *
  * Returns 0 on success
  *        -1 on failure
  */
-int cram_set_prefix(cram_fd *fd, char *prefix);
+int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val);
 
 void cram_uncompress_block(cram_block *b);
 
