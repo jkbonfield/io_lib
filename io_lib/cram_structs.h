@@ -29,8 +29,10 @@
 
 #define CRAM_SUBST_MATRIX "CGTNAGTNACTNACGNACGT"
 
-// Seems to gzip better than just using a huffman encoder in CORE
-#define TN_AS_EXT
+#define TN_external
+//#define NS_external
+#define TS_external
+//#define BA_external
 
 /* NB: matches java impl, not the spec */
 enum cram_encoding {
@@ -282,7 +284,7 @@ typedef struct {
     int32_t mate_pos;     // NP
     int32_t tlen;         // TS
     int32_t ntags;        // TC
-#ifndef TN_AS_EXT
+#ifndef TN_external
     int32_t TN_idx;       // TN; idx to s->TN;
 #endif
     int32_t seq;          // idx to s->seqs_ds
@@ -373,7 +375,7 @@ typedef struct cram_slice {
     int           nfeatures;
     int           afeatures; // allocated size of features
 
-#ifndef TN_AS_EXT
+#ifndef TN_external
     // TN field (Tag Name)
     uint32_t      *TN;
     int           nTN, aTN;  // used and allocated size for TN[]
@@ -383,6 +385,10 @@ typedef struct cram_slice {
 
     char *ref;               // slice of current reference
     int ref_start;           // start position of current reference;
+
+#ifdef BA_external
+    int BA_len;
+#endif
 } cram_slice;
 
 /*-----------------------------------------------------------------------------
@@ -438,7 +444,19 @@ typedef struct {
     // compression level and metrics
     int level;
     cram_metrics *m[6];
+
+    int decode_md; // Whether to export MD and NM tags
 } cram_fd;
+
+enum cram_option {
+    CRAM_OPT_DECODE_MD,
+    CRAM_OPT_PREFIX
+};
+
+typedef union {
+    int   i;
+    char *s;
+} cram_opt;
 
 
 /* BF bitfields */

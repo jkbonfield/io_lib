@@ -1,24 +1,7 @@
 /*
- * -----------------------------------------------------------------------------
- * A debugging program to dump out information on the layout of a CRAM file.
+ * Author: James Bonfield, Sanger Institute, 2013.
  *
- * TODO:
- * 1) Much of the content of main() needs to be broken into separate functions
- *    and to make its way into the library side of things.
- *
- *    Ideally we should implement a cram sequence iterator.
- *
- * 2) Remove the fixed length buffers for things like name[1000].
- *
- * 3) Allow writing directly into the dstring rather than to a
- *    temporary buffer and copying in afterwards.
- *    This means implementing a dstring_grow() function too.
- *
- *    Even better is if we determine that the EXTERNAL block can be
- *    used "as is" without needing to copy as it has no other encoding
- *    layer applied. This is doable by checking the codec. If the slice
- *    codec for names is EXTERNAL then we can use the block->data directly,
- *    otherwise we need to decode and store in dstring.
+ * Converts a CRAM file to a SAM or BAM file.
  */
 
 #include "io_lib_config.h"
@@ -30,6 +13,17 @@
 
 #include <io_lib/cram.h>
 
+void usage(FILE *fp) {
+    fprintf(fp, "Usage: cram_to_sam [-m] [-b] [-0..9] [-u] "
+	    "filename.cram ref.fa\n\n");
+    fprintf(fp, "Options:\n");
+    fprintf(fp, "    -m             Generate MD and NM tags:\n");
+    fprintf(fp, "    -b             Output in BAM (defaults to SAM)\n");
+    fprintf(fp, "    -1 to -9       Set zlib compression level for BAM\n");
+    fprintf(fp, "    -0 or -u       Output uncompressed, if BAM.\n");
+    fprintf(fp, "    -p str         Set the prefix for auto-generated seq. names\n");
+}
+
 int main(int argc, char **argv) {
     cram_fd *fd;
     cram_container *c;
@@ -40,49 +34,64 @@ int main(int argc, char **argv) {
     size_t bam_alloc = 0;
     char mode[4] = {'w', '\0', '\0', '\0'};
     char *prefix = NULL;
+    int decode_md = 0;
+    cram_opt opt;
+    int C;
 
-    if (argc >= 2 && strcmp(argv[1], "-b") == 0) {
-	mode[1] = 'b';
-	argc--;
-	argv++;
-    }
 
-    if (argc >= 2 && argv[1][0] == '-' && argv[1][1] >= '0' && argv[1][1] <= '9') {
-	mode[2] = argv[1][1];
-	argc--;
-	argv++;
-    }
+    while ((C = getopt(argc, argv, "bu0123456789mp:h")) != -1) {
+	switch (C) {
+	case 'b':
+	    mode[1] = 'b';
+	    break;
 
-    if (argc >= 2 && strcmp(argv[1], "-u") == 0) {
-	mode[2] = '0';
-	argc--;
-	argv++;
-    }
+	case 'u':
+	    mode[2] = '0';
+	    break;
 
-    if (argc >= 3 && strcmp(argv[1], "-p") == 0) {
-	prefix = argv[2];
-	argc-=2;
-	argv+=2;
+	case '0': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9':
+	    mode[2] = C;
+	    break;
+
+	case 'm':
+	    decode_md = 1;
+	    break;
+
+	case 'p':
+	    prefix = optarg;
+	    break;
+
+	case 'h':
+	    usage(stdout);
+	    return 0;
+
+	case '?':
+	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
+	    usage(stderr);
+	    return 1;
+	}
     }
 
     bfd = bam_open("-", mode);
 
-    if (argc != 2 && argc != 3) {
-	fprintf(stderr, "Usage: cram_dump [-b] [-0..9] [-u] filename.cram [ref.fa]\n");
+    if (argc - optind != 2) {
+	usage(stderr);
 	return 1;
     }
 
-
-    if (NULL == (fd = cram_open(argv[1], "rb"))) {
-	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[1]);
+    if (NULL == (fd = cram_open(argv[optind], "rb"))) {
+	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[optind]);
 	return 1;
     }
+
     if (prefix)
-	cram_set_prefix(fd, prefix);
+	opt.s = prefix, cram_set_option(fd, CRAM_OPT_PREFIX, &opt);
 
-    if (argc == 3) {
-	cram_load_reference(fd, argv[2]);
-    }
+    if (decode_md)
+	opt.i = decode_md, cram_set_option(fd, CRAM_OPT_DECODE_MD, &opt);
+
+    cram_load_reference(fd, argv[optind+1]);
 
     bfd->header_len = fd->SAM_hdr->header_len;
     bfd->header = malloc(fd->SAM_hdr->header_len);
