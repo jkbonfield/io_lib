@@ -433,6 +433,22 @@ int itf8_encode(cram_fd *fd, int32_t val) {
  * Headers, containers, blocks, etc
  */
 
+
+/*
+ * Quick and simple hash lookup for cram_map arrays
+ */
+static cram_map *map_find(cram_map **map, unsigned char *key, int id) {
+    cram_map *m;
+
+    m = map[CRAM_MAP(key[0],key[1])];
+    while (m && m->key != id)
+	m= m->next;
+
+    assert(m);
+
+    return m;
+}
+
 /*
  * Reads a CRAM file definition structure.
  * Returns file_def ptr on success
@@ -1006,15 +1022,14 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 	cp += itf8_get(cp, &hdr->landmark[i]);
     }
 
-    hdr->preservation_map = HashTableCreate(4, HASH_NONVOLATILE_KEYS);
-    hdr->rec_encoding_map = HashTableCreate(16, HASH_DYNAMIC_SIZE |
-					    HASH_NONVOLATILE_KEYS);
-    hdr->tag_encoding_map = HashTableCreate(4, HASH_DYNAMIC_SIZE |
-					    HASH_NONVOLATILE_KEYS);
+    hdr->preservation_map = HashTableCreate(4, HASH_NONVOLATILE_KEYS |
+					    HASH_FUNC_TCL);
+    memset(hdr->rec_encoding_map, 0,
+	   CRAM_MAP_HASH * sizeof(hdr->rec_encoding_map[0]));
+    memset(hdr->tag_encoding_map, 0,
+	   CRAM_MAP_HASH * sizeof(hdr->tag_encoding_map[0]));
 
-    if (!hdr->preservation_map ||
-	!hdr->rec_encoding_map ||
-	!hdr->tag_encoding_map) {
+    if (!hdr->preservation_map) {
 	cram_free_compression_header(hdr);
 	return NULL;
     }
@@ -1096,22 +1111,21 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
     cp += itf8_get(cp, &map_size); cp_copy = cp;
     cp += itf8_get(cp, &map_count);
     for (i = 0; i < map_count; i++) {
-	HashData hd;
 	char *key = cp;
 	int32_t encoding;
 	int32_t size;
 	cram_map *m = malloc(sizeof(*m)); // FIXME: use pooled_alloc
 
-	//hd.p = cp;
 	cp += 2;
 	cp += itf8_get(cp, &encoding);
 	cp += itf8_get(cp, &size);
-	//hd.i = ((uint64_t)encoding << 32) | size;
 
+	// Fill out cram_map purely for cram_dump to dump out.
+	m->key = (key[0]<<8)|key[1];
 	m->encoding = encoding;
 	m->size     = size;
 	m->offset   = cp - (char *)b->data;
-	hd.p = m;
+	m->codec = NULL;
 
 	//printf("%s codes for %.2s\n", cram_encoding2str(encoding), key);
 
@@ -1165,7 +1179,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 
 	cp += size;
 
-	HashTableAdd(hdr->rec_encoding_map, key, 2, hd, NULL);
+	m->next = hdr->rec_encoding_map[CRAM_MAP(key[0], key[1])];
+	hdr->rec_encoding_map[CRAM_MAP(key[0], key[1])] = m;
     }
     assert(cp - cp_copy == map_size);
 
@@ -1174,11 +1189,12 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
     cp += itf8_get(cp, &map_size); cp_copy = cp;
     cp += itf8_get(cp, &map_count);
     for (i = 0; i < map_count; i++) {
-	HashData hd;
 	int32_t encoding;
 	int32_t size;
 	cram_map *m = malloc(sizeof(*m)); // FIXME: use pooled_alloc
 	char *key = cp+1;
+
+	m->key = (key[0]<<16)|(key[1]<<8)|key[2];
 
 	cp += 4; // Strictly ITF8, but this suffices
 	cp += itf8_get(cp, &encoding);
@@ -1188,11 +1204,11 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 	m->size     = size;
 	m->offset   = cp - (char *)b->data;
 	m->codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY);
-	hd.p = m;
 	
 	cp += size;
 
-	HashTableAdd(hdr->tag_encoding_map, key, 3, hd, NULL);
+	m->next = hdr->tag_encoding_map[CRAM_MAP(key[0],key[1])];
+	hdr->tag_encoding_map[CRAM_MAP(key[0],key[1])] = m;
     }
     assert(cp - cp_copy == map_size);
 
@@ -1371,6 +1387,7 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
         while ((hi = HashTableIterNext(c->tags_used, iter))) {
 	    mc++;
 	    mp += itf8_put(mp, (hi->key[0]<<16)|(hi->key[1]<<8)|hi->key[2]);
+
 	    // use block content id 4
 	    switch(hi->key[2]) {
 	    case 'Z':
@@ -1434,9 +1451,7 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
 			hi->key[2]);
 	    }
 	    //mp += m->codec->store(m->codec, mp, NULL);
-        }
-
-        HashTableIterDestroy(iter);
+	}
     }
 #endif
     cp += itf8_put(cp, mp - map + itf8_put(cnt_buf, mc));
@@ -1486,27 +1501,32 @@ int cram_write_container(cram_fd *fd, cram_container *h) {
 
 
 void cram_free_compression_header(cram_block_compression_hdr *hdr) {
+    int i;
+
     if (hdr->landmark)
 	free(hdr->landmark);
 
     if (hdr->preservation_map)
 	HashTableDestroy(hdr->preservation_map, 0);
 
-    if (hdr->rec_encoding_map)
-	HashTableDestroy(hdr->rec_encoding_map, 1);
-
-    if (hdr->tag_encoding_map) {
-	HashItem *hi;
-	HashIter *iter = HashTableIterCreate();
-
-	while ((hi = HashTableIterNext(hdr->tag_encoding_map, iter))) {
-	    cram_map *m = hi->data.p;
-	    m->codec->free(m->codec);
+    for (i = 0; i < CRAM_MAP_HASH; i++) {
+	cram_map *m, *m2;
+	for (m = hdr->rec_encoding_map[i]; m; m = m2) {
+	    m2 = m->next;
+	    if (m->codec)
+		m->codec->free(m->codec);
+	    free(m);
 	}
+    }
 
-	HashTableDestroy(hdr->tag_encoding_map, 1);
-
-	HashTableIterDestroy(iter);
+    for (i = 0; i < CRAM_MAP_HASH; i++) {
+	cram_map *m, *m2;
+	for (m = hdr->tag_encoding_map[i]; m; m = m2) {
+	    m2 = m->next;
+	    if (m->codec)
+		m->codec->free(m->codec);
+	    free(m);
+	}
     }
 
     if (hdr->BF_codec) hdr->BF_codec->free(hdr->BF_codec);
@@ -2918,7 +2938,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     for (cp_from = cp_to = fd->ref; len; len--, cp_from++) {
 	if (!isspace(*cp_from))
-	    *cp_to++ = *cp_from;
+	    *cp_to++ = toupper(*cp_from);
     }
     if (cp_to - fd->ref != end-start+1) {
 	fprintf(stderr, "Malformed reference file?\n");
@@ -3276,9 +3296,10 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
     cr->aux = DSTRING_LEN(s->aux_ds);
 
     for (i = 0; i < cr->ntags; i++) {
-	int32_t id;
-	unsigned char tag_data[1024];
+	int32_t id, out_sz = 1;
+	unsigned char tag_data[1024], key[2];;
 	HashItem *hi;
+	cram_map *m;
 
 	//printf("Tag %d/%d\n", i+1, cr->ntags);
 	r |= c->comp_hdr->TN_codec->decode(s, c->comp_hdr->TN_codec,
@@ -3293,30 +3314,22 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 	    tag_data[2] = id       & 0xff;
 	} 
 
-	hi = HashTableSearch(c->comp_hdr->tag_encoding_map,
-			     (char *)tag_data, 3);
-	if (!hi) {
-	    fprintf(stderr, "Unrecognised auxiliary key '%.3s'\n",
-		    tag_data);
-	    r |= 1;
-	} else {
-	    cram_map *m = (cram_map *)hi->data.p;
-	    int out_sz;
+	m = map_find(c->comp_hdr->tag_encoding_map, tag_data, id);
+	assert(m);
 
-	    r |= m->codec->decode(s, m->codec, blk,
-				  (char *)tag_data+3, &out_sz);
-	    if (0) {
-		int i;
-		printf("\tid=%d %.3s\tval = ", id, tag_data);
-		for (i=0; i < out_sz; i++) {
-		    printf("%02x ", tag_data[i+3]);
-		}
-		printf("\n");
+	r |= m->codec->decode(s, m->codec, blk,
+			      (char *)tag_data+3, &out_sz);
+	if (0) {
+	    int i;
+	    printf("\tid=%d %.3s\tval = ", id, tag_data);
+	    for (i=0; i < out_sz; i++) {
+		printf("%02x ", tag_data[i+3]);
 	    }
-
-	    dstring_nappend(s->aux_ds, (char *)tag_data, out_sz+3);
-	    cr->aux_size += out_sz + 3;
+	    printf("\n");
 	}
+
+	dstring_nappend(s->aux_ds, (char *)tag_data, out_sz+3);
+	cr->aux_size += out_sz + 3;
     }
     
     return r;
@@ -3489,10 +3502,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    int out_sz2 = cr->len;
 
 	    //puts("Unmapped");
-	    cr->ncigar = 0;
 	    cr->cigar = 0;
-	    cr->mqual = 0;
+	    cr->ncigar = 0;
 	    cr->aend = -1;
+	    cr->mqual = 0;
 
 	    r |= c->comp_hdr->BA_codec->decode(s, c->comp_hdr->BA_codec, blk,
 					       (char *)seq, &out_sz2);
@@ -3847,6 +3860,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	}
 
 	cr->ntags++;
+	// replace with fast hash too
 	HashTableAdd(c->tags_used, aux, 3, hd, NULL);
 
 	i32 = (aux[0]<<16) | (aux[1]<<8) | aux[2];
