@@ -286,6 +286,7 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 #else
 	// E_INT and E_LONG are guaranteed single item queries
 	b->idx += itf8_get(cp, (int32_t *)out);
+	*out_size = 1;
 #endif
     }
 
