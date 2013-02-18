@@ -121,6 +121,10 @@ typedef struct {
 } cram_block;
 
 struct cram_codec; /* defined in cram_encodings.h */
+struct cram_map;
+
+#define CRAM_MAP_HASH 32
+#define CRAM_MAP(a,b) (((a)*3+(b))&(CRAM_MAP_HASH-1))
 
 /* Compression header block */
 typedef struct {
@@ -141,8 +145,8 @@ typedef struct {
     char substitution_matrix[5][4];
     
     HashTable *preservation_map;
-    HashTable *rec_encoding_map; /* value is cram_map */
-    HashTable *tag_encoding_map; /* value is cram_map */
+    struct cram_map *rec_encoding_map[CRAM_MAP_HASH];
+    struct cram_map *tag_encoding_map[CRAM_MAP_HASH];
 
     struct cram_codec *BF_codec; // bam bit flags
     struct cram_codec *CF_codec; // compression flags
@@ -174,12 +178,13 @@ typedef struct {
     size_t uncomp_size, uncomp_alloc;
 } cram_block_compression_hdr;
 
-typedef struct {
-    //int key;    /* 2 or 3 bytes */
+typedef struct cram_map {
+    int key;    /* 0xe0 + 3 bytes */
     enum cram_encoding encoding;
     int offset; /* Offset into a single block of memory */
     int size;   /* Size */
     struct cram_codec *codec;
+    struct cram_map *next; // for noddy internal hash
 } cram_map;
 
 /* Mapped or unmapped slice header block */
@@ -280,26 +285,30 @@ typedef struct {
     int32_t name;         // RN; idx to s->names_ds
     int32_t name_len;
     int32_t mate_line;    // index to another cram_record
-    int32_t mate_flags;   // MF
+    int32_t mate_ref_id;
     int32_t mate_pos;     // NP
     int32_t tlen;         // TS
+
+    // Auxiliary data
     int32_t ntags;        // TC
+    int32_t aux;          // idx to s->aux_ds
+    int32_t aux_size;     // total size of packed ntags in aux_ds
 #ifndef TN_external
     int32_t TN_idx;       // TN; idx to s->TN;
 #endif
+    int32_t aux2;          // idx to s->aux2_ds
+    int32_t aux2_size;     // total size of packed ntags in aux2_ds
+
     int32_t seq;          // idx to s->seqs_ds
+    int32_t qual;         // idx to s->qual_ds
     int32_t cigar;        // idx to s->cigar
     int32_t ncigar;
     int32_t aend;         // alignment end
     int32_t mqual;        // MQ
-    int32_t mate_ref_id;
-    int32_t qual;         // idx to s->qual_ds
-    int32_t aux;          // idx to s->aux_ds
-    int32_t aux_size;     // total size of packed ntags in aux_ds
-    int32_t aux2;          // idx to s->aux2_ds
-    int32_t aux2_size;     // total size of packed ntags in aux2_ds
+
     int32_t feature;      // idx to s->feature
     int32_t nfeature;     // number of features
+    int32_t mate_flags;   // MF
 } cram_record;
 
 /*

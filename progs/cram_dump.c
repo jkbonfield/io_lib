@@ -29,6 +29,37 @@ void HashTableDumpMap(HashTable *h, FILE *fp, char *prefix, char *data) {
     }
 }
 
+void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data) {
+    int i, j, k;
+    for (i = 0; i < CRAM_MAP_HASH; i++) {
+	cram_map *m;
+	for (m = ma[i]; m; m = m->next) {
+	    fprintf(fp, "%s%c%c%c => %16s {",
+		    prefix ? prefix : "",
+		    (m->key>>16) & 0xff ? (m->key>>16) & 0xff : ' ',
+		    (m->key>> 8) & 0xff,
+		    (m->key>> 0) & 0xff,
+		    cram_encoding2str(m->encoding));
+	    for (k = m->offset, j = 0; j < m->size; j++, k++) {
+		printf(j ? ", %d" : "%d", (unsigned char)data[k]);
+	    }
+	    printf("}\n");
+	}
+    }
+}
+
+static cram_map *map_find(cram_map **map, unsigned char *key, int id) {
+    cram_map *m;
+
+    m = map[CRAM_MAP(key[0],key[1])];
+    while (m && m->key != id)
+	m= m->next;
+
+    assert(m);
+
+    return m;
+}
+
 void dump_core_block(cram_block *b, int verbose) {
     int i;
 
@@ -136,10 +167,11 @@ int main(int argc, char **argv) {
 	HashTableDump(c->comp_hdr->preservation_map, stdout, "\t");
 
 	printf("\n    Record encoding map:\n");
-	HashTableDumpMap(c->comp_hdr->rec_encoding_map, stdout, "\t", c->comp_hdr_block->data);
+	DumpMap2(c->comp_hdr->rec_encoding_map, stdout, "\t",  c->comp_hdr_block->data);
+	//HashTableDumpMap(c->comp_hdr->rec_encoding_map, stdout, "\t", c->comp_hdr_block->data);
 
 	printf("\n    Tag encoding map:\n");
-	HashTableDumpMap(c->comp_hdr->tag_encoding_map, stdout, "\t",  c->comp_hdr_block->data);
+	DumpMap2(c->comp_hdr->tag_encoding_map, stdout, "\t",  c->comp_hdr_block->data);
 	
 
 
@@ -163,7 +195,7 @@ int main(int argc, char **argv) {
 	    printf("\tNo. records      %d\n", s->hdr->num_records);
 	    printf("\tNo. blocks       %d\n", s->hdr->num_blocks);
 	    printf("\tBlk IDS:         {");
-	    for (id = 0; id < s->hdr->num_blocks; id++) {
+	    for (id = 0; id < s->hdr->num_content_ids; id++) {
 		printf(id ? ", %d" : "%d", s->hdr->block_content_ids[id]);
 	    }
 	    printf("}\n");
@@ -255,9 +287,9 @@ int main(int argc, char **argv) {
 
 		    for (f = 0; f < ntags; f++) {
 			int32_t id;
-			HashItem *hi;
 			char tag[1024];
 			char key[3];
+			cram_map *m;
 
 			r = c->comp_hdr->TN_codec->decode(s, c->comp_hdr->TN_codec,
 							  b, (char *)&id, &out_sz);
@@ -266,9 +298,8 @@ int main(int argc, char **argv) {
 			key[2] = id&0xff;
 			printf("%3d: TN= %.3s\n", f, key);
 
-			hi = HashTableSearch(c->comp_hdr->tag_encoding_map, key, 3);
-			if (hi) {
-			    cram_map *m = (cram_map *)hi->data.p;
+			printf("id=%d\n", id);
+			if ((m = map_find(c->comp_hdr->tag_encoding_map,key,id))) {
 			    int i, out_sz;
 
 			    r = m->codec->decode(s, m->codec, b, tag, &out_sz);
