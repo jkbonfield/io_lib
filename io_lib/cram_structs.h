@@ -276,6 +276,8 @@ typedef struct {
  * A single cram record
  */
 typedef struct {
+    struct cram_slice *s; // Filled out by cram_decode only
+
     int32_t ref_id;       // fixed for all recs in slice?
     int32_t flags;        // BF
     int32_t cram_flags;   // CF
@@ -310,6 +312,17 @@ typedef struct {
     int32_t nfeature;     // number of features
     int32_t mate_flags;   // MF
 } cram_record;
+
+// Accessor macros as an analogue of the bam ones
+#define cram_qname(c)    (DSTRING_STR((c)->s->name_ds) + (c)->name)
+#define cram_seq(c)      (DSTRING_STR((c)->s->seqs_ds) + (c)->seq)
+#define cram_seqi(c,i)   (cram_seq((c))[(i)])
+#define cram_qual(c)     (DSTRING_STR((c)->s->qual_ds) + (c)->qual)
+#define cram_aux(c)      (DSTRING_STR((c)->s->aux_ds)  + (c)->aux)
+#define cram_name_len(c) ((c)->name_len)
+#define cram_strand(c)   (((c)->flags & BAM_FREVERSE) != 0)
+#define cram_mstrand(c)  (((c)->flags & BAM_FMREVERSE) != 0)
+#define cram_cigar(c)    (&((cr)->s->cigar)[(c)->cigar])
 
 /*
  * A feature is a base difference, used for the sequence reference encoding.
