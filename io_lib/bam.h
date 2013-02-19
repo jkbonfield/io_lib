@@ -28,6 +28,7 @@ typedef struct {
     uint32_t cigar_len;
 
     /* The raw bam block follows, in same order as on the disk */
+    /* This is the analogue of a bam1_core_t in samtools */
     int32_t  ref;
     int32_t  pos;
     uint32_t bin_mq_nl;
@@ -38,6 +39,8 @@ typedef struct {
     int32_t  mate_ref;
     int32_t  mate_pos;
     int32_t  ins_size;
+
+    /* Samtools has "int l_aux, data_len, m_data here too" */
 
     /* Followed by arbitrary bytes of packed data */
     unsigned char data; /* unknown size */

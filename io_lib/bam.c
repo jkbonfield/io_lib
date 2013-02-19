@@ -1348,7 +1348,7 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	blk_size = le_int4(blk_size);
     }
 
-    if (!*bsp || blk_size > (*bsp)->blk_size) {
+    if (!*bsp || blk_size+20 > (*bsp)->alloc) {
 	/* 20 extra is for bs->alloc to bs->cigar_len plus next_len */
 	if (!(*bsp = realloc(*bsp, blk_size+20)))
 	    return -1;
@@ -1414,7 +1414,7 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	blk_size = le_int4(blk_size);
     }
 
-    if (!*bsp || blk_size > (*bsp)->blk_size) {
+    if (!*bsp || blk_size+24 > (*bsp)->alloc) {
 	if (!(*bsp = realloc(*bsp, blk_size+24)))
 	    return -1;
 	(*bsp)->alloc = blk_size+24;

@@ -21,7 +21,6 @@ int main(int argc, char **argv) {
     cram_SAM_hdr *hdr;
     bam_file_t *in;
     bam_seq_t *s = NULL;
-    refs *refs;
     char *out_fn;
     int level = '\0';
     char out_mode[4];
@@ -38,22 +37,11 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    if (argc >= 3) {
-	refs = load_reference(argv[2]);
-	refs2id(refs, in);
-    } else {
-	refs = NULL;
-    }
-
     out_fn = argc == 4 ? argv[3] : "-";
     sprintf(out_mode, "wb%c", level);
     if (NULL == (out = cram_open(out_fn, out_mode))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", out_fn);
 	return 1;
-    }
-    if (argc >= 3) {
-	cram_load_reference(out, argv[2]);
-	refs2id(out->refs, in);
     }
 
     /* SAM Header */
@@ -64,6 +52,11 @@ int main(int argc, char **argv) {
     out->SAM_hdr = hdr;
     //cram_free_SAM_hdr(hdr);
     
+    if (argc >= 3) {
+	cram_load_reference(out, argv[2]);
+	refs2id(out->refs, in);
+    }
+
     /* Sequence iterators */
     while (bam_next_seq(in, &s) > 0) {
 	//if (-1 == bam_put_seq(out, s))

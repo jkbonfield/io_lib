@@ -61,6 +61,7 @@ char *dstring_str(const dstring_t *ds);
  */
 int dstring_resize(dstring_t *ds, size_t length);
 
+#define DSTRING_RESIZE(ds, len) ((ds)->allocated > (len) ? 0 : dstring_resize((ds),(len)))
 
 /*
  * Refreshes the cached dstring length.
