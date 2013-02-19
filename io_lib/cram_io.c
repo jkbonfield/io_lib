@@ -3359,6 +3359,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	// FIXME: always constant?
 	cr->ref_id = ref_id;
+	cr->s = s;
 
 	out_sz = 1; /* decode 1 item */
 	r |= c->comp_hdr->BF_codec->decode(s, c->comp_hdr->BF_codec, blk,
