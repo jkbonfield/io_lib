@@ -104,48 +104,8 @@ int main(int argc, char **argv) {
     if (fd->refs)
 	refs2id(fd->refs, bfd);
 
-    pos = ftello(fd->fp);
-    while ((c = cram_read_container(fd))) {
-	int j;
-
-	if (fd->err) {
-	    perror("Cram container read");
-	    return 1;
-	}
-
-	for (j = 0; j < c->num_landmarks; j++) {
-	    cram_slice *s;
-	    int id, rec;
-	    
-	    pos2 = ftello(fd->fp);
-	    assert(pos2 - pos - c->offset == c->landmark[j]);
-
-	    s = cram_read_slice(fd);
-
-	    // FIXME: this should be correct, but we have a bug in the
-	    // Java CRAM implementation?
-	    s->last_apos = s->hdr->ref_seq_start;
-	    
-	    for (id = 0; id < s->hdr->num_blocks; id++)
-		cram_uncompress_block(s->block[id]);
-
-	    /* Test decoding of 1st seq */
-	    if (cram_decode_slice(fd, c, s, bfd) != 0) {
-		fprintf(stderr, "Failure to decode slice\n");
-		return 1;
-	    }
-
-	    /* Convert to SAM */
-	    for (rec = 0; rec < s->hdr->num_records; rec++) {
-		cram_to_bam(bfd, fd, s, &s->crecs[rec], rec, &bam, &bam_alloc);
-		bam_put_seq(bfd, bam);
-	    }
-	    
-	    cram_free_slice(s);
-	}
-
-	cram_free_container(c);
-	pos = ftello(fd->fp);
+    while (cram_get_bam_seq(fd, &bam, &bam_alloc) == 0) {
+	bam_put_seq(bfd, bam);
     }
 
     cram_close(fd);

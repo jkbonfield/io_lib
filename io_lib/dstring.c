@@ -198,7 +198,7 @@ int dstring_ninsert(dstring_t *ds,
 		    size_t offset,
 		    const char *str,
 		    size_t len) {
-    if (0 != dstring_resize(ds, ds->length + len))
+    if (0 != DSTRING_RESIZE(ds, ds->length + len))
 	return -1;
 
     memmove(&ds->str[offset+len], &ds->str[offset], ds->length + 1 - offset);
@@ -397,7 +397,13 @@ int dstring_append_int(dstring_t *ds, int i) {
  *        -1 for failure
  */
 int dstring_nappend(dstring_t *ds, const char *str, size_t len) {
-    return dstring_ninsert(ds, ds->length, str, len);
+    if (0 != DSTRING_RESIZE(ds, ds->length + len))
+	return -1;
+
+    memcpy(&ds->str[ds->length], str, len);
+    ds->length += len;
+
+    return 0;
 }
 
 /*
@@ -472,7 +478,7 @@ int dstring_replace(dstring_t *ds,
     
     /* Ensure our string is large enough */
     if (rep_len > length) {
-	if (0 != dstring_resize(ds, ds->length + rep_len - length))
+	if (0 != DSTRING_RESIZE(ds, ds->length + rep_len - length))
 	    return -1;
     }
     

@@ -245,6 +245,20 @@ static void store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
 }
 
 /*
+ * Returns the next 'size' bytes from a block, or NULL if insufficient
+ * data left.This is just a pointer into the block data and not an
+ * allocated object, so do not free the result.
+ */
+static char *cram_extract_block(cram_block *b, int size) {
+    char *cp = b->data + b->idx;
+    b->idx += size;
+    if (b->idx > b->uncomp_size)
+	return NULL;
+
+    return cp;
+}
+
+/*
  * ---------------------------------------------------------------------------
  * EXTERNAL
  */
