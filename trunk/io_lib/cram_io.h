@@ -131,7 +131,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
  * Returns a ref_seq structure on success
  *         NULL on failure
  */
-refs *load_reference(char *fn);
+//refs *load_reference(char *fn);
 void free_refs(refs *r);
 void refs2id(refs *r, bam_file_t *bfd);
 
@@ -166,12 +166,6 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val);
 
 void cram_uncompress_block(cram_block *b);
 
-/*
- * Returns the next 'size' bytes from a block, or NULL if insufficient
- * data left. This is just a pointer into the block data and not an
- * allocated object, so do not free the result.
- */
-char *cram_extract_block(cram_block *b, int size);
 
 /*
  * Converts a cram in-memory record into a bam in-memory record. We
@@ -199,5 +193,27 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
  *        -1 on failure
  */
 int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b);
+
+/*
+ * Read the next cram record and return it.
+ * Note that to decode cram_record the caller will need to look up some data
+ * in the current slice, pointed to by fd->ctr->slice. This is valid until
+ * the next call to cram_get_seq (which may invalidate it).
+ *
+ * Returns record pointer on success (do not free)
+ *        NULL on failure
+ */
+cram_record *cram_get_seq(cram_fd *fd);
+
+/*
+ * Read the next cram record and convert it to a bam_seq_t struct.
+ *
+ * Returns 0 on success
+ *        -1 on EOF or failure (check fd->err)
+ */
+int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc);
+
+void cram_load_reference(cram_fd *fd, char *fn);
+
 
 #endif /* _CRAM_IO_H_ */

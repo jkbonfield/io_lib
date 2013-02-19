@@ -1,8 +1,6 @@
 /*
  * TODO: 
  *
- * - Remove MD and NM aux tags and add the option to recreate when extracting.
- *
  * - Add options to control what to store / retrieve.
  *
  * - Investigate generating one block per tag type or encoding tags
@@ -522,7 +520,7 @@ cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
     }
 
     /* Parse */
-    // TODO: Consider reusing bam_parse_header(bam_file_t *b); */
+    bam_parse_header(hdr);
     
     return hdr;
 }
@@ -666,6 +664,10 @@ cram_container *cram_read_container(cram_fd *fd) {
     }
 
     c->slices = NULL;
+    c->curr_slice = 0;
+    c->max_slice = c->num_landmarks;
+    c->curr_rec = 0;
+    c->max_rec = 0;
 
     return c;
 }
@@ -871,20 +873,6 @@ cram_block *cram_new_block(enum cram_content_type content_type, int content_id) 
     b->bit = 7; // MSB
 
     return b;
-}
-
-/*
- * Returns the next 'size' bytes from a block, or NULL if insufficient
- * data left.This is just a pointer into the block data and not an
- * allocated object, so do not free the result.
- */
-char *cram_extract_block(cram_block *b, int size) {
-    char *cp = b->data + b->idx;
-    b->idx += size;
-    if (b->idx > b->uncomp_size)
-	return NULL;
-
-    return cp;
 }
 
 void cram_uncompress_block(cram_block *b) {
@@ -2763,7 +2751,7 @@ static int cram_add_insertion(cram_container *c, cram_slice *s, cram_record *r,
  * Returns a ref_seq structure on success
  *         NULL on failure
  */
-refs *load_reference(char *fn) {
+static refs *load_reference(char *fn) {
     struct stat sb;
     char *ref;
     FILE *fp;
@@ -3401,7 +3389,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    char *name;
 
 	    // Read directly into dstring
-	    dstring_resize(s->name_ds, DSTRING_LEN(s->name_ds) + MAX_NAME_LEN);
+	    DSTRING_RESIZE(s->name_ds, DSTRING_LEN(s->name_ds) + MAX_NAME_LEN);
 	    name = DSTRING_STR(s->name_ds) + DSTRING_LEN(s->name_ds);
 	    r |= c->comp_hdr->RN_codec->decode(s, c->comp_hdr->RN_codec, blk,
 					       name, &out_sz2);
@@ -3430,7 +3418,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		char *name;
 	    
 		// Read directly into dstring
-		dstring_resize(s->name_ds, DSTRING_LEN(s->name_ds) + MAX_NAME_LEN);
+		DSTRING_RESIZE(s->name_ds, DSTRING_LEN(s->name_ds) + MAX_NAME_LEN);
 		name = DSTRING_STR(s->name_ds) + DSTRING_LEN(s->name_ds);
 
 		r |= c->comp_hdr->RN_codec->decode(s, c->comp_hdr->RN_codec, blk,
@@ -3485,8 +3473,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	/* Fake up dynamic string growth and appending */
 	cr->seq  = DSTRING_LEN(s->seqs_ds);
 	cr->qual = DSTRING_LEN(s->qual_ds);
-	dstring_resize(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
-	dstring_resize(s->qual_ds, DSTRING_LEN(s->qual_ds) + cr->len);
+	DSTRING_RESIZE(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
+	DSTRING_RESIZE(s->qual_ds, DSTRING_LEN(s->qual_ds) + cr->len);
 	seq  = DSTRING_STR(s->seqs_ds) + DSTRING_LEN(s->seqs_ds);
 	qual = DSTRING_STR(s->qual_ds) + DSTRING_LEN(s->qual_ds);
 	DSTRING_LEN(s->seqs_ds) += cr->len;
@@ -3636,6 +3624,7 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
 
 void cram_load_reference(cram_fd *fd, char *fn) {
     fd->refs = load_reference(fn);
+    refs2id(fd->refs, fd->SAM_hdr);
 }
 
 /*
@@ -3828,7 +3817,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     int aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
 	
     /* Worst case is 1 nul char on every ??:Z: string, so +33% */
-    dstring_resize(s->aux_ds, DSTRING_LEN(s->aux_ds) + aux_size*1.34 + 1);
+    DSTRING_RESIZE(s->aux_ds, DSTRING_LEN(s->aux_ds) + aux_size*1.34 + 1);
     tmp = DSTRING_STR(s->aux_ds) + DSTRING_LEN(s->aux_ds);
 
     aux = bam_aux(b);
@@ -3953,6 +3942,8 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 /*
  * Handles creation of a new container, flushing any existing slices as
  * appropriate.
+ *
+ * Really this is next slice, which may or may not lead to a new container.
  *
  * Returns cram_container pointer on success
  *         NULL on failure.
@@ -4117,8 +4108,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
      */
     cr->seq         = DSTRING_LEN(s->seqs_ds);
     cr->qual        = DSTRING_LEN(s->qual_ds);
-    dstring_resize(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
-    dstring_resize(s->qual_ds, DSTRING_LEN(s->qual_ds) + cr->len);
+    DSTRING_RESIZE(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
+    DSTRING_RESIZE(s->qual_ds, DSTRING_LEN(s->qual_ds) + cr->len);
     seq = cp = DSTRING_STR(s->seqs_ds) + cr->seq;
 
     for (i = 0; i < cr->len; i++) {
@@ -4329,3 +4320,85 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     return 0;
 }
+
+
+/*
+ * Read the next cram record and return it.
+ * Note that to decode cram_record the caller will need to look up some data
+ * in the current slice, pointed to by fd->ctr->slice. This is valid until
+ * the next call to cram_get_seq (which may invalidate it).
+ *
+ * Returns record pointer on success (do not free)
+ *        NULL on failure
+ */
+cram_record *cram_get_seq(cram_fd *fd) {
+    cram_container *c;
+    cram_slice *s;
+
+    if (!(c = fd->ctr)) {
+	// Load first container. Do as part of cram_open?
+	if (!(c = fd->ctr = cram_read_container(fd)))
+	    return NULL;
+    }
+
+    s = c->slice;
+    if (!s || c->curr_rec == c->max_rec) {
+	int id;
+
+	// new slice
+	if (s)
+	    cram_free_slice(s);
+
+	if (c->curr_slice == c->max_slice) {
+	    // new container
+	    cram_free_container(c);
+
+	    if (!(c = fd->ctr = cram_read_container(fd)))
+		return NULL;
+	}
+
+	s = c->slice = cram_read_slice(fd);
+	c->curr_slice++;
+	c->curr_rec = 0;
+	c->max_rec = s->hdr->num_records;
+
+	// FIXME: this should be correct, but we have a bug in the
+	// Java CRAM implementation?
+	s->last_apos = s->hdr->ref_seq_start;
+	    
+	for (id = 0; id < s->hdr->num_blocks; id++)
+	    cram_uncompress_block(s->block[id]);
+
+	/* Test decoding of 1st seq */
+	if (cram_decode_slice(fd, c, s, fd->SAM_hdr) != 0) {
+	    fprintf(stderr, "Failure to decode slice\n");
+	    return NULL;
+	}
+    }
+
+    return &s->crecs[c->curr_rec++];
+}
+
+/*
+ * Read the next cram record and convert it to a bam_seq_t struct.
+ *
+ * Returns 0 on success
+ *        -1 on EOF or failure (check fd->err)
+ */
+int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc) {
+    cram_record *cr;
+    cram_container *c;
+    cram_slice *s;
+
+    if (!(cr = cram_get_seq(fd)))
+	return -1;
+
+    c = fd->ctr;
+    s = c->slice;
+    cram_to_bam(fd->SAM_hdr, fd, s, cr, c->curr_rec, bam, bam_alloc);
+
+    c->curr_rec++;
+     
+    return 0;
+}
+
