@@ -1702,11 +1702,20 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->cigar_alloc = 0;
     s->ncigar = 0;
 
-    s->name_ds = dstring_create(NULL);
+#ifdef DS_SEQ
     s->seqs_ds = dstring_create(NULL);
     s->qual_ds = dstring_create(NULL);
+    s->name_ds = dstring_create(NULL);
     s->aux_ds  = dstring_create(NULL);
     s->base_ds = dstring_create(NULL);
+#else
+    s->seqs_blk = cram_new_block(EXTERNAL, 0);
+    s->qual_blk = cram_new_block(EXTERNAL, 1);
+    s->name_blk = cram_new_block(EXTERNAL, 2);
+    s->aux_blk  = cram_new_block(EXTERNAL, 4);
+    s->base_blk = cram_new_block(EXTERNAL, 0);
+#endif
+
 
     s->crecs = NULL;
 
@@ -1742,11 +1751,19 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->cigar_alloc = 0;
     s->ncigar = 0;
 
-    s->name_ds = dstring_create(NULL);
+#ifdef DS_SEQ
     s->seqs_ds = dstring_create(NULL);
     s->qual_ds = dstring_create(NULL);
+    s->name_ds = dstring_create(NULL);
     s->aux_ds  = dstring_create(NULL);
     s->base_ds = dstring_create(NULL);
+#else
+    s->seqs_blk = cram_new_block(EXTERNAL, 0);
+    s->qual_blk = cram_new_block(EXTERNAL, 1);
+    s->name_blk = cram_new_block(EXTERNAL, 2);
+    s->aux_blk  = cram_new_block(EXTERNAL, 4);
+    s->base_blk = cram_new_block(EXTERNAL, 0);
+#endif
 
     s->features = NULL;
     s->nfeatures = s->afeatures = 0;
@@ -1790,20 +1807,37 @@ void cram_free_slice(cram_slice *s) {
     if (s->hdr)
 	cram_free_slice_header(s->hdr);
 
-    if (s->name_ds)
-	dstring_destroy(s->name_ds);
-
+#ifdef DS_SEQ
     if (s->seqs_ds)
 	dstring_destroy(s->seqs_ds);
 
     if (s->qual_ds)
 	dstring_destroy(s->qual_ds);
 
+    if (s->name_ds)
+	dstring_destroy(s->name_ds);
+
     if (s->aux_ds)
 	dstring_destroy(s->aux_ds);
 
     if (s->base_ds)
 	dstring_destroy(s->base_ds);
+#else
+    if (s->seqs_blk)
+	cram_free_block(s->seqs_blk);
+
+    if (s->qual_blk)
+	cram_free_block(s->qual_blk);
+
+    if (s->name_blk)
+	cram_free_block(s->name_blk);
+
+    if (s->aux_blk)
+	cram_free_block(s->aux_blk);
+
+    if (s->base_blk)
+	cram_free_block(s->base_blk);
+#endif
 
     if (s->cigar)
 	free(s->cigar);
@@ -2174,9 +2208,6 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[4]->data = calloc(10, s->hdr->num_records); // NP TS
     s->block[4]->comp_size = s->block[4]->uncomp_size = 0;
 
-    s->block[5]->data = s->aux_ds->str; s->aux_ds->str = NULL;
-    s->block[5]->comp_size = s->block[5]->uncomp_size = s->aux_ds->length;
-
 #ifdef BA_external
     s->block[6]->data = calloc(1, s->BA_len);
     s->block[6]->comp_size = s->block[6]->uncomp_size = 0;
@@ -2342,7 +2373,11 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	    r |= h->MQ_codec->encode(s, h->MQ_codec, core,
 				     (char *)&cr->mqual, 1);
 	} else {
+#ifdef DS_SEQ
 	    char *seq = DSTRING_STR(s->seqs_ds) + cr->seq;
+#else
+	    char *seq = BLOCK_DATA(s->seqs_blk) + cr->seq;
+#endif
 #ifdef BA_external
 	    memcpy(&s->block[6]->data[s->block[6]->uncomp_size],
 		   seq, cr->len);
@@ -2355,6 +2390,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[0]->uncomp_size = s->block[0]->byte + (s->block[0]->bit < 7);
     s->block[0]->comp_size = s->block[0]->uncomp_size;
 
+#ifdef DS_SEQ
     s->block[1]->data = s->base_ds->str; s->base_ds->str = NULL;
     s->block[1]->comp_size = s->block[1]->uncomp_size = s->base_ds->length;
 
@@ -2363,6 +2399,15 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 
     s->block[3]->data = s->name_ds->str; s->name_ds->str = NULL;
     s->block[3]->comp_size = s->block[3]->uncomp_size = s->name_ds->length;
+
+    s->block[5]->data = s->aux_ds->str; s->aux_ds->str = NULL;
+    s->block[5]->comp_size = s->block[5]->uncomp_size = s->aux_ds->length;
+#else
+    BLOCK_UPLEN(s->base_blk); s->block[1] = s->base_blk; s->base_blk = NULL;
+    BLOCK_UPLEN(s->qual_blk); s->block[2] = s->qual_blk; s->qual_blk = NULL;
+    BLOCK_UPLEN(s->name_blk); s->block[3] = s->name_blk; s->name_blk = NULL;
+    BLOCK_UPLEN(s->aux_blk);  s->block[5] = s->aux_blk;  s->aux_blk  = NULL;
+#endif
 
     s->block[4]->comp_size = s->block[4]->uncomp_size;
     
@@ -2715,9 +2760,15 @@ static int cram_add_softclip(cram_container *c, cram_slice *s, cram_record *r,
     f.S.pos = pos+1;
     f.S.code = 'S';
     f.S.len = len;
+#ifdef DS_SEQ
     f.S.seq_idx = DSTRING_LEN(s->base_ds);
     dstring_nappend(s->base_ds, base, len);
     dstring_append_char(s->base_ds, '\0');
+#else
+    f.S.seq_idx = BLOCK_SIZE(s->base_blk);
+    BLOCK_APPEND(s->base_blk, base, len);
+    BLOCK_APPEND_CHAR(s->base_blk, '\0');
+#endif
     return cram_add_feature(c, s, r, &f);
 }
 
@@ -2736,9 +2787,15 @@ static int cram_add_insertion(cram_container *c, cram_slice *s, cram_record *r,
     } else {
 	f.I.code = 'I';
 	f.I.len = len;
+#ifdef DS_SEQ
 	f.I.seq_idx = DSTRING_LEN(s->base_ds);
 	dstring_nappend(s->base_ds, base, len);
 	dstring_append_char(s->base_ds, '\0');
+#else
+	f.S.seq_idx = BLOCK_SIZE(s->base_blk);
+	BLOCK_APPEND(s->base_blk, base, len);
+	BLOCK_APPEND_CHAR(s->base_blk, '\0');
+#endif
     }
     return cram_add_feature(c, s, r, &f);
 }
@@ -2905,6 +2962,15 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	end  = r->length; 
     assert(start >= 1);
     
+    /*
+     * Check if asking for same reference. A common issue in sam_to_cram
+     */
+    if (id == fd->ref_id &&
+	start == fd->ref_start &&
+	end == fd->ref_end) {
+	return fd->ref;
+    }
+
     // Compute location in file
     offset = r->offset + (start-1)/r->bases_per_line * r->line_length + 
 	(start-1)%r->bases_per_line;
@@ -2958,11 +3024,19 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
     uint32_t nm = 0, md_dist = 0;
     int orig_aux;
     int decode_md = fd->decode_md;
+    char buf[20];
 
+#ifdef DS_SEQ
     if (decode_md) {
 	orig_aux = DSTRING_LEN(s->aux_ds);
 	dstring_nappend(s->aux_ds, "MDZ", 3);
     }
+#else
+    if (decode_md) {
+	orig_aux = BLOCK_SIZE(s->aux_blk);
+	BLOCK_APPEND(s->aux_blk, "MDZ", 3);
+    }
+#endif
 
     r |= c->comp_hdr->FN_codec->decode(s,c->comp_hdr->FN_codec, blk, (char *)&fn, &out_sz);
 
@@ -3059,8 +3133,13 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		ref_base = L[(unsigned char)s->ref[ref_pos - s->ref_start +1]];
 		seq[pos-1] = c->comp_hdr->substitution_matrix[ref_base][base];
 		if (decode_md) {
+#ifdef DS_SEQ
 		    dstring_appendf(s->aux_ds, "%d%c", md_dist,
 				    s->ref[ref_pos - s->ref_start +1]);
+#else
+		    BLOCK_APPENDF_2(s->aux_blk, buf, "%d%c",
+				    md_dist, s->ref[ref_pos-s->ref_start +1]);
+#endif
 		    md_dist = 0;
 		}
 	    }
@@ -3081,8 +3160,14 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	    r |= c->comp_hdr->DL_codec->decode(s, c->comp_hdr->DL_codec, blk,
 					       (char *)&i32, &out_sz);
 	    if (decode_md) {
+#ifdef DS_SEQ
 		dstring_appendf(s->aux_ds, "%d^%.*s", md_dist, i32,
 				&s->ref[ref_pos - s->ref_start +1]);
+#else
+		BLOCK_APPENDF_1(s->aux_blk, buf, "%d^", md_dist);
+		BLOCK_APPEND(s->aux_blk, &s->ref[ref_pos - s->ref_start +1],
+			     i32);
+#endif
 		md_dist = 0;
 	    }
 	    cig_op = BAM_CDEL;
@@ -3220,7 +3305,11 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	cig_len += cr->len - seq_pos+1;
     }
     if (decode_md) {
+#ifdef DS_SEQ
 	dstring_appendf(s->aux_ds, "%d", md_dist);
+#else
+	BLOCK_APPENDF_1(s->aux_blk, buf, "%d", md_dist);
+#endif
     }
 
     if (cig_len) {
@@ -3255,9 +3344,9 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 
     if (decode_md) {
 	char buf[7];
+#ifdef DS_SEQ
 	dstring_append_char(s->aux_ds, '\0'); // null terminate MD:Z:
 	cr->aux_size += DSTRING_LEN(s->aux_ds) - orig_aux;
-
 	buf[0] = 'N'; buf[1] = 'M'; buf[2] = 'I';
 	buf[3] = (nm>> 0) & 0xff;
 	buf[4] = (nm>> 8) & 0xff;
@@ -3265,6 +3354,17 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	buf[6] = (nm>>24) & 0xff;
 	dstring_nappend(s->aux_ds, buf, 7);
 	cr->aux_size += 7;
+#else
+	BLOCK_APPEND_CHAR(s->aux_blk, '\0'); // null terminate MD:Z:
+	cr->aux_size += BLOCK_SIZE(s->aux_blk) - orig_aux;
+	buf[0] = 'N'; buf[1] = 'M'; buf[2] = 'I';
+	buf[3] = (nm>> 0) & 0xff;
+	buf[4] = (nm>> 8) & 0xff;
+	buf[5] = (nm>>16) & 0xff;
+	buf[6] = (nm>>24) & 0xff;
+	BLOCK_APPEND(s->aux_blk, buf, 7);
+	cr->aux_size += 7;
+#endif
     }
 
     return r;
@@ -3281,7 +3381,11 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 
     //printf("TC=%d\n", cr->ntags);
     cr->aux_size = 0;
+#ifdef DS_SEQ
     cr->aux = DSTRING_LEN(s->aux_ds);
+#else
+    cr->aux = BLOCK_SIZE(s->aux_blk);
+#endif
 
     for (i = 0; i < cr->ntags; i++) {
 	int32_t id, out_sz = 1;
@@ -3316,7 +3420,11 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 	    printf("\n");
 	}
 
+#ifdef DS_SEQ
 	dstring_nappend(s->aux_ds, (char *)tag_data, out_sz+3);
+#else
+	BLOCK_APPEND(s->aux_blk, (char *)tag_data, out_sz+3);
+#endif
 	cr->aux_size += out_sz + 3;
     }
     
@@ -3347,10 +3455,16 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     s->crecs = malloc(s->hdr->num_records * sizeof(*s->crecs));
 
     ref_id = s->hdr->ref_seq_id;
+
+#if 0
     s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, s->hdr->ref_seq_start,
-			  s->hdr->ref_seq_start + s->hdr->ref_seq_span -1
-			  + 1000 /* bug fix for Java cram output */);
+			  s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
     s->ref_start = s->hdr->ref_seq_start;
+#else
+    // Avoid Java cramtools bug by loading entire reference seq
+    s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
+    s->ref_start = 1;
+#endif
 
     for (rec = 0; rec < s->hdr->num_records; rec++) {
 	cram_record *cr = &s->crecs[rec];
@@ -3389,6 +3503,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    int32_t out_sz2 = 1;
 	    char *name;
 
+#ifdef DS_SEQ
 	    // Read directly into dstring
 	    DSTRING_RESIZE(s->name_ds, DSTRING_LEN(s->name_ds) + MAX_NAME_LEN);
 	    name = DSTRING_STR(s->name_ds) + DSTRING_LEN(s->name_ds);
@@ -3405,6 +3520,17 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    */
 
 	    DSTRING_LEN(s->name_ds) += out_sz2;
+#else
+	    // Read directly into name cram_block
+	    BLOCK_GROW(s->name_blk, MAX_NAME_LEN);
+	    name = BLOCK_END(s->name_blk);
+	    r |= c->comp_hdr->RN_codec->decode(s, c->comp_hdr->RN_codec, blk,
+					       name, &out_sz2);
+
+	    cr->name = BLOCK_SIZE(s->name_blk);
+	    BLOCK_SIZE(s->name_blk) += out_sz2;
+	    cr->name_len = out_sz2;
+#endif
 	}
 
 	cr->mate_line = -1;
@@ -3418,6 +3544,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		int32_t out_sz2 = 1;
 		char *name;
 	    
+#ifdef DS_SEQ
 		// Read directly into dstring
 		DSTRING_RESIZE(s->name_ds, DSTRING_LEN(s->name_ds) + MAX_NAME_LEN);
 		name = DSTRING_STR(s->name_ds) + DSTRING_LEN(s->name_ds);
@@ -3428,6 +3555,17 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		cr->name_len = out_sz2;
 
 		DSTRING_LEN(s->name_ds) += out_sz2;
+#else
+		// Read directly into name cram_block
+		BLOCK_GROW(s->name_blk, MAX_NAME_LEN);
+		name = BLOCK_END(s->name_blk);
+		r |= c->comp_hdr->RN_codec->decode(s, c->comp_hdr->RN_codec, blk,
+						   name, &out_sz2);
+
+		cr->name = BLOCK_SIZE(s->name_blk);
+		BLOCK_SIZE(s->name_blk) += out_sz2;
+		cr->name_len = out_sz2;
+#endif
 	    }
 		    
 	    r |= c->comp_hdr->NS_codec->decode(s, c->comp_hdr->NS_codec, blk,
@@ -3472,14 +3610,27 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	r |= cram_decode_aux(c, s, blk, cr);
 
 	/* Fake up dynamic string growth and appending */
-	cr->seq  = DSTRING_LEN(s->seqs_ds);
+#ifdef DS_SEQ
 	cr->qual = DSTRING_LEN(s->qual_ds);
-	DSTRING_RESIZE(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
 	DSTRING_RESIZE(s->qual_ds, DSTRING_LEN(s->qual_ds) + cr->len);
-	seq  = DSTRING_STR(s->seqs_ds) + DSTRING_LEN(s->seqs_ds);
 	qual = DSTRING_STR(s->qual_ds) + DSTRING_LEN(s->qual_ds);
-	DSTRING_LEN(s->seqs_ds) += cr->len;
 	DSTRING_LEN(s->qual_ds) += cr->len;
+
+	cr->seq  = DSTRING_LEN(s->seqs_ds);
+	DSTRING_RESIZE(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
+	seq  = DSTRING_STR(s->seqs_ds) + DSTRING_LEN(s->seqs_ds);
+	DSTRING_LEN(s->seqs_ds) += cr->len;
+#else
+	cr->seq = BLOCK_SIZE(s->seqs_blk);
+	BLOCK_GROW(s->seqs_blk, cr->len);
+	seq = BLOCK_END(s->seqs_blk);
+	BLOCK_SIZE(s->seqs_blk) += cr->len;
+
+	cr->qual = BLOCK_SIZE(s->qual_blk);
+	BLOCK_GROW(s->qual_blk, cr->len);
+	qual = BLOCK_END(s->qual_blk);
+	BLOCK_SIZE(s->qual_blk) += cr->len;
+#endif
 
 	if (!s->ref)
 	    memset(seq, '=', cr->len);
@@ -3739,7 +3890,11 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
     }
     
     if (cr->name_len) {
+#ifdef DS_SEQ
 	name = DSTRING_STR(s->name_ds) + cr->name;
+#else
+	name = BLOCK_DATA(s->name_blk) + cr->name;
+#endif
 	name_len = cr->name_len;
     } else {
 	// FIXME: add prefix, container number, slice number, etc
@@ -3777,15 +3932,25 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
 				cr->mate_pos,
 				cr->tlen,
 				cr->len,
+#ifdef DS_SEQ
 				DSTRING_STR(s->seqs_ds) + cr->seq,
 				DSTRING_STR(s->qual_ds) + cr->qual);
+#else
+                                BLOCK_DATA(s->seqs_blk) + cr->seq,
+				BLOCK_DATA(s->qual_blk) + cr->qual);
+#endif
  
     old_idx = bam_idx;
 
    /* Auxiliary strings */
     if (cr->aux_size != 0) {
+#ifdef DS_SEQ
 	memcpy(&((char *)*bam)[bam_idx], DSTRING_STR(s->aux_ds) + cr->aux,
 	       cr->aux_size);
+#else
+	memcpy(&((char *)*bam)[bam_idx], BLOCK_DATA(s->aux_blk) + cr->aux,
+	       cr->aux_size);
+#endif
 	bam_idx += cr->aux_size;
     }
 
@@ -3818,8 +3983,13 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     int aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
 	
     /* Worst case is 1 nul char on every ??:Z: string, so +33% */
+#ifdef DS_SEQ
     DSTRING_RESIZE(s->aux_ds, DSTRING_LEN(s->aux_ds) + aux_size*1.34 + 1);
     tmp = DSTRING_STR(s->aux_ds) + DSTRING_LEN(s->aux_ds);
+#else
+    BLOCK_GROW(s->aux_blk, aux_size*1.34+1);
+    tmp = BLOCK_END(s->aux_blk);
+#endif
 
     aux = bam_aux(b);
 #ifndef TN_external
@@ -3932,10 +4102,17 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     }
     cram_stats_add(c->TC_stats, cr->ntags);
 
+#ifdef DS_SEQ
     cr->aux = DSTRING_LEN(s->aux_ds);
     cr->aux_size = tmp - (DSTRING_STR(s->aux_ds) + cr->aux);
     DSTRING_LEN(s->aux_ds) = tmp - DSTRING_STR(s->aux_ds);
     assert(s->aux_ds->length <= s->aux_ds->allocated);
+#else
+    cr->aux = BLOCK_SIZE(s->aux_blk);
+    cr->aux_size = (uc *)tmp - (BLOCK_DATA(s->aux_blk) + cr->aux);
+    BLOCK_SIZE(s->aux_blk) = (uc *)tmp - BLOCK_DATA(s->aux_blk);
+    assert(s->aux_blk->byte <= s->aux_blk->alloc);
+#endif
 
     return rg;
 }
@@ -4046,7 +4223,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	if (NULL == (c = cram_next_container(fd, b)))
 	    return -1;
-
+	
 	cram_get_ref(fd, b->ref, 1, 0);
     }
 
@@ -4097,9 +4274,15 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cram_stats_add(c->AP_stats, cr->apos - s->last_apos);
     s->last_apos = cr->apos;
 
+#ifdef DS_SEQ
     cr->name        = DSTRING_LEN(s->name_ds);
     cr->name_len    = bam_name_len(b); cram_stats_add(c->RN_stats, cr->name_len);
     dstring_nappend(s->name_ds, bam_name(b), bam_name_len(b));
+#else
+    cr->name        = BLOCK_SIZE(s->name_blk);
+    cr->name_len    = bam_name_len(b); cram_stats_add(c->RN_stats, cr->name_len);
+    BLOCK_APPEND(s->name_blk, bam_name(b), bam_name_len(b));
+#endif
 
 
     /*
@@ -4107,6 +4290,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
      * over and over.
      * s->base_ds is what we need for encoding.
      */
+#ifdef DS_SEQ
     cr->seq         = DSTRING_LEN(s->seqs_ds);
     cr->qual        = DSTRING_LEN(s->qual_ds);
     DSTRING_RESIZE(s->seqs_ds, DSTRING_LEN(s->seqs_ds) + cr->len);
@@ -4124,6 +4308,25 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	cp[i] = bam_qual(b)[i];
     }
     DSTRING_LEN(s->qual_ds) += cr->len;
+#else
+    cr->seq         = BLOCK_SIZE(s->seqs_blk);
+    cr->qual        = BLOCK_SIZE(s->qual_blk);
+    BLOCK_GROW(s->seqs_blk, cr->len);
+    BLOCK_GROW(s->qual_blk, cr->len);
+    seq = cp = BLOCK_END(s->seqs_blk);
+
+    for (i = 0; i < cr->len; i++) {
+	// FIXME: do 2 char at a time for efficiency
+	cp[i] = bam_nt16_rev_table[bam_seqi(bam_seq(b), i)];
+    }
+    BLOCK_SIZE(s->seqs_blk) += cr->len;
+
+    cp = BLOCK_END(s->qual_blk);
+    for (i = 0; i < cr->len; i++) {
+	cp[i] = bam_qual(b)[i];
+    }
+    BLOCK_SIZE(s->qual_blk) += cr->len;
+#endif
 
     /* Copy and parse */
     if (!(cr->flags & BAM_FUNMAP)) {
@@ -4239,8 +4442,13 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	hd.i = c->curr_rec-1;
 	//fprintf(stderr, "Checking %"PRId64"/%.*s\t", hd.i,
 	//	cr->name_len, DSTRING_STR(s->name_ds)+cr->name);
+#ifdef DS_SEQ
 	hi = HashTableAdd(s->pair, DSTRING_STR(s->name_ds)+cr->name,
 			  cr->name_len, hd, &new);
+#else
+	hi = HashTableAdd(s->pair, BLOCK_DATA(s->name_blk)+cr->name,
+			  cr->name_len, hd, &new);
+#endif
 	if (!new) {
 	    cram_record *p = &s->crecs[hi->data.i];
 
@@ -4398,8 +4606,6 @@ int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc) {
     s = c->slice;
     cram_to_bam(fd->SAM_hdr, fd, s, cr, c->curr_rec, bam, bam_alloc);
 
-    c->curr_rec++;
-     
     return 0;
 }
 

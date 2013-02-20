@@ -1,6 +1,9 @@
 #ifndef _CRAM_STRUCTS_H_
 #define _CRAM_STRUCTS_H_
 
+//Use dsring_t instead of cram_block. (Old code - here for speed comparison)
+//#define DS_SEQ
+
 /*
  * Defines in-memory structs for the basic file-format objects in the
  * CRAM format.
@@ -20,7 +23,9 @@
 
 #include "io_lib/hash_table.h"       // From io_lib aka staden-read
 #include "io_lib/bam.h"              // For BAM header parsing
-#include "io_lib/dstring.h"
+#ifdef DS_SEQ
+#    include "io_lib/dstring.h"
+#endif
 
 #define MAX_NAME_LEN 1024
 
@@ -298,8 +303,6 @@ typedef struct {
 #ifndef TN_external
     int32_t TN_idx;       // TN; idx to s->TN;
 #endif
-    int32_t aux2;          // idx to s->aux2_ds
-    int32_t aux2_size;     // total size of packed ntags in aux2_ds
 
     int32_t seq;          // idx to s->seqs_ds
     int32_t qual;         // idx to s->qual_ds
@@ -314,11 +317,18 @@ typedef struct {
 } cram_record;
 
 // Accessor macros as an analogue of the bam ones
+#ifdef DS_SEQ
 #define cram_qname(c)    (DSTRING_STR((c)->s->name_ds) + (c)->name)
 #define cram_seq(c)      (DSTRING_STR((c)->s->seqs_ds) + (c)->seq)
-#define cram_seqi(c,i)   (cram_seq((c))[(i)])
 #define cram_qual(c)     (DSTRING_STR((c)->s->qual_ds) + (c)->qual)
 #define cram_aux(c)      (DSTRING_STR((c)->s->aux_ds)  + (c)->aux)
+#else
+#define cram_qname(c)    (&(c)->s->name_blk->data[(c)->name])
+#define cram_seq(c)      (&(c)->s->seqs_blk->data[(c)->seq])
+#define cram_qual(c)     (&(c)->s->qual_blk->data[(c)->qual])
+#define cram_aux(c)      (&(c)->s->aux_blk->data[(c)->aux])
+#endif
+#define cram_seqi(c,i)   (cram_seq((c))[(i)])
 #define cram_name_len(c) ((c)->name_len)
 #define cram_strand(c)   (((c)->flags & BAM_FREVERSE) != 0)
 #define cram_mstrand(c)  (((c)->flags & BAM_FMREVERSE) != 0)
@@ -386,13 +396,20 @@ typedef struct cram_slice {
     uint32_t  *cigar;
     uint32_t   cigar_alloc;
     uint32_t   ncigar;
+#ifdef DS_SEQ
     dstring_t *name_ds;
     dstring_t *seqs_ds;
     dstring_t *qual_ds;
     dstring_t *aux_ds;
-    dstring_t *aux2_ds;
+    dstring_t *base_ds; // substitutions, soft-clips
+#else
+    cram_block *name_blk;
+    cram_block *seqs_blk;
+    cram_block *qual_blk;
+    cram_block *aux_blk;
+    cram_block *base_blk; // substitutions, soft-clips
+#endif
 
-    dstring_t    *base_ds; // substitutions, soft-clips
     cram_feature *features;
     int           nfeatures;
     int           afeatures; // allocated size of features
