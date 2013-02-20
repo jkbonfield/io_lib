@@ -4604,7 +4604,7 @@ int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc) {
 
     c = fd->ctr;
     s = c->slice;
-    cram_to_bam(fd->SAM_hdr, fd, s, cr, c->curr_rec, bam, bam_alloc);
+    cram_to_bam(fd->SAM_hdr, fd, s, cr, c->curr_rec-1, bam, bam_alloc);
 
     return 0;
 }
