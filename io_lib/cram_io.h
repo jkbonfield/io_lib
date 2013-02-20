@@ -8,7 +8,8 @@
  */
 
 #include <stdint.h>
-#include "io_lib/deflate_interlaced.h"
+#include <io_lib/misc.h>
+#include <io_lib/deflate_interlaced.h>
 
 /* ----------------------------------------------------------------------------
  * Utility / debugging functions
@@ -41,6 +42,60 @@ int itf8_get(char *cp, int32_t *val_p);
  * This is a maximum of 5 bytes.
  */
 int itf8_put(char *cp, int32_t val);
+
+
+/* cram_block manipulations at the byte level */
+
+/* Block size and data pointer. */
+#define BLOCK_SIZE(b) ((b)->byte)
+#define BLOCK_DATA(b) ((b)->data)
+
+/* Returns the address one past the end of the block */
+#define BLOCK_END(b) (&(b)->data[(b)->byte])
+
+/* Request block to be at least 'l' bytes long */
+#define BLOCK_RESIZE(b,l)					\
+    do {							\
+	while((b)->alloc <= (l)) {				\
+	    (b)->alloc = (b)->alloc ? (b)->alloc*2 : 1024;	\
+	    (b)->data = realloc((b)->data, (b)->alloc);		\
+	}							\
+     } while(0)
+
+/* Ensure the block can hold at least another 'l' bytes */
+#define BLOCK_GROW(b,l) BLOCK_RESIZE((b), BLOCK_SIZE((b)) + (l))
+
+/* Append string 's' of length 'l' */
+#define BLOCK_APPEND(b,s,l)		  \
+    do {				  \
+        BLOCK_GROW((b),(l));		  \
+        memcpy(BLOCK_END((b)), (s), (l)); \
+	BLOCK_SIZE((b)) += (l);		  \
+    } while (0)
+
+/* Append as single character 'c' */
+#define BLOCK_APPEND_CHAR(b,c)		  \
+    do {				  \
+        BLOCK_GROW((b),1);		  \
+	(b)->data[(b)->byte++] = (c);	  \
+    } while (0)
+
+/* Append via sprintf with 1 arg */
+#define BLOCK_APPENDF_1(b,buf,fmt, a1)			\
+    do {						\
+	int l = sprintf((buf), (fmt), (a1));		\
+	BLOCK_APPEND((b), (buf), l);			\
+    } while (0)
+
+/* Append via sprintf with 2 args */
+#define BLOCK_APPENDF_2(b,buf,fmt, a1,a2)		\
+    do {						\
+	int l = sprintf((buf), (fmt), (a1), (a2));	\
+	BLOCK_APPEND((b), (buf), l);			\
+    } while (0)
+
+#define BLOCK_UPLEN(b) \
+    (b)->comp_size = (b)->uncomp_size = BLOCK_SIZE((b))
 
 /* ----------------------------------------------------------------------------
  * Mid level I/O functions for manipulating CRAM file structures:
