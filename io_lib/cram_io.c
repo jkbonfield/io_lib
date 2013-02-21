@@ -4443,12 +4443,16 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	hd.i = c->curr_rec-1;
 	//fprintf(stderr, "Checking %"PRId64"/%.*s\t", hd.i,
 	//	cr->name_len, DSTRING_STR(s->name_ds)+cr->name);
+	if (cr->flags & BAM_FPAIRED) {
 #ifdef DS_SEQ
-	hi = HashTableAdd(s->pair, DSTRING_STR(s->name_ds)+cr->name,
-			  cr->name_len, hd, &new);
+	    hi = HashTableAdd(s->pair, DSTRING_STR(s->name_ds)+cr->name,
+			      cr->name_len, hd, &new);
 #else
-	hi = HashTableAdd(s->pair, BLOCK_DATA(s->name_blk)+cr->name,
-			  cr->name_len, hd, &new);
+	    hi = HashTableAdd(s->pair, BLOCK_DATA(s->name_blk)+cr->name,
+			      cr->name_len, hd, &new);
+	} else {
+	    new = 1;
+	}
 #endif
 	if (!new) {
 	    cram_record *p = &s->crecs[hi->data.i];
@@ -4495,6 +4499,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	    p->mate_line = hd.i - (hi->data.i + 1);
 	    cram_stats_add(c->NF_stats, p->mate_line);
+
+	    HashTableDel(s->pair, hi, 0);
 	} else {
 	    //fprintf(stderr, "unpaired\n");
 
