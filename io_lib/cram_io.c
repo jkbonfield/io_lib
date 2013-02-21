@@ -3534,6 +3534,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	}
 
 	cr->mate_line = -1;
+	cr->mate_ref_id = -1;
 	if (cf & CRAM_FLAG_DETACHED) {
 	    unsigned char mf;
 	    r |= c->comp_hdr->MF_codec->decode(s, c->comp_hdr->MF_codec, blk,
