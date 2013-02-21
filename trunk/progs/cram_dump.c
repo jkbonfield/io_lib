@@ -10,6 +10,32 @@
 
 #include <io_lib/cram.h>
 
+/* Static lookup tables */
+static unsigned int bam_flag_swap[0x200];
+
+/*
+ * Initialise lookup tables. Used within cram_decode_seq().
+ */
+static void cram_init(void) {
+    int i;
+
+    for (i = 0; i < 0x200; i++) {
+	int f = 0;
+
+	if (i & CRAM_FPAIRED)      f |= BAM_FPAIRED;
+	if (i & CRAM_FPROPER_PAIR) f |= BAM_FPROPER_PAIR;
+	if (i & CRAM_FUNMAP)       f |= BAM_FUNMAP;
+	if (i & CRAM_FREVERSE)     f |= BAM_FREVERSE;
+	if (i & CRAM_FREAD1)       f |= BAM_FREAD1;
+	if (i & CRAM_FREAD2)       f |= BAM_FREAD2;
+	if (i & CRAM_FSECONDARY)   f |= BAM_FSECONDARY;
+	if (i & CRAM_FQCFAIL)      f |= BAM_FQCFAIL;
+	if (i & CRAM_FDUP)         f |= BAM_FDUP;
+
+	bam_flag_swap[i]  = f;
+    }
+}
+
 void HashTableDumpMap(HashTable *h, FILE *fp, char *prefix, char *data) {
     int i, j, k;
     for (i = 0; i < h->nbuckets; i++) {
@@ -116,6 +142,8 @@ int main(int argc, char **argv) {
     int verbose = 0;
 
     static int bsize[100], bmax = 0;
+
+    cram_init();
 
     if (argc >= 2 && strcmp(argv[1], "-v") == 0) {
 	argc--;
@@ -229,7 +257,7 @@ int main(int argc, char **argv) {
 
 		    out_sz = 1; /* decode 1 item */
 		    r = c->comp_hdr->BF_codec->decode(s,c->comp_hdr->BF_codec, b, (char *)&bf, &out_sz);
-		    printf("BF = %d (ret %d, out_sz %d)\n", bf, r, out_sz);
+		    printf("BF = %d => SAM 0x%x (ret %d, out_sz %d)\n", bf, bam_flag_swap[bf], r, out_sz);
 
 		    r = c->comp_hdr->CF_codec->decode(s,c->comp_hdr->CF_codec, b, (char *)&cf, &out_sz);
 		    printf("CF = %d (ret %d, out_sz %d)\n", cf, r, out_sz);
