@@ -3572,10 +3572,11 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    r |= c->comp_hdr->NS_codec->decode(s, c->comp_hdr->NS_codec, blk,
 					       (char *)&cr->mate_ref_id, &out_sz);
 
-	    if (cr->mate_ref_id == -1 && cr->flags & 0x01) {
-		/* Paired, but unmapped */
-		cr->flags |= BAM_FMUNMAP;
-	    }
+// Skip as mate_ref of "*" is legit. It doesn't mean unmapped, just unknown.
+//	    if (cr->mate_ref_id == -1 && cr->flags & 0x01) {
+//		/* Paired, but unmapped */
+//		cr->flags |= BAM_FMUNMAP;
+//	    }
 
 	    r |= c->comp_hdr->NP_codec->decode(s, c->comp_hdr->NP_codec, blk,
 					       (char *)&cr->mate_pos, &out_sz);
@@ -3591,8 +3592,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    //dstring_nappend(name_ds, name, cr->name_len);
 
 	    cr->mate_ref_id = -1;
-	    cr->tlen = 0;
+	    cr->tlen = -1;
 	    cr->mate_pos = 0;
+	} else {
+	    cr->tlen = -1;
 	}
 	/*
 	else if (!name[0]) {
@@ -3849,11 +3852,49 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
     /* Resolve mate-pair cross-references */
     if (cr->mate_line >= 0) {
 	if (cr->mate_line < s->hdr->num_records) {
-	    cr->tlen = cr->mate_line > rec
-		?   (s->crecs[cr->mate_line].aend - cr->apos + 1)
-		: - (cr->aend - s->crecs[cr->mate_line].apos + 1);
+	    /*
+	     * On the first read, loop through computing lengths.
+	     * It's not perfect as we have one slice per reference so we
+	     * cannot detect when TLEN should be zero due to seqs that
+	     * map to multiple references.
+	     *
+	     * We also cannot set tlen correct when it spans a slice for
+	     * other reasons. This may make tlen too small. Should we
+	     * fix this by forcing TLEN to be stored verbatim in such cases?
+	     *
+	     * Or do we just admit defeat and output 0 for tlen? It's the
+	     * safe option...
+	     */
+	    if (cr->tlen == -1) {
+		int id1 = rec, id2 = rec;
+		int apos = cr->apos, aend;
+		int tlen;
+
+		do {
+		    aend = s->crecs[id2].aend;
+		    if (s->crecs[id2].mate_line == -1) {
+			s->crecs[id2].mate_line = rec;
+			break;
+		    }
+		    id2 = s->crecs[id2].mate_line;
+		} while (id2 != id1);
+
+		tlen = aend - apos + 1;
+		id1 = id2 = rec;
+
+		// leftmost is +ve, rightmost -ve, all others undefined
+		s->crecs[id2].tlen = tlen;
+		tlen *= -1;
+		id2 = s->crecs[id2].mate_line;
+		while (id2 != id1) {
+		    s->crecs[id2].tlen = tlen;
+		    id2 = s->crecs[id2].mate_line;
+		}
+	    }
+
 	    cr->mate_pos = s->crecs[cr->mate_line].apos;
-	    s->crecs[cr->mate_line].mate_line = rec;
+	    //if (s->crecs[cr->mate_line].mate_line == -1)
+	    //	s->crecs[cr->mate_line].mate_line = rec;
 	    cr->mate_ref_id = cr->ref_id;
 
 	    // paired
@@ -4456,7 +4497,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 #endif
 	if (!new) {
 	    cram_record *p = &s->crecs[hi->data.i];
-
+	    
 	    //fprintf(stderr, "paired %"PRId64"\n", hi->data.i);
 
 	    // copy from p to cr
@@ -4500,7 +4541,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    p->mate_line = hd.i - (hi->data.i + 1);
 	    cram_stats_add(c->NF_stats, p->mate_line);
 
-	    HashTableDel(s->pair, hi, 0);
+	    hi->data.i = c->curr_rec-1;
+	    //HashTableDel(s->pair, hi, 0);
 	} else {
 	    //fprintf(stderr, "unpaired\n");
 
