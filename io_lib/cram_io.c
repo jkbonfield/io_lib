@@ -718,6 +718,8 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->TC_stats = cram_stats_create();
     c->TN_stats = cram_stats_create();
 
+    //c->aux_B_stats = cram_stats_create();
+
     c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE);
 
     return c;
@@ -769,6 +771,8 @@ void cram_free_container(cram_container *c) {
     if (c->IN_stats) cram_stats_free(c->IN_stats);
     if (c->QS_stats) cram_stats_free(c->QS_stats);
     if (c->NP_stats) cram_stats_free(c->NP_stats);
+
+    //if (c->aux_B_stats) cram_stats_free(c->aux_B_stats);
     
     if (c->tags_used) HashTableDestroy(c->tags_used, 0);
 
@@ -1200,7 +1204,6 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
     }
     assert(cp - cp_copy == map_size);
 
-
     return hdr;
 }
 
@@ -1222,10 +1225,20 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
     char *buf = malloc(100000); // FIXME, auto-grow this
     char *cp = buf;
     int i, mc;
-    char map[100000], *mp, cnt_buf[5];
+    //int aux_B_len;
+    char map[100000], *mp, cnt_buf[5], aux_B[100000];
+    cram_codec *aux_B_codec = NULL;
 
     if (!cb)
 	return NULL;
+
+    //if (c->aux_B_stats->nsamp) {
+    //	enum cram_encoding codec = cram_stats_encoding(c->aux_B_stats);
+    //	fprintf(stderr, "encoding=%d\n", codec);
+    //	aux_B_codec = cram_encoder_init(codec, c->aux_B_stats,
+    //					E_BYTE_ARRAY, NULL);
+    //	aux_B_len = aux_B_codec->store(aux_B_codec, aux_B, NULL);
+    //}
 
     cp += itf8_put(cp, h->ref_seq_id);
     cp += itf8_put(cp, h->ref_seq_start);
@@ -1378,7 +1391,7 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
 
 	    // use block content id 4
 	    switch(hi->key[2]) {
-	    case 'Z':
+	    case 'Z': case 'H':
 		// string as byte_array_stop
 		*mp++ = 5; // byte_array_stop
 		*mp++ = 5;
@@ -1421,7 +1434,7 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
 
 	    case 'i': case 'I': case 'f':
 		// byte array len, 4 byte
-		*mp++ = 4;  // byte_array_len
+		*mp++ = 4; // byte_array_len
 		*mp++ = 9;
 		*mp++ = 3; // huffman
 		*mp++ = 4;
@@ -1433,6 +1446,39 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
 		*mp++ = 1;
 		*mp++ = 4; // content id
 		break;
+
+#if 0
+	    case 'B':
+		// Byte array of variable size so using huffman
+		// Not ideal as multiple XX:B:..., YY:B:... ZZ:B:...
+		// with different length profiles will all use the same
+		// huffman stats. We can deal with optimising this later
+		// though.  It'll need one set of statistics per aux type.
+		*mp++ = 4; // byte_array_len
+		mp += itf8_put(mp, aux_B_len + 3); // len encoding
+		memcpy(mp, aux_B, aux_B_len);
+		mp += aux_B_len;
+		*mp++ = 1; // external
+		*mp++ = 1;
+		*mp++ = 4; // content id
+		break;
+#else
+	    case 'B':
+		// Byte array of variable size, but we generate our tag
+		// byte stream at the wrong stage (during reading and not
+		// after slice header construction). So we use
+		// BYTE_ARRAY_LEN with the length codec being external
+		// too.
+		*mp++ = 4; // byte_array_len
+		*mp++ = 6;
+		*mp++ = 1; // len external
+		*mp++ = 1;
+		*mp++ = 4; // content id;
+		*mp++ = 1; // val external
+		*mp++ = 1;
+		*mp++ = 4; // content id;
+		break;
+#endif
 
 	    default:
 		fprintf(stderr, "Unsupported SAM aux type '%c'\n",
@@ -1452,6 +1498,9 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
 
     cb->data = buf;
     cb->comp_size = cb->uncomp_size = cp - buf;
+
+   //if (aux_B_codec)
+   //	aux_B_codec->free(aux_B_codec);
 
     return cb;
 }
@@ -4106,29 +4155,24 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    break;
 
 	case 'B': {
-	    int type = aux[3];
+	    int type = aux[3], blen;
 	    uint32_t count = (uint32_t)((((unsigned char *)aux)[4]<< 0) +
 					(((unsigned char *)aux)[5]<< 8) +
 					(((unsigned char *)aux)[6]<<16) +
 					(((unsigned char *)aux)[7]<<24));
+	    // skip TN field
 	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-	    *tmp++=*aux++;
-	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+
+	    // We use BYTE_ARRAY_LEN with external length, so store that first
 	    switch (type) {
 	    case 'c': case 'C':
-		memcpy(tmp, aux, count);
-		tmp += count;
-		aux += count;
+		blen = count;
 		break;
 	    case 's': case 'S':
-		memcpy(tmp, aux, 2*count);
-		tmp += 2*count;
-		aux += 2*count;
+		blen = 2*count;
 		break;
 	    case 'i': case 'I': case 'f':
-		memcpy(tmp, aux, 4*count);
-		tmp += 4*count;
-		aux += 4*count;
+		blen = 4*count;
 		break;
 	    default:
 		fprintf(stderr, "Unknown sub-type '%c' for aux type 'B'\n",
@@ -4136,6 +4180,17 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		return NULL;
 		    
 	    }
+
+	    tmp += itf8_put(tmp, blen+5);
+
+	    *tmp++=*aux++; // sub-type & length
+	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+
+	    // The tag data itself
+	    memcpy(tmp, aux, blen); tmp += blen; aux += blen;
+
+	    //cram_stats_add(c->aux_B_stats, blen);
+	    break;
 	}
 	default:
 	    fprintf(stderr, "Unknown aux type '%c'\n", aux[2]);

@@ -273,6 +273,7 @@ typedef struct {
     cram_stats *IN_stats;
     cram_stats *QS_stats;
     cram_stats *NP_stats;
+    //cram_stats *aux_B_stats;
 
     HashTable *tags_used; // hash of tag types in use, for tag encoding map
 } cram_container;
