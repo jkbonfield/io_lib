@@ -147,7 +147,7 @@ typedef struct {
     int qs_included;
     int read_names_included;
     // indexed by ref-base and subst. code
-    char substitution_matrix[5][4];
+    char substitution_matrix[5][5];
     
     HashTable *preservation_map;
     struct cram_map *rec_encoding_map[CRAM_MAP_HASH];
