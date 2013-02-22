@@ -223,8 +223,22 @@ static void cram_init(void) {
 	cram_flag_swap[i] = g;
     }
 
-    memset(cram_sub_matrix, 0, 32*32);
+    memset(cram_sub_matrix, 4, 32*32);
+    for (i = 0; i < 32; i++) {
+	cram_sub_matrix[i]['A'&0x1f]=0;
+	cram_sub_matrix[i]['C'&0x1f]=1;
+	cram_sub_matrix[i]['G'&0x1f]=2;
+	cram_sub_matrix[i]['T'&0x1f]=3;
+	cram_sub_matrix[i]['N'&0x1f]=4;
+    }
     for (i = 0; i < 20; i+=4) {
+	int j;
+	for (j = 0; j < 20; j++) {
+	    cram_sub_matrix["ACGTN"[i>>2]&0x1f][j]=3;
+	    cram_sub_matrix["ACGTN"[i>>2]&0x1f][j]=3;
+	    cram_sub_matrix["ACGTN"[i>>2]&0x1f][j]=3;
+	    cram_sub_matrix["ACGTN"[i>>2]&0x1f][j]=3;
+	}
 	cram_sub_matrix["ACGTN"[i>>2]&0x1f][CRAM_SUBST_MATRIX[i+0]&0x1f]=0;
 	cram_sub_matrix["ACGTN"[i>>2]&0x1f][CRAM_SUBST_MATRIX[i+1]&0x1f]=1;
 	cram_sub_matrix["ACGTN"[i>>2]&0x1f][CRAM_SUBST_MATRIX[i+2]&0x1f]=2;
@@ -1032,7 +1046,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
     hdr->unmapped_placed = 0;
     hdr->qs_included = 0;
     hdr->read_names_included = 0;
-    memcpy(hdr->substitution_matrix, "CGTNAGTNACTNACGNACGT", 20);
+    memcpy(hdr->substitution_matrix, "CGTNNAGTNNACTNNACGNNACGTN", 25);
 
     /* Preservation map */
     cp += itf8_get(cp, &map_size); cp_copy = cp;
