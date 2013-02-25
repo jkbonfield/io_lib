@@ -68,7 +68,10 @@ int main(int argc, char **argv) {
     }
 
     bam_close(in);
-    cram_close(out);
+    if (-1 == cram_close(out)) {
+	fprintf(stderr, "Failed in cram_close()\n");
+	return 1;
+    }
 
     if (s)
 	free(s);
