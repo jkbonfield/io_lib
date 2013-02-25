@@ -16,28 +16,62 @@
 
 #include <io_lib/cram.h>
 
+void usage(FILE *fp) {
+    fprintf(fp, "Usage: sam_to_cram [-0..9] [-u] [-v] in.sam/bam ref.fa [output.cram]\n\n");
+    fprintf(fp, "Options:\n");
+    fprintf(fp, "    -1 to -9       Set zlib compression level for CRAM\n");
+    fprintf(fp, "    -0 or -u       No zlib compression.\n");
+    fprintf(fp, "    -v             Verbose output.\n");
+}
+
 int main(int argc, char **argv) {
     cram_fd *out;
     cram_SAM_hdr *hdr;
     bam_file_t *in;
     bam_seq_t *s = NULL;
     char *out_fn;
-    int level = '\0';
+    int level = '\0'; // nul terminate string => auto level
     char out_mode[4];
+    int c, verbose = 0;
 
-    if (argc >= 2 && argv[1][0] == '-' && isdigit(argv[1][1])) {
-	level = argv[1][1];
-	argc--;
-	argv++;
+    while ((c = getopt(argc, argv, "u0123456789hv")) != -1) {
+	switch (c) {
+	case '0': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9':
+	    level = c;
+	    break;
+	    
+	case 'u':
+	    level = '0';
+	    break;
+
+	case 'h':
+	    usage(stdout);
+	    return 0;
+
+	case 'v':
+	    verbose++;
+	    break;
+
+	case '?':
+	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
+	    usage(stderr);
+	    return 1;
+	}
     }
 
-    /* opening */
-    if (NULL == (in = bam_open(argv[1], "rb"))) {
-	perror(argv[1]);
+    if (argc - optind != 2 && argc - optind != 3) {
+	usage(stderr);
 	return 1;
     }
 
-    out_fn = argc == 4 ? argv[3] : "-";
+    /* opening */
+    if (NULL == (in = bam_open(argv[optind], "rb"))) {
+	perror(argv[optind]);
+	return 1;
+    }
+
+    out_fn = argc - optind == 3 ? argv[optind+2] : "-";
     sprintf(out_mode, "wb%c", level);
     if (NULL == (out = cram_open(out_fn, out_mode))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", out_fn);
@@ -52,10 +86,10 @@ int main(int argc, char **argv) {
     out->SAM_hdr = hdr;
     //cram_free_SAM_hdr(hdr);
     
-    if (argc >= 3) {
-	cram_load_reference(out, argv[2]);
-	refs2id(out->refs, in);
-    }
+    cram_load_reference(out, argv[optind+1]);
+    refs2id(out->refs, in);
+
+    cram_set_option(out, CRAM_OPT_VERBOSITY, &verbose);
 
     /* Sequence iterators */
     while (bam_next_seq(in, &s) > 0) {

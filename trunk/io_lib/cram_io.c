@@ -942,7 +942,7 @@ cram_metrics *cram_new_metrics(void) {
  * or Z_DEFAULT_STRATEGY on quality data. If so, we'd rather use it as it is
  * significantly faster.
  */
-void cram_compress_block(cram_block *b, cram_metrics *metrics,
+void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 			 int level,  int strat,
 			 int level2, int strat2) {
     char *comp;
@@ -960,8 +960,10 @@ void cram_compress_block(cram_block *b, cram_metrics *metrics,
     }
 
     if (strat2 >= 0)
-	fprintf(stderr, "metrics trial %d, next_trial %d, m1 %d, m2 %d\n",
-		metrics->trial, metrics->next_trial, metrics->m1, metrics->m2);
+	if (fd->verbose > 1)
+	    fprintf(stderr, "metrics trial %d, next_trial %d, m1 %d, m2 %d\n",
+		    metrics->trial, metrics->next_trial,
+		    metrics->m1, metrics->m2);
 
     if (strat2 >= 0 && (metrics->trial || --metrics->next_trial == 0)) {
 	char *c1, *c2;
@@ -978,12 +980,14 @@ void cram_compress_block(cram_block *b, cram_metrics *metrics,
 	c1 = zlib_mem_deflate(b->data, b->uncomp_size, &s1, level, strat);
 	c2 = zlib_mem_deflate(b->data, b->uncomp_size, &s2, level2, strat2);
 	if (s1 < s2) {
-	    fprintf(stderr, "M1 wins\n");
+	    if (fd->verbose > 1)
+		fprintf(stderr, "M1 wins\n");
 	    comp = c1; comp_size = s1;
 	    free(c2);
 	    metrics->m1++;
 	} else {
-	    fprintf(stderr, "M2 wins\n");
+	    if (fd->verbose > 1)
+		fprintf(stderr, "M2 wins\n");
 	    comp = c2; comp_size = s2;
 	    free(c1);
 	    metrics->m2++;
@@ -1002,8 +1006,9 @@ void cram_compress_block(cram_block *b, cram_metrics *metrics,
     b->method = GZIP;
     b->comp_size = comp_size;
 
-    fprintf(stderr, "Compressed block ID %d from %d to %d\n",
-	    b->content_id, b->uncomp_size, b->comp_size);
+    if (fd->verbose)
+	fprintf(stderr, "Compressed block ID %d from %d to %d\n",
+		b->content_id, b->uncomp_size, b->comp_size);
 }
 
 /*
@@ -1245,7 +1250,8 @@ static int sub_idx(char *key, char val) {
  * Returns cram_block ptr on success
  *         NULL on failure
  */
-cram_block *cram_encode_compression_header(cram_container *c, cram_block_compression_hdr *h) {
+cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
+					   cram_block_compression_hdr *h) {
     cram_block *cb = cram_new_block(COMPRESSION_HEADER, 0);
     char *buf = malloc(100000); // FIXME, auto-grow this
     char *cp = buf;
@@ -1520,8 +1526,9 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
     memcpy(cp, map, mp-map);
     cp += mp-map;
 
-    fprintf(stderr, "Wrote compression block header in %d bytes\n",
-	    (int)(cp-buf));
+    if (fd->verbose)
+	fprintf(stderr, "Wrote compression block header in %d bytes\n",
+		(int)(cp-buf));
 
     cb->data = buf;
     cb->comp_size = cb->uncomp_size = cp - buf;
@@ -2041,7 +2048,7 @@ static int sort_freqs(const void *vp1, const void *vp2) {
  *
  * Returns the best codec to use.
  */
-enum cram_encoding cram_stats_encoding(cram_stats *st) {
+enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
     enum cram_encoding best_encoding = E_NULL;
     int best_size = INT_MAX, bits;
     int nvals, i, ntot = 0, max_val = 0, min_val = INT_MAX, k;
@@ -2099,8 +2106,9 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
     /* We only support huffman now anyway... */
     free(vals); free(freqs); return E_HUFFMAN;
 
-    fprintf(stderr, "Range = %d..%d, nvals=%d, ntot=%d\n",
-	    min_val, max_val, nvals, ntot);
+    if (fd->verbose > 1)
+	fprintf(stderr, "Range = %d..%d, nvals=%d, ntot=%d\n",
+		min_val, max_val, nvals, ntot);
 
     /* Theoretical entropy */
     {
@@ -2109,7 +2117,8 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
 	    dbits += freqs[i] * log((double)freqs[i]/ntot);
 	}
 	dbits /= -log(2);
-	fprintf(stderr, "Entropy = %f\n", dbits);
+	if (fd->verbose > 1)
+	    fprintf(stderr, "Entropy = %f\n", dbits);
     }
 
 #if 0
@@ -2117,21 +2126,24 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
     if (min_val >= 0) {
 	for (bits = i = 0; i < nvals; i++)
 	    bits += freqs[i]*(vals[i]+1);
-	fprintf(stderr, "UNARY   = %d\n", bits);
+	if (fd->verbose > 1)
+	    fprintf(stderr, "UNARY   = %d\n", bits);
 	if (best_size > bits)
 	    best_size = bits, best_encoding = E_NULL; //E_UNARY;
     }
 
     /* Beta */
     bits = nbits(max_val - min_val) * ntot;
-    fprintf(stderr, "BETA    = %d\n", bits);
+    if (fd->verbose > 1)
+	fprintf(stderr, "BETA    = %d\n", bits);
     if (best_size > bits)
 	best_size = bits, best_encoding = E_BETA;
 
     /* Gamma */
     for (bits = i = 0; i < nvals; i++)
 	bits += ((nbits(vals[i]-min_val+1)-1) + nbits(vals[i]-min_val+1)) * freqs[i];
-    fprintf(stderr, "GAMMA   = %d\n", bits);
+    if (fd->verbose > 1)
+	fprintf(stderr, "GAMMA   = %d\n", bits);
     if (best_size > bits)
 	best_size = bits, best_encoding = E_GAMMA;
 
@@ -2144,7 +2156,8 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
 		bits += (nbits(vals[i]-min_val)*2-k)*freqs[i];
 	}
 
-	fprintf(stderr, "SUBEXP%d = %d\n", k, bits);
+	if (fd->verbose > 1)
+	    fprintf(stderr, "SUBEXP%d = %d\n", k, bits);
 	if (best_size > bits)
 	    best_size = bits, best_encoding = E_SUBEXP;
     }
@@ -2210,7 +2223,8 @@ enum cram_encoding cram_stats_encoding(cram_stats *st) {
     for (bits = i = 0; i < nvals; i++) {
 	bits += freqs[i] * codes[i];
     }
-    fprintf(stderr, "HUFFMAN = %d\n", bits);
+    if (fd->verbose > 1)
+	fprintf(stderr, "HUFFMAN = %d\n", bits);
     if (best_size >= bits)
 	best_size = bits, best_encoding = E_HUFFMAN;
     free(codes);
@@ -2514,13 +2528,19 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 #endif
 
     /* Compress the other blocks */
-    cram_compress_block(s->block[1], fd->m[0], fd->level,Z_FILTERED, -1, -1);
-    cram_compress_block(s->block[2], fd->m[1], fd->level,Z_FILTERED,  1,Z_RLE);
-    cram_compress_block(s->block[3], fd->m[2], fd->level,Z_FILTERED, -1, -1);
-    cram_compress_block(s->block[4], fd->m[3], fd->level,Z_FILTERED, -1, -1);
-    cram_compress_block(s->block[5], fd->m[4], fd->level,Z_FILTERED, -1, -1);
+    cram_compress_block(fd, s->block[1], fd->m[0], fd->level, Z_FILTERED,
+			-1, -1);			      
+    cram_compress_block(fd, s->block[2], fd->m[1], fd->level, Z_FILTERED, 
+			1,Z_RLE);			      
+    cram_compress_block(fd, s->block[3], fd->m[2], fd->level, Z_FILTERED,
+			-1, -1);			      
+    cram_compress_block(fd, s->block[4], fd->m[3], fd->level, Z_FILTERED,
+			-1, -1);			      
+    cram_compress_block(fd, s->block[5], fd->m[4], fd->level, Z_FILTERED,
+			-1, -1);
 #ifdef BA_external
-    cram_compress_block(s->block[6], fd->m[5], fd->level,Z_FILTERED, -1, -1);
+    cram_compress_block(fd, s->block[6], fd->m[5], fd->level, Z_FILTERED,
+			-1, -1);
 #endif
 
     return r ? -1 : 0;
@@ -2565,39 +2585,39 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 //    }
 
     //fprintf(stderr, "=== BF ===\n");
-    h->BF_codec = cram_encoder_init(cram_stats_encoding(c->BF_stats),
+    h->BF_codec = cram_encoder_init(cram_stats_encoding(fd, c->BF_stats),
 				    c->BF_stats, E_INT, NULL);
 
     //fprintf(stderr, "=== CF ===\n");
-    h->CF_codec = cram_encoder_init(cram_stats_encoding(c->CF_stats),
+    h->CF_codec = cram_encoder_init(cram_stats_encoding(fd, c->CF_stats),
 				    c->CF_stats, E_BYTE, NULL);
 
 //    fprintf(stderr, "=== RN ===\n");
-//    h->RN_codec = cram_encoder_init(cram_stats_encoding(c->RN_stats),
+//    h->RN_codec = cram_encoder_init(cram_stats_encoding(fd, c->RN_stats),
 //				    c->RN_stats, E_BYTE_ARRAY, NULL);
 
     //fprintf(stderr, "=== AP ===\n");
-    h->AP_codec = cram_encoder_init(cram_stats_encoding(c->AP_stats),
+    h->AP_codec = cram_encoder_init(cram_stats_encoding(fd, c->AP_stats),
 				    c->AP_stats, E_INT, NULL);
 
     //fprintf(stderr, "=== RG ===\n");
-    h->RG_codec = cram_encoder_init(cram_stats_encoding(c->RG_stats),
+    h->RG_codec = cram_encoder_init(cram_stats_encoding(fd, c->RG_stats),
 				    c->RG_stats, E_INT, NULL);
 
     //fprintf(stderr, "=== MQ ===\n");
-    h->MQ_codec = cram_encoder_init(cram_stats_encoding(c->MQ_stats),
+    h->MQ_codec = cram_encoder_init(cram_stats_encoding(fd, c->MQ_stats),
 				    c->MQ_stats, E_INT, NULL);
 
     //fprintf(stderr, "=== NS ===\n");
 #ifdef NS_external
     h->NS_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)3);
 #else
-    h->NS_codec = cram_encoder_init(cram_stats_encoding(c->NS_stats),
+    h->NS_codec = cram_encoder_init(cram_stats_encoding(fd, c->NS_stats),
 				    c->NS_stats, E_INT, NULL);
 #endif
 
     //fprintf(stderr, "=== MF ===\n");
-    h->MF_codec = cram_encoder_init(cram_stats_encoding(c->MF_stats),
+    h->MF_codec = cram_encoder_init(cram_stats_encoding(fd, c->MF_stats),
 				    c->MF_stats, E_BYTE, NULL);
 
 #ifdef TS_external
@@ -2605,56 +2625,56 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     h->NP_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)3);
 #else
     //fprintf(stderr, "=== TS ===\n");
-    h->TS_codec = cram_encoder_init(cram_stats_encoding(c->TS_stats),
+    h->TS_codec = cram_encoder_init(cram_stats_encoding(fd, c->TS_stats),
 				    c->TS_stats, E_INT, NULL);
     //fprintf(stderr, "=== NP ===\n");
-    h->NP_codec = cram_encoder_init(cram_stats_encoding(c->NP_stats),
+    h->NP_codec = cram_encoder_init(cram_stats_encoding(fd, c->NP_stats),
 				    c->NP_stats, E_INT, NULL);
 #endif
 
     //fprintf(stderr, "=== NF ===\n");
-    h->NF_codec = cram_encoder_init(cram_stats_encoding(c->NF_stats),
+    h->NF_codec = cram_encoder_init(cram_stats_encoding(fd, c->NF_stats),
 				    c->NF_stats, E_INT, NULL);
 
     //fprintf(stderr, "=== RL ===\n");
-    h->RL_codec = cram_encoder_init(cram_stats_encoding(c->RL_stats),
+    h->RL_codec = cram_encoder_init(cram_stats_encoding(fd, c->RL_stats),
 				    c->RL_stats, E_INT, NULL);
 
     //fprintf(stderr, "=== FN ===\n");
-    h->FN_codec = cram_encoder_init(cram_stats_encoding(c->FN_stats),
+    h->FN_codec = cram_encoder_init(cram_stats_encoding(fd, c->FN_stats),
 				    c->FN_stats, E_INT, NULL);
 
     //fprintf(stderr, "=== FC ===\n");
-    h->FC_codec = cram_encoder_init(cram_stats_encoding(c->FC_stats),
+    h->FC_codec = cram_encoder_init(cram_stats_encoding(fd, c->FC_stats),
 				    c->FC_stats, E_BYTE, NULL);
 
     //fprintf(stderr, "=== FP ===\n");
-    h->FP_codec = cram_encoder_init(cram_stats_encoding(c->FP_stats),
+    h->FP_codec = cram_encoder_init(cram_stats_encoding(fd, c->FP_stats),
 				    c->FP_stats, E_INT, NULL);
 
     //fprintf(stderr, "=== DL ===\n");
-    h->DL_codec = cram_encoder_init(cram_stats_encoding(c->DL_stats),
+    h->DL_codec = cram_encoder_init(cram_stats_encoding(fd, c->DL_stats),
 				    c->DL_stats, E_INT, NULL);
 
 #ifdef BA_external
     h->BA_codec = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE, (void *)5);
 #else
     //fprintf(stderr, "=== BA ===\n");
-    h->BA_codec = cram_encoder_init(cram_stats_encoding(c->BA_stats),
+    h->BA_codec = cram_encoder_init(cram_stats_encoding(fd, c->BA_stats),
 				    c->BA_stats, E_BYTE, NULL);
 #endif
 
     //fprintf(stderr, "=== BS ===\n");
-    h->BS_codec = cram_encoder_init(cram_stats_encoding(c->BS_stats),
+    h->BS_codec = cram_encoder_init(cram_stats_encoding(fd, c->BS_stats),
 				    c->BS_stats, E_BYTE, NULL);
 
     //fprintf(stderr, "=== TC ===\n");
-    h->TC_codec = cram_encoder_init(cram_stats_encoding(c->TC_stats),
+    h->TC_codec = cram_encoder_init(cram_stats_encoding(fd, c->TC_stats),
 				    c->TC_stats, E_BYTE, NULL);
 
     //fprintf(stderr, "=== TN ===\n");
     if (0) {
-	//h->TN_codec = cram_encoder_init(cram_stats_encoding(c->TN_stats),
+	//h->TN_codec = cram_encoder_init(cram_stats_encoding(fd, c->TN_stats),
 	//				    c->TN_stats, E_INT, NULL);
 	cram_byte_array_len_encoder e;
 	e.len_len = 6;
@@ -2667,7 +2687,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 #ifdef TN_external
 	h->TN_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)4);
 #else
-	h->TN_codec = cram_encoder_init(cram_stats_encoding(c->TN_stats),
+	h->TN_codec = cram_encoder_init(cram_stats_encoding(fd, c->TN_stats),
 					c->TN_stats, E_INT, NULL);
 #endif
     }
@@ -2698,7 +2718,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     /* Encode slices */
     for (i = 0; i < c->curr_slice; i++) {
-	fprintf(stderr, "Encode slice %d\n", i);
+	if (fd->verbose)
+	    fprintf(stderr, "Encode slice %d\n", i);
 	if (cram_encode_slice(fd, c, h, c->slices[i]) != 0)
 	    return -1;
     }
@@ -2715,7 +2736,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	// h->...  fixme
 	memcpy(h->substitution_matrix, CRAM_SUBST_MATRIX, 20);
 
-	c_hdr = cram_encode_compression_header(c, h);
+	c_hdr = cram_encode_compression_header(fd, c, h);
     }
 
     /* Compute landmarks */
@@ -2847,7 +2868,6 @@ static int cram_add_substitution(cram_container *c, cram_slice *s, cram_record *
 	f.B.code = 'B';
 	f.B.base = base;
 	f.B.qual = qual;
-	fprintf(stderr, "Add %c %c\n", base, ref);
 	cram_stats_add(c->BA_stats, f.B.base);
 	cram_stats_add(c->QS_stats, f.B.qual);
 #ifdef DS_SEQ
@@ -3853,6 +3873,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->ref  = NULL; // current ref as char*
 
     fd->decode_md = 0;
+    fd->verbose = 0;
 
     for (i = 0; i < 6; i++)
 	fd->m[i] = cram_new_metrics();
@@ -3886,6 +3907,10 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
 	    free(fd->prefix);
 	if (!(fd->prefix = strdup(val->s)))
 	    return -1;
+	break;
+
+    case CRAM_OPT_VERBOSITY:
+	fd->verbose = val->i;
 	break;
     }
 
@@ -4317,9 +4342,10 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
     /* Flush container */
     if (c->curr_slice == c->max_slice) {
 	c->ref_seq_span = fd->last_base - c->ref_seq_start + 1;
-	fprintf(stderr, "Flush container %d/%d..%d\n",
-		c->ref_seq_id, c->ref_seq_start,
-		c->ref_seq_start + c->ref_seq_span -1);
+	if (fd->verbose)
+	    fprintf(stderr, "Flush container %d/%d..%d\n",
+		    c->ref_seq_id, c->ref_seq_start,
+		    c->ref_seq_start + c->ref_seq_span -1);
 
 	/* Encode slices */
 	if (-1 == cram_encode_container(fd, c))
