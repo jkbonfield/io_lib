@@ -1189,6 +1189,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 	else if (key[0] == 'Q' && key[1] == 'S') {
 	    hdr->QS_codec = cram_decoder_init(encoding, cp, size, E_BYTE);
 	    hdr->Qs_codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY);
+	} else if (key[0] == 'T' && key[1] == 'M') {
+	} else if (key[0] == 'T' && key[1] == 'V') {
 	} else
 	    fprintf(stderr, "Unrecognised key: %.2s\n", key);
 
