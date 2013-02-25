@@ -173,6 +173,7 @@ char *cram_content_type2str(enum cram_content_type t) {
 static int cram_init_done = 0;
 static unsigned int bam_flag_swap[0x200], cram_flag_swap[0x800];
 static unsigned char L[256];
+static unsigned char L2[256];
 
 static char cram_sub_matrix[32][32];
 
@@ -190,6 +191,13 @@ static void cram_init(void) {
     L['C'] = 1; L['c'] = 1;
     L['G'] = 2; L['g'] = 2;
     L['T'] = 3; L['t'] = 3;
+
+    memset(L2, 5, 256);
+    L2['A'] = 0; L2['a'] = 0;
+    L2['C'] = 1; L2['c'] = 1;
+    L2['G'] = 2; L2['g'] = 2;
+    L2['T'] = 3; L2['t'] = 3;
+    L2['N'] = 4; L2['n'] = 4;
 
     for (i = 0; i < 0x200; i++) {
 	int f = 0;
@@ -728,6 +736,7 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->FP_stats = cram_stats_create();
     c->DL_stats = cram_stats_create();
     c->BA_stats = cram_stats_create();
+    c->QS_stats = cram_stats_create();
     c->BS_stats = cram_stats_create();
     c->TC_stats = cram_stats_create();
     c->TN_stats = cram_stats_create();
@@ -1500,6 +1509,8 @@ cram_block *cram_encode_compression_header(cram_container *c, cram_block_compres
 	    }
 	    //mp += m->codec->store(m->codec, mp, NULL);
 	}
+
+	HashTableIterDestroy(iter);
     }
 #endif
     cp += itf8_put(cp, mp - map + itf8_put(cnt_buf, mc));
@@ -2426,6 +2437,24 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 					     (char *)&i32, 1);
 		    break;
 
+		case 'B':
+//		    // Used when we try to store a non ACGTN base or an N
+//		    // that aligns against a non ACGTN reference
+
+		    uc  = f->B.base;
+#ifdef BA_external
+		    s->block[6]->data[s->block[6]->uncomp_size++] = uc;
+#else
+		    r |= h->BA_codec->encode(s, h->BA_codec, core,
+					     (char *)&uc, 1);
+#endif
+
+//                  Already added
+//		    uc  = f->B.qual;
+//		    r |= h->QS_codec->encode(s, h->QS_codec, core,
+//					     (char *)&uc, 1);
+		    break;
+
 		default:
 		    fprintf(stderr, "unhandled feature code %c\n",
 			    f->X.code);
@@ -2466,6 +2495,10 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[5]->data = s->aux_ds->str; s->aux_ds->str = NULL;
     s->block[5]->comp_size = s->block[5]->uncomp_size = s->aux_ds->length;
 #else
+    cram_free_block(s->block[1]);
+    cram_free_block(s->block[2]);
+    cram_free_block(s->block[3]);
+    cram_free_block(s->block[5]);
     BLOCK_UPLEN(s->base_blk); s->block[1] = s->base_blk; s->base_blk = NULL;
     BLOCK_UPLEN(s->qual_blk); s->block[2] = s->qual_blk; s->qual_blk = NULL;
     BLOCK_UPLEN(s->name_blk); s->block[3] = s->name_blk; s->name_blk = NULL;
@@ -2798,12 +2831,29 @@ int cram_add_feature(cram_container *c, cram_slice *s,
 }
 
 static int cram_add_substitution(cram_container *c, cram_slice *s, cram_record *r,
-				 int pos, char base, char ref) {
+				 int pos, char base, char qual, char ref) {
     cram_feature f;
-    f.X.pos = pos+1;
-    f.X.code = 'X';
-    f.X.base = cram_sub_matrix[ref&0x1f][base&0x1f];
-    cram_stats_add(c->BS_stats, f.X.base);
+
+    // seq=ACGTN vs ref=ACGT or seq=ACGT vs ref=ACGTN
+    if (L2[base]<4 || (L2[base]<5 && L2[ref]<4)) {
+	f.X.pos = pos+1;
+	f.X.code = 'X';
+	f.X.base = cram_sub_matrix[ref&0x1f][base&0x1f];
+	cram_stats_add(c->BS_stats, f.X.base);
+    } else {
+	f.B.pos = pos+1;
+	f.B.code = 'B';
+	f.B.base = base;
+	f.B.qual = qual;
+	fprintf(stderr, "Add %c %c\n", base, ref);
+	cram_stats_add(c->BA_stats, f.B.base);
+	cram_stats_add(c->QS_stats, f.B.qual);
+#ifdef DS_SEQ
+	dstring_append_char(s->qual_ds, qual);
+#else
+	BLOCK_APPEND_CHAR(s->qual_blk, qual);
+#endif
+    }
     return cram_add_feature(c, s, r, &f);
 }
 
@@ -4322,7 +4372,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cram_slice *s;
     int i;
     char *cp, *rg;
-    char *ref, *seq;
+    char *ref, *seq, *qual;
 
     if (!fd->ctr)
 	fd->ctr = cram_new_container(SEQS_PER_SLICE, SLICE_PER_CNT);
@@ -4414,11 +4464,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     }
     DSTRING_LEN(s->seqs_ds) += cr->len;
 
-    cp = DSTRING_STR(s->qual_ds) + cr->qual;
-    for (i = 0; i < cr->len; i++) {
-	cp[i] = bam_qual(b)[i];
-    }
-    DSTRING_LEN(s->qual_ds) += cr->len;
+    qual = cp = bam_qual(b);
 #else
     cr->seq         = BLOCK_SIZE(s->seqs_blk);
     cr->qual        = BLOCK_SIZE(s->qual_blk);
@@ -4432,11 +4478,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     }
     BLOCK_SIZE(s->seqs_blk) += cr->len;
 
-    cp = BLOCK_END(s->qual_blk);
-    for (i = 0; i < cr->len; i++) {
-	cp[i] = bam_qual(b)[i];
-    }
-    BLOCK_SIZE(s->qual_blk) += cr->len;
+    qual = cp = bam_qual(b);
 #endif
 
     /* Copy and parse */
@@ -4477,7 +4519,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 			//fprintf(stderr, "Subst: %d; %c vs %c\n",
 			//	spos, ref[apos], seq[spos]);
 			cram_add_substitution(c, s, cr, spos,
-					      seq[spos], ref[apos]);
+					      seq[spos], qual[spos],
+					      ref[apos]);
 		    }
 		}
 		break;
@@ -4494,7 +4537,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		//	cig_len, &ref[apos], cig_len, &seq[spos]);
 		for (l = 0; l < cig_len; l++, apos++, spos++) {
 		    cram_add_substitution(c, s, cr, spos,
-					  seq[spos], ref[apos]);
+					  seq[spos], qual[spos], ref[apos]);
 		}
 		break;
 #endif
@@ -4543,6 +4586,27 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    cram_stats_add(c->BA_stats, seq[i]);
 #endif
     }
+
+    /*
+     * Append to the qual block now. We do this here as
+     * cram_add_substitution() can generate BA/QS events which need to 
+     * be in the qual block before we append the rest of the data.
+     */
+#ifdef DS_SEQ
+    DSTRING_RESIZE(s->qual_ds, DSTRING_LEN(s->qual_ds) + cr->len);
+    qual = cp = DSTRING_STR(s->qual_ds) + cr->qual;
+    for (i = 0; i < cr->len; i++) {
+	cp[i] = bam_qual(b)[i];
+    }
+    DSTRING_LEN(s->qual_ds) += cr->len;
+#else
+    BLOCK_GROW(s->qual_blk, cr->len);
+    qual = cp = BLOCK_END(s->qual_blk);
+    for (i = 0; i < cr->len; i++) {
+	cp[i] = bam_qual(b)[i];
+    }
+    BLOCK_SIZE(s->qual_blk) += cr->len;
+#endif    
 
     /* Now we know apos and aend both, update mate-pair information */
     {

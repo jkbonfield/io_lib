@@ -349,6 +349,12 @@ typedef struct {
 	struct {
 	    int pos;
 	    int code;
+	    int base;    // actual base & qual
+	    int qual;
+	} B;
+	struct {
+	    int pos;
+	    int code;
 	    int len;
 	    int seq_idx; // soft-clip multiple bases
 	} S;
