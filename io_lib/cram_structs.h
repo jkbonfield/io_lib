@@ -492,11 +492,13 @@ typedef struct {
     cram_metrics *m[6];
 
     int decode_md; // Whether to export MD and NM tags
+    int verbose;
 } cram_fd;
 
 enum cram_option {
     CRAM_OPT_DECODE_MD,
-    CRAM_OPT_PREFIX
+    CRAM_OPT_PREFIX,
+    CRAM_OPT_VERBOSITY
 };
 
 typedef union {

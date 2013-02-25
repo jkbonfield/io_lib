@@ -15,7 +15,7 @@
 
 void usage(FILE *fp) {
     fprintf(fp, "Usage: cram_to_sam [-m] [-b] [-0..9] [-u] "
-	    "filename.cram ref.fa\n\n");
+	    "filename.cram ref.fa [output_filename]\n\n");
     fprintf(fp, "Options:\n");
     fprintf(fp, "    -m             Generate MD and NM tags:\n");
     fprintf(fp, "    -b             Output in BAM (defaults to SAM)\n");
@@ -73,11 +73,22 @@ int main(int argc, char **argv) {
 	}
     }
 
-    bfd = bam_open("-", mode);
-
-    if (argc - optind != 2) {
+    if (argc - optind != 2 && argc - optind != 3) {
 	usage(stderr);
 	return 1;
+    }
+
+    if (argc - optind == 2) {
+	if (NULL == (bfd = bam_open("-", mode))) {
+	    fprintf(stderr, "Failed to open SAM/BAM output\n.");
+	    return 1;
+	}
+    } else {
+	if (NULL == (bfd = bam_open(argv[optind+2], mode))) {
+	    fprintf(stderr, "Failed to open SAM/BAM output\n.");
+	    perror(argv[optind+2]);
+	    return 1;
+	}
     }
 
     if (NULL == (fd = cram_open(argv[optind], "rb"))) {
@@ -98,7 +109,7 @@ int main(int argc, char **argv) {
     memcpy(bfd->header, fd->SAM_hdr->header, fd->SAM_hdr->header_len);
 
     if (-1 == bam_parse_header(bfd))
-        return -1;
+        return 1;
 
     bam_write_header(bfd);
     if (fd->refs)

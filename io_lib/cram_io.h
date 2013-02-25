@@ -107,7 +107,7 @@ int itf8_put(char *cp, int32_t val);
  */
 cram_stats *cram_stats_create(void);
 void cram_stats_add(cram_stats *st, int32_t val);
-enum cram_encoding cram_stats_encoding(cram_stats *st);
+enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st);
 void cram_stats_free(cram_stats *st);
 
 /*
