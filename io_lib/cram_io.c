@@ -1797,6 +1797,9 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->name_blk = cram_new_block(EXTERNAL, 2);
     s->aux_blk  = cram_new_block(EXTERNAL, 4);
     s->base_blk = cram_new_block(EXTERNAL, 0);
+#ifdef TN_external
+    s->tn_blk   = cram_new_block(EXTERNAL, 6);
+#endif
 #endif
 
 
@@ -1846,6 +1849,9 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->name_blk = cram_new_block(EXTERNAL, 2);
     s->aux_blk  = cram_new_block(EXTERNAL, 4);
     s->base_blk = cram_new_block(EXTERNAL, 0);
+#ifdef TN_external
+    s->tn_blk   = cram_new_block(EXTERNAL, 6);
+#endif
 #endif
 
     s->features = NULL;
@@ -1920,6 +1926,10 @@ void cram_free_slice(cram_slice *s) {
 
     if (s->base_blk)
 	cram_free_block(s->base_blk);
+#ifdef TN_external
+    if (s->tn_blk)
+	cram_free_block(s->tn_blk);
+#endif
 #endif
 
     if (s->cigar)
@@ -2251,6 +2261,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 			     cram_block_compression_hdr *h, cram_slice *s) {
     int rec, r = 0, last_pos;
     cram_block *core;
+    int nblk;
 
     /*
      * Slice external blocks:
@@ -2258,16 +2269,21 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
      * ID 1 => qualities
      * ID 2 => names
      * ID 3 => TS (insert size), NP (next frag)
-     * ID 4 => tags
+     * ID 4 => tag values
+     * ID 5 => BA, ifdef BA_external
+     * ID 6 => tag IDs (TN), ifdef TN_external
      */
 
     /* Create cram slice header, num_blocks etc */
     s->hdr->ref_base_id = 0;
+    nblk = 5;
 #ifdef BA_external
-    s->hdr->num_content_ids = 6;
-#else
-    s->hdr->num_content_ids = 5;
+    nblk++;
 #endif
+#ifdef TN_external
+    nblk++;
+#endif
+    s->hdr->num_content_ids = nblk;
     s->hdr->num_blocks = s->hdr->num_content_ids+1;
     s->block = calloc(s->hdr->num_blocks, sizeof(s->block[0]));
     s->hdr->block_content_ids = malloc(s->hdr->num_content_ids *
@@ -2277,8 +2293,12 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->hdr->block_content_ids[2] = 2;
     s->hdr->block_content_ids[3] = 3;
     s->hdr->block_content_ids[4] = 4;
+    nblk = 5;
 #ifdef BA_external
-    s->hdr->block_content_ids[5] = 5;
+    s->hdr->block_content_ids[(s->ba_id = ++nblk)-1] = 5;
+#endif
+#ifdef TN_external
+    s->hdr->block_content_ids[(s->tn_id = ++nblk)-1] = 6;
 #endif
 
     s->block[0] = cram_new_block(CORE, 0);     // Core 
@@ -2288,7 +2308,10 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[4] = cram_new_block(EXTERNAL, 3); // TS/NP
     s->block[5] = cram_new_block(EXTERNAL, 4); // Tags
 #ifdef BA_external
-    s->block[6] = cram_new_block(EXTERNAL, 5); // BA bases
+    s->block[s->ba_id] = cram_new_block(EXTERNAL, 5); // BA bases
+#endif
+#ifdef TN_external
+    s->block[s->tn_id] = cram_new_block(EXTERNAL, 6); // TN ids
 #endif
 
     core = s->block[0];
@@ -2299,8 +2322,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[4]->comp_size = s->block[4]->uncomp_size = 0;
 
 #ifdef BA_external
-    s->block[6]->data = calloc(1, s->BA_len);
-    s->block[6]->comp_size = s->block[6]->uncomp_size = 0;
+    s->block[s->ba_id]->data = calloc(1, s->BA_len);
+    s->block[s->ba_id]->comp_size = s->block[s->ba_id]->uncomp_size = 0;
 #endif
 
     /* Generate core block */
@@ -2438,7 +2461,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 		case 'i':
 		    uc = f->i.base;
 #ifdef BA_external
-		    s->block[6]->data[s->block[6]->uncomp_size++] = uc;
+		    s->block[s->ba_id]->data[s->block[s->ba_id]->uncomp_size++] = uc;
 #else
 		    r |= h->BA_codec->encode(s, h->BA_codec, core,
 					     (char *)&uc, 1);
@@ -2459,7 +2482,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 
 		    uc  = f->B.base;
 #ifdef BA_external
-		    s->block[6]->data[s->block[6]->uncomp_size++] = uc;
+		    s->block[s->ba_id]->data[s->block[s->ba_id]->uncomp_size++] = uc;
 #else
 		    r |= h->BA_codec->encode(s, h->BA_codec, core,
 					     (char *)&uc, 1);
@@ -2487,9 +2510,9 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	    char *seq = BLOCK_DATA(s->seqs_blk) + cr->seq;
 #endif
 #ifdef BA_external
-	    memcpy(&s->block[6]->data[s->block[6]->uncomp_size],
+	    memcpy(&s->block[s->ba_id]->data[s->block[s->ba_id]->uncomp_size],
 		   seq, cr->len);
-	    s->block[6]->uncomp_size += cr->len;
+	    s->block[s->ba_id]->uncomp_size += cr->len;
 #else
 	    r |= h->BA_codec->encode(s, h->BA_codec, core, seq, cr->len);
 #endif
@@ -2519,12 +2542,17 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     BLOCK_UPLEN(s->qual_blk); s->block[2] = s->qual_blk; s->qual_blk = NULL;
     BLOCK_UPLEN(s->name_blk); s->block[3] = s->name_blk; s->name_blk = NULL;
     BLOCK_UPLEN(s->aux_blk);  s->block[5] = s->aux_blk;  s->aux_blk  = NULL;
+
+#ifdef TN_external
+    cram_free_block(s->block[s->tn_id]);
+    BLOCK_UPLEN(s->tn_blk); s->block[s->tn_id] = s->tn_blk; s->tn_blk = NULL;
+#endif
 #endif
 
     s->block[4]->comp_size = s->block[4]->uncomp_size;
     
 #ifdef BA_external
-    s->block[6]->comp_size = s->block[6]->uncomp_size;
+    s->block[s->ba_id]->comp_size = s->block[s->ba_id]->uncomp_size;
 #endif
 
     /* Compress the CORE Block too, with minimal zlib level */
@@ -2543,8 +2571,12 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     cram_compress_block(fd, s->block[5], fd->m[4], fd->level, Z_FILTERED,
 			-1, -1);
 #ifdef BA_external
-    cram_compress_block(fd, s->block[6], fd->m[5], fd->level, Z_FILTERED,
-			-1, -1);
+    cram_compress_block(fd, s->block[s->ba_id], fd->m[5],
+			fd->level, Z_FILTERED, -1, -1);
+#endif
+#ifdef TN_external
+    cram_compress_block(fd, s->block[s->tn_id], fd->m[6],
+			fd->level, Z_DEFAULT_STRATEGY, -1, -1);
 #endif
 
     return r ? -1 : 0;
@@ -2689,7 +2721,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					E_INT, (void *)&e);
     } else {
 #ifdef TN_external
-	h->TN_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)4);
+	h->TN_codec = cram_encoder_init(E_EXTERNAL, NULL, E_INT, (void *)6);
 #else
 	h->TN_codec = cram_encoder_init(cram_stats_encoding(fd, c->TN_stats),
 					c->TN_stats, E_INT, NULL);
@@ -4165,7 +4197,7 @@ int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s, cram_record *cr,
  */
 static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 			     cram_slice *s, cram_record *cr) {
-    char *aux, *tmp, *rg = NULL;
+    char *aux, *tmp, *rg = NULL, *tmp_tn;
     int aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
 	
     /* Worst case is 1 nul char on every ??:Z: string, so +33% */
@@ -4175,6 +4207,11 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 #else
     BLOCK_GROW(s->aux_blk, aux_size*1.34+1);
     tmp = BLOCK_END(s->aux_blk);
+#endif
+
+#ifdef TN_external
+    BLOCK_GROW(s->tn_blk, aux_size);
+    tmp_tn = BLOCK_END(s->tn_blk);
 #endif
 
     aux = bam_aux(b);
@@ -4218,7 +4255,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	s->TN[s->nTN++] = i32;
 	cram_stats_add(c->TN_stats, i32);
 #else
-	tmp += itf8_put(tmp, i32);
+	tmp_tn += itf8_put(tmp_tn, i32);
 #endif
 
 	switch(aux[2]) {
@@ -4304,6 +4341,12 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     cr->aux_size = (uc *)tmp - (BLOCK_DATA(s->aux_blk) + cr->aux);
     BLOCK_SIZE(s->aux_blk) = (uc *)tmp - BLOCK_DATA(s->aux_blk);
     assert(s->aux_blk->byte <= s->aux_blk->alloc);
+#endif
+
+#ifdef TN_external
+    cr->tn = BLOCK_SIZE(s->tn_blk);
+    BLOCK_SIZE(s->tn_blk) = (uc *)tmp_tn - BLOCK_DATA(s->tn_blk);
+    assert(s->tn_blk->byte <= s->tn_blk->alloc);
 #endif
 
     return rg;
