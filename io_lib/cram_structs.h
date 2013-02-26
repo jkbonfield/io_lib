@@ -1,9 +1,6 @@
 #ifndef _CRAM_STRUCTS_H_
 #define _CRAM_STRUCTS_H_
 
-//Use dsring_t instead of cram_block. (Old code - here for speed comparison)
-//#define DS_SEQ
-
 /*
  * Defines in-memory structs for the basic file-format objects in the
  * CRAM format.
@@ -23,9 +20,6 @@
 
 #include "io_lib/hash_table.h"       // From io_lib aka staden-read
 #include "io_lib/bam.h"              // For BAM header parsing
-#ifdef DS_SEQ
-#    include "io_lib/dstring.h"
-#endif
 
 #define MAX_NAME_LEN 1024
 
@@ -205,15 +199,6 @@ typedef struct {
     int32_t ref_base_id;    /* if content_type == MAPPED_SLICE */
 } cram_block_slice_hdr;
 
-#define MAX_STAT_VAL 1024
-//#define MAX_STAT_VAL 16
-typedef struct {
-    int freqs[MAX_STAT_VAL];
-    HashTable *h;
-    int nsamp; // total number of values added
-    int nvals; // total number of unique values added
-} cram_stats;
-
 /*
  * Container.
  *
@@ -320,17 +305,10 @@ typedef struct {
 } cram_record;
 
 // Accessor macros as an analogue of the bam ones
-#ifdef DS_SEQ
-#define cram_qname(c)    (DSTRING_STR((c)->s->name_ds) + (c)->name)
-#define cram_seq(c)      (DSTRING_STR((c)->s->seqs_ds) + (c)->seq)
-#define cram_qual(c)     (DSTRING_STR((c)->s->qual_ds) + (c)->qual)
-#define cram_aux(c)      (DSTRING_STR((c)->s->aux_ds)  + (c)->aux)
-#else
 #define cram_qname(c)    (&(c)->s->name_blk->data[(c)->name])
 #define cram_seq(c)      (&(c)->s->seqs_blk->data[(c)->seq])
 #define cram_qual(c)     (&(c)->s->qual_blk->data[(c)->qual])
 #define cram_aux(c)      (&(c)->s->aux_blk->data[(c)->aux])
-#endif
 #define cram_seqi(c,i)   (cram_seq((c))[(i)])
 #define cram_name_len(c) ((c)->name_len)
 #define cram_strand(c)   (((c)->flags & BAM_FREVERSE) != 0)
@@ -405,19 +383,11 @@ typedef struct cram_slice {
     uint32_t  *cigar;
     uint32_t   cigar_alloc;
     uint32_t   ncigar;
-#ifdef DS_SEQ
-    dstring_t *name_ds;
-    dstring_t *seqs_ds;
-    dstring_t *qual_ds;
-    dstring_t *aux_ds;
-    dstring_t *base_ds; // substitutions, soft-clips
-#else
     cram_block *name_blk;
     cram_block *seqs_blk;
     cram_block *qual_blk;
     cram_block *aux_blk;
     cram_block *base_blk; // substitutions, soft-clips
-#endif
 
     cram_feature *features;
     int           nfeatures;
@@ -495,7 +465,7 @@ typedef struct {
 
     // compression level and metrics
     int level;
-    cram_metrics *m[6];
+    cram_metrics *m[7];
 
     int decode_md; // Whether to export MD and NM tags
     int verbose;
