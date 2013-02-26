@@ -7,6 +7,8 @@
  * maps, bitwise I/O, etc.
  */
 
+#define ITF8_MACROS
+
 #include <stdint.h>
 #include <io_lib/misc.h>
 #include <io_lib/deflate_interlaced.h>
@@ -16,6 +18,9 @@
  */
 char *cram_block_method2str(enum cram_block_method m);
 char *cram_content_type2str(enum cram_content_type t);
+
+void cram_reader_init(void);
+void cram_writer_init(void);
 
 /* ----------------------------------------------------------------------------
  * Low level I/O functions for basic encoding and decoding of bits and bytes
@@ -30,6 +35,7 @@ char *cram_content_type2str(enum cram_content_type t);
  */
 int itf8_decode(cram_fd *fd, int32_t *val);
 
+#ifndef ITF8_MACROS
 /*
  * As above, but decoding from memory
  */
@@ -43,6 +49,16 @@ int itf8_get(char *cp, int32_t *val_p);
  */
 int itf8_put(char *cp, int32_t val);
 
+#else
+
+/*
+ * Macro implementations of the above
+ */
+#define itf8_get(c,v) (((uc)(c)[0]<0x80)?(*(v)=(uc)(c)[0],1):(((uc)(c)[0]<0xc0)?(*(v)=(((uc)(c)[0]<<8)|(uc)(c)[1])&0x3fff,2):(((uc)(c)[0]<0xe0)?(*(v)=(((uc)(c)[0]<<16)|((uc)(c)[1]<<8)|(uc)(c)[2])&0x1fffff,3):(((uc)(c)[0]<0xf0)?(*(v)=(((uc)(c)[0]<<24)|((uc)(c)[1]<<16)|((uc)(c)[2]<<8)|(uc)(c)[3])&0x0fffffff,4):(*(v)=(((uc)(c)[0]&0x0f)<<28)|((uc)(c)[1]<<20)|((uc)(c)[2]<<12)|((uc)(c)[3]<<4)|((uc)(c)[4]&0x0f),5)))))
+
+#define itf8_put(c,v) ((!((v)&~0x7f))?((c)[0]=(v),1):(!((v)&~0x3fff))?((c)[0]=((v)>>8)|0x80,(c)[1]=(v)&0xff,2):(!((v)&~0x1fffff))?((c)[0]=((v)>>16)|0xc0,(c)[1]=((v)>>8)&0xff,(c)[2]=(v)&0xff,3):(!((v)&~0xfffffff))?((c)[0]=((v)>>24)|0xe0,(c)[1]=((v)>>16)&0xff,(c)[2]=((v)>>8)&0xff,(c)[3]=(v)&0xff,4):((c)[0]=0xf0|(((v)>>28)&0xff),(c)[1]=((v)>>20)&0xff,(c)[2]=((v)>>12)&0xff,(c)[3]=((v)>>4)&0xff,(c)[4]=(v)&0xf,5))
+
+#endif
 
 /* cram_block manipulations at the byte level */
 
@@ -97,6 +113,8 @@ int itf8_put(char *cp, int32_t val);
 #define BLOCK_UPLEN(b) \
     (b)->comp_size = (b)->uncomp_size = BLOCK_SIZE((b))
 
+cram_block *cram_new_block(enum cram_content_type content_type, int content_id);
+
 /* ----------------------------------------------------------------------------
  * Mid level I/O functions for manipulating CRAM file structures:
  * Headers, containers, blocks, etc
@@ -140,6 +158,17 @@ void cram_free_SAM_hdr(cram_SAM_hdr *hdr);
  */
 cram_container *cram_read_container(cram_fd *fd);
 void cram_free_container(cram_container *c);
+
+/*
+ * Encodes all slices in a container into blocks.
+ * Returns 0 on success
+ *        -1 on failure
+ *
+ * FIXME: separate into encode_container and write_container. Ideally
+ * we should be able to do read_container / write_container or
+ * decode_container / encode_container.
+ */
+int cram_encode_container(cram_fd *fd, cram_container *c);
 
 /*
  * Reads a block from a cram file.
@@ -268,7 +297,52 @@ cram_record *cram_get_seq(cram_fd *fd);
  */
 int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc);
 
+
+/*
+ * Returns a portion of a reference sequence from start to end inclusive.
+ * The returned pointer is owned by the cram_file fd and should not be freed
+ * by the caller. It is valid only until the next cram_get_ref is called
+ * with the same fd parameter (so is thread-safe if given multiple files).
+ *
+ * To return the entire reference sequence, specify start as 1 and end
+ * as 0.
+ *
+ * Returns reference on success
+ *         NULL on failure
+ */
+char *cram_get_ref(cram_fd *fd, int id, int start, int end);
 void cram_load_reference(cram_fd *fd, char *fn);
 
+cram_metrics *cram_new_metrics(void);
+
+/*
+ * Encodes and writes a single integer in ITF-8 format.
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int itf8_encode(cram_fd *fd, int32_t val);
+
+/*
+ * Reads an integer in ITF-8 encoding from 'cp' and stores it in
+ * *val.
+ *
+ * Returns the number of bytes read on success
+ *        -1 on failure
+ */
+int itf8_decode(cram_fd *fd, int32_t *val_p);
+
+/*
+ * Compresses a block using one of two different zlib strategies. If we only
+ * want one choice set strat2 to be -1.
+ *
+ * The logic here is that sometimes Z_RLE does a better job than Z_FILTERED
+ * or Z_DEFAULT_STRATEGY on quality data. If so, we'd rather use it as it is
+ * significantly faster.
+ */
+void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
+			 int level,  int strat,
+			 int level2, int strat2);
+
+void cram_uncompress_block(cram_block *b);
 
 #endif /* _CRAM_IO_H_ */

@@ -26,11 +26,8 @@ void usage(FILE *fp) {
 
 int main(int argc, char **argv) {
     cram_fd *fd;
-    cram_container *c;
-    size_t pos, pos2;
     bam_file_t *bfd;
     bam_seq_t *bam = NULL;
-    refs *refs;
     size_t bam_alloc = 0;
     char mode[4] = {'w', '\0', '\0', '\0'};
     char *prefix = NULL;

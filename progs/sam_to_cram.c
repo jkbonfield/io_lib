@@ -33,6 +33,7 @@ int main(int argc, char **argv) {
     int level = '\0'; // nul terminate string => auto level
     char out_mode[4];
     int c, verbose = 0;
+    cram_opt opt;
 
     while ((c = getopt(argc, argv, "u0123456789hv")) != -1) {
 	switch (c) {
@@ -89,7 +90,8 @@ int main(int argc, char **argv) {
     cram_load_reference(out, argv[optind+1]);
     refs2id(out->refs, in);
 
-    cram_set_option(out, CRAM_OPT_VERBOSITY, &verbose);
+    opt.i = verbose;
+    cram_set_option(out, CRAM_OPT_VERBOSITY, &opt);
 
     /* Sequence iterators */
     while (bam_next_seq(in, &s) > 0) {
