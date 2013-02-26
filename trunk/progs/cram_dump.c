@@ -7,6 +7,8 @@
 
 #include <stdio.h>
 #include <assert.h>
+#include <ctype.h>
+#include <string.h>
 
 #include <io_lib/cram.h>
 
@@ -195,11 +197,13 @@ int main(int argc, char **argv) {
 	HashTableDump(c->comp_hdr->preservation_map, stdout, "\t");
 
 	printf("\n    Record encoding map:\n");
-	DumpMap2(c->comp_hdr->rec_encoding_map, stdout, "\t",  c->comp_hdr_block->data);
+	DumpMap2(c->comp_hdr->rec_encoding_map, stdout, "\t", 
+		 (char *)c->comp_hdr_block->data);
 	//HashTableDumpMap(c->comp_hdr->rec_encoding_map, stdout, "\t", c->comp_hdr_block->data);
 
 	printf("\n    Tag encoding map:\n");
-	DumpMap2(c->comp_hdr->tag_encoding_map, stdout, "\t",  c->comp_hdr_block->data);
+	DumpMap2(c->comp_hdr->tag_encoding_map, stdout, "\t",
+		 (char *)c->comp_hdr_block->data);
 	
 
 
@@ -327,7 +331,8 @@ int main(int argc, char **argv) {
 			printf("%3d: TN= %.3s\n", f, key);
 
 			printf("id=%d\n", id);
-			if ((m = map_find(c->comp_hdr->tag_encoding_map,key,id))) {
+			if ((m = map_find(c->comp_hdr->tag_encoding_map,
+					  (unsigned char *)key, id))) {
 			    int i, out_sz;
 
 			    r = m->codec->decode(s, m->codec, b, tag, &out_sz);

@@ -72,6 +72,10 @@ libstaden_read_la_SOURCES = \
 	cram.h \
 	cram_encodings.c \
 	cram_encodings.h \
+	cram_read.c \
+	cram_write.c \
+	cram_stats.c \
+	cram_stats.h \
 	cram_io.c \
 	cram_io.h \
 	cram_structs.h \

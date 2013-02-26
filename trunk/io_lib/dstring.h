@@ -37,7 +37,7 @@ dstring_t *dstring_create(const char *str);
  * Returns dstring_t pointer on success.
  *         NULL on failure.
  */
-dstring_t *dstring_create_with(const char *str, size_t len);
+dstring_t *dstring_create_with(char *str, size_t len);
 
 /* Deallocates a dstring */
 void dstring_destroy(dstring_t *ds);

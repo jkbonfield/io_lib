@@ -14,10 +14,6 @@
 
 #include "io_lib/cram.h"
 
-// Scary scary quite contrary, maybe time for bloody mary!
-#define uc unsigned char
-#define itf8_get(c,v) (((uc)(c)[0]<0x80)?(*(v)=(uc)(c)[0],1):(((uc)(c)[0]<0xc0)?(*(v)=(((uc)(c)[0]<<8)|(uc)(c)[1])&0x3fff,2):(((uc)(c)[0]<0xe0)?(*(v)=(((uc)(c)[0]<<16)|((uc)(c)[1]<<8)|(uc)(c)[2])&0x1fffff,3):(((uc)(c)[0]<0xf0)?(*(v)=(((uc)(c)[0]<<24)|((uc)(c)[1]<<16)|((uc)(c)[2]<<8)|(uc)(c)[3])&0x0fffffff,4):(*(v)=(((uc)(c)[0]&0x0f)<<28)|((uc)(c)[1]<<20)|((uc)(c)[2]<<12)|((uc)(c)[3]<<4)|((uc)(c)[4]&0x0f),5)))))
-
 static char *codec2str(enum cram_encoding codec) {
     switch (codec) {
     case E_NULL:            return "NULL";
@@ -41,6 +37,7 @@ static char *codec2str(enum cram_encoding codec) {
  * All defined static here to promote easy inlining by the compiler.
  */
 
+#if 0
 /* Get a single bit, MSB first */
 static signed int get_bit_MSB(cram_block *block) {
     unsigned int val;
@@ -59,6 +56,7 @@ static signed int get_bit_MSB(cram_block *block) {
 
     return val & 1;
 }
+#endif
 
 /*
  * Count number of successive 0 and 1 bits
@@ -91,6 +89,7 @@ static int get_zero_bits_MSB(cram_block *block) {
     return n-1;
 }
 
+#if 0
 /* Stores a single bit */
 static void store_bit_MSB(cram_block *block, unsigned int bit) {
     if (block->byte >= block->alloc) {
@@ -107,8 +106,9 @@ static void store_bit_MSB(cram_block *block, unsigned int bit) {
 	block->data[block->byte] = 0;
     }
 }
+#endif
 
-
+#if 0
 /* Rounds to the next whole byte boundary first */
 static void store_bytes_MSB(cram_block *block, char *bytes, int len) {
     if (block->bit != 7) {
@@ -124,6 +124,7 @@ static void store_bytes_MSB(cram_block *block, char *bytes, int len) {
     memcpy(&block->data[block->byte], bytes, len);
     block->byte += len;
 }
+#endif
 
 /* Local optimised copy for inlining */
 static signed int get_bits_MSB(cram_block *block, int nbits) {
@@ -252,7 +253,7 @@ static void store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
  * allocated object, so do not free the result.
  */
 static char *cram_extract_block(cram_block *b, int size) {
-    char *cp = b->data + b->idx;
+    char *cp = (char *)b->data + b->idx;
     b->idx += size;
     if (b->idx > b->uncomp_size)
 	return NULL;
@@ -286,25 +287,10 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 	    return -1;
     }
 
-    /* FIXME: how to tell string externals from integer externals? */
-    {
-	int32_t i32;
-	int n;
-
-	cp = b->data + b->idx;
-
-#if 0
-	for (i = 0, n = *out_size; i < n; i+=4) {
-	    cp += itf8_get(cp, &i32);
-	    ((int32_t *)out)[i] = i32;
-	}
-	b->idx = cp - (char *)b->data;
-#else
-	// E_INT and E_LONG are guaranteed single item queries
-	b->idx += itf8_get(cp, (int32_t *)out);
-	*out_size = 1;
-#endif
-    }
+    cp = (char *)b->data + b->idx;
+    // E_INT and E_LONG are guaranteed single item queries
+    b->idx += itf8_get(cp, (int32_t *)out);
+    *out_size = 1;
 
     return 0;
 }
@@ -1215,7 +1201,7 @@ int cram_byte_array_stop_decode(cram_slice *slice, cram_codec *c, cram_block *in
     }
 
     assert(b->idx < b->uncomp_size);
-    cp = b->data + b->idx;
+    cp = (char *)b->data + b->idx;
     while ((ch = *cp) != (char)c->byte_array_stop.stop) {
 	assert(cp - (char *)b->data < b->uncomp_size);
 	*out++ = ch;
