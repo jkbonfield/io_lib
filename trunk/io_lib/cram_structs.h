@@ -290,7 +290,7 @@ typedef struct {
     int32_t len;          // RL
     int32_t apos;         // AP
     int32_t rg;           // RG
-    int32_t name;         // RN; idx to s->names_ds
+    int32_t name;         // RN; idx to s->names_blk
     int32_t name_len;
     int32_t mate_line;    // index to another cram_record
     int32_t mate_ref_id;
@@ -299,14 +299,16 @@ typedef struct {
 
     // Auxiliary data
     int32_t ntags;        // TC
-    int32_t aux;          // idx to s->aux_ds
-    int32_t aux_size;     // total size of packed ntags in aux_ds
+    int32_t aux;          // idx to s->aux_blk
+    int32_t aux_size;     // total size of packed ntags in aux_blk
 #ifndef TN_external
     int32_t TN_idx;       // TN; idx to s->TN;
+#else
+    int32_t tn;           // idx to s->tn_blk
 #endif
 
-    int32_t seq;          // idx to s->seqs_ds
-    int32_t qual;         // idx to s->qual_ds
+    int32_t seq;          // idx to s->seqs_blk
+    int32_t qual;         // idx to s->qual_blk
     int32_t cigar;        // idx to s->cigar
     int32_t ncigar;
     int32_t aend;         // alignment end
@@ -425,6 +427,9 @@ typedef struct cram_slice {
     // TN field (Tag Name)
     uint32_t      *TN;
     int           nTN, aTN;  // used and allocated size for TN[]
+#else
+    cram_block *tn_blk;
+    int tn_id;
 #endif
 
     HashTable *pair;         // for identifying read-pairs in this slice.
@@ -434,6 +439,7 @@ typedef struct cram_slice {
 
 #ifdef BA_external
     int BA_len;
+    int ba_id;
 #endif
 } cram_slice;
 

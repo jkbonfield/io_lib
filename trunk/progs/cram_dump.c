@@ -501,6 +501,10 @@ int main(int argc, char **argv) {
 		    case 4:
 			dump_tag_block(b, verbose);
 			break;
+
+		    default:
+			dump_core_block(b, verbose); // hex
+			break;
 		    }
 		}
 	    }
