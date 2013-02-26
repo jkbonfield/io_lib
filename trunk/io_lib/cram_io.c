@@ -2527,6 +2527,10 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[6]->comp_size = s->block[6]->uncomp_size;
 #endif
 
+    /* Compress the CORE Block too, with minimal zlib level */
+    if (fd->level != 0)
+	cram_compress_block(fd, s->block[0], NULL, 1, Z_FILTERED, -1, -1);
+
     /* Compress the other blocks */
     cram_compress_block(fd, s->block[1], fd->m[0], fd->level, Z_FILTERED,
 			-1, -1);			      
