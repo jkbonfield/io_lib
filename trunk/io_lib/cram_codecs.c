@@ -782,7 +782,7 @@ cram_codec *cram_huffman_decode_init(char *data, int size, enum cram_external_ty
 int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
 			     cram_block *out, char *in, int in_size) {
     int i, code, len;
-    char *syms = in;
+    unsigned char *syms = (unsigned char *)in;
 
     /* Special case of 0 length codes */
     if (c->e_huffman.codes[0].len == 0)
