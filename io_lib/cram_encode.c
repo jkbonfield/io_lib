@@ -1366,7 +1366,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	cr->cigar       = s->ncigar;
 	cr->ncigar      = bam_cigar_len(b);
-	if (cr->cigar + cr->ncigar >= s->cigar_alloc) {
+	while (cr->cigar + cr->ncigar >= s->cigar_alloc) {
 	    s->cigar_alloc = s->cigar_alloc ? s->cigar_alloc*2 : 1024;
 	    s->cigar = realloc(s->cigar, s->cigar_alloc * sizeof(*s->cigar));
 	}
