@@ -2269,10 +2269,16 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	    case 'Z':
 	    case 'H': {
-		size_t l = strlen(val.s);
-		if (end - fp->out_p < l+2) BF_FLUSH();
-		memcpy(fp->out_p, val.s, l);
-		fp->out_p += l;
+		size_t l = strlen(val.s), l2;
+		char *dat = val.s;
+		do {
+		    if (end - fp->out_p < l+2) BF_FLUSH();
+		    l2 = MIN(l, end-fp->out_p);
+		    memcpy(fp->out_p, dat, l2);
+		    fp->out_p += l2;
+		    l   -= l2;
+		    dat += l2;
+		} while (l);
 		break;
 	    }
 
