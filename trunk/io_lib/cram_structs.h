@@ -33,6 +33,15 @@
 #define TS_external
 //#define BA_external
 
+#define MAX_STAT_VAL 1024
+//#define MAX_STAT_VAL 16
+typedef struct {
+    int freqs[MAX_STAT_VAL];
+    HashTable *h;
+    int nsamp; // total number of values added
+    int nvals; // total number of unique values added
+} cram_stats;
+
 /* NB: matches java impl, not the spec */
 enum cram_encoding {
     E_NULL               = 0,
@@ -119,7 +128,7 @@ typedef struct {
     int bit;
 } cram_block;
 
-struct cram_codec; /* defined in cram_encodings.h */
+struct cram_codec; /* defined in cram_codecs.h */
 struct cram_map;
 
 #define CRAM_MAP_HASH 32
@@ -469,6 +478,13 @@ typedef struct {
 
     int decode_md; // Whether to export MD and NM tags
     int verbose;
+
+    // lookup tables, stored here so we can be trivially multi-threaded
+    unsigned int bam_flag_swap[0x200];  // cram -> bam flags
+    unsigned int cram_flag_swap[0x800]; // bam -> cram flags
+    unsigned char L1[256];              // ACGT{*} ->0123{4}
+    unsigned char L2[256];              // ACGTN{*}->01234{5}
+    char cram_sub_matrix[32][32];	// base substituion codes
 } cram_fd;
 
 enum cram_option {

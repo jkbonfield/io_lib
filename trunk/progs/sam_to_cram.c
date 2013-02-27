@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
     }
 
     /* SAM Header */
-    if (NULL == (hdr = cram_create_SAM_hdr(in->header, in->header_len)))
+    if (NULL == (hdr = cram_new_SAM_hdr(in->header, in->header_len)))
 	return 1;
     if (-1 == cram_write_SAM_hdr(out, hdr))
 	return 1;
