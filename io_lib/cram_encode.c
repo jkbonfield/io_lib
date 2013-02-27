@@ -17,100 +17,6 @@
 #include "io_lib/os.h"
 #include "io_lib/deflate_interlaced.h" /* For block_create() */
 
-/* Static lookup tables */
-static int cram_init_done = 0;
-static unsigned int cram_flag_swap[0x800];
-static unsigned char L2[256];
-
-static char cram_sub_matrix[32][32];
-
-/*
- * Initialise lookup tables. Used within cram_decode_seq().
- */
-void cram_writer_init(void) {
-    int i;
-
-    if (cram_init_done)
-	return;
-
-    memset(L2, 5, 256);
-    L2['A'] = 0; L2['a'] = 0;
-    L2['C'] = 1; L2['c'] = 1;
-    L2['G'] = 2; L2['g'] = 2;
-    L2['T'] = 3; L2['t'] = 3;
-    L2['N'] = 4; L2['n'] = 4;
-
-    for (i = 0; i < 0x800; i++) {
-	int g = 0;
-
-	if (i & BAM_FPAIRED)	   g |= CRAM_FPAIRED;
-	if (i & BAM_FPROPER_PAIR)  g |= CRAM_FPROPER_PAIR;
-	if (i & BAM_FUNMAP)        g |= CRAM_FUNMAP;
-	if (i & BAM_FREVERSE)      g |= CRAM_FREVERSE;
-	if (i & BAM_FREAD1)        g |= CRAM_FREAD1;
-	if (i & BAM_FREAD2)        g |= CRAM_FREAD2;
-	if (i & BAM_FSECONDARY)    g |= CRAM_FSECONDARY;
-	if (i & BAM_FQCFAIL)       g |= CRAM_FQCFAIL;
-	if (i & BAM_FDUP)          g |= CRAM_FDUP;
-
-	cram_flag_swap[i] = g;
-    }
-
-    memset(cram_sub_matrix, 4, 32*32);
-    for (i = 0; i < 32; i++) {
-	cram_sub_matrix[i]['A'&0x1f]=0;
-	cram_sub_matrix[i]['C'&0x1f]=1;
-	cram_sub_matrix[i]['G'&0x1f]=2;
-	cram_sub_matrix[i]['T'&0x1f]=3;
-	cram_sub_matrix[i]['N'&0x1f]=4;
-    }
-    for (i = 0; i < 20; i+=4) {
-	int j;
-	for (j = 0; j < 20; j++) {
-	    cram_sub_matrix["ACGTN"[i>>2]&0x1f][j]=3;
-	    cram_sub_matrix["ACGTN"[i>>2]&0x1f][j]=3;
-	    cram_sub_matrix["ACGTN"[i>>2]&0x1f][j]=3;
-	    cram_sub_matrix["ACGTN"[i>>2]&0x1f][j]=3;
-	}
-	cram_sub_matrix["ACGTN"[i>>2]&0x1f][CRAM_SUBST_MATRIX[i+0]&0x1f]=0;
-	cram_sub_matrix["ACGTN"[i>>2]&0x1f][CRAM_SUBST_MATRIX[i+1]&0x1f]=1;
-	cram_sub_matrix["ACGTN"[i>>2]&0x1f][CRAM_SUBST_MATRIX[i+2]&0x1f]=2;
-	cram_sub_matrix["ACGTN"[i>>2]&0x1f][CRAM_SUBST_MATRIX[i+3]&0x1f]=3;
-    }
-
-    cram_init_done = 1;
-}
-
-
-/*
- * Writes a CRAM block.
- * Returns 0 on success
- *        -1 on failure
- */
-int cram_write_block(cram_fd *fd, cram_block *b) {
-    assert(b->method != RAW || (b->comp_size == b->uncomp_size));
-
-    if (putc(b->method,       fd->fp)   == EOF) return -1;
-    if (putc(b->content_type, fd->fp)   == EOF) return -1;
-    if (itf8_encode(fd, b->content_id)  ==  -1) return -1;
-    if (itf8_encode(fd, b->comp_size)   ==  -1) return -1;
-    if (itf8_encode(fd, b->uncomp_size) ==  -1) return -1;
-
-    FILE *tmp = fopen("/dev/null", "wb");
-    if (b->method == RAW) {
-	fwrite(b->data, 1, b->uncomp_size, tmp); 
-	if (b->uncomp_size != fwrite(b->data, 1, b->uncomp_size, fd->fp)) 
-	    return -1;
-    } else {
-	fwrite(b->data, 1, b->comp_size, tmp); 
-	if (b->comp_size != fwrite(b->data, 1, b->comp_size, fd->fp)) 
-	    return -1;
-    }
-    fclose(tmp);
-
-    return 0;
-}
-
 /*
  * Returns index of val into key.
  * Basically strchr(key, val)-key;
@@ -418,91 +324,6 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
     return cb;
 }
 
-/*
- * Creates a new blank container compression header
- *
- * Returns header ptr on success
- *         NULL on failure
- */
-cram_block_compression_hdr *cram_new_compression_header(void) {
-    cram_block_compression_hdr *hdr = calloc(1, sizeof(*hdr));
-
-    return hdr;
-}
-
-/*
- * Creates a new container, specifying the maximum number of slices
- * and records permitted.
- *
- * Returns cram_container ptr on success
- *         NULL on failure
- */
-cram_container *cram_new_container(int nrec, int nslice) {
-    cram_container *c = calloc(1, sizeof(*c));
-    if (!c)
-	return NULL;
-
-    c->curr_ref = -2;
-
-    c->max_rec = nrec;
-    c->curr_rec = 0;
-
-    c->max_slice = nslice;
-    c->curr_slice = 0;
-
-    c->slices = (cram_slice **)calloc(nslice, sizeof(cram_slice *));
-    c->slice = NULL;
-
-    c->curr_ctr_rec = 0;
-
-    c->BF_stats = cram_stats_create();
-    c->CF_stats = cram_stats_create();
-    c->RN_stats = cram_stats_create();
-    c->AP_stats = cram_stats_create();
-    c->RG_stats = cram_stats_create();
-    c->MQ_stats = cram_stats_create();
-    c->NS_stats = cram_stats_create();
-    c->NP_stats = cram_stats_create();
-    c->TS_stats = cram_stats_create();
-    c->MF_stats = cram_stats_create();
-    c->NF_stats = cram_stats_create();
-    c->RL_stats = cram_stats_create();
-    c->FN_stats = cram_stats_create();
-    c->FC_stats = cram_stats_create();
-    c->FP_stats = cram_stats_create();
-    c->DL_stats = cram_stats_create();
-    c->BA_stats = cram_stats_create();
-    c->QS_stats = cram_stats_create();
-    c->BS_stats = cram_stats_create();
-    c->TC_stats = cram_stats_create();
-    c->TN_stats = cram_stats_create();
-
-    //c->aux_B_stats = cram_stats_create();
-
-    c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE);
-
-    return c;
-}
-
-int cram_write_container(cram_fd *fd, cram_container *h) {
-    char buf[1024], *cp = buf;
-    int i;
-
-    cp += itf8_put(cp, h->length);
-    cp += itf8_put(cp, h->ref_seq_id);
-    cp += itf8_put(cp, h->ref_seq_start);
-    cp += itf8_put(cp, h->ref_seq_span);
-    cp += itf8_put(cp, h->num_records);
-    cp += itf8_put(cp, h->num_blocks);
-    cp += itf8_put(cp, h->num_landmarks);
-    for (i = 0; i < h->num_landmarks; i++)
-	cp += itf8_put(cp, h->landmark[i]);
-    if (cp-buf != fwrite(buf, 1, cp-buf, fd->fp))
-	return -1;
-
-    return 0;
-}
-
 
 /*
  * Encodes a slice compression header. 
@@ -542,57 +363,6 @@ cram_block *cram_encode_slice_header(cram_slice *s) {
     return b;
 }
 
-/*
- * Creates a new empty slice in memory, for subsequent writing to
- * disk.
- *
- * Returns cram_slice ptr on success
- *         NULL on failure
- */
-cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
-    cram_slice *s = calloc(1, sizeof(*s));
-    if (!s)
-	return NULL;
-
-    s->hdr = (cram_block_slice_hdr *)calloc(1, sizeof(*s->hdr));
-    s->hdr->content_type = type;
-
-    s->hdr_block = NULL;
-    s->block = NULL;
-    s->block_by_id = NULL;
-    s->last_apos = 0;
-    s->id = 0;
-    s->crecs = malloc(nrecs * sizeof(cram_record));
-    s->cigar = NULL;
-    s->cigar_alloc = 0;
-    s->ncigar = 0;
-
-    s->seqs_blk = cram_new_block(EXTERNAL, 0);
-    s->qual_blk = cram_new_block(EXTERNAL, 1);
-    s->name_blk = cram_new_block(EXTERNAL, 2);
-    s->aux_blk  = cram_new_block(EXTERNAL, 4);
-    s->base_blk = cram_new_block(EXTERNAL, 0);
-#ifdef TN_external
-    s->tn_blk   = cram_new_block(EXTERNAL, 6);
-#endif
-
-    s->features = NULL;
-    s->nfeatures = s->afeatures = 0;
-
-#ifndef TN_external
-    s->TN = NULL;
-    s->nTN = s->aTN = 0;
-#endif
-
-    // Volatile keys as we do realloc in dstring
-    s->pair = HashTableCreate(10000, HASH_DYNAMIC_SIZE);
-
-#ifdef BA_external
-    s->BA_len = 0;
-#endif
-
-    return s;
-}
 
 /*
  * Encodes a single slice from a container
@@ -682,7 +452,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 
 	//printf("BF=0x%x\n", cr->flags);
 	//	    bf = cram_flag_swap[cr->flags];
-	i32 = cram_flag_swap[cr->flags & 0x7ff];
+	i32 = fd->cram_flag_swap[cr->flags & 0x7ff];
 	r |= h->BF_codec->encode(s, h->BF_codec, core, (char *)&i32, 1);
 
 	uc = cr->cram_flags;
@@ -1151,34 +921,12 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	c->length += slice_offset;
     }
 
-    /* Write the container header */
-    if (0 != cram_write_container(fd, c))
-	return -1;
-
-
-    /*
-     * Write the blocks
-     */
-    cram_write_block(fd, c_hdr);
-    cram_free_block(c_hdr);
-
-    for (i = 0; i < c->curr_slice; i++) {
-	cram_slice *s = c->slices[i];
-
-	/* No compression for now... */
-
-	cram_write_block(fd, s->hdr_block);
-
-	for (j = 0; j < s->hdr->num_blocks; j++) {
-	    if (-1 == cram_write_block(fd, s->block[j]))
-		return -1;
-	}
-    }
-
     cram_free_compression_header(h);
+    c->comp_hdr_block = c_hdr;
 
-    return fflush(fd->fp) == 0 ? 0 : -1;
+    return 0;
 }
+
 
 /*
  * Adds a feature code to a read within a slice. For purposes of minimising
@@ -1189,9 +937,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
  * Returns feature index on success
  *         -1 on failure.
  */
-static int counter =0;
-int cram_add_feature(cram_container *c, cram_slice *s,
-		     cram_record *r, cram_feature *f) {
+static int cram_add_feature(cram_container *c, cram_slice *s,
+			    cram_record *r, cram_feature *f) {
     if (s->nfeatures >= s->afeatures) {
 	s->afeatures = s->afeatures ? s->afeatures*2 : 1024;
 	s->features = realloc(s->features, s->afeatures * sizeof(*s->features));
@@ -1207,22 +954,22 @@ int cram_add_feature(cram_container *c, cram_slice *s,
 		       f->X.pos - s->features[r->feature + r->nfeature-2].X.pos);
     }
     cram_stats_add(c->FC_stats, f->X.code);
-    counter++;
 
     s->features[s->nfeatures++] = *f;
 
     return 0;
 }
 
-static int cram_add_substitution(cram_container *c, cram_slice *s, cram_record *r,
+static int cram_add_substitution(cram_fd *fd, cram_container *c,
+				 cram_slice *s, cram_record *r,
 				 int pos, char base, char qual, char ref) {
     cram_feature f;
 
     // seq=ACGTN vs ref=ACGT or seq=ACGT vs ref=ACGTN
-    if (L2[(uc)base]<4 || (L2[(uc)base]<5 && L2[(uc)ref]<4)) {
+    if (fd->L2[(uc)base]<4 || (fd->L2[(uc)base]<5 && fd->L2[(uc)ref]<4)) {
 	f.X.pos = pos+1;
 	f.X.code = 'X';
-	f.X.base = cram_sub_matrix[ref&0x1f][base&0x1f];
+	f.X.base = fd->cram_sub_matrix[ref&0x1f][base&0x1f];
 	cram_stats_add(c->BS_stats, f.X.base);
     } else {
 	f.B.pos = pos+1;
@@ -1473,7 +1220,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 		    c->ref_seq_start + c->ref_seq_span -1);
 
 	/* Encode slices */
-	if (-1 == cram_encode_container(fd, c))
+	if (-1 == cram_flush_container(fd, c))
 	    return NULL;
 
 	// Move to sep func, as we need cram_flush_container for
@@ -1578,7 +1325,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cr->flags       = bam_flag(b);
     if (bam_cigar_len(b) == 0)
 	cr->flags |= BAM_FUNMAP;
-    cram_stats_add(c->BF_stats, cram_flag_swap[cr->flags & 0x7ff]);
+    cram_stats_add(c->BF_stats, fd->cram_flag_swap[cr->flags & 0x7ff]);
 
     cr->cram_flags  = CRAM_FLAG_PRESERVE_QUAL_SCORES; // FIXME
     //cram_stats_add(c->CF_stats, cr->cram_flags);
@@ -1649,7 +1396,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		    if (ref[apos] != seq[spos]) {
 			//fprintf(stderr, "Subst: %d; %c vs %c\n",
 			//	spos, ref[apos], seq[spos]);
-			cram_add_substitution(c, s, cr, spos,
+			cram_add_substitution(fd, c, s, cr, spos,
 					      seq[spos], qual[spos],
 					      ref[apos]);
 		    }
@@ -1667,7 +1414,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		//fprintf(stderr, "\nBAM_CBASE_MISMATCH\nR: %.*s\nS: %.*s\n",
 		//	cig_len, &ref[apos], cig_len, &seq[spos]);
 		for (l = 0; l < cig_len; l++, apos++, spos++) {
-		    cram_add_substitution(c, s, cr, spos,
+		    cram_add_substitution(fd, c, s, cr, spos,
 					  seq[spos], qual[spos], ref[apos]);
 		}
 		break;

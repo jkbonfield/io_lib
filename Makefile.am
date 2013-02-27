@@ -61,9 +61,11 @@ pkginclude_HEADERS = \
 	io_lib/srf.h \
 	io_lib/pooled_alloc.h \
 	io_lib/cram.h \
-	io_lib/cram_encodings.h \
-	io_lib/cram_io.h \
 	io_lib/cram_structs.h \
+	io_lib/cram_io.h \
+	io_lib/cram_encode.h \
+	io_lib/cram_decode.h \
+	io_lib/cram_codecs.h \
 	io_lib/bam.h \
 	io_lib/dstring.h \
 	io_lib_config.h
