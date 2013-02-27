@@ -211,7 +211,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 	else if (key[0] == 'M' && key[1] == 'Q')
 	    hdr->MQ_codec = cram_decoder_init(encoding, cp, size, E_INT);
 	else if (key[0] == 'R' && key[1] == 'N')
-	    hdr->RN_codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY);
+	    hdr->RN_codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY_BLOCK);
 	else if (key[0] == 'Q' && key[1] == 'S') {
 	    hdr->QS_codec = cram_decoder_init(encoding, cp, size, E_BYTE);
 	    hdr->Qs_codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY);
@@ -246,7 +246,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_block *b) {
 	m->encoding = encoding;
 	m->size     = size;
 	m->offset   = cp - (char *)b->data;
-	m->codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY);
+	m->codec = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY_BLOCK);
 	
 	cp += size;
 
@@ -712,19 +712,10 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 
 	m = map_find(c->comp_hdr->tag_encoding_map, tag_data, id);
 	assert(m);
+	BLOCK_APPEND(s->aux_blk, (char *)tag_data, 3);
 
-	r |= m->codec->decode(s, m->codec, blk,
-			      (char *)tag_data+3, &out_sz);
-	if (0) {
-	    int i;
-	    printf("\tid=%d %.3s\tval = ", id, tag_data);
-	    for (i=0; i < out_sz; i++) {
-		printf("%02x ", tag_data[i+3]);
-	    }
-	    printf("\n");
-	}
+	r |= m->codec->decode(s, m->codec, blk, (char *)s->aux_blk, &out_sz);
 
-	BLOCK_APPEND(s->aux_blk, (char *)tag_data, out_sz+3);
 	cr->aux_size += out_sz + 3;
     }
     
@@ -809,13 +800,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    char *name;
 
 	    // Read directly into name cram_block
-	    BLOCK_GROW(s->name_blk, MAX_NAME_LEN);
-	    name = (char *)BLOCK_END(s->name_blk);
-	    r |= c->comp_hdr->RN_codec->decode(s, c->comp_hdr->RN_codec, blk,
-					       name, &out_sz2);
-
 	    cr->name = BLOCK_SIZE(s->name_blk);
-	    BLOCK_SIZE(s->name_blk) += out_sz2;
+	    r |= c->comp_hdr->RN_codec->decode(s, c->comp_hdr->RN_codec, blk,
+					       (char *)s->name_blk, &out_sz2);
 	    cr->name_len = out_sz2;
 	}
 
@@ -832,13 +819,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		char *name;
 	    
 		// Read directly into name cram_block
-		BLOCK_GROW(s->name_blk, MAX_NAME_LEN);
-		name = (char *)BLOCK_END(s->name_blk);
-		r |= c->comp_hdr->RN_codec->decode(s, c->comp_hdr->RN_codec, blk,
-						   name, &out_sz2);
-
 		cr->name = BLOCK_SIZE(s->name_blk);
-		BLOCK_SIZE(s->name_blk) += out_sz2;
+		r |= c->comp_hdr->RN_codec->decode(s, c->comp_hdr->RN_codec,
+						   blk, (char *)s->name_blk,
+						   &out_sz2);
 		cr->name_len = out_sz2;
 	    }
 		    
