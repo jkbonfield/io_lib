@@ -57,10 +57,11 @@ enum cram_encoding {
 };
 
 enum cram_external_type {
-    E_INT,
-    E_LONG,
-    E_BYTE,
-    E_BYTE_ARRAY,
+    E_INT                = 1,
+    E_LONG               = 2,
+    E_BYTE               = 3,
+    E_BYTE_ARRAY         = 4,
+    E_BYTE_ARRAY_BLOCK   = 5,
 };
 
 /* "File Definition Structure" */
