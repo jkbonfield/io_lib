@@ -17,11 +17,15 @@
 #include <io_lib/cram.h>
 
 void usage(FILE *fp) {
-    fprintf(fp, "Usage: sam_to_cram [-0..9] [-u] [-v] in.sam/bam ref.fa [output.cram]\n\n");
+    fprintf(fp, "Usage: sam_to_cram [-0..9] [-u] [-v] [-s] [-S] in.sam/bam ref.fa [output.cram]\n\n");
     fprintf(fp, "Options:\n");
     fprintf(fp, "    -1 to -9       Set zlib compression level for CRAM\n");
     fprintf(fp, "    -0 or -u       No zlib compression.\n");
     fprintf(fp, "    -v             Verbose output.\n");
+    fprintf(fp, "    -s integer     Sequences per slice, default %d.\n",
+	    SEQS_PER_SLICE);
+    fprintf(fp, "    -S integer     Slices per container, default %d.\n",
+	    SLICE_PER_CNT);
 }
 
 int main(int argc, char **argv) {
@@ -34,8 +38,9 @@ int main(int argc, char **argv) {
     char out_mode[4];
     int c, verbose = 0;
     cram_opt opt;
+    int s_opt = 0, S_opt = 0;
 
-    while ((c = getopt(argc, argv, "u0123456789hv")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -52,6 +57,14 @@ int main(int argc, char **argv) {
 
 	case 'v':
 	    verbose++;
+	    break;
+
+	case 's':
+	    s_opt = atoi(optarg);
+	    break;
+
+	case 'S':
+	    S_opt = atoi(optarg);
 	    break;
 
 	case '?':
@@ -92,6 +105,14 @@ int main(int argc, char **argv) {
 
     opt.i = verbose;
     cram_set_option(out, CRAM_OPT_VERBOSITY, &opt);
+    if (s_opt) {
+	opt.i = s_opt;
+	cram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, &opt);
+    }
+    if (S_opt) {
+	opt.i = S_opt;
+	cram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, &opt);
+    }
 
     /* Sequence iterators */
     while (bam_next_seq(in, &s) > 0) {

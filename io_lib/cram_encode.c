@@ -15,7 +15,6 @@
 
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
-#include "io_lib/deflate_interlaced.h" /* For block_create() */
 
 /*
  * Returns index of val into key.
@@ -36,33 +35,30 @@ static int sub_idx(char *key, char val) {
  */
 cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 					   cram_block_compression_hdr *h) {
-    cram_block *cb = cram_new_block(COMPRESSION_HEADER, 0);
-    char *buf = malloc(100000); // FIXME, auto-grow this
-    char *cp = buf;
+    cram_block *cb  = cram_new_block(COMPRESSION_HEADER, 0);
+    cram_block *map = cram_new_block(COMPRESSION_HEADER, 0);
     int i, mc;
-    //int aux_B_len;
-    char map[100000], *mp, cnt_buf[5];
-    //char aux_B[100000];
-    //cram_codec *aux_B_codec = NULL;
+    char cnt_buf[5];
 
     if (!cb)
 	return NULL;
 
-    //if (c->aux_B_stats->nsamp) {
-    //	enum cram_encoding codec = cram_stats_encoding(c->aux_B_stats);
-    //	fprintf(stderr, "encoding=%d\n", codec);
-    //	aux_B_codec = cram_encoder_init(codec, c->aux_B_stats,
-    //					E_BYTE_ARRAY, NULL);
-    //	aux_B_len = aux_B_codec->store(aux_B_codec, aux_B, NULL);
-    //}
+    /*
+     * This is a concatenation of several blocks of data:
+     * header + landmarks, preservation map, read encoding map, and the tag
+     * encoding map.
+     * All 4 are variable sized and we need to know how large these are
+     * before creating the compression header itself as this starts with
+     * the total size (stored as a variable length string).
+     */
 
-    cp += itf8_put(cp, h->ref_seq_id);
-    cp += itf8_put(cp, h->ref_seq_start);
-    cp += itf8_put(cp, h->ref_seq_span);
-    cp += itf8_put(cp, h->num_records);
-    cp += itf8_put(cp, h->num_landmarks);
+    itf8_put_blk(cb, h->ref_seq_id);
+    itf8_put_blk(cb, h->ref_seq_start);
+    itf8_put_blk(cb, h->ref_seq_span);
+    itf8_put_blk(cb, h->num_records);
+    itf8_put_blk(cb, h->num_landmarks);
     for (i = 0; i < h->num_landmarks; i++) {
-	cp += itf8_put(cp, h->landmark[i]);
+	itf8_put_blk(cb, h->landmark[i]);
     }
 
     /* FIXME: should create this when we create the container */
@@ -76,34 +72,35 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
     }
 
     /* Preservation map */
-    mp = map; mc = 0;
+    mc = 0;
+    BLOCK_SIZE(map) = 0;
     if (h->preservation_map) {
         HashItem *hi;
         HashIter *iter = HashTableIterCreate();
 
         while ((hi = HashTableIterNext(h->preservation_map, iter))) {
             //cram_map *m = hi->data.p;
+	    BLOCK_APPEND(map, hi->key, 2);
 
-	    *mp++ = hi->key[0];
-	    *mp++ = hi->key[1];
 	    switch(CRAM_KEY(hi->key[0], hi->key[1])) {
 	    case CRAM_KEY('M','I'):
-		*mp++ = hi->data.i;
+		BLOCK_APPEND_CHAR(map, hi->data.i);
 		break;
 
 	    case CRAM_KEY('U','I'):
-		*mp++ = hi->data.i;
+		BLOCK_APPEND_CHAR(map, hi->data.i);
 		break;
 
 	    case CRAM_KEY('P','I'):
-		*mp++ = hi->data.i;
+		BLOCK_APPEND_CHAR(map, hi->data.i);
 		break;
 
 	    case CRAM_KEY('R','N'):
-		*mp++ = hi->data.i;
+		BLOCK_APPEND_CHAR(map, hi->data.i);
 		break;
 
-	    case CRAM_KEY('S','M'):
+	    case CRAM_KEY('S','M'): {
+		char smat[5], *mp = smat;
 		*mp++ =
 		    (sub_idx("CGTN", h->substitution_matrix[0][0]) << 6) |
 		    (sub_idx("CGTN", h->substitution_matrix[0][1]) << 4) |
@@ -129,7 +126,9 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 		    (sub_idx("ACGT", h->substitution_matrix[4][1]) << 4) |
 		    (sub_idx("ACGT", h->substitution_matrix[4][2]) << 2) |
 		    (sub_idx("ACGT", h->substitution_matrix[4][3]) << 0);
+		BLOCK_APPEND(map, smat, 5);
 		break;
+	    }
 
 	    default:
 		fprintf(stderr, "Unknown preservation key '%.2s'\n", hi->key);
@@ -141,44 +140,42 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 
         HashTableIterDestroy(iter);
     }
-    cp += itf8_put(cp, mp - map + itf8_put(cnt_buf, mc));
-    cp += itf8_put(cp, mc);
-    memcpy(cp, map, mp-map);
-    cp += mp-map;
+    itf8_put_blk(cb, BLOCK_SIZE(map) + itf8_put(cnt_buf, mc));
+    itf8_put_blk(cb, mc);    
+    BLOCK_APPEND(cb, BLOCK_DATA(map), BLOCK_SIZE(map));
     
     /* rec encoding map */
-    mp = map;
     mc = 0;
-    if (h->BF_codec) mp += h->BF_codec->store(h->BF_codec, mp, "BF"), mc++;
-    if (h->CF_codec) mp += h->CF_codec->store(h->CF_codec, mp, "CF"), mc++;
-    if (h->RL_codec) mp += h->RL_codec->store(h->RL_codec, mp, "RL"), mc++;
-    if (h->AP_codec) mp += h->AP_codec->store(h->AP_codec, mp, "AP"), mc++;
-    if (h->RG_codec) mp += h->RG_codec->store(h->RG_codec, mp, "RG"), mc++;
-    if (h->MF_codec) mp += h->MF_codec->store(h->MF_codec, mp, "MF"), mc++;
-    if (h->NS_codec) mp += h->NS_codec->store(h->NS_codec, mp, "NS"), mc++;
-    if (h->NP_codec) mp += h->NP_codec->store(h->NP_codec, mp, "NP"), mc++;
-    if (h->TS_codec) mp += h->TS_codec->store(h->TS_codec, mp, "TS"), mc++;
-    if (h->NF_codec) mp += h->NF_codec->store(h->NF_codec, mp, "NF"), mc++;
-    if (h->TC_codec) mp += h->TC_codec->store(h->TC_codec, mp, "TC"), mc++;
-    if (h->TN_codec) mp += h->TN_codec->store(h->TN_codec, mp, "TN"), mc++;
-    if (h->FN_codec) mp += h->FN_codec->store(h->FN_codec, mp, "FN"), mc++;
-    if (h->FC_codec) mp += h->FC_codec->store(h->FC_codec, mp, "FC"), mc++;
-    if (h->FP_codec) mp += h->FP_codec->store(h->FP_codec, mp, "FP"), mc++;
-    if (h->BS_codec) mp += h->BS_codec->store(h->BS_codec, mp, "BS"), mc++;
-    if (h->IN_codec) mp += h->IN_codec->store(h->IN_codec, mp, "IN"), mc++;
-    if (h->DL_codec) mp += h->DL_codec->store(h->DL_codec, mp, "DL"), mc++;
-    if (h->BA_codec) mp += h->BA_codec->store(h->BA_codec, mp, "BA"), mc++;
-    if (h->MQ_codec) mp += h->MQ_codec->store(h->MQ_codec, mp, "MQ"), mc++;
-    if (h->RN_codec) mp += h->RN_codec->store(h->RN_codec, mp, "RN"), mc++;
-    if (h->QS_codec) mp += h->QS_codec->store(h->QS_codec, mp, "QS"), mc++;
-    if (h->Qs_codec) mp += h->Qs_codec->store(h->Qs_codec, mp, "Qs"), mc++;
-    if (h->TM_codec) mp += h->TM_codec->store(h->TM_codec, mp, "TM"), mc++;
-    if (h->TV_codec) mp += h->TV_codec->store(h->TV_codec, mp, "TV"), mc++;
-    cp += itf8_put(cp, mp - map + itf8_put(cnt_buf, mc));
-    cp += itf8_put(cp, mc);
-    memcpy(cp, map, mp-map);
-    cp += mp-map;
-    
+    BLOCK_SIZE(map) = 0;
+    if (h->BF_codec) h->BF_codec->store(h->BF_codec, map, "BF"), mc++;
+    if (h->CF_codec) h->CF_codec->store(h->CF_codec, map, "CF"), mc++;
+    if (h->RL_codec) h->RL_codec->store(h->RL_codec, map, "RL"), mc++;
+    if (h->AP_codec) h->AP_codec->store(h->AP_codec, map, "AP"), mc++;
+    if (h->RG_codec) h->RG_codec->store(h->RG_codec, map, "RG"), mc++;
+    if (h->MF_codec) h->MF_codec->store(h->MF_codec, map, "MF"), mc++;
+    if (h->NS_codec) h->NS_codec->store(h->NS_codec, map, "NS"), mc++;
+    if (h->NP_codec) h->NP_codec->store(h->NP_codec, map, "NP"), mc++;
+    if (h->TS_codec) h->TS_codec->store(h->TS_codec, map, "TS"), mc++;
+    if (h->NF_codec) h->NF_codec->store(h->NF_codec, map, "NF"), mc++;
+    if (h->TC_codec) h->TC_codec->store(h->TC_codec, map, "TC"), mc++;
+    if (h->TN_codec) h->TN_codec->store(h->TN_codec, map, "TN"), mc++;
+    if (h->FN_codec) h->FN_codec->store(h->FN_codec, map, "FN"), mc++;
+    if (h->FC_codec) h->FC_codec->store(h->FC_codec, map, "FC"), mc++;
+    if (h->FP_codec) h->FP_codec->store(h->FP_codec, map, "FP"), mc++;
+    if (h->BS_codec) h->BS_codec->store(h->BS_codec, map, "BS"), mc++;
+    if (h->IN_codec) h->IN_codec->store(h->IN_codec, map, "IN"), mc++;
+    if (h->DL_codec) h->DL_codec->store(h->DL_codec, map, "DL"), mc++;
+    if (h->BA_codec) h->BA_codec->store(h->BA_codec, map, "BA"), mc++;
+    if (h->MQ_codec) h->MQ_codec->store(h->MQ_codec, map, "MQ"), mc++;
+    if (h->RN_codec) h->RN_codec->store(h->RN_codec, map, "RN"), mc++;
+    if (h->QS_codec) h->QS_codec->store(h->QS_codec, map, "QS"), mc++;
+    if (h->Qs_codec) h->Qs_codec->store(h->Qs_codec, map, "Qs"), mc++;
+    if (h->TM_codec) h->TM_codec->store(h->TM_codec, map, "TM"), mc++;
+    if (h->TV_codec) h->TV_codec->store(h->TV_codec, map, "TV"), mc++;
+    itf8_put_blk(cb, BLOCK_SIZE(map) + itf8_put(cnt_buf, mc));
+    itf8_put_blk(cb, mc);    
+    BLOCK_APPEND(cb, BLOCK_DATA(map), BLOCK_SIZE(map));
+
     /* tag encoding map */
 #if 0
     mp = map; mc = 0;
@@ -196,105 +193,96 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
         HashTableIterDestroy(iter);
     }
 #else
-    mp = map; mc = 0;
+    mc = 0;
+    BLOCK_SIZE(map) = 0;
     if (c->tags_used) {
         HashItem *hi;
         HashIter *iter = HashTableIterCreate();
 
         while ((hi = HashTableIterNext(c->tags_used, iter))) {
 	    mc++;
-	    mp += itf8_put(mp, (hi->key[0]<<16)|(hi->key[1]<<8)|hi->key[2]);
+	    itf8_put_blk(map, (hi->key[0]<<16)|(hi->key[1]<<8)|hi->key[2]);
 
 	    // use block content id 4
 	    switch(hi->key[2]) {
 	    case 'Z': case 'H':
 		// string as byte_array_stop
-		*mp++ = 5; // byte_array_stop
-		*mp++ = 5;
-		*mp++ = '\t';
-		*mp++ = 4;
-		*mp++ = 0;
-		*mp++ = 0;
-		*mp++ = 0;
+		BLOCK_APPEND(map,
+			     "\005" // BYTE_ARRAY_STOP
+			     "\005" // len
+			     "\t"   // stop-byte is also SAM separator
+			     "\004\000\000\000",
+			     7);
 		break;
 
 	    case 'A': case 'c': case 'C':
 		// byte array len, 1 byte
-		*mp++ = 4;  // byte_array_len
-		*mp++ = 9;
-		*mp++ = 3; // huffman
-		*mp++ = 4;
-		*mp++ = 1;
-		*mp++ = 1; // 1 byte value
-		*mp++ = 1;
-		*mp++ = 0;
-		*mp++ = 1; // external
-		*mp++ = 1;
-		*mp++ = 4; // content id
+		BLOCK_APPEND(map,
+			     "\004" // BYTE_ARRAY_LEN
+			     "\011" // length
+			     "\003" // HUFFMAN (len)
+			     "\004" // huffman-len
+			     "\001" // 1 symbol
+			     "\001" // symbol=1 byte value
+			     "\001" // 1 length
+			     "\000" // length=0
+			     "\001" // EXTERNAL (val)
+			     "\001" // external-len
+			     "\004",// content-id
+			     11);
 		break;
 
 	    case 's': case 'S':
 		// byte array len, 2 byte
-		*mp++ = 4;  // byte_array_len
-		*mp++ = 9;
-		*mp++ = 3; // huffman
-		*mp++ = 4;
-		*mp++ = 1;
-		*mp++ = 2; // 2 byte value
-		*mp++ = 1;
-		*mp++ = 0;
-		*mp++ = 1; // external
-		*mp++ = 1;
-		*mp++ = 4; // content id
+		BLOCK_APPEND(map,
+			     "\004" // BYTE_ARRAY_LEN
+			     "\011" // length
+			     "\003" // HUFFMAN (len)
+			     "\004" // huffman-len
+			     "\001" // 1 symbol
+			     "\002" // symbol=2 byte value
+			     "\001" // 1 length
+			     "\000" // length=0
+			     "\001" // EXTERNAL (val)
+			     "\001" // external-len
+			     "\004",// content-id
+			     11);
 		break;
 
 	    case 'i': case 'I': case 'f':
 		// byte array len, 4 byte
-		*mp++ = 4; // byte_array_len
-		*mp++ = 9;
-		*mp++ = 3; // huffman
-		*mp++ = 4;
-		*mp++ = 1;
-		*mp++ = 4; // 4 byte value
-		*mp++ = 1;
-		*mp++ = 0;
-		*mp++ = 1; // external
-		*mp++ = 1;
-		*mp++ = 4; // content id
+		BLOCK_APPEND(map,
+			     "\004" // BYTE_ARRAY_LEN
+			     "\011" // length
+			     "\003" // HUFFMAN (len)
+			     "\004" // huffman-len
+			     "\001" // 1 symbol
+			     "\004" // symbol=4 byte value
+			     "\001" // 1 length
+			     "\000" // length=0
+			     "\001" // EXTERNAL (val)
+			     "\001" // external-len
+			     "\004",// content-id
+			     11);
 		break;
 
-#if 0
-	    case 'B':
-		// Byte array of variable size so using huffman
-		// Not ideal as multiple XX:B:..., YY:B:... ZZ:B:...
-		// with different length profiles will all use the same
-		// huffman stats. We can deal with optimising this later
-		// though.  It'll need one set of statistics per aux type.
-		*mp++ = 4; // byte_array_len
-		mp += itf8_put(mp, aux_B_len + 3); // len encoding
-		memcpy(mp, aux_B, aux_B_len);
-		mp += aux_B_len;
-		*mp++ = 1; // external
-		*mp++ = 1;
-		*mp++ = 4; // content id
-		break;
-#else
 	    case 'B':
 		// Byte array of variable size, but we generate our tag
 		// byte stream at the wrong stage (during reading and not
 		// after slice header construction). So we use
 		// BYTE_ARRAY_LEN with the length codec being external
 		// too.
-		*mp++ = 4; // byte_array_len
-		*mp++ = 6;
-		*mp++ = 1; // len external
-		*mp++ = 1;
-		*mp++ = 4; // content id;
-		*mp++ = 1; // val external
-		*mp++ = 1;
-		*mp++ = 4; // content id;
+		BLOCK_APPEND(map,
+			     "\004" // BYTE_ARRAY_LEN
+			     "\006" // length
+			     "\001" // EXTERNAL (len)
+			     "\001" // external-len
+			     "\004" // content-id
+			     "\001" // EXTERNAL (val)
+			     "\001" // external-len
+			     "\004",// content-id
+			     8);
 		break;
-#endif
 
 	    default:
 		fprintf(stderr, "Unsupported SAM aux type '%c'\n",
@@ -306,20 +294,17 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 	HashTableIterDestroy(iter);
     }
 #endif
-    cp += itf8_put(cp, mp - map + itf8_put(cnt_buf, mc));
-    cp += itf8_put(cp, mc);
-    memcpy(cp, map, mp-map);
-    cp += mp-map;
+    itf8_put_blk(cb, BLOCK_SIZE(map) + itf8_put(cnt_buf, mc));
+    itf8_put_blk(cb, mc);    
+    BLOCK_APPEND(cb, BLOCK_DATA(map), BLOCK_SIZE(map));
 
     if (fd->verbose)
 	fprintf(stderr, "Wrote compression block header in %d bytes\n",
-		(int)(cp-buf));
+		BLOCK_SIZE(cb));
 
-    cb->data = (unsigned char *)buf;
-    cb->comp_size = cb->uncomp_size = cp - buf;
+    BLOCK_UPLEN(cb);
 
-   //if (aux_B_codec)
-   //	aux_B_codec->free(aux_B_codec);
+    cram_free_block(map);
 
     return cb;
 }
@@ -1228,7 +1213,8 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 
 	/* Easy approach for purposes of freeing stats */
 	cram_free_container(c);
-	c = fd->ctr = cram_new_container(SEQS_PER_SLICE, SLICE_PER_CNT);
+	c = fd->ctr = cram_new_container(fd->seqs_per_slice,
+					 fd->slices_per_container);
 	c->curr_ref = b->ref;
     }
 
@@ -1268,8 +1254,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     char *ref, *seq, *qual;
 
     if (!fd->ctr)
-	fd->ctr = cram_new_container(SEQS_PER_SLICE, SLICE_PER_CNT);
-
+	fd->ctr = cram_new_container(fd->seqs_per_slice,
+				     fd->slices_per_container);
     c = fd->ctr;
 
     if (!c->slice || c->curr_rec == c->max_rec ||
