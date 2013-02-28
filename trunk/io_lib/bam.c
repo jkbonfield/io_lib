@@ -886,7 +886,12 @@ static int bam_more_output(bam_file_t *b) {
 	} while (err != Z_OK && err != Z_STREAM_END);
     }
 
-    return b->out_sz;
+    /*
+     * Zero length blocks may not actually be EOF, just bizarre. We return
+     * 0 elsewhere for the EOF case, so if we got here and b->out_sz is 0
+     * then go around again.
+     */
+    return b->out_sz ? b->out_sz : bam_more_output(b);
 }
 
 /*
@@ -2404,7 +2409,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	} while(0)
 
 
-	if (end - fp->out_p < b->blk_size+4) CF_FLUSH();
+	if (end - fp->out_p < 4) CF_FLUSH();
 	*fp->out_p++ = (b->blk_size >> 0) & 0xff;
 	*fp->out_p++ = (b->blk_size >> 8) & 0xff;
 	*fp->out_p++ = (b->blk_size >>16) & 0xff;
