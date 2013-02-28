@@ -403,22 +403,23 @@ void cram_external_encode_free(cram_codec *c) {
     free(c);
 }
 
-int cram_external_encode_store(cram_codec *c, char *buf, char *prefix) {
-    char tmp[8192], *cp = buf, *tp = tmp;
+int cram_external_encode_store(cram_codec *c, cram_block *b, char *prefix) {
+    char tmp[8192], *tp = tmp;
+    int len = 0;
 
     if (prefix) {
-	while ((*cp++ = *prefix++))
-	    ;
-	cp--; // skip nul
+	size_t l = strlen(prefix);
+	BLOCK_APPEND(b, prefix, l);
+	len += l;
     }
 
     tp += itf8_put(tp, c->e_external.content_id);
-    cp += itf8_put(cp, c->codec);
-    cp += itf8_put(cp, tp-tmp);
-    memcpy(cp, tmp, tp-tmp);
-    cp += tp-tmp;
+    len += itf8_put_blk(b, c->codec);
+    len += itf8_put_blk(b, tp-tmp);
+    BLOCK_APPEND(b, tmp, tp-tmp);
+    len += tp-tmp;
 
-    return cp - buf;
+    return len;
 }
 
 cram_codec *cram_external_encode_init(cram_stats *st,
@@ -901,8 +902,8 @@ void cram_huffman_encode_free(cram_codec *c) {
  * Encodes a huffman tree.
  * Returns number of bytes written.
  */
-int cram_huffman_encode_store(cram_codec *c, char *buf, char *prefix) {
-    int i;
+int cram_huffman_encode_store(cram_codec *c, cram_block *b, char *prefix) {
+    int i, len = 0;
     cram_huffman_code *codes = c->e_huffman.codes;
     /*
      * Up to code length 127 means 2.5e+26 bytes of data required (worst
@@ -914,12 +915,12 @@ int cram_huffman_encode_store(cram_codec *c, char *buf, char *prefix) {
      * Therefore 6*ncodes + 5 + 5 + 1 + 5 is max memory
      */
     char *tmp = malloc(6*c->e_huffman.nvals+16);
-    char *cp = buf, *tp = tmp;
+    char *tp = tmp;
 
     if (prefix) {
-	while ((*cp++ = *prefix++))
-	    ;
-	cp--; // skip nul
+	size_t l = strlen(prefix);
+	BLOCK_APPEND(b, prefix, l);
+	len += l;
     }
 
     tp += itf8_put(tp, c->e_huffman.nvals);
@@ -932,15 +933,14 @@ int cram_huffman_encode_store(cram_codec *c, char *buf, char *prefix) {
 	tp += itf8_put(tp, codes[i].len);
     }
 
-    cp += itf8_put(cp, c->codec);
-    cp += itf8_put(cp, tp-tmp);
-    memcpy(cp, tmp, tp-tmp);
-    cp += tp-tmp;
+    len += itf8_put_blk(b, c->codec);
+    len += itf8_put_blk(b, tp-tmp);
+    BLOCK_APPEND(b, tmp, tp-tmp);
+    len += tp-tmp;
 
-    //assert(cp-buf < 8192);
     free(tmp);
 
-    return cp - buf;
+    return len;
 }
 
 cram_codec *cram_huffman_encode_init(cram_stats *st,
@@ -1176,24 +1176,26 @@ void cram_byte_array_len_encode_free(cram_codec *c) {
     free(c);
 }
 
-int cram_byte_array_len_encode_store(cram_codec *c, char *buf, char *prefix) {
-    char *cp = buf;
+int cram_byte_array_len_encode_store(cram_codec *c, cram_block *b,
+				     char *prefix) {
+    int len = 0;
 
     if (prefix) {
-	while ((*cp++ = *prefix++))
-	    ;
-	cp--; // skip nul
+	size_t l = strlen(prefix);
+	BLOCK_APPEND(b, prefix, l);
+	len += l;
     }
 
-    cp += itf8_put(cp, c->codec);
-    cp += itf8_put(cp, c->e_byte_array_len.len_len +
-		       c->e_byte_array_len.val_len);
-    memcpy(cp, c->e_byte_array_len.len_dat, c->e_byte_array_len.len_len);
-    cp += c->e_byte_array_len.len_len;
-    memcpy(cp, c->e_byte_array_len.val_dat, c->e_byte_array_len.val_len);
-    cp += c->e_byte_array_len.val_len;
+    len += itf8_put_blk(b, c->codec);
+    len += itf8_put_blk(b, c->e_byte_array_len.len_len +
+			   c->e_byte_array_len.val_len);
+    BLOCK_APPEND(b, c->e_byte_array_len.len_dat, c->e_byte_array_len.len_len);
+    len += c->e_byte_array_len.len_len;
 
-    return cp - buf;
+    BLOCK_APPEND(b, c->e_byte_array_len.val_dat, c->e_byte_array_len.val_len);
+    len += c->e_byte_array_len.val_len;
+
+    return len;
 }
 
 cram_codec *cram_byte_array_len_encode_init(cram_stats *st,
@@ -1285,7 +1287,7 @@ int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
     cp = (char *)b->data + b->idx;
     BLOCK_GROW(out, space);
     i = 0;
-    out_cp = BLOCK_END(out);
+    out_cp = (char *)BLOCK_END(out);
     while ((ch = *cp) != (char)c->byte_array_stop.stop) {
 	assert(cp - (char *)b->data < b->uncomp_size);
 	*out_cp++ = ch;
@@ -1296,7 +1298,7 @@ int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
 	    space *= 2;
 	    BLOCK_GROW(out, space);
 	    i = 0;
-	    out_cp = BLOCK_END(out);
+	    out_cp = (char *)BLOCK_END(out);
 	}
     }
     BLOCK_SIZE(out) = out_cp - (char *)BLOCK_DATA(out);
@@ -1350,13 +1352,15 @@ void cram_byte_array_stop_encode_free(cram_codec *c) {
     free(c);
 }
 
-int cram_byte_array_stop_encode_store(cram_codec *c, char *buf, char *prefix) {
-    char *cp = buf;
+int cram_byte_array_stop_encode_store(cram_codec *c, cram_block *b,
+				      char *prefix) {
+    int len = 0;
+    char buf[20], *cp = buf;
 
     if (prefix) {
-	while ((*cp++ = *prefix++))
-	    ;
-	cp--; // skip nul
+	size_t l = strlen(prefix);
+	BLOCK_APPEND(b, prefix, l);
+	len += l;
     }
 
     cp += itf8_put(cp, c->codec);
@@ -1367,7 +1371,10 @@ int cram_byte_array_stop_encode_store(cram_codec *c, char *buf, char *prefix) {
     *cp++ = (c->e_byte_array_stop.content_id >> 16) & 0xff;
     *cp++ = (c->e_byte_array_stop.content_id >> 23) & 0xff;
 
-    return cp - buf;
+    BLOCK_APPEND(b, buf, cp-buf);
+    len += cp-buf;
+
+    return len;
 }
 
 cram_codec *cram_byte_array_stop_encode_init(cram_stats *st,

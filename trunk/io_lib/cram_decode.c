@@ -22,7 +22,6 @@
 
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
-#include "io_lib/deflate_interlaced.h" /* For block_create() */
 
 //Whether CIGAR has just M or uses = and X to indicate match and mismatch
 //#define USE_X
@@ -797,7 +796,6 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	if (c->comp_hdr->read_names_included) {
 	    int32_t out_sz2 = 1;
-	    char *name;
 
 	    // Read directly into name cram_block
 	    cr->name = BLOCK_SIZE(s->name_blk);
@@ -816,7 +814,6 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	    if (!c->comp_hdr->read_names_included) {
 		int32_t out_sz2 = 1;
-		char *name;
 	    
 		// Read directly into name cram_block
 		cr->name = BLOCK_SIZE(s->name_blk);
