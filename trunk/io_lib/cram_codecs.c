@@ -271,7 +271,7 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
     char *cp;
     cram_block *b = NULL;
 
-    /* Find the external block: FIXME replace with a lookup table */
+    /* Find the external block */
     if (slice->block_by_id) {
 	if (!(b = slice->block_by_id[c->external.content_id]))
 	    return -1;
@@ -302,7 +302,7 @@ int cram_external_decode_char(cram_slice *slice, cram_codec *c,
     char *cp;
     cram_block *b = NULL;
 
-    /* Find the external block: FIXME replace with a lookup table */
+    /* Find the external block */
     if (slice->block_by_id) {
 	if (!(b = slice->block_by_id[c->external.content_id]))
 	    return -1;
@@ -334,7 +334,7 @@ int cram_external_decode_block(cram_slice *slice, cram_codec *c,
     cram_block *b = NULL;
     cram_block *out = (cram_block *)out_;
 
-    /* Find the external block: FIXME replace with a lookup table */
+    /* Find the external block */
     if (slice->block_by_id) {
 	if (!(b = slice->block_by_id[c->external.content_id]))
 	    return -1;

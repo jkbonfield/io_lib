@@ -470,8 +470,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 				 (char *)&cr->rg, 1);
 
 	if (c->comp_hdr->read_names_included) {
-	    // FIXME: RN codec
-	    // Already stored in block[3].
+	    // RN codec: Already stored in block[3].
 	}
 
 	if (cr->cram_flags & CRAM_FLAG_DETACHED) {
@@ -479,8 +478,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	    r |= h->MF_codec->encode(s, h->MF_codec, core, &mf, 1);
 
 	    if (!c->comp_hdr->read_names_included) {
-		// FIXME: RN codec
-		// Already stored in block[3].
+		// RN codec: Already stored in block[3].
 	    }
 
 #ifndef NS_external
@@ -531,8 +529,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 #endif
 
 	// qual
-	// FIXME: QS codec
-	// Already stored in block[2].
+	// QS codec : Already stored in block[2].
 
 	// features (diffs)
 	if (!(cr->flags & BAM_FUNMAP)) {
@@ -681,10 +678,6 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
  * Encodes all slices in a container into blocks.
  * Returns 0 on success
  *        -1 on failure
- *
- * FIXME: separate into encode_container and write_container. Ideally
- * we should be able to do read_container / write_container or
- * decode_container / encode_container.
  */
 int cram_encode_container(cram_fd *fd, cram_container *c) {
     int i, j, slice_offset;
@@ -1571,7 +1564,6 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     c->curr_ctr_rec++;
 
-    // FIXME - use cigar
     if (fd->last_base < cr->aend)
 	fd->last_base = cr->aend;
 

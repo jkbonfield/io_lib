@@ -1035,7 +1035,6 @@ static int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s,
     }
 
     /* Generate BAM record */
-    // FIXME: grow size
     rg_len = (cr->rg != -1) ? bfd->rg_len[cr->rg] + 4 : 0;
 
     bam_len = cr->name_len + cr->len + (cr->len+1)/2 + 9*36 + cr->ncigar*4
@@ -1051,7 +1050,7 @@ static int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s,
 				cr->flags,
 				cr->ref_id,
 				cr->apos,
-				cr->apos, cr->apos + cr->len, // FIXME
+				cr->apos, cr->aend,
 				cr->mqual,
 				cr->ncigar, &s->cigar[cr->cigar],
 				cr->mate_ref_id,
