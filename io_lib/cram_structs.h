@@ -479,6 +479,8 @@ typedef struct {
 
     int decode_md; // Whether to export MD and NM tags
     int verbose;
+    int seqs_per_slice;
+    int slices_per_container;
 
     // lookup tables, stored here so we can be trivially multi-threaded
     unsigned int bam_flag_swap[0x200];  // cram -> bam flags
@@ -491,7 +493,9 @@ typedef struct {
 enum cram_option {
     CRAM_OPT_DECODE_MD,
     CRAM_OPT_PREFIX,
-    CRAM_OPT_VERBOSITY
+    CRAM_OPT_VERBOSITY,
+    CRAM_OPT_SEQS_PER_SLICE,
+    CRAM_OPT_SLICES_PER_CONTAINER
 };
 
 typedef union {

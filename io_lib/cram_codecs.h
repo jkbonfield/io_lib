@@ -81,7 +81,7 @@ typedef struct cram_codec {
     void (*free)(struct cram_codec *codec);
     int (*decode)(cram_slice *slice, struct cram_codec *codec, cram_block *in, char *out, int *out_size);
     int (*encode)(cram_slice *slice, struct cram_codec *codec, cram_block *out, char *in, int in_size);
-    int (*store)(struct cram_codec *codec, char *buf, char *prefix);
+    int (*store)(struct cram_codec *codec, cram_block *b, char *prefix);
     union {
 	cram_huffman_decoder         huffman;
 	cram_external_decoder        external;

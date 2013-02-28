@@ -173,6 +173,22 @@ int itf8_put(char *cp, int32_t val) {
 }
 #endif
 
+/*
+ * Pushes a value in ITF8 format onto the end of a block.
+ * This shouldn't be used for high-volume data as it is not the fastest
+ * method.
+ *
+ * Returns the number of bytes written
+ */
+int itf8_put_blk(cram_block *blk, int val) {
+    char buf[5];
+    int sz;
+
+    sz = itf8_put(buf, val);
+    BLOCK_APPEND(blk, buf, sz);
+    return sz;
+}
+
 /* ----------------------------------------------------------------------
  * zlib compression code - from Gap5's tg_iface_g.c
  * They're static here as they're only used within the cram_compress_block
@@ -1599,6 +1615,8 @@ cram_fd *cram_open(char *filename, char *mode) {
 
     fd->decode_md = 0;
     fd->verbose = 0;
+    fd->seqs_per_slice = SEQS_PER_SLICE;
+    fd->slices_per_container = SLICE_PER_CNT;
 
     for (i = 0; i < 7; i++)
 	fd->m[i] = cram_new_metrics();
@@ -1683,6 +1701,18 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
     case CRAM_OPT_VERBOSITY:
 	fd->verbose = val->i;
 	break;
+
+    case CRAM_OPT_SEQS_PER_SLICE:
+	fd->seqs_per_slice = val->i;
+	break;
+
+    case CRAM_OPT_SLICES_PER_CONTAINER:
+	fd->slices_per_container = val->i;
+	break;
+
+    default:
+	fprintf(stderr, "Unknown CRAM option code %d\n", opt);
+	return -1;
     }
 
     return 0;
