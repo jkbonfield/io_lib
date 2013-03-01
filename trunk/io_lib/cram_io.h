@@ -217,7 +217,7 @@ cram_container *cram_new_container(int nrec, int nslice);
 void cram_free_container(cram_container *c);
 
 /*
- * Reads a container header plus first block (type COMPRESSION_HEADER).
+ * Reads a container header.
  * Returns cram_container on success
  *         NULL on failure or no container left (fd->err == 0).
  */

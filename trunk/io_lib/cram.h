@@ -7,5 +7,6 @@
 #include "cram_decode.h"
 #include "cram_stats.h"
 #include "cram_codecs.h"
+#include "cram_index.h"
 
 #endif
