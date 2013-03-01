@@ -28,7 +28,6 @@
 
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
-#include "io_lib/deflate_interlaced.h" /* For block_create() */
 
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
@@ -349,6 +348,7 @@ cram_block *cram_read_block(cram_fd *fd) {
     if (-1 == itf8_decode(fd, &b->content_id))  { free(b); return NULL; }
     if (-1 == itf8_decode(fd, &b->comp_size))   { free(b); return NULL; }
     if (-1 == itf8_decode(fd, &b->uncomp_size)) { free(b); return NULL; }
+
     //    fprintf(stderr, "  method %d, ctype %d, cid %d, csize %d, ucsize %d\n",
     //	    b->method, b->content_type, b->content_id, b->comp_size, b->uncomp_size);
 
@@ -880,7 +880,8 @@ void cram_free_container(cram_container *c) {
 }
 
 /*
- * Reads a container header plus first block (type COMPRESSION_HEADER).
+ * Reads a container header.
+ *
  * Returns cram_container on success
  *         NULL on failure or no container left (fd->err == 0).
  */
@@ -920,22 +921,6 @@ cram_container *cram_read_container(cram_fd *fd) {
 	}
     }
     c->offset = rd;
-
-    if (!(b = cram_read_block(fd))) {
-	cram_free_container(c);
-	return NULL;
-    }
-    assert(b->content_type == COMPRESSION_HEADER);
-
-    /* Keep uncompressed block too as hdr points into it */
-    c->comp_hdr = cram_decode_compression_header(b);
-    c->comp_hdr_block = b;
-
-    if (!c->comp_hdr) {
-	fprintf(stderr, "Unable to decode compression header\n");
-	cram_free_container(c);
-	return NULL;
-    }
 
     c->slices = NULL;
     c->curr_slice = 0;
@@ -1332,6 +1317,8 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
 	return NULL;
     }
 
+    fd->first_container += 26;
+
     return def;
 }
 
@@ -1438,6 +1425,8 @@ cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	free(hdr);
 	return NULL;
     }
+
+    fd->first_container += 4 + hdr->header_len;
 
     /* Parse */
     bam_parse_header(hdr);
@@ -1573,6 +1562,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     if (!fd->fp)
 	goto err;
     fd->mode = *mode;
+    fd->first_container = 0;
 
     cram_init_tables(fd);
 
@@ -1618,8 +1608,12 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->seqs_per_slice = SEQS_PER_SLICE;
     fd->slices_per_container = SLICE_PER_CNT;
 
+    fd->index = NULL;
+
     for (i = 0; i < 7; i++)
 	fd->m[i] = cram_new_metrics();
+
+    fd->range.refid = -2; // no ref.
 
     return fd;
 
@@ -1673,6 +1667,9 @@ int cram_close(cram_fd *fd) {
 	if (fd->m[i])
 	    free(fd->m[i]);
 
+    if (fd->index)
+	cram_index_free(fd);
+
     free(fd);
     return 0;
 }
@@ -1708,6 +1705,11 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
 
     case CRAM_OPT_SLICES_PER_CONTAINER:
 	fd->slices_per_container = val->i;
+	break;
+
+    case CRAM_OPT_RANGE:
+	fd->range = *(cram_range *)val->s;
+	cram_seek_to_refpos(fd, &fd->range);
 	break;
 
     default:

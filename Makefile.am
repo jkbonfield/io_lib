@@ -66,6 +66,8 @@ pkginclude_HEADERS = \
 	io_lib/cram_encode.h \
 	io_lib/cram_decode.h \
 	io_lib/cram_codecs.h \
+	io_lib/cram_index.h \
+	io_lib/zfio.h \
 	io_lib/bam.h \
 	io_lib/dstring.h \
 	io_lib_config.h

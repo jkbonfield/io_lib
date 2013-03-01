@@ -22,6 +22,7 @@ void usage(FILE *fp) {
     fprintf(fp, "    -1 to -9       Set zlib compression level for BAM\n");
     fprintf(fp, "    -0 or -u       Output uncompressed, if BAM.\n");
     fprintf(fp, "    -p str         Set the prefix for auto-generated seq. names\n");
+    fprintf(fp, "    -r region	    Extract region 'ref:start-end', eg -r chr1:1000-2000\n");
 }
 
 int main(int argc, char **argv) {
@@ -34,9 +35,9 @@ int main(int argc, char **argv) {
     int decode_md = 0;
     cram_opt opt;
     int C;
+    int refid = -2, start, end;
 
-
-    while ((C = getopt(argc, argv, "bu0123456789mp:h")) != -1) {
+    while ((C = getopt(argc, argv, "bu0123456789mp:hr:")) != -1) {
 	switch (C) {
 	case 'b':
 	    mode[1] = 'b';
@@ -62,6 +63,23 @@ int main(int argc, char **argv) {
 	case 'h':
 	    usage(stdout);
 	    return 0;
+
+	case 'r':
+	    switch (sscanf(optarg, "%d:%d-%d", &refid, &start, &end)) {
+	    case 1:
+		start = 1;
+		end = INT_MAX;
+		break;
+	    case 2:
+		end = INT_MAX;
+		break;
+	    case 3:
+		break;
+	    default:
+		fprintf(stderr, "Malformed range format\n");
+		return 1;
+	    }
+	    break;
 
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -93,6 +111,13 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
+    if (refid != -2) {
+	cram_index_load(fd, argv[optind]);
+	cram_index_query(fd, refid, start);
+	fflush(stdout);
+	//exit(0);
+    }
+
     if (prefix)
 	opt.s = prefix, cram_set_option(fd, CRAM_OPT_PREFIX, &opt);
 
@@ -111,6 +136,15 @@ int main(int argc, char **argv) {
     bam_write_header(bfd);
     if (fd->refs)
 	refs2id(fd->refs, bfd);
+
+    if (refid != -2) {
+	cram_range r;
+	r.refid = refid;
+	r.start = start;
+	r.end = end;
+	opt.s = (char *)&r;
+	cram_set_option(fd, CRAM_OPT_RANGE, &opt);
+    }
 
     while (cram_get_bam_seq(fd, &bam, &bam_alloc) == 0) {
 	bam_put_seq(bfd, bam);
