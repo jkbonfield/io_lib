@@ -101,6 +101,8 @@ int main(int argc, char **argv) {
     //cram_free_SAM_hdr(hdr);
     
     cram_load_reference(out, argv[optind+1]);
+    if (!out->refs)
+	return 1;
     refs2id(out->refs, in);
 
     opt.i = verbose;
