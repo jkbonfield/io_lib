@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
 	    assert(pos2 - pos - c->offset == c->landmark[j]);
 
 	    s = cram_read_slice(fd);
-	    printf("\n    Slice %d/%d, container offset %d\n", j+1, c->num_landmarks, (int)(pos2 - pos - c->offset));
+	    printf("\n    Slice %d/%d, container offset %d, file offset %d\n", j+1, c->num_landmarks, (int)(pos2 - pos - c->offset), (int)pos2);
 	    printf("\tSlice content type %s\n",
 		   cram_content_type2str(s->hdr->content_type));
 
@@ -276,12 +276,12 @@ int main(int argc, char **argv) {
 		    printf("RG = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
 
 		    if (c->comp_hdr->read_names_included) {
-			char dat[100];
 			int32_t out_sz2 = 1;
+			cram_block *dat = cram_new_block(EXTERNAL, 0);
 
-			dat[0]='?';dat[1]=0;
-			r = c->comp_hdr->RN_codec->decode(s,c->comp_hdr->RN_codec, b, dat, &out_sz2);
-			printf("RN = %.*s (ret %d, out_sz %d)\n", out_sz2, dat, r, out_sz2);
+			r = c->comp_hdr->RN_codec->decode(s,c->comp_hdr->RN_codec, b, (char *)dat, &out_sz2);
+			printf("RN = %.*s (ret %d, out_sz %d)\n", out_sz2, BLOCK_DATA(dat), r, out_sz2);
+			cram_free_block(dat);
 		    }
 
 		    if (cf & CRAM_FLAG_DETACHED) {
@@ -292,12 +292,12 @@ int main(int argc, char **argv) {
 			printf("MF = %d (ret %d, out_sz %d)\n", mf, r, out_sz);
 
 			if (!c->comp_hdr->read_names_included) {
-			    char dat[100];
+			    cram_block *dat = cram_new_block(EXTERNAL, 0);
 			    int32_t out_sz2 = 1;
 
-			    dat[0]='?';dat[1]=0;
-			    r = c->comp_hdr->RN_codec->decode(s,c->comp_hdr->RN_codec, b, dat, &out_sz2);
-			    printf("RN = %.*s (ret %d, out_sz %d)\n", out_sz2, dat, r, out_sz2);
+			    r = c->comp_hdr->RN_codec->decode(s,c->comp_hdr->RN_codec, b, (char *)dat, &out_sz2);
+			    printf("RN = %.*s (ret %d, out_sz %d)\n", out_sz2, BLOCK_DATA(dat), r, out_sz2);
+			    cram_free_block(dat);
 			}
 		    
 			r = c->comp_hdr->NS_codec->decode(s,c->comp_hdr->NS_codec, b, (char *)&i32, &out_sz);
@@ -319,9 +319,9 @@ int main(int argc, char **argv) {
 
 		    for (f = 0; f < ntags; f++) {
 			int32_t id;
-			char tag[1024];
 			char key[3];
 			cram_map *m;
+			cram_block *tag = cram_new_block(EXTERNAL, 0);
 
 			r = c->comp_hdr->TN_codec->decode(s, c->comp_hdr->TN_codec,
 							  b, (char *)&id, &out_sz);
@@ -335,15 +335,18 @@ int main(int argc, char **argv) {
 					  (unsigned char *)key, id))) {
 			    int i, out_sz;
 
-			    r = m->codec->decode(s, m->codec, b, tag, &out_sz);
+			    BLOCK_SIZE(tag) = 0;
+			    r = m->codec->decode(s, m->codec, b, (char *)tag, &out_sz);
 			    printf("%3d: Val", f);
 			    for(i = 0; i < out_sz; i++) {
-				printf(" %02x", tag[i]);
+				printf(" %02x", BLOCK_DATA(tag)[i]);
 			    }
 			    printf("\n");
 			} else {
 			    fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
 			}
+
+			cram_free_block(tag);
 			// skip decoding of tag data itself and hope it's
 			// in an external block.
 		    }
