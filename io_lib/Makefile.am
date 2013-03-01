@@ -80,7 +80,11 @@ libstaden_read_la_SOURCES = \
 	cram_stats.h \
 	cram_io.c \
 	cram_io.h \
+	cram_index.c \
+	cram_index.h \
 	cram_structs.h \
+	zfio.c \
+	zfio.h \
 	dstring.c \
 	dstring.h
 

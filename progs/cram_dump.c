@@ -140,7 +140,7 @@ void dump_tag_block(cram_block *b, int verbose) {
 int main(int argc, char **argv) {
     cram_fd *fd;
     cram_container *c;
-    off_t pos, pos2;
+    off_t pos, pos2, hpos;
     int verbose = 0;
 
     static int bsize[100], bmax = 0;
@@ -193,15 +193,26 @@ int main(int argc, char **argv) {
 	}
 	printf("}\n");
 
-	printf("\n    Preservation map:\n");
+	hpos = ftello(fd->fp);
+
+	printf("\n    Container_header block pos %"PRId64"\n", (int64_t)hpos);
+	if (!(c->comp_hdr_block = cram_read_block(fd)))
+	    return 1;
+	assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
+
+	c->comp_hdr = cram_decode_compression_header(c->comp_hdr_block);
+	if (!c->comp_hdr)
+	    return 1;
+
+	printf("      Preservation map:\n");
 	HashTableDump(c->comp_hdr->preservation_map, stdout, "\t");
 
-	printf("\n    Record encoding map:\n");
+	printf("\n      Record encoding map:\n");
 	DumpMap2(c->comp_hdr->rec_encoding_map, stdout, "\t", 
 		 (char *)c->comp_hdr_block->data);
 	//HashTableDumpMap(c->comp_hdr->rec_encoding_map, stdout, "\t", c->comp_hdr_block->data);
 
-	printf("\n    Tag encoding map:\n");
+	printf("\n      Tag encoding map:\n");
 	DumpMap2(c->comp_hdr->tag_encoding_map, stdout, "\t",
 		 (char *)c->comp_hdr_block->data);
 	
@@ -520,8 +531,10 @@ int main(int argc, char **argv) {
 	    cram_free_slice(s);
 	}
 
-	cram_free_container(c);
 	pos = ftello(fd->fp);
+	assert(pos == hpos + c->length);
+
+	cram_free_container(c);
     }
 
     cram_close(fd);

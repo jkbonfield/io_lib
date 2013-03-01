@@ -444,6 +444,28 @@ typedef struct {
 } refs;
 
 /*-----------------------------------------------------------------------------
+ * CRAM index
+ */
+typedef struct {
+    int     refid;
+    int     start;
+    int     nseq;
+    int     slice;
+    int64_t offset;
+} cram_index_entry;
+
+typedef struct {
+    int nslice;          // total number of slices
+    cram_index_entry *e; // array of size nslice
+} cram_index;
+
+typedef struct {
+    int refid;
+    int start;
+    int end;
+} cram_range;
+
+/*-----------------------------------------------------------------------------
  */
 /* CRAM File handle */
 typedef struct {
@@ -481,6 +503,7 @@ typedef struct {
     int verbose;
     int seqs_per_slice;
     int slices_per_container;
+    cram_range range;
 
     // lookup tables, stored here so we can be trivially multi-threaded
     unsigned int bam_flag_swap[0x200];  // cram -> bam flags
@@ -488,6 +511,9 @@ typedef struct {
     unsigned char L1[256];              // ACGT{*} ->0123{4}
     unsigned char L2[256];              // ACGTN{*}->01234{5}
     char cram_sub_matrix[32][32];	// base substituion codes
+
+    cram_index *index;
+    off_t first_container;
 } cram_fd;
 
 enum cram_option {
@@ -495,7 +521,8 @@ enum cram_option {
     CRAM_OPT_PREFIX,
     CRAM_OPT_VERBOSITY,
     CRAM_OPT_SEQS_PER_SLICE,
-    CRAM_OPT_SLICES_PER_CONTAINER
+    CRAM_OPT_SLICES_PER_CONTAINER,
+    CRAM_OPT_RANGE
 };
 
 typedef union {

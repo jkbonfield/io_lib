@@ -874,6 +874,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     c->ref_seq_start = c->slices[0]->hdr->ref_seq_start;
     c->ref_seq_span = c->slices[0]->hdr->ref_seq_span;
     for (i = 0; i < c->curr_slice; i++) {
+	char tmp[5];
 	cram_slice *s = c->slices[i];
 	
 	c->num_records += s->hdr->num_records;
@@ -890,14 +891,23 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    ? s->hdr_block->uncomp_size
 	    : s->hdr_block->comp_size;
 
+	slice_offset += 2 + 
+	    itf8_put(tmp, s->hdr_block->content_id) +
+	    itf8_put(tmp, s->hdr_block->comp_size) +
+	    itf8_put(tmp, s->hdr_block->uncomp_size);
+
 	for (j = 0; j < s->hdr->num_blocks; j++) {
+	    slice_offset += 2 + 
+		itf8_put(tmp, s->block[j]->content_id) +
+		itf8_put(tmp, s->block[j]->comp_size) +
+		itf8_put(tmp, s->block[j]->uncomp_size);
+
 	    slice_offset += s->block[j]->method == RAW
 		? s->block[j]->uncomp_size
 		: s->block[j]->comp_size;
 	}
-
-	c->length += slice_offset;
     }
+    c->length += slice_offset; // just past the final slice
 
     cram_free_compression_header(h);
     c->comp_hdr_block = c_hdr;

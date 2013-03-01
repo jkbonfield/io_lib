@@ -1098,10 +1098,50 @@ cram_record *cram_get_seq(cram_fd *fd) {
     cram_container *c;
     cram_slice *s;
 
+ try_again:
     if (!(c = fd->ctr)) {
-	// Load first container. Do as part of cram_open?
+	cram_record *cr;
+
+	// Load first container.
 	if (!(c = fd->ctr = cram_read_container(fd)))
 	    return NULL;
+
+	/*
+	 * The first container may be a result of a sub-range query.
+	 * In which case it may still not be the optimal starting point
+	 * due to skipped containers/slices in the index. 
+	 */
+	if (fd->range.refid != -2) {
+	    while (c->ref_seq_id < fd->range.refid ||
+		   c->ref_seq_start + c->ref_seq_span-1 < fd->range.start) {
+		if (0 != cram_seek(fd, c->length, SEEK_CUR))
+		    return NULL;
+		cram_free_container(fd->ctr);
+		if (!(c = fd->ctr = cram_read_container(fd)))
+		    return NULL;
+	    }
+
+	    if (c->ref_seq_id != fd->range.refid)
+		return NULL;
+	}
+
+	if (!(c->comp_hdr_block = cram_read_block(fd)))
+	    return NULL;
+	assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
+
+	c->comp_hdr = cram_decode_compression_header(c->comp_hdr_block);
+	if (!c->comp_hdr)
+	    return NULL;
+
+	if (fd->range.refid != -2) {
+	    // In the correct container, now find the first seq.
+	    // FIXME: optimise by skipping slices?
+	    while ((cr = cram_get_seq(fd))) {
+		if (cr->aend >= fd->range.start)
+		    break;
+	    }
+	    return cr;
+	}
     }
 
     s = c->slice;
@@ -1117,6 +1157,14 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	    cram_free_container(c);
 
 	    if (!(c = fd->ctr = cram_read_container(fd)))
+		return NULL;
+
+	    if (!(c->comp_hdr_block = cram_read_block(fd)))
+		return NULL;
+	    assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
+
+	    c->comp_hdr = cram_decode_compression_header(c->comp_hdr_block);
+	    if (!c->comp_hdr)
 		return NULL;
 	}
 
@@ -1136,6 +1184,19 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	if (cram_decode_slice(fd, c, s, fd->SAM_hdr) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
 	    return NULL;
+	}
+    }
+
+    if (fd->range.refid != -2) {
+	if (s->crecs[c->curr_rec].ref_id != fd->range.refid)
+	    return NULL;
+
+	if (s->crecs[c->curr_rec].apos > fd->range.end)
+	    return NULL;
+
+	if (s->crecs[c->curr_rec].aend < fd->range.start) {
+	    c->curr_rec++;
+	    goto try_again; // yes, yess, I know it needs restructuring!
 	}
     }
 
