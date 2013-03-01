@@ -1,4 +1,4 @@
-bin_PROGRAMS = convert_trace makeSCF extract_seq extract_qual extract_fastq index_tar scf_dump scf_info scf_update get_comment hash_tar hash_extract hash_list trace_dump hash_sff append_sff ztr_dump srf_dump_all srf_index_hash srf_extract_linear srf_extract_hash srf2fastq srf2fasta srf_filter srf_info srf_list hash_exp sam_convert cram_dump cram_to_sam sam_to_cram
+bin_PROGRAMS = convert_trace makeSCF extract_seq extract_qual extract_fastq index_tar scf_dump scf_info scf_update get_comment hash_tar hash_extract hash_list trace_dump hash_sff append_sff ztr_dump srf_dump_all srf_index_hash srf_extract_linear srf_extract_hash srf2fastq srf2fasta srf_filter srf_info srf_list hash_exp sam_convert cram_dump cram_index cram_to_sam sam_to_cram
 
 convert_trace_SOURCES = convert_trace.c
 convert_trace_LDADD = $(top_builddir)/io_lib/libstaden-read.la
@@ -82,6 +82,9 @@ srf_list_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 cram_dump_SOURCES = cram_dump.c
 cram_dump_LDADD = $(top_builddir)/io_lib/libstaden-read.la
+
+cram_index_SOURCES = cram_index.c
+cram_index_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 cram_to_sam_SOURCES = cram_to_sam.c
 cram_to_sam_LDADD = $(top_builddir)/io_lib/libstaden-read.la
