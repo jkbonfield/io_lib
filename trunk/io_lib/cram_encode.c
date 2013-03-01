@@ -640,13 +640,13 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     cram_compress_block(fd, s->block[1], fd->m[0], fd->level, Z_FILTERED,
 			-1, -1);			      
     cram_compress_block(fd, s->block[2], fd->m[1], fd->level, Z_FILTERED, 
-			1,Z_RLE);			      
+			 1, Z_RLE);			      
     cram_compress_block(fd, s->block[3], fd->m[2], fd->level, Z_FILTERED,
 			-1, -1);			      
     cram_compress_block(fd, s->block[4], fd->m[3], fd->level, Z_FILTERED,
 			-1, -1);			      
     cram_compress_block(fd, s->block[5], fd->m[4], fd->level, Z_FILTERED,
-			-1, -1);
+			 1, Z_RLE);
 #ifdef BA_external
     cram_compress_block(fd, s->block[s->ba_id], fd->m[5],
 			fd->level, Z_FILTERED, -1, -1);

@@ -42,6 +42,17 @@ char *zfgets(char *line, int size, zfp *zf) {
 }
 
 /*
+ * A wrapper for either fputs or gzputs depending on what has been
+ * opened.
+ */
+int zfputs(char *line, zfp *zf) {
+    if (zf->fp)
+	return fputs(line, zf->fp);
+    else
+	return gzputs(zf->gz, line) ? 0 : EOF;
+}
+
+/*
  * Peeks at and returns the next character without consuming it from the
  * input. (Ie a combination of getc and ungetc).
  */
@@ -77,7 +88,8 @@ zfp *zfopen(const char *path, const char *mode) {
     zf->gz = NULL;
 
     /* Try normal fopen */
-    if (NULL != (zf->fp = fopen(path, mode))) {
+    if (mode[0] != 'z' && mode[1] != 'z' &&
+	NULL != (zf->fp = fopen(path, mode))) {
 	unsigned char magic[2];
 	fread(magic, 1, 2, zf->fp);
 	if (!(magic[0] == 0x1f &&
@@ -96,17 +108,27 @@ zfp *zfopen(const char *path, const char *mode) {
      * arbitrary seeks.
      * popen to gzip -cd is 3 times faster though.
      */
-    if (access(path, R_OK) == 0) {
-	sprintf(path2, "gzip -cd < %.*s", 1000, path);
+    if (*mode == 'w') {
+    } else {
+	if (access(path, R_OK) == 0) {
+	    sprintf(path2, "gzip -cd < %.*s", 1000, path);
+	    if (NULL != (zf->fp = popen(path2, "r")))
+		return zf;
+	}
+	
+	sprintf(path2, "gzip -cd < %.*s.gz", 1000, path);
 	if (NULL != (zf->fp = popen(path2, "r")))
 	    return zf;
+
+	printf("Failed on %s\n", path);
+    } else {
+	sprintf(path2, "gzip > %.*s", 1000, path);
+	if (NULL != (zf->fp = popen(path2, "w")))
+	    return zf;
+	}
+	
+	printf("Failed on %s\n", path);
     }
-
-    sprintf(path2, "gzip -cd < %.*s.gz", 1000, path);
-    if (NULL != (zf->fp = popen(path2, "r")))
-	return zf;
-
-    printf("Failed on %s\n", path);
 #else
     /* Gzopen instead */
     if ((zf->gz = gzopen(path, mode)))
