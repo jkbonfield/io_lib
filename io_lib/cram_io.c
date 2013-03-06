@@ -172,6 +172,222 @@ int itf8_put(char *cp, int32_t val) {
 }
 #endif
 
+/* 64-bit itf8 variant */
+int ltf8_put(char *cp, int64_t val) {
+    if        (!(val & ~((1LL<<7)-1))) {
+	*cp = val;
+	return 1;
+    } else if (!(val & ~((1LL<<(6+8))-1))) {
+	*cp++ = (val >> 8 ) | 0x80;
+	*cp   = val & 0xff;
+	return 2;
+    } else if (!(val & ~((1LL<<(5+2*8))-1))) {
+	*cp++ = (val >> 16) | 0xc0;
+	*cp++ = (val >> 8 ) & 0xff;
+	*cp   = val & 0xff;
+	return 3;
+    } else if (!(val & ~((1LL<<(4+3*8))-1))) {
+	*cp++ = (val >> 24) | 0xe0;
+	*cp++ = (val >> 16) & 0xff;
+	*cp++ = (val >> 8 ) & 0xff;
+	*cp   = val & 0xff;
+	return 4;
+    } else if (!(val & ~((1LL<<(3+4*8))-1))) {
+	*cp++ = (val >> 32) | 0xf0;
+	*cp++ = (val >> 24) & 0xff;
+	*cp++ = (val >> 16) & 0xff;
+	*cp++ = (val >> 8 ) & 0xff;
+	*cp   = val & 0xff;
+	return 5;
+    } else if (!(val & ~((1LL<<(2+5*8))-1))) {
+	*cp++ = (val >> 40) | 0xf8;
+	*cp++ = (val >> 32) & 0xff;
+	*cp++ = (val >> 24) & 0xff;
+	*cp++ = (val >> 16) & 0xff;
+	*cp++ = (val >> 8 ) & 0xff;
+	*cp   = val & 0xff;
+	return 6;
+    } else if (!(val & ~((1LL<<(1+6*8))-1))) {
+	*cp++ = (val >> 48) | 0xfc;
+	*cp++ = (val >> 40) & 0xff;
+	*cp++ = (val >> 32) & 0xff;
+	*cp++ = (val >> 24) & 0xff;
+	*cp++ = (val >> 16) & 0xff;
+	*cp++ = (val >> 8 ) & 0xff;
+	*cp   = val & 0xff;
+	return 7;
+    } else if (!(val & ~((1LL<<(7*8))-1))) {
+	*cp++ = (val >> 56) | 0xfe;
+	*cp++ = (val >> 48) & 0xff;
+	*cp++ = (val >> 40) & 0xff;
+	*cp++ = (val >> 32) & 0xff;
+	*cp++ = (val >> 24) & 0xff;
+	*cp++ = (val >> 16) & 0xff;
+	*cp++ = (val >> 8 ) & 0xff;
+	*cp   = val & 0xff;
+	return 8;
+    } else {
+	*cp++ = 0xff;
+	*cp++ = (val >> 56) & 0xff;
+	*cp++ = (val >> 48) & 0xff;
+	*cp++ = (val >> 40) & 0xff;
+	*cp++ = (val >> 32) & 0xff;
+	*cp++ = (val >> 24) & 0xff;
+	*cp++ = (val >> 16) & 0xff;
+	*cp++ = (val >> 8 ) & 0xff;
+	*cp   = val & 0xff;
+	return 9;
+    }
+}
+
+int ltf8_get(char *cp, int64_t *val_p) {
+    unsigned char *up = (unsigned char *)cp;
+    
+    if (up[0] < 0x80) {
+	*val_p =   up[0];
+	return 1;
+    } else if (up[0] < 0xc0) {
+	*val_p = (((uint64_t)up[0]<< 8) |
+		   (uint64_t)up[1]) & (((1LL<<(6+8)))-1);
+	return 2;
+    } else if (up[0] < 0xe0) {
+	*val_p = (((uint64_t)up[0]<<16) |
+		  ((uint64_t)up[1]<< 8) |
+		   (uint64_t)up[2]) & ((1LL<<(5+2*8))-1);
+	return 3;
+    } else if (up[0] < 0xf0) {
+	*val_p = (((uint64_t)up[0]<<24) |
+		  ((uint64_t)up[1]<<16) |
+		  ((uint64_t)up[2]<< 8) |
+		   (uint64_t)up[3]) & ((1LL<<(4+3*8))-1);
+	return 4;
+    } else if (up[0] < 0xf8) {
+	*val_p = (((uint64_t)up[0]<<32) |
+		  ((uint64_t)up[1]<<24) |
+		  ((uint64_t)up[2]<<16) |
+		  ((uint64_t)up[3]<< 8) |
+		   (uint64_t)up[4]) & ((1LL<<(3+4*8))-1);
+	return 5;
+    } else if (up[0] < 0xf8) {
+	*val_p = (((uint64_t)up[0]<<40) |
+		  ((uint64_t)up[1]<<32) |
+		  ((uint64_t)up[2]<<24) |
+		  ((uint64_t)up[3]<<16) |
+		  ((uint64_t)up[4]<< 8) |
+		   (uint64_t)up[5]) & ((1LL<<(2+5*8))-1);
+	return 6;
+    } else if (up[0] < 0xfe) {
+	*val_p = (((uint64_t)up[0]<<48) |
+		  ((uint64_t)up[1]<<40) |
+		  ((uint64_t)up[2]<<32) |
+		  ((uint64_t)up[3]<<24) |
+		  ((uint64_t)up[4]<<16) |
+		  ((uint64_t)up[5]<< 8) |
+		   (uint64_t)up[6]) & ((1LL<<(1+6*8))-1);
+	return 7;
+    } else if (up[0] < 0xff) {
+	*val_p = (((uint64_t)up[1]<<48) |
+		  ((uint64_t)up[2]<<40) |
+		  ((uint64_t)up[3]<<32) |
+		  ((uint64_t)up[4]<<24) |
+		  ((uint64_t)up[5]<<16) |
+		  ((uint64_t)up[6]<< 8) |
+		   (uint64_t)up[7]) & ((1LL<<(7*8))-1);
+	return 8;
+    } else {
+	*val_p = (((uint64_t)up[1]<<56) |
+		  ((uint64_t)up[2]<<48) |
+		  ((uint64_t)up[3]<<40) |
+		  ((uint64_t)up[4]<<32) |
+		  ((uint64_t)up[5]<<24) |
+		  ((uint64_t)up[6]<<16) |
+		  ((uint64_t)up[7]<< 8) |
+		   (uint64_t)up[8]);
+	return 9;
+    }
+}
+
+int ltf8_decode(cram_fd *fd, int64_t *val_p) {
+    int c = getc(fd->fp);
+    int64_t val = (unsigned char)c;
+    if (c == -1)
+	return -1;
+
+    if (val < 0x80) {
+	*val_p =   val;
+	return 1;
+
+    } else if (val < 0xc0) {
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val & (((1LL<<(6+8)))-1);
+	return 2;
+
+    } else if (val < 0xe0) {
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val & ((1LL<<(5+2*8))-1);
+	return 3;
+
+    } else if (val < 0xf0) {
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val & ((1LL<<(4+3*8))-1);
+	return 4;
+
+    } else if (val < 0xf8) {
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val & ((1LL<<(3+4*8))-1);
+	return 5;
+
+    } else if (val < 0xfc) {
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val & ((1LL<<(2+5*8))-1);
+	return 6;
+
+    } else if (val < 0xfe) {
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val & ((1LL<<(1+6*8))-1);
+	return 7;
+
+    } else if (val < 0xff) {
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val & ((1LL<<(7*8))-1);
+	return 8;
+
+    } else {
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)getc(fd->fp);
+	*val_p = val;
+    }
+
+    return 9;
+}
+
 /*
  * Pushes a value in ITF8 format onto the end of a block.
  * This shouldn't be used for high-volume data as it is not the fastest
@@ -186,6 +402,61 @@ int itf8_put_blk(cram_block *blk, int val) {
     sz = itf8_put(buf, val);
     BLOCK_APPEND(blk, buf, sz);
     return sz;
+}
+
+/*
+ * Decodes a 32-bit little endian value from fd and stores in val.
+ *
+ * Returns the number of bytes read on success
+ *         -1 on failure
+ */
+int int32_decode(cram_fd *fd, int32_t *val) {
+    int32_t i;
+    if (1 != fread(&i, 4, 1, fd->fp))
+	return -1;
+
+    *val = le_int4(i);
+    return 4;
+}
+
+/*
+ * Encodes a 32-bit little endian value 'val' and writes to fd.
+ *
+ * Returns the number of bytes written on success
+ *         -1 on failure
+ */
+int int32_encode(cram_fd *fd, int32_t val) {
+    val = le_int4(val);
+    if (1 != fwrite(&val, 4, 1, fd->fp))
+	return -1;
+
+    return 4;
+}
+
+/* As int32_decoded/encode, but from/to blocks instead of cram_fd */
+int int32_get(cram_block *b, int32_t *val) {
+    if (b->uncomp_size - BLOCK_SIZE(b) < 4)
+	return -1;
+
+    *val =
+	 b->data[b->byte  ]        |
+	(b->data[b->byte+1] <<  8) |
+	(b->data[b->byte+2] << 16) |
+	(b->data[b->byte+3] << 24);
+    BLOCK_SIZE(b) += 4;
+    return 4;
+}
+
+/* As int32_decoded/encode, but from/to blocks instead of cram_fd */
+int int32_put(cram_block *b, int32_t val) {
+    unsigned char cp[4];
+    cp[0] = ( val      & 0xff);
+    cp[1] = ((val>>8)  & 0xff);
+    cp[2] = ((val>>16) & 0xff);
+    cp[3] = ((val>>24) & 0xff);
+
+    BLOCK_APPEND(b, cp, 4);
+    return b->data ? 0 : -1;
 }
 
 /* ----------------------------------------------------------------------
@@ -784,16 +1055,18 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->curr_ref = -2;
 
     c->max_rec = nrec;
-    c->curr_rec = 0;
+    c->record_counter = 0;
+    c->num_bases = 0;
 
     c->max_slice = nslice;
     c->curr_slice = 0;
 
+    c->pos_sorted = 1;
+
     c->slices = (cram_slice **)calloc(nslice, sizeof(cram_slice *));
     c->slice = NULL;
 
-    c->curr_ctr_rec = 0;
-
+    c->comp_hdr = cram_new_compression_header();
     c->comp_hdr_block = NULL;
 
     c->BF_stats = cram_stats_create();
@@ -817,6 +1090,8 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->BS_stats = cram_stats_create();
     c->TC_stats = cram_stats_create();
     c->TN_stats = cram_stats_create();
+    c->TL_stats = cram_stats_create();
+    c->RI_stats = cram_stats_create();
 
     //c->aux_B_stats = cram_stats_create();
 
@@ -866,11 +1141,13 @@ void cram_free_container(cram_container *c) {
     if (c->RL_stats) cram_stats_free(c->RL_stats);
     if (c->DL_stats) cram_stats_free(c->DL_stats);
     if (c->TC_stats) cram_stats_free(c->TC_stats);
+    if (c->TL_stats) cram_stats_free(c->TL_stats);
     if (c->MQ_stats) cram_stats_free(c->MQ_stats);
     if (c->TM_stats) cram_stats_free(c->TM_stats);
     if (c->IN_stats) cram_stats_free(c->IN_stats);
     if (c->QS_stats) cram_stats_free(c->QS_stats);
     if (c->NP_stats) cram_stats_free(c->NP_stats);
+    if (c->RI_stats) cram_stats_free(c->RI_stats);
 
     //if (c->aux_B_stats) cram_stats_free(c->aux_B_stats);
     
@@ -889,18 +1166,42 @@ cram_container *cram_read_container(cram_fd *fd) {
     cram_container c2, *c;
     int i, s;
     size_t rd = 0;
-    cram_block *b;
     
     fd->err = 0;
 
     memset(&c2, 0, sizeof(c2));
-    if ((s = itf8_decode(fd, &c2.length))        == -1) return NULL; else rd+=s;
-    if ((s = itf8_decode(fd, &c2.ref_seq_id))    == -1) return NULL; else rd+=s;
-    if ((s = itf8_decode(fd, &c2.ref_seq_start)) == -1) return NULL; else rd+=s;
-    if ((s = itf8_decode(fd, &c2.ref_seq_span))  == -1) return NULL; else rd+=s;
-    if ((s = itf8_decode(fd, &c2.num_records))   == -1) return NULL; else rd+=s;
-    if ((s = itf8_decode(fd, &c2.num_blocks))    == -1) return NULL; else rd+=s;
-    if ((s = itf8_decode(fd, &c2.num_landmarks)) == -1) return NULL; else rd+=s;
+    if (fd->version == CRAM_1_VERS) {
+	if ((s = itf8_decode(fd, &c2.length)) == -1)
+	    return NULL;
+	else
+	    rd+=s;
+    } else {
+	if ((s = int32_decode(fd, &c2.length)) == -1)
+	    return NULL;
+	else
+	    rd+=s;
+    }
+    if ((s = itf8_decode(fd, &c2.ref_seq_id))   == -1) return NULL; else rd+=s;
+    if ((s = itf8_decode(fd, &c2.ref_seq_start))== -1) return NULL; else rd+=s;
+    if ((s = itf8_decode(fd, &c2.ref_seq_span)) == -1) return NULL; else rd+=s;
+    if ((s = itf8_decode(fd, &c2.num_records))  == -1) return NULL; else rd+=s;
+
+    if (fd->version == CRAM_1_VERS) {
+	c2.record_counter = 0;
+	c2.num_bases = 0;
+    } else {
+	if ((s = itf8_decode(fd, &c2.record_counter)) == -1)
+	    return NULL;
+	else
+	    rd += s;
+
+	if ((s = ltf8_decode(fd, &c2.num_bases))== -1)
+	    return NULL;
+	else
+	    rd += s;
+    }
+    if ((s = itf8_decode(fd, &c2.num_blocks))   == -1) return NULL; else rd+=s;
+    if ((s = itf8_decode(fd, &c2.num_landmarks))== -1) return NULL; else rd+=s;
 
     if (!(c = calloc(1, sizeof(*c))))
 	return NULL;
@@ -937,19 +1238,28 @@ cram_container *cram_read_container(cram_fd *fd) {
  * Returns 0 on success
  *        -1 on failure
  */
-int cram_write_container(cram_fd *fd, cram_container *h) {
+int cram_write_container(cram_fd *fd, cram_container *c) {
     char buf[1024], *cp = buf;
     int i;
 
-    cp += itf8_put(cp, h->length);
-    cp += itf8_put(cp, h->ref_seq_id);
-    cp += itf8_put(cp, h->ref_seq_start);
-    cp += itf8_put(cp, h->ref_seq_span);
-    cp += itf8_put(cp, h->num_records);
-    cp += itf8_put(cp, h->num_blocks);
-    cp += itf8_put(cp, h->num_landmarks);
-    for (i = 0; i < h->num_landmarks; i++)
-	cp += itf8_put(cp, h->landmark[i]);
+    if (fd->version == CRAM_1_VERS) {
+	cp += itf8_put(cp, c->length);
+    } else {
+	*(int32_t *)cp = le_int4(c->length);
+	cp += 4;
+    }
+    cp += itf8_put(cp, c->ref_seq_id);
+    cp += itf8_put(cp, c->ref_seq_start);
+    cp += itf8_put(cp, c->ref_seq_span);
+    cp += itf8_put(cp, c->num_records);
+    if (fd->version != CRAM_1_VERS) {
+	cp += itf8_put(cp, c->record_counter);
+	cp += ltf8_put(cp, c->num_bases);
+    }
+    cp += itf8_put(cp, c->num_blocks);
+    cp += itf8_put(cp, c->num_landmarks);
+    for (i = 0; i < c->num_landmarks; i++)
+	cp += itf8_put(cp, c->landmark[i]);
     if (cp-buf != fwrite(buf, 1, cp-buf, fd->fp))
 	return -1;
 
@@ -1007,6 +1317,9 @@ int cram_flush_container(cram_fd *fd, cram_container *c) {
 cram_block_compression_hdr *cram_new_compression_header(void) {
     cram_block_compression_hdr *hdr = calloc(1, sizeof(*hdr));
 
+    hdr->TD_blk = cram_new_block(CORE, 0);
+    hdr->TD = HashTableCreate(16, HASH_DYNAMIC_SIZE);
+
     return hdr;
 }
 
@@ -1051,6 +1364,7 @@ void cram_free_compression_header(cram_block_compression_hdr *hdr) {
     if (hdr->NF_codec) hdr->NF_codec->free(hdr->NF_codec);
     if (hdr->TC_codec) hdr->TC_codec->free(hdr->TC_codec);
     if (hdr->TN_codec) hdr->TN_codec->free(hdr->TN_codec);
+    if (hdr->TL_codec) hdr->TL_codec->free(hdr->TL_codec);
     if (hdr->FN_codec) hdr->FN_codec->free(hdr->FN_codec);
     if (hdr->FC_codec) hdr->FC_codec->free(hdr->FC_codec);
     if (hdr->FP_codec) hdr->FP_codec->free(hdr->FP_codec);
@@ -1062,6 +1376,14 @@ void cram_free_compression_header(cram_block_compression_hdr *hdr) {
     if (hdr->RN_codec) hdr->RN_codec->free(hdr->RN_codec);
     if (hdr->QS_codec) hdr->QS_codec->free(hdr->QS_codec);
     if (hdr->Qs_codec) hdr->Qs_codec->free(hdr->Qs_codec);
+    if (hdr->RI_codec) hdr->RI_codec->free(hdr->RI_codec);
+
+    if (hdr->TL)
+	free(hdr->TL);
+    if (hdr->TD_blk)
+	cram_free_block(hdr->TD_blk);
+    if (hdr->TD)
+	HashTableDestroy(hdr->TD, 0);
 
     free(hdr);
 }
@@ -1224,7 +1546,7 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     switch (b->content_type) {
     case MAPPED_SLICE:
     case UNMAPPED_SLICE:
-	s->hdr = cram_decode_slice_header(b);
+	s->hdr = cram_decode_slice_header(fd, b);
 	break;
 
     default:
@@ -1309,9 +1631,10 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
 	return NULL;
     }
 
-    if (def->major_version != 1 || def->minor_version != 0) {
+    if (!(def->major_version == 1 && def->minor_version == 0) &&
+	!(def->major_version == 1 && def->minor_version == 1)) {
 	fprintf(stderr, "CRAM version number mismatch\n"
-		"Expected 1.0, got %d.%d\n",
+		"Expected 1.0 or 1.1, got %d.%d\n",
 		def->major_version, def->minor_version);
 	free(def);
 	return NULL;
@@ -1408,25 +1731,76 @@ cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
     if (!hdr)
 	return NULL;
 
-    /* Length */
-    if (1 != fread(&hdr->header_len, 4, 1, fd->fp)) {
-	free(hdr);
-	return NULL;
-    }
-    hdr->header_len = le_int4(hdr->header_len);
+    /* 1.1 onwards stores the header in the first block of a container */
+    if (fd->version == CRAM_1_VERS) {
+	/* Length */
+	if (-1 == int32_decode(fd, (int32_t *)&hdr->header_len)) {
+	    free(hdr);
+	    return NULL;
+	}
 
-    /* Alloc and read */
-    if (NULL == (hdr->header = malloc(hdr->header_len+100))) {
-	free(hdr);
-	return NULL;
-    }
+	/* Alloc and read */
+	if (NULL == (hdr->header = malloc(hdr->header_len+100))) {
+	    free(hdr);
+	    return NULL;
+	}
 
-    if (hdr->header_len != fread(hdr->header, 1, hdr->header_len, fd->fp)) {
-	free(hdr);
-	return NULL;
-    }
+	if (hdr->header_len != fread(hdr->header, 1, hdr->header_len, fd->fp)){
+	    free(hdr);
+	    return NULL;
+	}
 
-    fd->first_container += 4 + hdr->header_len;
+	fd->first_container += 4 + hdr->header_len;
+    } else {
+	cram_container *c = cram_read_container(fd);
+	cram_block *b;
+	int i;
+
+	if (!c) {
+	    free(hdr);
+	    return NULL;
+	}
+
+	if (c->num_blocks < 1) {
+	    free(hdr);
+	    cram_free_container(c);
+	    return NULL;
+	}
+
+	if (!(b = cram_read_block(fd))) {
+	    free(hdr);
+	    cram_free_container(c);
+	    return NULL;
+	}
+
+	/* Extract header from 1st block */
+	if (-1 == int32_get(b, (int32_t *)&hdr->header_len) ||
+	    b->uncomp_size - 4 < hdr->header_len) {
+	    free(hdr);
+	    cram_free_container(c);
+	    cram_free_block(b);
+	    return NULL;
+	}
+	if (NULL == (hdr->header = malloc(hdr->header_len+100))) {
+	    free(hdr);
+	    cram_free_container(c);
+	    cram_free_block(b);
+	    return NULL;
+	}
+	memcpy(hdr->header, BLOCK_END(b), hdr->header_len);
+	cram_free_block(b);
+
+	/* Consume any remaining blocks */
+	for (i = 1; i < c->num_blocks; i++) {
+	    if (!(b = cram_read_block(fd))) {
+	    free(hdr);
+		cram_free_container(c);
+		return NULL;
+	    }
+	    cram_free_block(b);
+	}
+	cram_free_container(c);
+    }
 
     /* Parse */
     bam_parse_header(hdr);
@@ -1440,15 +1814,52 @@ cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
  *        -1 on failure
  */
 int cram_write_SAM_hdr(cram_fd *fd, cram_SAM_hdr *hdr) {
-    int32_t le_len = le_int4(hdr->header_len);
-
     /* Length */
-    if (1 != fwrite(&le_len, 4, 1, fd->fp))
-	return -1;
+    if (fd->version == CRAM_1_VERS) {
+	if (-1 == int32_encode(fd, hdr->header_len))
+	    return -1;
 
-    /* Text data */
-    if (hdr->header_len != fwrite(hdr->header, 1, hdr->header_len, fd->fp))
-	return -1;
+	/* Text data */
+	if (hdr->header_len != fwrite(hdr->header, 1, hdr->header_len, fd->fp))
+	    return -1;
+    } else {
+	/* Create a block inside a container */
+	cram_block *b = cram_new_block(FILE_HEADER, 0);
+	cram_container *c = cram_new_container(0, 0);
+
+	if (!b || !c) {
+	    if (b) cram_free_block(b);
+	    if (c) cram_free_container(c);
+	    return -1;
+	}
+
+	int32_put(b, hdr->header_len);
+	BLOCK_APPEND(b, hdr->header, hdr->header_len);
+	BLOCK_UPLEN(b);
+
+	// TODO: BLOCK_APPEND a bunch of nuls to allow padding?
+
+	c->num_blocks = 1;
+	c->num_landmarks = 1;
+	c->landmark = malloc(sizeof(*c->landmark));
+	c->landmark[0] = 0;
+	
+	if (-1 == cram_write_container(fd, c)) {
+	    cram_free_block(b);
+	    cram_free_container(c);
+	    return -1;
+	}
+
+	// Keep it uncompressed
+	if (-1 == cram_write_block(fd, b)) {
+	    cram_free_block(b);
+	    cram_free_container(c);
+	    return -1;
+	}
+
+	cram_free_block(b);
+	cram_free_container(c);
+    }
 
     fflush(fd->fp);
 
@@ -1480,36 +1891,44 @@ static void cram_init_tables(cram_fd *fd) {
     fd->L2['T'] = 3; fd->L2['t'] = 3;
     fd->L2['N'] = 4; fd->L2['n'] = 4;
 
-    for (i = 0; i < 0x200; i++) {
-	int f = 0;
+    if (fd->version == CRAM_1_VERS) {
+	for (i = 0; i < 0x200; i++) {
+	    int f = 0;
 
-	if (i & CRAM_FPAIRED)      f |= BAM_FPAIRED;
-	if (i & CRAM_FPROPER_PAIR) f |= BAM_FPROPER_PAIR;
-	if (i & CRAM_FUNMAP)       f |= BAM_FUNMAP;
-	if (i & CRAM_FREVERSE)     f |= BAM_FREVERSE;
-	if (i & CRAM_FREAD1)       f |= BAM_FREAD1;
-	if (i & CRAM_FREAD2)       f |= BAM_FREAD2;
-	if (i & CRAM_FSECONDARY)   f |= BAM_FSECONDARY;
-	if (i & CRAM_FQCFAIL)      f |= BAM_FQCFAIL;
-	if (i & CRAM_FDUP)         f |= BAM_FDUP;
+	    if (i & CRAM_FPAIRED)      f |= BAM_FPAIRED;
+	    if (i & CRAM_FPROPER_PAIR) f |= BAM_FPROPER_PAIR;
+	    if (i & CRAM_FUNMAP)       f |= BAM_FUNMAP;
+	    if (i & CRAM_FREVERSE)     f |= BAM_FREVERSE;
+	    if (i & CRAM_FREAD1)       f |= BAM_FREAD1;
+	    if (i & CRAM_FREAD2)       f |= BAM_FREAD2;
+	    if (i & CRAM_FSECONDARY)   f |= BAM_FSECONDARY;
+	    if (i & CRAM_FQCFAIL)      f |= BAM_FQCFAIL;
+	    if (i & CRAM_FDUP)         f |= BAM_FDUP;
 
-	fd->bam_flag_swap[i]  = f;
-    }
+	    fd->bam_flag_swap[i]  = f;
+	}
     
-    for (i = 0; i < 0x800; i++) {
-	int g = 0;
+	for (i = 0; i < 0x800; i++) {
+	    int g = 0;
 
-	if (i & BAM_FPAIRED)	   g |= CRAM_FPAIRED;
-	if (i & BAM_FPROPER_PAIR)  g |= CRAM_FPROPER_PAIR;
-	if (i & BAM_FUNMAP)        g |= CRAM_FUNMAP;
-	if (i & BAM_FREVERSE)      g |= CRAM_FREVERSE;
-	if (i & BAM_FREAD1)        g |= CRAM_FREAD1;
-	if (i & BAM_FREAD2)        g |= CRAM_FREAD2;
-	if (i & BAM_FSECONDARY)    g |= CRAM_FSECONDARY;
-	if (i & BAM_FQCFAIL)       g |= CRAM_FQCFAIL;
-	if (i & BAM_FDUP)          g |= CRAM_FDUP;
+	    if (i & BAM_FPAIRED)	   g |= CRAM_FPAIRED;
+	    if (i & BAM_FPROPER_PAIR)  g |= CRAM_FPROPER_PAIR;
+	    if (i & BAM_FUNMAP)        g |= CRAM_FUNMAP;
+	    if (i & BAM_FREVERSE)      g |= CRAM_FREVERSE;
+	    if (i & BAM_FREAD1)        g |= CRAM_FREAD1;
+	    if (i & BAM_FREAD2)        g |= CRAM_FREAD2;
+	    if (i & BAM_FSECONDARY)    g |= CRAM_FSECONDARY;
+	    if (i & BAM_FQCFAIL)       g |= CRAM_FQCFAIL;
+	    if (i & BAM_FDUP)          g |= CRAM_FDUP;
 
-	fd->cram_flag_swap[i] = g;
+	    fd->cram_flag_swap[i] = g;
+	}
+    } else {
+	/* NOP */
+	for (i = 0; i < 0x200; i++)
+	    fd->bam_flag_swap[i] = i;
+	for (i = 0; i < 0x800; i++)
+	    fd->cram_flag_swap[i] = i;
     }
 
     memset(fd->cram_sub_matrix, 4, 32*32);
@@ -1534,6 +1953,10 @@ static void cram_init_tables(cram_fd *fd) {
 	fd->cram_sub_matrix["ACGTN"[i>>2]&0x1f][CRAM_SUBST_MATRIX[i+3]&0x1f]=3;
     }
 }
+
+// Default version numbers for CRAM
+static int major_version = 1;
+static int minor_version = 1;
 
 /*
  * Opens a CRAM file for read (mode "rb") or write ("wb").
@@ -1564,19 +1987,21 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->mode = *mode;
     fd->first_container = 0;
 
-    cram_init_tables(fd);
-
     if (fd->mode == 'r') {
 	/* Reader */
 
 	if (!(fd->file_def = cram_read_file_def(fd)))
 	    goto err;
 
+	fd->version = fd->file_def->major_version * 100 +
+	    fd->file_def->minor_version;
+
 	if (!(fd->SAM_hdr = cram_read_SAM_hdr(fd)))
 	    goto err;
 
 	//if (0 != parse_SAM_hdr(&fd->SAM_hdr))
 	//    goto err;
+
     } else {
 	/* Writer */
 	cram_file_def def;
@@ -1585,19 +2010,24 @@ cram_fd *cram_open(char *filename, char *mode) {
 	def.magic[1] = 'R';
 	def.magic[2] = 'A';
 	def.magic[3] = 'M';
-	def.major_version = 1;
-	def.minor_version = 0;
+	def.major_version = major_version;
+	def.minor_version = minor_version;
 	memset(def.file_id, 0, 20);
 	strncpy(def.file_id, filename, 20);
 	if (0 != cram_write_file_def(fd, &def))
 	    goto err;
 
+	fd->version = def.major_version * 100 + def.minor_version;
+
 	/* SAM header written later */
     }
+
+    cram_init_tables(fd);
 
     fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
     fd->slice_num = 0;
     fd->first_base = fd->last_base = -1;
+    fd->record_counter = 0;
 
     fd->ctr = NULL;
     fd->refs = NULL; // refs meta-data structure
@@ -1711,6 +2141,14 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
 	fd->range = *(cram_range *)val->s;
 	cram_seek_to_refpos(fd, &fd->range);
 	break;
+
+    case CRAM_OPT_VERSION: {
+	if (2 != sscanf(val->s, "%d.%d", &major_version, &minor_version)) {
+	    fprintf(stderr, "Malformed version string %s\n", val->s);
+	    return -1;
+	}
+	break;
+    }
 
     default:
 	fprintf(stderr, "Unknown CRAM option code %d\n", opt);

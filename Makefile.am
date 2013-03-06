@@ -70,7 +70,8 @@ pkginclude_HEADERS = \
 	io_lib/zfio.h \
 	io_lib/bam.h \
 	io_lib/dstring.h \
-	io_lib_config.h
+	io_lib_config.h \
+	io_lib/md5.h
 
 bin_SCRIPTS = io_lib-config
 
