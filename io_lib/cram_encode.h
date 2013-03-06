@@ -37,7 +37,7 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
  * Returns cram_block on success
  *         NULL on failure
  */
-cram_block *cram_encode_slice_header(cram_slice *s);
+cram_block *cram_encode_slice_header(cram_fd *fd, cram_slice *s);
 
 /*
  * Encodes all slices in a container into blocks.

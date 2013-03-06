@@ -86,7 +86,9 @@ libstaden_read_la_SOURCES = \
 	zfio.c \
 	zfio.h \
 	dstring.c \
-	dstring.h
+	dstring.h \
+	md5.c \
+	md5.h
 
 libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
 

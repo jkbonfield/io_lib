@@ -26,6 +26,7 @@ void usage(FILE *fp) {
 	    SEQS_PER_SLICE);
     fprintf(fp, "    -S integer     Slices per container, default %d.\n",
 	    SLICE_PER_CNT);
+    fprintf(fp, "    -V version     Specify the CRAM format version to write (eg 1.1, 2.0)\n");
 }
 
 int main(int argc, char **argv) {
@@ -40,7 +41,7 @@ int main(int argc, char **argv) {
     cram_opt opt;
     int s_opt = 0, S_opt = 0;
 
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -65,6 +66,10 @@ int main(int argc, char **argv) {
 
 	case 'S':
 	    S_opt = atoi(optarg);
+	    break;
+
+	case 'V':
+	    cram_set_option(NULL, CRAM_OPT_VERSION, (cram_opt *)&optarg);
 	    break;
 
 	case '?':

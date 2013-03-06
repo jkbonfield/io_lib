@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
 	    return 1;
 	assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
 
-	c->comp_hdr = cram_decode_compression_header(c->comp_hdr_block);
+	c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
 	if (!c->comp_hdr)
 	    return 1;
 

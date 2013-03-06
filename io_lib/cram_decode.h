@@ -34,14 +34,15 @@ int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc);
  * Returns header ptr on success
  *         NULL on failure
  */
-cram_block_compression_hdr *cram_decode_compression_header(cram_block *b);
+cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
+							   cram_block *b);
 
 /*
  * Decodes a CRAM (un)mapped slice header block.
  * Returns slice header ptr on success
  *         NULL on failure
  */
-cram_block_slice_hdr *cram_decode_slice_header(cram_block *b);
+cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b);
 
 
 /*
