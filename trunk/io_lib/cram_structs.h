@@ -72,6 +72,8 @@ typedef struct {
     char    file_id[20];      // Filename or SHA1 checksum
 } cram_file_def;
 
+#define CRAM_1_VERS 100 // 1.0
+#define CRAM_2_VERS 200 // 1.1, or 2.0?
 
 struct cram_slice;
 
@@ -100,7 +102,7 @@ enum cram_content_type {
     FILE_HEADER        = 0,
     COMPRESSION_HEADER = 1,
     MAPPED_SLICE       = 2,
-    UNMAPPED_SLICE     = 3,
+    UNMAPPED_SLICE     = 3, // CRAM_1_VERS only
     EXTERNAL           = 4,
     CORE               = 5,
 };
@@ -150,8 +152,15 @@ typedef struct {
     int unmapped_placed;
     int qs_included;
     int read_names_included;
+    int AP_delta;
     // indexed by ref-base and subst. code
-    char substitution_matrix[5][5];
+    char substitution_matrix[5][4];
+
+    // TD Dictionary as a concatenated block
+    cram_block *TD_blk;  // Tag Dictionary
+    int nTL;		 // number of TL entries in TD
+    unsigned char **TL;  // array of size nTL, pointer into TD_blk.
+    HashTable *TD;       // for encoding, keyed on TD entries
     
     HashTable *preservation_map;
     struct cram_map *rec_encoding_map[CRAM_MAP_HASH];
@@ -167,8 +176,9 @@ typedef struct {
     struct cram_codec *NP_codec; // next frag pos
     struct cram_codec *TS_codec; // template size
     struct cram_codec *NF_codec; // next frag distance
-    struct cram_codec *TC_codec; // tag count
-    struct cram_codec *TN_codec; // tag name/type
+    struct cram_codec *TC_codec; // tag count      CRAM_1_VERS
+    struct cram_codec *TN_codec; // tag name/type  CRAM_1_VERS
+    struct cram_codec *TL_codec; // tag line       CRAM_2_VERS
     struct cram_codec *FN_codec; // no. features
     struct cram_codec *FC_codec; // feature code
     struct cram_codec *FP_codec; // feature pos
@@ -180,6 +190,7 @@ typedef struct {
     struct cram_codec *RN_codec; // read names
     struct cram_codec *QS_codec; // quality value (single)
     struct cram_codec *Qs_codec; // quality values (string)
+    struct cram_codec *RI_codec; // ref ID
     struct cram_codec *TM_codec; // ?
     struct cram_codec *TV_codec; // ?
 
@@ -203,10 +214,12 @@ typedef struct {
     int32_t ref_seq_start;  /* if content_type == MAPPED_SLICE */
     int32_t ref_seq_span;   /* if content_type == MAPPED_SLICE */
     int32_t num_records;
+    int32_t record_counter;
     int32_t num_blocks;
     int32_t num_content_ids;
     int32_t *block_content_ids;
     int32_t ref_base_id;    /* if content_type == MAPPED_SLICE */
+    unsigned char md5[16];
 } cram_block_slice_hdr;
 
 /*
@@ -223,6 +236,8 @@ typedef struct {
     int32_t  ref_seq_id;
     int32_t  ref_seq_start;
     int32_t  ref_seq_span;
+    int32_t  record_counter;
+    int64_t  num_bases;
     int32_t  num_records;
     int32_t  num_blocks;
     int32_t  num_landmarks;
@@ -239,9 +254,9 @@ typedef struct {
     int max_slice, curr_slice;   // maximum number of slices
     int max_rec, curr_rec;       // current and max recs per slice
     int curr_ref;                // current ref ID. -2 for no previous
-    int curr_ctr_rec;            // current record number in total container
     int last_pos;                // last record position
     struct cram_slice **slices, *slice;
+    int pos_sorted;              // boolean, 1=>position sorted data
 
     /* Statistics for encoding */
     cram_stats *TS_stats;
@@ -263,12 +278,13 @@ typedef struct {
     cram_stats *RL_stats;
     cram_stats *DL_stats;
     cram_stats *TC_stats;
+    cram_stats *TL_stats;
     cram_stats *MQ_stats;
     cram_stats *TM_stats;
     cram_stats *IN_stats;
     cram_stats *QS_stats;
     cram_stats *NP_stats;
-    //cram_stats *aux_B_stats;
+    cram_stats *RI_stats;
 
     HashTable *tags_used; // hash of tag types in use, for tag encoding map
 } cram_container;
@@ -301,6 +317,7 @@ typedef struct {
 #else
     int32_t tn;           // idx to s->tn_blk
 #endif
+    int     TL;
 
     int32_t seq;          // idx to s->seqs_blk
     int32_t qual;         // idx to s->qual_blk
@@ -471,10 +488,12 @@ typedef struct {
 typedef struct {
     FILE          *fp;
     int            mode;     // 'r' or 'w'
+    int            version;
     cram_file_def *file_def;
     cram_SAM_hdr  *SAM_hdr;
     
     char          *prefix;
+    int            record_counter;
     int            slice_num;
     int            err;
 
@@ -522,7 +541,8 @@ enum cram_option {
     CRAM_OPT_VERBOSITY,
     CRAM_OPT_SEQS_PER_SLICE,
     CRAM_OPT_SLICES_PER_CONTAINER,
-    CRAM_OPT_RANGE
+    CRAM_OPT_RANGE,
+    CRAM_OPT_VERSION
 };
 
 typedef union {
@@ -532,7 +552,7 @@ typedef union {
 
 
 /* BF bitfields */
-/* FIXME: still not correct? */
+/* Corrected in 1.1. Use bam_flag_swap[bf] and BAM_* macros for 1.0 & 1.1 */
 #define CRAM_FPAIRED      256
 #define CRAM_FPROPER_PAIR 128
 #define CRAM_FUNMAP        64

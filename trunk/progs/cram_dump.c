@@ -12,32 +12,6 @@
 
 #include <io_lib/cram.h>
 
-/* Static lookup tables */
-static unsigned int bam_flag_swap[0x200];
-
-/*
- * Initialise lookup tables. Used within cram_decode_seq().
- */
-static void cram_init(void) {
-    int i;
-
-    for (i = 0; i < 0x200; i++) {
-	int f = 0;
-
-	if (i & CRAM_FPAIRED)      f |= BAM_FPAIRED;
-	if (i & CRAM_FPROPER_PAIR) f |= BAM_FPROPER_PAIR;
-	if (i & CRAM_FUNMAP)       f |= BAM_FUNMAP;
-	if (i & CRAM_FREVERSE)     f |= BAM_FREVERSE;
-	if (i & CRAM_FREAD1)       f |= BAM_FREAD1;
-	if (i & CRAM_FREAD2)       f |= BAM_FREAD2;
-	if (i & CRAM_FSECONDARY)   f |= BAM_FSECONDARY;
-	if (i & CRAM_FQCFAIL)      f |= BAM_FQCFAIL;
-	if (i & CRAM_FDUP)         f |= BAM_FDUP;
-
-	bam_flag_swap[i]  = f;
-    }
-}
-
 void HashTableDumpMap(HashTable *h, FILE *fp, char *prefix, char *data) {
     int i, j, k;
     for (i = 0; i < h->nbuckets; i++) {
@@ -145,8 +119,6 @@ int main(int argc, char **argv) {
 
     static int bsize[100], bmax = 0;
 
-    cram_init();
-
     if (argc >= 2 && strcmp(argv[1], "-v") == 0) {
 	argc--;
 	argv++;
@@ -183,7 +155,9 @@ int main(int argc, char **argv) {
 	printf("\nContainer pos %"PRId64" size %d\n", (int64_t)pos, c->length);
 	printf("    Ref id:            %d\n", c->ref_seq_id);
 	printf("    Ref pos:           %d + %d\n", c->ref_seq_start, c->ref_seq_span);
-	printf("    No. recs:          %d\n", c->num_records);
+	printf("    Rec counter:       %d\n", c->record_counter);
+       	printf("    No. recs:          %d\n", c->num_records);
+	printf("    No. bases          %"PRId64"\n", c->num_bases);
 	printf("    No. blocks:        %d\n", c->num_blocks);
 	printf("    No. landmarks:     %d\n", c->num_landmarks);
 
@@ -200,7 +174,7 @@ int main(int argc, char **argv) {
 	    return 1;
 	assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
 
-	c->comp_hdr = cram_decode_compression_header(c->comp_hdr_block);
+	c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
 	if (!c->comp_hdr)
 	    return 1;
 
@@ -231,10 +205,16 @@ int main(int argc, char **argv) {
 		   cram_content_type2str(s->hdr->content_type));
 
 	    if (s->hdr->content_type == MAPPED_SLICE) {
+		int i;
 		printf("\tSlice ref seq    %d\n", s->hdr->ref_seq_id);
 		printf("\tSlice ref start  %d\n", s->hdr->ref_seq_start);
 		printf("\tSlice ref span   %d\n", s->hdr->ref_seq_span);
+		printf("\tSlice MD5        ");
+		for (i = 0; i < 16; i++)
+		    printf("%02x", s->hdr->md5[i]);
+		putchar('\n');
 	    }
+	    printf("\tRec counter      %d\n", s->hdr->record_counter);
 	    printf("\tNo. records      %d\n", s->hdr->num_records);
 	    printf("\tNo. blocks       %d\n", s->hdr->num_blocks);
 	    printf("\tBlk IDS:         {");
@@ -272,10 +252,17 @@ int main(int argc, char **argv) {
 
 		    out_sz = 1; /* decode 1 item */
 		    r = c->comp_hdr->BF_codec->decode(s,c->comp_hdr->BF_codec, b, (char *)&bf, &out_sz);
-		    printf("BF = %d => SAM 0x%x (ret %d, out_sz %d)\n", bf, bam_flag_swap[bf], r, out_sz);
+		    printf("BF = %d => SAM 0x%x (ret %d, out_sz %d)\n", bf, fd->bam_flag_swap[bf], r, out_sz);
+		    bf = fd->bam_flag_swap[bf];
 
 		    r = c->comp_hdr->CF_codec->decode(s,c->comp_hdr->CF_codec, b, (char *)&cf, &out_sz);
 		    printf("CF = %d (ret %d, out_sz %d)\n", cf, r, out_sz);
+
+		    if (fd->version != CRAM_1_VERS) {
+			int32_t ri;
+			r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, b, (char *)&ri, &out_sz);
+			printf("RI = %d (ret %d, out_sz %d)\n", ri, r, out_sz);
+		    }
 
 		    r = c->comp_hdr->RL_codec->decode(s,c->comp_hdr->RL_codec, b, (char *)&rl, &out_sz);
 		    printf("RL = %d (ret %d, out_sz %d)\n", rl, r, out_sz);
@@ -322,47 +309,90 @@ int main(int argc, char **argv) {
 		    } else if (cf & CRAM_FLAG_MATE_DOWNSTREAM) {
 			puts("Not detached, and mate is downstream");
 			r = c->comp_hdr->NF_codec->decode(s,c->comp_hdr->NF_codec, b, (char *)&i32, &out_sz);
-			printf("NF = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
+			printf("NF = %d+%d = %d (ret %d, out_sz %d)\n", i32, rec+1, i32+rec+1, r, out_sz);
 		    }
 
-		    r = c->comp_hdr->TC_codec->decode(s,c->comp_hdr->TC_codec, b, (char *)&ntags, &out_sz);
-		    printf("TC = %d (ret %d, out_sz %d)\n", ntags, r, out_sz);
+		    if (fd->version == CRAM_1_VERS) {
+			r = c->comp_hdr->TC_codec->decode(s,c->comp_hdr->TC_codec, b, (char *)&ntags, &out_sz);
+			printf("TC = %d (ret %d, out_sz %d)\n", ntags, r, out_sz);
 
-		    for (f = 0; f < ntags; f++) {
-			int32_t id;
-			char key[3];
-			cram_map *m;
-			cram_block *tag = cram_new_block(EXTERNAL, 0);
+			for (f = 0; f < ntags; f++) {
+			    int32_t id;
+			    char key[3];
+			    cram_map *m;
+			    cram_block *tag = cram_new_block(EXTERNAL, 0);
 
-			r = c->comp_hdr->TN_codec->decode(s, c->comp_hdr->TN_codec,
-							  b, (char *)&id, &out_sz);
-			key[0] = (id>>16)&0xff;
-			key[1] = (id>>8)&0xff;
-			key[2] = id&0xff;
-			printf("%3d: TN= %.3s\n", f, key);
+			    r = c->comp_hdr->TN_codec->decode(s, c->comp_hdr->TN_codec,
+							      b, (char *)&id, &out_sz);
+			    key[0] = (id>>16)&0xff;
+			    key[1] = (id>>8)&0xff;
+			    key[2] = id&0xff;
+			    printf("%3d: TN= %.3s\n", f, key);
 
-			printf("id=%d\n", id);
-			if ((m = map_find(c->comp_hdr->tag_encoding_map,
-					  (unsigned char *)key, id))) {
-			    int i, out_sz;
+			    printf("id=%d\n", id);
+			    if ((m = map_find(c->comp_hdr->tag_encoding_map,
+					      (unsigned char *)key, id))) {
+				int i, out_sz;
 
-			    BLOCK_SIZE(tag) = 0;
-			    r = m->codec->decode(s, m->codec, b, (char *)tag, &out_sz);
-			    printf("%3d: Val", f);
-			    for(i = 0; i < out_sz; i++) {
-				printf(" %02x", BLOCK_DATA(tag)[i]);
+				BLOCK_SIZE(tag) = 0;
+				r = m->codec->decode(s, m->codec, b, (char *)tag, &out_sz);
+				printf("%3d: Val", f);
+				for(i = 0; i < out_sz; i++) {
+				    printf(" %02x", BLOCK_DATA(tag)[i]);
+				}
+				printf("\n");
+			    } else {
+				fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
 			    }
-			    printf("\n");
-			} else {
-			    fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
-			}
 
-			cram_free_block(tag);
-			// skip decoding of tag data itself and hope it's
-			// in an external block.
+			    cram_free_block(tag);
+			    // skip decoding of tag data itself and hope it's
+			    // in an external block.
+			}
+		    } else {
+			int32_t tl, ntags;
+			char *tn;
+			r = c->comp_hdr->TL_codec->decode(s,c->comp_hdr->TL_codec, b, (char *)&tl, &out_sz);
+			printf("TL = %d (ret %d, out_sz %d)\n", tl, r, out_sz);
+
+			tn = (char *)c->comp_hdr->TL[tl];
+			ntags = strlen(tn)/3;
+
+			for (f = 0; f < ntags; f++) {
+			    int32_t id;
+			    char key[3];
+			    cram_map *m;
+			    cram_block *tag = cram_new_block(EXTERNAL, 0);
+
+			    key[0] = *tn++;
+			    key[1] = *tn++;
+			    key[2] = *tn++;
+			    id = (key[0]<<16) | (key[1]<<8) | key[2];
+			    printf("%3d: TN= %.3s\n", f, key);
+
+			    printf("id=%d\n", id);
+			    if ((m = map_find(c->comp_hdr->tag_encoding_map,
+					      (unsigned char *)key, id))) {
+				int i, out_sz;
+
+				BLOCK_SIZE(tag) = 0;
+				r = m->codec->decode(s, m->codec, b, (char *)tag, &out_sz);
+				printf("%3d: Val", f);
+				for(i = 0; i < out_sz; i++) {
+				    printf(" %02x", BLOCK_DATA(tag)[i]);
+				}
+				printf("\n");
+			    } else {
+				fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
+			    }
+
+			    cram_free_block(tag);
+			    // skip decoding of tag data itself and hope it's
+			    // in an external block.
+			}
 		    }
 
-		    if (!(bf & CRAM_FUNMAP)) {
+		    if (!(bf & BAM_FUNMAP)) {
 			r = c->comp_hdr->FN_codec->decode(s,c->comp_hdr->FN_codec, b, (char *)&fn, &out_sz);
 			printf("FN = %d (ret %d, out_sz %d)\n", fn, r, out_sz);
 
