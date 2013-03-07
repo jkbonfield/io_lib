@@ -1925,7 +1925,7 @@ static void cram_init_tables(cram_fd *fd) {
 	}
     } else {
 	/* NOP */
-	for (i = 0; i < 0x200; i++)
+	for (i = 0; i < 0x800; i++)
 	    fd->bam_flag_swap[i] = i;
 	for (i = 0; i < 0x800; i++)
 	    fd->cram_flag_swap[i] = i;
