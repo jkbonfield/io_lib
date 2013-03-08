@@ -14,10 +14,10 @@ void cram_index_free(cram_fd *fd);
  * Searches the index for the first slice overlapping a reference ID
  * and position.
  *
- * Returns the cram_index_entry pointer on sucess
+ * Returns the cram_index pointer on sucess
  *         NULL on failure
  */
-cram_index_entry *cram_index_query(cram_fd *fd, int refid, int pos);
+cram_index *cram_index_query(cram_fd *fd, int refid, int pos, cram_index *frm);
 
 /*
  * Skips to a container overlapping the start coordinate listed in
