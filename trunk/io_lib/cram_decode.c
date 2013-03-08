@@ -1431,11 +1431,13 @@ cram_record *cram_get_seq(cram_fd *fd) {
     if (fd->range.refid != -2) {
 	if (s->crecs[c->curr_rec].ref_id != fd->range.refid) {
 	    fd->eof = 1;
+	    cram_free_slice(s);
 	    return NULL;
 	}
 
 	if (s->crecs[c->curr_rec].apos > fd->range.end) {
 	    fd->eof = 1;
+	    cram_free_slice(s);
 	    return NULL;
 	}
 
