@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <io_lib/cram.h>
+#include <io_lib/bam.h>
 
 void usage(FILE *fp) {
     fprintf(fp, "Usage: cram_to_sam [-m] [-b] [-0..9] [-u] "
@@ -35,7 +36,8 @@ int main(int argc, char **argv) {
     int decode_md = 0;
     cram_opt opt;
     int C;
-    int refid = -2, start, end;
+    int start, end;
+    char ref_name[1024] = {0};
 
     while ((C = getopt(argc, argv, "bu0123456789mp:hr:")) != -1) {
 	switch (C) {
@@ -64,22 +66,27 @@ int main(int argc, char **argv) {
 	    usage(stdout);
 	    return 0;
 
-	case 'r':
-	    switch (sscanf(optarg, "%d:%d-%d", &refid, &start, &end)) {
-	    case 1:
-		start = 1;
-		end = INT_MAX;
-		break;
-	    case 2:
-		end = INT_MAX;
-		break;
-	    case 3:
-		break;
-	    default:
-		fprintf(stderr, "Malformed range format\n");
-		return 1;
+	case 'r': {
+	    char *cp = strchr(optarg, ':');
+	    if (cp) {
+		*cp = 0;
+		switch (sscanf(cp+1, "%d-%d", &start, &end)) {
+		case 1:
+		    end = start;
+		    break;
+		case 2:
+		    break;
+		default:
+		    fprintf(stderr, "Malformed range format\n");
+		    return 1;
+		}
+	    } else {
+		start = INT_MIN;
+		end   = INT_MAX;
 	    }
+	    strncpy(ref_name, optarg, 1023);
 	    break;
+	}
 
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -111,12 +118,8 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    if (refid != -2) {
+    if (*ref_name != 0)
 	cram_index_load(fd, argv[optind]);
-	cram_index_query(fd, refid, start);
-	fflush(stdout);
-	//exit(0);
-    }
 
     if (prefix)
 	opt.s = prefix, cram_set_option(fd, CRAM_OPT_PREFIX, &opt);
@@ -133,12 +136,17 @@ int main(int argc, char **argv) {
     if (-1 == bam_parse_header(bfd))
         return 1;
 
-    bam_write_header(bfd);
     if (fd->refs)
 	refs2id(fd->refs, bfd);
 
-    if (refid != -2) {
+    if (*ref_name != 0) {
 	cram_range r;
+	int refid = bam_name2ref(fd->SAM_hdr, ref_name);
+
+	if (refid == -1 && *ref_name != '*') {
+	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
+	    return 1;
+	}
 	r.refid = refid;
 	r.start = start;
 	r.end = end;
@@ -146,8 +154,15 @@ int main(int argc, char **argv) {
 	cram_set_option(fd, CRAM_OPT_RANGE, &opt);
     }
 
+    bam_write_header(bfd);
+
     while (cram_get_bam_seq(fd, &bam, &bam_alloc) == 0) {
 	bam_put_seq(bfd, bam);
+    }
+
+    if (!cram_eof(fd)) {
+	fprintf(stderr, "Error while reading file\n");
+	return 1;
     }
 
     cram_close(fd);
