@@ -245,11 +245,21 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 
 	//printf("%s codes for %.2s\n", cram_encoding2str(encoding), key);
 
+	/*
+	 * For CRAM1.0 CF and BF are Byte and not Int.
+	 * Practically speaking it makes no difference unless we have a
+	 * 1.0 format file that stores these in EXTERNAL as only then
+	 * does Byte vs Int matter.
+	 *
+	 * Neither this C code nor Java reference implementations did this,
+	 * so we gloss over it and treat them as int.
+	 */
+
 	if (key[0] == 'B' && key[1] == 'F')
 	    hdr->BF_codec = cram_decoder_init(encoding, cp, size, E_INT,
 					      fd->version);
 	else if (key[0] == 'C' && key[1] == 'F')
-	    hdr->CF_codec = cram_decoder_init(encoding, cp, size, E_BYTE,
+	    hdr->CF_codec = cram_decoder_init(encoding, cp, size, E_INT,
 					      fd->version);
 	else if (key[0] == 'R' && key[1] == 'I')
 	    hdr->RI_codec = cram_decoder_init(encoding, cp, size, E_INT,
@@ -264,7 +274,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    hdr->RG_codec = cram_decoder_init(encoding, cp, size, E_INT,
 					      fd->version);
 	else if (key[0] == 'M' && key[1] == 'F')
-	    hdr->MF_codec = cram_decoder_init(encoding, cp, size, E_BYTE,
+	    hdr->MF_codec = cram_decoder_init(encoding, cp, size, E_INT,
 					      fd->version);
 	else if (key[0] == 'N' && key[1] == 'S')
 	    hdr->NS_codec = cram_decoder_init(encoding, cp, size, E_INT,
@@ -1348,6 +1358,27 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	    if (!(c = fd->ctr = cram_read_container(fd)))
 		return NULL;
 
+	    /* Skip containers not yet spanning our range */
+	    if (fd->range.refid != -2) {
+		if (c->ref_seq_id != fd->range.refid) {
+		    fd->eof = 1;
+		    return NULL;
+		}
+
+		if (c->ref_seq_start > fd->range.end) {
+		    fd->eof = 1;
+		    return NULL;
+		}
+
+		if (c->ref_seq_start + c->ref_seq_span-1 <
+		    fd->range.start) {
+		    c->curr_rec = c->max_rec;
+		    c->curr_slice = c->max_slice;
+		    cram_seek(fd, c->length, SEEK_CUR);
+		    goto try_again;
+		}
+	    }
+
 	    if (!(c->comp_hdr_block = cram_read_block(fd)))
 		return NULL;
 	    assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
@@ -1358,7 +1389,8 @@ cram_record *cram_get_seq(cram_fd *fd) {
 		return NULL;
 	}
 
-	s = c->slice = cram_read_slice(fd);
+	if (!(s = c->slice = cram_read_slice(fd)))
+	    return NULL;
 	c->curr_slice++;
 	c->curr_rec = 0;
 	c->max_rec = s->hdr->num_records;
@@ -1370,6 +1402,25 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	for (id = 0; id < s->hdr->num_blocks; id++)
 	    cram_uncompress_block(s->block[id]);
 
+	/* Skip slices not yet spanning our range */
+	if (fd->range.refid != -2) {
+	    if (s->hdr->ref_seq_id != fd->range.refid) {
+		fd->eof = 1;
+		return NULL;
+	    }
+
+	    if (s->hdr->ref_seq_start > fd->range.end) {
+		fd->eof = 1;
+		return NULL;
+	    }
+
+	    if (s->hdr->ref_seq_start + s->hdr->ref_seq_span-1 <
+		fd->range.start) {
+		c->curr_rec = c->max_rec;
+		goto try_again;
+	    }
+	}
+
 	/* Test decoding of 1st seq */
 	if (cram_decode_slice(fd, c, s, fd->SAM_hdr) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
@@ -1378,11 +1429,15 @@ cram_record *cram_get_seq(cram_fd *fd) {
     }
 
     if (fd->range.refid != -2) {
-	if (s->crecs[c->curr_rec].ref_id != fd->range.refid)
+	if (s->crecs[c->curr_rec].ref_id != fd->range.refid) {
+	    fd->eof = 1;
 	    return NULL;
+	}
 
-	if (s->crecs[c->curr_rec].apos > fd->range.end)
+	if (s->crecs[c->curr_rec].apos > fd->range.end) {
+	    fd->eof = 1;
 	    return NULL;
+	}
 
 	if (s->crecs[c->curr_rec].aend < fd->range.start) {
 	    c->curr_rec++;
@@ -1413,4 +1468,3 @@ int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc) {
 
     return 0;
 }
-

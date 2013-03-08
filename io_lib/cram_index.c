@@ -34,6 +34,22 @@
 #include "io_lib/os.h"
 #include "io_lib/zfio.h"
 
+static void dump_index_(cram_index *e, int level) {
+    int i, n;
+    n = printf("%*s%d / %d .. %d, ", level*4, "", e->refid, e->start, e->end);
+    printf("%*soffset %"PRId64"\n", MAX(0,50-n), "", e->offset);
+    for (i = 0; i < e->nslice; i++) {
+	dump_index_(&e->e[i], level+1);
+    }
+}
+
+static void dump_index(cram_fd *fd) {
+    int i;
+    for (i = 0; i < fd->index_sz; i++) {
+	dump_index_(&fd->index[i], 0);
+    }
+}
+
 /*
  * Loads a CRAM .crai index into memory.
  * Returns 0 for success
@@ -42,17 +58,25 @@
 int cram_index_load(cram_fd *fd, char *fn) {
     char line[1024], fn2[PATH_MAX];
     zfp *fp;
-    int nalloc = 0;
-    int nind = 0;
-    cram_index_entry *e = NULL;
+    cram_index *idx;
+    cram_index **idx_stack = NULL, *ep, e;
+    int idx_stack_alloc = 0, idx_stack_ptr = 0;
 
     /* Check if already loaded */
     if (fd->index)
 	return 0;
 
-    fd->index = malloc(sizeof(*fd->index));
+    fd->index = calloc((fd->index_sz = 1), sizeof(*fd->index));
     if (!fd->index)
 	return -1;
+
+    idx = &fd->index[0];
+    idx->refid = -1;
+    idx->start = INT_MIN;
+    idx->end   = INT_MAX;
+
+    idx_stack = calloc(++idx_stack_alloc, sizeof(*idx_stack));
+    idx_stack[idx_stack_ptr] = idx;
 
     sprintf(fn2, "%s.crai", fn);
     if (!(fp = zfopen(fn2, "r"))) {
@@ -61,39 +85,81 @@ int cram_index_load(cram_fd *fd, char *fn) {
     }
 
     while (zfgets(line, 1024, fp)) {
-	if (nind >= nalloc) {
-	    nalloc = nalloc ? nalloc*2 : 1024;
-	    e = realloc(e, nalloc * sizeof(*e));
-	    if (!e)
-		return -1;
+	int n;
+
+	/* 1.1 layout */
+	n = sscanf(line, "%d\t%d\t%d\t%"PRId64"\t%d\t%d",
+		   &e.refid,
+		   &e.start,
+		   &e.end,
+		   &e.offset,
+		   &e.slice,
+		   &e.len);
+	e.end += e.start-1;
+	//printf("%d/%d..%d\n", e.refid, e.start, e.end);
+
+	if (e.refid != idx->refid) {
+	    if (fd->index_sz < e.refid+2) {
+		fd->index_sz = e.refid+2;
+		fd->index = realloc(fd->index,
+				    fd->index_sz * sizeof(*fd->index));
+	    }
+	    idx = &fd->index[e.refid+1];
+	    idx->refid = e.refid;
+	    idx->start = INT_MIN;
+	    idx->end   = INT_MAX;
+	    idx->nslice = idx->nalloc = 0;
+	    idx->e = NULL;
+	    idx_stack[(idx_stack_ptr = 0)] = idx;
 	}
 
-	if (5 != sscanf(line, "%d\t%d\t%d\t%"PRId64"\t%d",
-			&e[nind].refid,
-			&e[nind].start,
-			&e[nind].nseq,
-			&e[nind].offset,
-			&e[nind].slice)) {
-	    fprintf(stderr, "Malformed index line\n");
-	    return -1;
+	while (!(e.start >= idx->start && e.end <= idx->end)) {
+	    idx = idx_stack[--idx_stack_ptr];
 	}
 
-	nind++;
+	// Now contains, so append
+	if (idx->nslice+1 >= idx->nalloc) {
+	    idx->nalloc = idx->nalloc ? idx->nalloc*2 : 16;
+	    idx->e = realloc(idx->e, idx->nalloc * sizeof(*idx->e));
+	}
+
+	e.nalloc = e.nslice = 0; e.e = NULL;
+	*(ep = &idx->e[idx->nslice++]) = e;
+	idx = ep;
+
+	if (++idx_stack_ptr >= idx_stack_alloc) {
+	    idx_stack_alloc *= 2;
+	    idx_stack = realloc(idx_stack, idx_stack_alloc*sizeof(*idx_stack));
+	}
+	idx_stack[idx_stack_ptr] = idx;
     }
     zfclose(fp);
+    free(idx_stack);
 
-    fd->index->nslice = nind;
-    fd->index->e = e;
+    // dump_index(fd);
 
     return 0;
 }
 
+static void cram_index_free_recurse(cram_index *e) {
+    if (e->e) {
+	int i;
+	for (i = 0; i < e->nslice; i++) {
+	    cram_index_free_recurse(&e->e[i]);
+	}
+	free(e->e);
+    }
+}
+
 void cram_index_free(cram_fd *fd) {
+    int i;
+
     if (!fd->index)
 	return;
-
-    if (fd->index->e)
-	free(fd->index->e);
+    
+    for (i = 0; i < fd->index_sz; i++) {
+	cram_index_free_recurse(&fd->index[i]);
+    }
     free(fd->index);
 
     fd->index = NULL;
@@ -103,62 +169,58 @@ void cram_index_free(cram_fd *fd) {
  * Searches the index for the first slice overlapping a reference ID
  * and position, or one immediately preceeding it if none is found in
  * the index to overlap this position. (Our index may have missing
- * entries.)
+ * entries, but we require at least one per reference.)
  *
- * Returns the cram_index_entry pointer on sucess
+ * If the index finds multiple slices overlapping this position we
+ * return the first one only. Subsequent calls should specifying
+ * "from" as the last slice we checked to find the next one. Otherwise
+ * set "from" to be NULL to find the first one.
+ *
+ * Returns the cram_index pointer on sucess
  *         NULL on failure
  */
-cram_index_entry *cram_index_query(cram_fd *fd, int refid, int pos) {
+cram_index *cram_index_query(cram_fd *fd, int refid, int pos, 
+			     cram_index *from) {
     int i, j, k;
-    cram_index_entry *e;
+    cram_index *e;
 
     i = 0, j = fd->index->nslice-1;
 
-    if (refid == -1) {
-	i = fd->index->nslice-1;
-	while (i > 0 && fd->index->e[i-1].refid == -1)
-	    i--;
-	goto skip;
+    if (!from) {
+	if (refid+1 < 0 || refid+1 >= fd->index_sz)
+	    return NULL;
+	from = &fd->index[refid+1];
     }
 
     for (k = j/2; k != i; k = (j-i)/2 + i) {
-//	printf("%d/%d\t%d..%d..%d %d..%d..%d %d..%d..%d\n",
-//	       refid, pos, i, j, k,
-//	       fd->index->e[i].refid,
-//	       fd->index->e[j].refid,
-//	       fd->index->e[k].refid,
-//	       fd->index->e[i].start,
-//	       fd->index->e[j].start,
-//	       fd->index->e[k].start);
-	if (fd->index->e[k].refid > refid) {
+	if (from->e[k].refid > refid) {
 	    j = k;
 	    continue;
 	}
 
-	if (fd->index->e[k].refid < refid) {
+	if (from->e[k].refid < refid) {
 	    i = k;
 	    continue;
 	}
 
-	if (fd->index->e[k].start >= pos) {
+	if (from->e[k].start >= pos) {
 	    j = k;
 	    continue;
 	}
 
-	if (fd->index->e[k].start < pos) {
+	if (from->e[k].start < pos) {
 	    i = k;
 	    continue;
 	}
     }
 
     /* Special case for matching a start pos */
-    if (i+1 < fd->index->nslice &&
-	fd->index->e[i+1].start == pos &&
-	fd->index->e[i+1].refid == refid)
+    if (i+1 < from->nslice &&
+	from->e[i+1].start == pos &&
+	from->e[i+1].refid == refid)
 	i++;
 
- skip:
-    e = &fd->index->e[i];
+    e = &from->e[i];
 
     return e;
 }
@@ -194,23 +256,27 @@ int cram_seek(cram_fd *fd, off_t offset, int whence) {
  * Skips to a container overlapping the start coordinate listed in
  * cram_range.
  *
+ * In theory we call cram_index_query multiple times, once per slice
+ * overlapping the range. However slices may be absent from the index
+ * which makes this problematic. Instead we find the left-most slice
+ * and then read from then on, skipping decoding of slices and/or
+ * whole containers when they don't overlap the specified cram_range.
+ *
  * Returns 0 on success
  *        -1 on failure
  */
 int cram_seek_to_refpos(cram_fd *fd, cram_range *r) {
-    cram_index_entry *e;
+    cram_index *e;
 
     // Ideally use an index, so see if we have one.
-    if ((e = cram_index_query(fd, r->refid, r->start))) {
-	if (0 != cram_seek(fd, e->offset + fd->first_container, SEEK_SET))
-	    return -1;
+    if ((e = cram_index_query(fd, r->refid, r->start, NULL))) {
+	if (0 != cram_seek(fd, e->offset, SEEK_SET))
+	    if (0 != cram_seek(fd, e->offset - fd->first_container, SEEK_CUR))
+		return -1;
     } else {
-	// Skip manually. NB: only works for first seek
-	if (0 != cram_seek(fd, e->offset, SEEK_CUR))
-	    return -1;
+	fprintf(stderr, "Unknown reference ID. Missing from index?\n");
+	return -1;
     }
-
-    // FIXME: ignores slice number currently
 
     return 0;
 }

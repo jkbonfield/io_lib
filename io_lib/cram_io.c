@@ -1171,15 +1171,19 @@ cram_container *cram_read_container(cram_fd *fd) {
 
     memset(&c2, 0, sizeof(c2));
     if (fd->version == CRAM_1_VERS) {
-	if ((s = itf8_decode(fd, &c2.length)) == -1)
+	if ((s = itf8_decode(fd, &c2.length)) == -1) {
+	    fd->eof = 1;
 	    return NULL;
-	else
+	} else {
 	    rd+=s;
+	}
     } else {
-	if ((s = int32_decode(fd, &c2.length)) == -1)
+	if ((s = int32_decode(fd, &c2.length)) == -1) {
+	    fd->eof = 1;
 	    return NULL;
-	else
+	} else {
 	    rd+=s;
+	}
     }
     if ((s = itf8_decode(fd, &c2.ref_seq_id))   == -1) return NULL; else rd+=s;
     if ((s = itf8_decode(fd, &c2.ref_seq_start))== -1) return NULL; else rd+=s;
@@ -1565,7 +1569,9 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     }
 
     for (max_id = i = 0; i < n; i++) {
-	s->block[i] = cram_read_block(fd);
+	if (!(s->block[i] = cram_read_block(fd)))
+	    return NULL;
+
 	if (s->block[i]->content_type == EXTERNAL &&
 	    max_id < s->block[i]->content_id)
 	    max_id = s->block[i]->content_id;
@@ -2044,6 +2050,7 @@ cram_fd *cram_open(char *filename, char *mode) {
 	fd->m[i] = cram_new_metrics();
 
     fd->range.refid = -2; // no ref.
+    fd->eof = 0;
 
     return fd;
 
@@ -2102,6 +2109,13 @@ int cram_close(cram_fd *fd) {
 
     free(fd);
     return 0;
+}
+
+/*
+ * Returns 1 if we hit an EOF while reading.
+ */
+int cram_eof(cram_fd *fd) {
+    return fd->eof;
 }
 
 

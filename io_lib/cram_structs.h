@@ -462,18 +462,29 @@ typedef struct {
 
 /*-----------------------------------------------------------------------------
  * CRAM index
+ *
+ * Detect format by number of entries per line.
+ * 5 => 1.0 (refid, start, nseq, C offset, slice)
+ * 6 => 1.1 (refid, start, span, C offset, S offset, S size)
+ *
+ * Indices are stored in a nested containment list, which is trivial to set
+ * up as the indices are on sorted data so we're appending to the nclist
+ * in sorted order. Basically if a slice entirely fits within a previous
+ * slice then we append to that slices list. This is done recursively.
+ *
+ * Lists are sorted on two dimensions: ref id + slice coords.
  */
-typedef struct {
-    int     refid;
-    int     start;
-    int     nseq;
-    int     slice;
-    int64_t offset;
-} cram_index_entry;
+typedef struct cram_index {
+    int nslice, nalloc;   // total number of slices
+    struct cram_index *e; // array of size nslice
 
-typedef struct {
-    int nslice;          // total number of slices
-    cram_index_entry *e; // array of size nslice
+    int     refid;  // 1.0                 1.1
+    int     start;  // 1.0                 1.1
+    int     end;    //                     1.1
+    int     nseq;   // 1.0 - undocumented
+    int     slice;  // 1.0 landmark index, 1.1 landmark value
+    int     len;    //                     1.1 - size of slice in bytes
+    int64_t offset; // 1.0                 1.1
 } cram_index;
 
 typedef struct {
@@ -531,8 +542,10 @@ typedef struct {
     unsigned char L2[256];              // ACGTN{*}->01234{5}
     char cram_sub_matrix[32][32];	// base substituion codes
 
-    cram_index *index;
+    int         index_sz;
+    cram_index *index;                  // array, sizeof index_sz
     off_t first_container;
+    int eof;
 } cram_fd;
 
 enum cram_option {

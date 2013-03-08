@@ -516,9 +516,9 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	i32 = fd->cram_flag_swap[cr->flags & 0x7ff];
 	r |= h->BF_codec->encode(s, h->BF_codec, core, (char *)&i32, 1);
 
-	uc = cr->cram_flags;
+	i32 = cr->cram_flags;
 	r |= h->CF_codec->encode(s, h->CF_codec, core,
-				 (char *)&uc, 1);
+				 (char *)&i32, 1);
 
 	if (fd->version != CRAM_1_VERS)
 	    r |= h->RI_codec->encode(s, h->RI_codec, core,
@@ -539,8 +539,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	}
 
 	if (cr->cram_flags & CRAM_FLAG_DETACHED) {
-	    char mf = cr->mate_flags;
-	    r |= h->MF_codec->encode(s, h->MF_codec, core, &mf, 1);
+	    i32 = cr->mate_flags;
+	    r |= h->MF_codec->encode(s, h->MF_codec, core, (char *)&i32, 1);
 
 	    if (!c->comp_hdr->read_names_included) {
 		// RN codec: Already stored in block[3].
@@ -715,7 +715,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 #endif
 
     /* Compress the CORE Block too, with minimal zlib level */
-    if (fd->level != 0)
+    if (fd->level > 5)
 	cram_compress_block(fd, s->block[0], NULL, 1, Z_FILTERED, -1, -1);
 
     /* Compress the other blocks */
@@ -797,7 +797,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     //fprintf(stderr, "=== CF ===\n");
     h->CF_codec = cram_encoder_init(cram_stats_encoding(fd, c->CF_stats),
-				    c->CF_stats, E_BYTE, NULL,
+				    c->CF_stats, E_INT, NULL,
 				    fd->version);
 
 //    fprintf(stderr, "=== RN ===\n");
@@ -832,7 +832,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     //fprintf(stderr, "=== MF ===\n");
     h->MF_codec = cram_encoder_init(cram_stats_encoding(fd, c->MF_stats),
-				    c->MF_stats, E_BYTE, NULL,
+				    c->MF_stats, E_INT, NULL,
 				    fd->version);
 
 #ifdef TS_external

@@ -56,18 +56,23 @@ int main(int argc, char **argv) {
 	if (!c->comp_hdr)
 	    return 1;
 
+	// 1.1 format
 	for (j = 0; j < c->num_landmarks; j++) {
 	    char buf[1024];
 	    cram_slice *s;
+	    int sz;
 	    
 	    spos = ftello(fd->fp);
 	    assert(spos - cpos - c->offset == c->landmark[j]);
 
 	    s = cram_read_slice(fd);
 
-	    sprintf(buf, "%d\t%d\t%d\t%"PRId64"\t%d\n",
+	    sz = (int)(ftello(fd->fp) - spos);
+
+	    sprintf(buf, "%d\t%d\t%d\t%"PRId64"\t%d\t%d\n",
 		    s->hdr->ref_seq_id, s->hdr->ref_seq_start,
-		    s->hdr->num_records, (int64_t)(cpos-first_c), j);
+		    s->hdr->ref_seq_span, (int64_t)cpos,
+		    c->landmark[j], sz);
 	    zfputs(buf, fp);
 
 	    cram_free_slice(s);
