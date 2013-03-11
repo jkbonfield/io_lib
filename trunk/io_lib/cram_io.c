@@ -268,7 +268,7 @@ int ltf8_get(char *cp, int64_t *val_p) {
 		  ((uint64_t)up[3]<< 8) |
 		   (uint64_t)up[4]) & ((1LL<<(3+4*8))-1);
 	return 5;
-    } else if (up[0] < 0xf8) {
+    } else if (up[0] < 0xfc) {
 	*val_p = (((uint64_t)up[0]<<40) |
 		  ((uint64_t)up[1]<<32) |
 		  ((uint64_t)up[2]<<24) |
