@@ -20,6 +20,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include "io_lib/bam.h"
 #include "io_lib/os.h"
@@ -152,43 +153,65 @@ int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 }
 
 int load_bam_header(bam_file_t *b) {
-    char magic[4];
+    char magic[4], *header;
     int i;
+    int32_t header_len, nref;
 
     if (4 != bam_read(b, magic, 4))
 	return -1;
     if (memcmp(magic, "BAM\x01",4) != 0)
 	return -1;
-    if (4 != bam_read(b, &b->header_len, 4))
+    if (4 != bam_read(b, &header_len, 4))
 	return -1;
-    b->header_len = le_int4(b->header_len);
-    if (!(b->header = malloc(b->header_len+100))) // FIXME, for bam_add_rg()
+    header_len = le_int4(header_len);
+    if (!(header = malloc(header_len+100))) // FIXME, for bam_add_rg()
 	return -1;
-    if (b->header_len != bam_read(b, b->header, b->header_len))
+    if (header_len != bam_read(b, header, header_len))
 	return -1;
-    if (4 != bam_read(b, &b->nref, 4))
-	return -1;
-    b->nref = le_int4(b->nref);
 
-    b->ref = malloc(b->nref * sizeof(*b->ref));
-    for (i = 0; i < b->nref; i++) {
-	uint32_t nlen;
+    if (!(b->header = sam_header_parse(header, header_len)))
+	return -1;
+    free(header);
+
+    /* Load the reference data and check it matches the parsed header */
+    if (4 != bam_read(b, &nref, 4))
+	return -1;
+    nref = le_int4(nref);
+    if (b->header->nref != nref) {
+	fprintf(stderr, "Error: @RG lines are at odds with "
+		"binary encoded reference data\n");
+	return -1;
+    }
+
+    for (i = 0; i < nref; i++) {
+	uint32_t nlen, len;
+	char name[1024];
+
 	if (4 != bam_read(b, &nlen, 4))
 	    return -1;
 	nlen = le_int4(nlen);
+	if (nlen != bam_read(b, name, nlen))
+	    return -1;
 
-	b->ref[i].name = calloc(1, nlen);
-	if (nlen != bam_read(b, b->ref[i].name, nlen))
+	if (strcmp(b->header->ref[i].name, name)) {
+	    fprintf(stderr, "Error: @RG lines are at odds with "
+		    "binary encoded reference data\n");
 	    return -1;
-	if (4 != bam_read(b, &b->ref[i].len, 4))
+	}
+
+	if (4 != bam_read(b, &len, 4))
 	    return -1;
-	b->ref[i].len = le_int4(b->ref[i].len);
+	len = le_int4(len);
+
+	if (b->header->ref[i].len != len) {
+	    fprintf(stderr, "Error: @RG lines are at odds with "
+		    "binary encoded reference data\n");
+	    return -1;
+	}
+
     }
 
-    for (i = 0; i < b->header_len; i++) {
-	if (b->header[i] == '\n')
-	    b->line++;
-    }
+    b->line = 0; // FIXME
 
     return 0;
 }
@@ -196,361 +219,33 @@ int load_bam_header(bam_file_t *b) {
 int load_sam_header(bam_file_t *b) {
     unsigned char *str = NULL;
     size_t alloc = 0, len;
-    int header_pos = 0;
-
-    b->header = NULL;
-    b->header_len = 0;
-    
-    b->ref  = NULL;
-    b->nref = 0;
+    dstring_t *header = dstring_create(NULL);;
 
     while ((b->out_sz > 0 || bam_more_output(b) > 0) && *b->out_p == '@') {
 	b->line++;
 	if ((len = bam_get_line(b, &str, &alloc)) == -1)
 	    return -1;
 
-	/* Add header lines to b->header */
-	if (header_pos + len + 1>= b->header_len) {
-	    b->header_len += 8192;
-	    b->header = realloc(b->header, b->header_len);
-	    if (!b->header)
-		return -1;
-	}
-	memcpy(&b->header[header_pos], str, len);
-	b->header[header_pos+len] = '\n';
-	header_pos += len+1;
-
-	/* Also parse any reference lines while reading the header */
-	if (str[1] == 'S' && str[2] == 'Q') {
-	    int rlen = -1;
-	    char *rname = NULL;
-	    unsigned char *cp = str+3;
-	    HashData hd;
-
-	    //printf("line=%ld/%ld/'%s'\n", (long)len, (long)strlen(str), str);
-
-	    if (*cp != '\t') {
-		fprintf(stderr, "Malformed header line '%s'\n", str);
-		return -1;
-	    }
-	    cp++;
-
-	    /* Tokenise line into key/value pairs */
-	    while (*cp) {
-		char *key = (char *)cp;
-		char *val;
-
-		if (!key[0] || !key[1] || key[2] != ':') {
-		    fprintf(stderr, "Malformed header line '%s'\n", str);
-		    return -1;
-		}
-		key[2] = '\0';
-
-		cp = (unsigned char *)(val = key+3);
-		while (*cp && *cp != '\t')
-		    cp++;
-
-		if (*cp)
-		    *cp++ = 0;
-
-		if (0 == strcmp(key, "LN")) {
-		    rlen = atoi(val);
-		} else if (0 == strcmp(key, "SN")) {
-		    rname = val;
-		}
-	    }
-
-	    if (!rname || rlen == -1) {
-		fprintf(stderr, "No SN or LN value in @SQ line\n");
-		return -1;
-	    }
-
-	    b->ref = realloc(b->ref, (b->nref+1)*sizeof(*b->ref));
-	    if (!b->ref)
-		return -1;
-	    b->ref[b->nref].len  = rlen;
-	    b->ref[b->nref].name = strdup(rname);
-
-	    hd.i = b->nref;
-	    HashTableAdd(b->ref_hash, b->ref[b->nref].name, 0, hd, NULL);
-
-	    b->nref++;
-	}
+	if (-1 == dstring_nappend(header, (char *)str, len))
+	    return -1;
+	if (-1 == dstring_append_char(header, '\n'))
+	    return -1;
     }
+    b->line = 0; // FIXME
 
-    /* Blank header if none supplied */
-    if (!b->header)
-	b->header = strdup("");
+    if (!(b->header = sam_header_parse((char *)dstring_str(header),
+				       dstring_length(header))))
+	return -1;
 
-    if (header_pos)
-	b->header[header_pos] = '\0';
-    b->header_len = header_pos;
-
-    if (str)
-	free(str);
+    dstring_destroy(header);
+    free(str);
 
     return 0;
 }
 
-/*
- * Extracts @RG records from the header and places them in a hash table.
- * Returns 0 on success
- *        -1 on failure
+/* --------------------------------------------------------------------------
+ * 
  */
-int bam_parse_header(bam_file_t *b) {
-    int i, j, lno = 0, num_rg = 0, num_rg_alloc = 0;
-    int ntabs = 0, ref_len = 0;
-    tag_list_t *tags = NULL;
-
-    if (!b->header)
-	return -1;
-
-    /* Deallocate any existing header structs */
-//    if (b->ref) {
-//	for (i = 0; i < b->nref; i++)
-//	    if (b->ref[i].name)
-//		free(b->ref[i].name);
-//    }
-
-    if (!b->rg_hash)
-	b->rg_hash = HashTableCreate(4, HASH_FUNC_HSIEH |
-				     HASH_DYNAMIC_SIZE |
-				     HASH_NONVOLATILE_KEYS);
-    if (!b->ref_hash)
-	b->ref_hash = HashTableCreate(16, HASH_FUNC_HSIEH |
-				      HASH_DYNAMIC_SIZE |
-				      HASH_NONVOLATILE_KEYS);
-
-    if (!b->rg_hash || !b->ref_hash)
-	return -1;
-
-    /* Extract the data into RG and SQ hashes */
-    b->nref = 0;
-    for (i = 0; i < b->header_len; i++) {
-	char *id = NULL;
-	int id_len = 0;
-	HashData hd;
-	int i_start = i, i_len;
-	int is_rg;
-
-	for (j = i; b->header[j] && j < b->header_len; j++)
-	    if (b->header[j] == '\n')
-		break;
-	i_len = j - i_start;
-	lno++;
-
-	if (b->header[i] != '@') {
-	    fprintf(stderr, "Header line does not start with '@' at line %d:\n"
-		    "\"%.*s\"\n",
-		    lno, i_len, &b->header[i_start]);
-            i = i_start + i_len;
-            continue;
-	}
-
-	/* RG or SQ only */
-	if (!((b->header[i+1] == 'R' && b->header[i+2] == 'G') ||
-	      (b->header[i+1] == 'S' && b->header[i+2] == 'Q'))) {
-	    i = i_start + i_len;
-	    continue;
-	}
-
-	is_rg = (b->header[i+1] == 'R' && b->header[i+2] == 'G');
-
-	/* Tokenise, not fast but doesn't matter */
-	if (is_rg) {
-	    for (ntabs = 0, j = i; j < b->header_len && b->header[j] != '\n'; j++)
-		if (b->header[j] == '\t')
-		    ntabs++;
-
-	    if (ntabs == 0) {
-		fprintf(stderr, "Missing tab in header line %d:\n\"%.*s\"\n",
-			lno, i_len, &b->header[i_start]);
-		i = i_start + i_len;
-		continue;
-	    }
-
-	    if (NULL == (tags = malloc((ntabs+2) * sizeof(*tags))))
-		return -1;
-
-	    /* First tag list item for RG is encoded number */
-	    tags[0].value = "RG_ID";
-	    tags[0].key = num_rg;
-	    tags[0].length = 0;
-
-	    ntabs = 1;
-	} else {
-	    ref_len = 0;
-	}
-	
-	while (i < b->header_len && b->header[i] != '\n') {
-	    if (b->header[i] == '\t')
-		break;
-	    i++;
-	}
-
-	while (i < b->header_len && b->header[i] != '\n') {
-	    if (b->header[i] == '\t') {
-		int key;
-		char *value;
-
-		if (!b->header[i+1] || !b->header[i+2] ||
-		    b->header[i+3] != ':') {
-		    fprintf(stderr,
-			    "Malformed key:value pair in header line %d:\n"
-			    "\"%.*s\"\n",
-			    lno, i_len, &b->header[i_start]);
-		    i = i_start + i_len;
-		    continue;
-		}
-
-		key = (b->header[i+1]<<8) + b->header[i+2]; 
-		i+=4;
-		
-		value = &b->header[i];
-		while (i < b->header_len && b->header[i] != '\n') {
-		    if (b->header[i] == '\t')
-			break;
-		    i++;
-		}
-
-		if (is_rg) {
-		    if (key == (('I'<<8) | 'D')) {
-			id = value;
-			id_len = &b->header[i] - value;
-		    } else {
-			tags[ntabs].value  = value;
-			tags[ntabs].key    = key;
-			tags[ntabs].length = &b->header[i] - value;
-			ntabs++;
-		    }
-		} else {
-		    if (key == (('S'<<8) | 'N')) {
-			id = value;
-			id_len = &b->header[i] - value;
-		    }
-
-		    if (key == (('L'<<8) | 'N')) {
-			ref_len = atoi(value);
-		    }
-		}
-	    }
-	}
-	if (is_rg) {
-	    tags[ntabs].value = NULL;
-	    
-	    if (id) {
-		int new = 0;
-		hd.p = tags;
-		HashTableAdd(b->rg_hash, id, id_len, hd, &new);
-		if (!new)
-		    free(tags);
-		
-		if (num_rg >= num_rg_alloc) {
-		    num_rg_alloc = num_rg_alloc
-			? num_rg_alloc * 2
-			: 8;
-
-		    b->rg_id  = realloc(b->rg_id,
-				       num_rg_alloc * sizeof(*b->rg_id));
-		    b->rg_len = realloc(b->rg_len,
-				       num_rg_alloc * sizeof(*b->rg_len));
-		}
-		b->rg_id[num_rg] = id;
-		b->rg_len[num_rg] = id_len;
-
-		num_rg++;
-	    } else {
-		fprintf(stderr, "No ID record in @RG line\n");
-	    }
-	} else {
-	    if (id) {
-		char tmp;
-
-		hd.i = b->nref++;
-		HashTableAdd(b->ref_hash, id, id_len, hd, NULL);
-		b->ref = realloc(b->ref, b->nref * sizeof(*b->ref));
-		tmp = id[id_len]; id[id_len] = 0;
-		b->ref[b->nref-1].name = strdup(id);
-		id[id_len] = tmp;
-		b->ref[b->nref-1].len = ref_len;
-	    } else {
-		fprintf(stderr, "No SN record in @SQ line\n");
-	    }
-	}
-
-	b->nrg = num_rg;
-
-	if (0 && is_rg) {
-	    printf("RG ID=%.*s\n", id_len, id);
-	    tag_list_t *t = tags;
-	    while (t->value) {
-		printf("%c%c -> '%.*s'\n",
-		       t->key >> 8, t->key & 0xff,
-		       t->length,
-		       t->value);
-		t++;
-	    }
-	}
-    }
-
-    return 0;
-}
-
-/*
- * Creates a new read-group.
- * Returns the read-group ID on success
- *         -1 on failure
- */
-int bam_add_rg(bam_file_t *b, char *id, char *sm) {
-    tag_list_t *tags = malloc(4 * sizeof(*tags));
-    HashData hd;
-    char *id_value, *sm_value, *hdr;
-    size_t id_len, sm_len;
-
-    if (!b || !b->rg_hash)
-	return -1;
-
-    if (!tags)
-	return -1;
-
-    /* Append a line to the string header */
-    // FIXME: Only works as we allocated extra space.
-    // We need a proper header structure we can manipulate and
-    // stringify.
-    hdr = b->header + b->header_len;
-    strncpy(hdr, "@RG\tID:", 7); hdr += 7; b->header_len += 7;
-    id_value = hdr;
-    id_len = strlen(id);
-    strncpy(hdr, id, id_len); hdr += id_len; b->header_len += id_len;
-
-    strncpy(hdr, "\tSM:", 4); hdr += 4; b->header_len += 4;
-    sm_value = hdr;
-    sm_len = strlen(sm);
-    strncpy(hdr, sm, sm_len); hdr += sm_len; b->header_len += sm_len;
-    *hdr = '\n'; b->header_len++;
-
-    /* Add to the hash table */
-    tags[0].key    = b->nrg;
-    tags[0].value  = "RG_ID";
-    tags[0].length = 0;
-    tags[1].key    = ('I'<<8)|'D';
-    tags[1].value  = id_value;
-    tags[1].length = id_len;
-    tags[2].key    = ('S'<<8)|'M';
-    tags[2].value  = sm_value;
-    tags[2].length = sm_len;
-    tags[3].value  = NULL;
-    
-    hd.p = tags;
-    HashTableAdd(b->rg_hash, tags[1].value, tags[1].length, hd, NULL);
-
-    return b->nrg++;
-}
-
-tag_list_t *bam_find_rg(bam_file_t *b, char *id) {
-    HashItem *hi = HashTableSearch(b->rg_hash, id, 0);
-    return hi ? (tag_list_t *)hi->data.p : NULL;
-}
 
 #ifndef O_BINARY
 #    define O_BINARY 0
@@ -608,10 +303,6 @@ bam_file_t *bam_open(char *fn, char *mode) {
     if (-1 == (b->fd = open(fn, b->mode, 0)))
 	goto error;
 
-    b->ref_hash = HashTableCreate(16, HASH_FUNC_HSIEH |
-				      HASH_DYNAMIC_SIZE |
-				      HASH_NONVOLATILE_KEYS);
-
     /* Load first block so we can check */
     bam_more_input(b);
     if (b->in_sz < 2)
@@ -650,10 +341,6 @@ bam_file_t *bam_open(char *fn, char *mode) {
 	b->bam = 0;
     }
 
-    /* Parse RG & SQ records in header */
-    if (-1 == bam_parse_header(b))
-	return NULL;
-
     return b;
 
  error:
@@ -691,27 +378,10 @@ void bam_close(bam_file_t *b) {
     if (b->bs)
 	free(b->bs);
     if (b->header)
-	free(b->header);
-    if (b->ref) {
-	int i;
-	for (i = 0; i < b->nref; i++)
-	    free(b->ref[i].name);
-	free(b->ref);
-    }
+	sam_header_free(b->header);
 
     if (b->gzip)
 	inflateEnd(&b->s);
-
-    if (b->ref_hash)
-	HashTableDestroy(b->ref_hash, 0);
-
-    if (b->rg_hash)
-	HashTableDestroy(b->rg_hash, 1);
-
-    if (b->rg_id)
-	free(b->rg_id);
-    if (b->rg_len)
-	free(b->rg_len);
 
     if (b->sam_str)
 	free(b->sam_str);
@@ -904,6 +574,7 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     bam_seq_t *bs;
     HashItem *hi;
     int start, end;
+    SAM_hdr *sh = b->header;
     static const int lookup[256] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 00 */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 10 */
@@ -971,24 +642,26 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	/* Unmapped */
 	bs->ref = -1;
     } else {
-	hi = HashTableSearch(b->ref_hash, (char *)cp, cpf-cp);
+	hi = HashTableSearch(b->header->ref_hash, (char *)cp, cpf-cp);
 	if (!hi) {
+	    SAM_hdr *sh = b->header;
 	    HashData hd;
 
 	    fprintf(stderr, "Reference seq %.*s unknown\n", (int)(cpf-cp), cp);
 
 	    /* Fabricate it instead */
-	    b->ref = realloc(b->ref, (b->nref+1)*sizeof(*b->ref));
-	    if (!b->ref)
+	    sh->ref = realloc(sh->ref, (sh->nref+1)*sizeof(*sh->ref));
+	    if (!sh->ref)
 		return -1;
-	    b->ref[b->nref].len  = 0; /* Unknown value */
-	    b->ref[b->nref].name = malloc(cpf-cp+1);
-	    memcpy(b->ref[b->nref].name, cp, cpf-cp);
-	    b->ref[b->nref].name[cpf-cp] = 0;
+	    sh->ref[sh->nref].len  = 0; /* Unknown value */
+	    sh->ref[sh->nref].name = malloc(cpf-cp+1);
+	    memcpy(sh->ref[sh->nref].name, cp, cpf-cp);
+	    sh->ref[sh->nref].name[cpf-cp] = 0;
 
-	    hd.i = b->nref;
-	    hi = HashTableAdd(b->ref_hash, b->ref[b->nref].name, 0, hd, NULL);
-	    b->nref++;
+	    hd.i = sh->nref;
+	    hi = HashTableAdd(sh->ref_hash, sh->ref[sh->nref].name, 0,
+			      hd, NULL);
+	    sh->nref++;
 	}
 	bs->ref = hi->data.i;
     }
@@ -1069,24 +742,25 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     } else if (*cp == '=' && cp[1] == '\t') {
 	bs->mate_ref = bs->ref;
     } else {
-	hi = HashTableSearch(b->ref_hash, (char *)cp, cpf-cp);
+	hi = HashTableSearch(sh->ref_hash, (char *)cp, cpf-cp);
 	if (!hi) {
 	    HashData hd;
 
 	    fprintf(stderr, "Mate ref seq \"%.*s\" unknown\n", (int)(cpf-cp), cp);
 
 	    /* Fabricate it instead */
-	    b->ref = realloc(b->ref, (b->nref+1)*sizeof(*b->ref));
-	    if (!b->ref)
+	    sh->ref = realloc(sh->ref, (sh->nref+1)*sizeof(*sh->ref));
+	    if (!sh->ref)
 		return -1;
-	    b->ref[b->nref].len  = 0; /* Unknown value */
-	    b->ref[b->nref].name = malloc(cpf-cp+1);
-	    memcpy(b->ref[b->nref].name, cp, cpf-cp);
-	    b->ref[b->nref].name[cpf-cp] = 0;
+	    sh->ref[sh->nref].len  = 0; /* Unknown value */
+	    sh->ref[sh->nref].name = malloc(cpf-cp+1);
+	    memcpy(sh->ref[sh->nref].name, cp, cpf-cp);
+	    sh->ref[sh->nref].name[cpf-cp] = 0;
 
-	    hd.i = b->nref;
-	    hi = HashTableAdd(b->ref_hash, b->ref[b->nref].name, 0, hd, NULL);
-	    b->nref++;
+	    hd.i = sh->nref;
+	    hi = HashTableAdd(sh->ref_hash, sh->ref[sh->nref].name, 0,
+			      hd, NULL);
+	    sh->nref++;
 	}
 	bs->mate_ref = hi->data.i;
     }
@@ -1313,16 +987,6 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	abort();
 
     return 1;
-}
-
-int bam_name2ref(bam_file_t *b, char *ref) {
-    HashItem *hi;
-
-    if (!b->ref_hash || !ref)
-	return -1;
-
-    hi = HashTableSearch(b->ref_hash, ref, strlen(ref));
-    return hi ? hi->data.i : -1;
 }
 
 /*
@@ -1812,16 +1476,16 @@ static unsigned char *append_int(unsigned char *cp, int32_t i) {
     //if (i < 10000000)   goto b6;
     if (i < 100000000)  goto b7;
 
- b9: if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
- b8: if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
+     if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
+     if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
  b7: if ((j = i / 10000000))   {*cp++ = j + '0'; i -= j*10000000;   goto x6;}
- b6: if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
+     if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
  b5: if ((j = i / 100000))     {*cp++ = j + '0', i -= j*100000;     goto x4;}
- b4: if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
+     if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
  b3: if ((j = i / 1000))       {*cp++ = j + '0', i -= j*1000;       goto x2;}
- b2: if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
+     if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
  b1: if ((j = i / 10))         {*cp++ = j + '0', i -= j*10;         goto x0;}
- b0: if (i)                     *cp++ = i + '0';
+     if (i)                     *cp++ = i + '0';
     return cp;
 
  x8: *cp++ = i / 100000000 + '0', i %= 100000000;
@@ -1858,16 +1522,16 @@ static unsigned char *append_uint(unsigned char *cp, uint32_t i) {
     //if (i < 10000000)   goto b6;
     if (i < 100000000)  goto b7;
 
- b9: if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
- b8: if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
+     if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
+     if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
  b7: if ((j = i / 10000000))   {*cp++ = j + '0'; i -= j*10000000;   goto x6;}
- b6: if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
+     if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
  b5: if ((j = i / 100000))     {*cp++ = j + '0', i -= j*100000;     goto x4;}
- b4: if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
+     if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
  b3: if ((j = i / 1000))       {*cp++ = j + '0', i -= j*1000;       goto x2;}
- b2: if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
+     if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
  b1: if ((j = i / 10))         {*cp++ = j + '0', i -= j*10;         goto x0;}
- b0: if (i)                     *cp++ = i + '0';
+     if (i)                     *cp++ = i + '0';
     return cp;
 
  x8: *cp++ = i / 100000000 + '0', i %= 100000000;
@@ -2074,9 +1738,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* RNAME */
 	if (b->ref != -1) {
-	    size_t l = strlen(fp->ref[b->ref].name);
+	    size_t l = strlen(fp->header->ref[b->ref].name);
 	    if (end-fp->out_p < l+1) BF_FLUSH();
-	    memcpy(fp->out_p, fp->ref[b->ref].name, l);
+	    memcpy(fp->out_p, fp->header->ref[b->ref].name, l);
 	    fp->out_p += l;
 	} else {
 	    if (end-fp->out_p < 2) BF_FLUSH();
@@ -2112,9 +1776,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		if (end-fp->out_p < 2) BF_FLUSH();
 		*fp->out_p++ = '=';
 	    } else {
-		size_t l = strlen(fp->ref[b->mate_ref].name);
+		size_t l = strlen(fp->header->ref[b->mate_ref].name);
 		if (end-fp->out_p < l+1) BF_FLUSH();
-		memcpy(fp->out_p, fp->ref[b->mate_ref].name, l);
+		memcpy(fp->out_p, fp->header->ref[b->mate_ref].name, l);
 		fp->out_p += l;
 	    }
 	} else {
@@ -2452,46 +2116,50 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
  *        -1 for failure
  */
 int bam_write_header(bam_file_t *out) {
-    char *header, *hp;
+    char *header, *hp, *htext;
     size_t hdr_size;
-    int i;
+    int i, htext_len;
 
-    hdr_size = 12 + out->header_len+1;
-    for (i = 0; i < out->nref; i++) {
-	hdr_size += strlen(out->ref[i].name)+1 + 8;
+    sam_header_rebuild(out->header);
+    htext = sam_header_str(out->header);
+    htext_len = sam_header_length(out->header);
+
+    hdr_size = 12 + htext_len+1;
+    for (i = 0; i < out->header->nref; i++) {
+	hdr_size += strlen(out->header->ref[i].name)+1 + 8;
     }
     if (NULL == (hp = header = malloc(hdr_size)))
 	return -1;
 
     if (out->binary) {
 	*hp++ = 'B'; *hp++ = 'A'; *hp++ = 'M'; *hp++ = 1;
-	*hp++ = (out->header_len >> 0) & 0xff;
-	*hp++ = (out->header_len >> 8) & 0xff;
-	*hp++ = (out->header_len >>16) & 0xff;
-	*hp++ = (out->header_len >>24) & 0xff;
+	*hp++ = (htext_len >> 0) & 0xff;
+	*hp++ = (htext_len >> 8) & 0xff;
+	*hp++ = (htext_len >>16) & 0xff;
+	*hp++ = (htext_len >>24) & 0xff;
     }
-    memcpy(hp, out->header, out->header_len);
-    hp += out->header_len;
+    memcpy(hp, htext, htext_len);
+    hp += htext_len;
 
     if (out->binary) {
 	int i;
 
-	*hp++ = (out->nref >> 0) & 0xff;
-	*hp++ = (out->nref >> 8) & 0xff;
-	*hp++ = (out->nref >>16) & 0xff;
-	*hp++ = (out->nref >>24) & 0xff;
+	*hp++ = (out->header->nref >> 0) & 0xff;
+	*hp++ = (out->header->nref >> 8) & 0xff;
+	*hp++ = (out->header->nref >>16) & 0xff;
+	*hp++ = (out->header->nref >>24) & 0xff;
 
-	for (i = 0; i < out->nref; i++) {
-	    size_t l = strlen(out->ref[i].name)+1;
+	for (i = 0; i < out->header->nref; i++) {
+	    size_t l = strlen(out->header->ref[i].name)+1;
 	    *hp++ = (l>> 0) & 0xff;
 	    *hp++ = (l>> 8) & 0xff;
 	    *hp++ = (l>>16) & 0xff;
 	    *hp++ = (l>>24) & 0xff;
 
-	    strcpy(hp, out->ref[i].name);
+	    strcpy(hp, out->header->ref[i].name);
 	    hp += l;
 
-	    l = out->ref[i].len;
+	    l = out->header->ref[i].len;
 	    *hp++ = (l>> 0) & 0xff;
 	    *hp++ = (l>> 8) & 0xff;
 	    *hp++ = (l>>16) & 0xff;
