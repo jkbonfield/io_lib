@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
     cram_opt opt;
     int C;
     int start, end;
-    char ref_name[1024] = {0};
+    char ref_name[1024] = {0}, *arg_list;
 
     while ((C = getopt(argc, argv, "bu0123456789mp:hr:")) != -1) {
 	switch (C) {
@@ -129,19 +129,11 @@ int main(int argc, char **argv) {
 
     cram_load_reference(fd, argv[optind+1]);
 
-    bfd->header_len = fd->SAM_hdr->header_len;
-    bfd->header = malloc(fd->SAM_hdr->header_len);
-    memcpy(bfd->header, fd->SAM_hdr->header, fd->SAM_hdr->header_len);
-
-    if (-1 == bam_parse_header(bfd))
-        return 1;
-
-    if (fd->refs)
-	refs2id(fd->refs, bfd);
+    bfd->header = fd->SAM_hdr;
 
     if (*ref_name != 0) {
 	cram_range r;
-	int refid = bam_name2ref(fd->SAM_hdr, ref_name);
+	int refid = sam_header_name2ref(fd->SAM_hdr, ref_name);
 
 	if (refid == -1 && *ref_name != '*') {
 	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
@@ -153,6 +145,14 @@ int main(int argc, char **argv) {
 	opt.s = (char *)&r;
 	cram_set_option(fd, CRAM_OPT_RANGE, &opt);
     }
+
+    /* SAM Header */
+    if (!(arg_list = stringify_argv(argc, argv)))
+	return 1;
+    sam_header_add_PG(bfd->header, "cram_to_sam",
+		      "VN", PACKAGE_VERSION,
+		      "CL", arg_list, NULL);
+    free(arg_list);
 
     bam_write_header(bfd);
 
@@ -166,6 +166,8 @@ int main(int argc, char **argv) {
     }
 
     cram_close(fd);
+
+    bfd->header = NULL;
     bam_close(bfd);
 
     free(bam);

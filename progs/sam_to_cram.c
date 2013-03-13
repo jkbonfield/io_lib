@@ -31,7 +31,6 @@ void usage(FILE *fp) {
 
 int main(int argc, char **argv) {
     cram_fd *out;
-    cram_SAM_hdr *hdr;
     bam_file_t *in;
     bam_seq_t *s = NULL;
     char *out_fn;
@@ -40,6 +39,7 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     cram_opt opt;
     int s_opt = 0, S_opt = 0;
+    char *arg_list;
 
     while ((c = getopt(argc, argv, "u0123456789hvs:S:V:")) != -1) {
 	switch (c) {
@@ -98,17 +98,22 @@ int main(int argc, char **argv) {
     }
 
     /* SAM Header */
-    if (NULL == (hdr = cram_new_SAM_hdr(in->header, in->header_len)))
+    if (!(arg_list = stringify_argv(argc, argv)))
 	return 1;
-    if (-1 == cram_write_SAM_hdr(out, hdr))
+    sam_header_add_PG(in->header, "sam_to_cram",
+		      "VN", PACKAGE_VERSION,
+		      "CL", arg_list, NULL);
+    free(arg_list);
+
+    if (-1 == cram_write_SAM_hdr(out, in->header))
 	return 1;
-    out->SAM_hdr = hdr;
-    //cram_free_SAM_hdr(hdr);
+
+    out->SAM_hdr = in->header;
     
     cram_load_reference(out, argv[optind+1]);
     if (!out->refs)
 	return 1;
-    refs2id(out->refs, in);
+    refs2id(out->refs, out->SAM_hdr);
 
     opt.i = verbose;
     cram_set_option(out, CRAM_OPT_VERBOSITY, &opt);
@@ -123,8 +128,6 @@ int main(int argc, char **argv) {
 
     /* Sequence iterators */
     while (bam_next_seq(in, &s) > 0) {
-	//if (-1 == bam_put_seq(out, s))
-	//return 1;
 	if (-1 == cram_put_bam_seq(out, s)) {
 	    fprintf(stderr, "Failed in cram_put_bam_seq()\n");
 	    return 1;
@@ -132,6 +135,7 @@ int main(int argc, char **argv) {
     }
 
     bam_close(in);
+    out->SAM_hdr = NULL; // freed by bam_close()
     if (-1 == cram_close(out)) {
 	fprintf(stderr, "Failed in cram_close()\n");
 	return 1;

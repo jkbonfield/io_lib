@@ -77,21 +77,6 @@ typedef struct {
 
 struct cram_slice;
 
-/* SAM header */
-//typedef struct {
-//    uint32_t   length;
-//    char      *header;
-//    HashTable *ref_hash; /* Keyed on SN, value = numeric id */
-//    HashTable *rg_hash;  /* Keyed on ID, value = taglist ptr */
-//    uint32_t   nref;
-//    bam_ref_t *ref;
-//} cram_SAM_hdr;
-
-// Reuse a bam structure for our cram_SAM_hdr as it contains all the
-// necessary functions for parsing and manipulating the header already.
-// In time, merge these to be the same structure.
-typedef bam_file_t cram_SAM_hdr;
-
 enum cram_block_method {
     RAW   = 0,
     GZIP  = 1,
@@ -501,7 +486,7 @@ typedef struct {
     int            mode;     // 'r' or 'w'
     int            version;
     cram_file_def *file_def;
-    cram_SAM_hdr  *SAM_hdr;
+    SAM_hdr       *SAM_hdr;
     
     char          *prefix;
     int            record_counter;

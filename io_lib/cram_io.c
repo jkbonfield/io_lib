@@ -930,7 +930,7 @@ static void free_refs(refs *r) {
  * Indexes references by the order they appear in a BAM file. This may not
  * necessarily be the same order they appear in the fasta reference file.
  */
-void refs2id(refs *r, bam_file_t *bfd) {
+void refs2id(refs *r, SAM_hdr *bfd) {
     int i;
     if (r->ref_id)
 	free(r->ref_id);
@@ -1638,9 +1638,9 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
     }
 
     if (!(def->major_version == 1 && def->minor_version == 0) &&
-	!(def->major_version == 1 && def->minor_version == 1)) {
+	!(def->major_version == 2 && def->minor_version == 0)) {
 	fprintf(stderr, "CRAM version number mismatch\n"
-		"Expected 1.0 or 1.1, got %d.%d\n",
+		"Expected 1.0 or 2.0, got %d.%d\n",
 		def->major_version, def->minor_version);
 	free(def);
 	return NULL;
@@ -1668,61 +1668,6 @@ void cram_free_file_def(cram_file_def *def) {
  * SAM header I/O
  */
 
-/*
- * Creates a CRAM header from a SAM header in string format.
- *
- * FIXME: consider either rejecting this completely and using
- * "char *SAM_hdr" throughout, or instead finishing this off by copying
- * the bam_parse_header() code into here.
- *
- * FIXME 2: check consistency of header. Needs SQ:MD5, HD:SO as POS,
- * RG lines, etc.
- *
- * Returns cram_SAM_hdr* on success
- *         NULL on failure
- */
-cram_SAM_hdr *cram_new_SAM_hdr(char *str, size_t len) {
-    cram_SAM_hdr *hdr;
-    HashItem *hi;
-
-    if (!(hdr = calloc(1, sizeof(*hdr))))
-	return NULL;
-
-    if (NULL == (hdr->header = malloc(len+100))) {
-	free(hdr);
-	return NULL;
-    }
-
-    memcpy(hdr->header, str, len);
-    hdr->header_len = len;
-    hdr->ref_hash = NULL;
-    hdr->rg_hash = NULL;
-
-    bam_parse_header(hdr);
-
-    // If no UNKNOWN read-group, add one.
-    if (!(hi = HashTableSearch(hdr->rg_hash, "UNKNOWN", 0))) {
-	bam_add_rg(hdr, "UNKNOWN", "UNKNOWN");
-    }
-
-    return hdr;
-}
-
-void cram_free_SAM_hdr(cram_SAM_hdr *hdr) {
-    if (!hdr)
-	return;
-
-    if (hdr->header)
-	free(hdr->header);
-
-    if (hdr->ref_hash)
-	HashTableDestroy(hdr->ref_hash, 0);
-
-    if (hdr->rg_hash)
-	HashTableDestroy(hdr->rg_hash, 1);
-
-    free(hdr);
-}
 
 /*
  * Reads the SAM header from the first CRAM data block.
@@ -1732,74 +1677,61 @@ void cram_free_SAM_hdr(cram_SAM_hdr *hdr) {
  * Returns SAM hdr ptr on success
  *         NULL on failure
  */
-cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
-    cram_SAM_hdr *hdr = calloc(1, sizeof(*hdr));
-    if (!hdr)
-	return NULL;
+SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
+    int32_t header_len;
+    char *header;
+    SAM_hdr *hdr;
 
     /* 1.1 onwards stores the header in the first block of a container */
     if (fd->version == CRAM_1_VERS) {
 	/* Length */
-	if (-1 == int32_decode(fd, (int32_t *)&hdr->header_len)) {
-	    free(hdr);
+	if (-1 == int32_decode(fd, &header_len))
 	    return NULL;
-	}
 
 	/* Alloc and read */
-	if (NULL == (hdr->header = malloc(hdr->header_len+100))) {
-	    free(hdr);
+	if (NULL == (header = malloc(header_len)))
 	    return NULL;
-	}
 
-	if (hdr->header_len != fread(hdr->header, 1, hdr->header_len, fd->fp)){
-	    free(hdr);
+	if (header_len != fread(header, 1, header_len, fd->fp))
 	    return NULL;
-	}
 
-	fd->first_container += 4 + hdr->header_len;
+	fd->first_container += 4 + header_len;
     } else {
 	cram_container *c = cram_read_container(fd);
 	cram_block *b;
 	int i;
 
-	if (!c) {
-	    free(hdr);
+	if (!c)
 	    return NULL;
-	}
 
 	if (c->num_blocks < 1) {
-	    free(hdr);
 	    cram_free_container(c);
 	    return NULL;
 	}
 
 	if (!(b = cram_read_block(fd))) {
-	    free(hdr);
 	    cram_free_container(c);
 	    return NULL;
 	}
 
 	/* Extract header from 1st block */
-	if (-1 == int32_get(b, (int32_t *)&hdr->header_len) ||
-	    b->uncomp_size - 4 < hdr->header_len) {
-	    free(hdr);
+	if (-1 == int32_get(b, &header_len) ||
+	    b->uncomp_size - 4 < header_len) {
 	    cram_free_container(c);
 	    cram_free_block(b);
 	    return NULL;
 	}
-	if (NULL == (hdr->header = malloc(hdr->header_len+100))) {
-	    free(hdr);
+	if (NULL == (header = malloc(header_len))) {
 	    cram_free_container(c);
 	    cram_free_block(b);
 	    return NULL;
 	}
-	memcpy(hdr->header, BLOCK_END(b), hdr->header_len);
+	memcpy(header, BLOCK_END(b), header_len);
 	cram_free_block(b);
 
 	/* Consume any remaining blocks */
 	for (i = 1; i < c->num_blocks; i++) {
 	    if (!(b = cram_read_block(fd))) {
-	    free(hdr);
 		cram_free_container(c);
 		return NULL;
 	    }
@@ -1809,7 +1741,8 @@ cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
     }
 
     /* Parse */
-    bam_parse_header(hdr);
+    hdr = sam_header_parse(header, header_len);
+    free(header);
     
     return hdr;
 }
@@ -1819,14 +1752,25 @@ cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
  * Returns 0 on success
  *        -1 on failure
  */
-int cram_write_SAM_hdr(cram_fd *fd, cram_SAM_hdr *hdr) {
-    /* Length */
+int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
+    int header_len;
+
+    /* 1.0 requires and UNKNOWN read-group */
     if (fd->version == CRAM_1_VERS) {
-	if (-1 == int32_encode(fd, hdr->header_len))
+	if (!sam_header_find_rg(hdr, "UNKNOWN"))
+	    sam_header_add(hdr, "RG", "ID", "UNKNOWN", "SM", "UNKNOWN", NULL);
+    }
+
+    sam_header_rebuild(hdr);
+
+    /* Length */
+    header_len = sam_header_length(hdr);
+    if (fd->version == CRAM_1_VERS) {
+	if (-1 == int32_encode(fd, header_len))
 	    return -1;
 
 	/* Text data */
-	if (hdr->header_len != fwrite(hdr->header, 1, hdr->header_len, fd->fp))
+	if (header_len != fwrite(sam_header_str(hdr), 1, header_len, fd->fp))
 	    return -1;
     } else {
 	/* Create a block inside a container */
@@ -1839,8 +1783,8 @@ int cram_write_SAM_hdr(cram_fd *fd, cram_SAM_hdr *hdr) {
 	    return -1;
 	}
 
-	int32_put(b, hdr->header_len);
-	BLOCK_APPEND(b, hdr->header, hdr->header_len);
+	int32_put(b, header_len);
+	BLOCK_APPEND(b, sam_header_str(hdr), header_len);
 	BLOCK_UPLEN(b);
 
 	// TODO: BLOCK_APPEND a bunch of nuls to allow padding?
@@ -1961,8 +1905,8 @@ static void cram_init_tables(cram_fd *fd) {
 }
 
 // Default version numbers for CRAM
-static int major_version = 1;
-static int minor_version = 1;
+static int major_version = 2;
+static int minor_version = 0;
 
 /*
  * Opens a CRAM file for read (mode "rb") or write ("wb").
@@ -2088,7 +2032,7 @@ int cram_close(cram_fd *fd) {
 	cram_free_file_def(fd->file_def);
 
     if (fd->SAM_hdr)
-	cram_free_SAM_hdr(fd->SAM_hdr);
+	sam_header_free(fd->SAM_hdr);
 
     free(fd->prefix);
 

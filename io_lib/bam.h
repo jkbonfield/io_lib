@@ -5,53 +5,7 @@
 #include <zlib.h>
 
 #include "io_lib/hash_table.h"
-
-/*
- * Proposed new SAM header parsing
-
-1 @SQ ID:foo LN:100
-2 @SQ ID:bar LN:200
-3 @SQ ID:ram LN:300 UR:xyz
-4 @RG ID:r ...
-5 @RG ID:s ...
-
-Hash table for 2-char keys without dup entries.
-If dup lines, we form a circular linked list. Ie hash keys = {RG, SQ}.
-
-HASH("SQ")--\
-            |
-    (3) <-> 1 <-> 2 <-> 3 <-> (1)
-
-HASH("RG")--\
-            |
-    (5) <-> 4 <-> 5 <-> (4)
-
-Items stored in the hash values also form their own linked lists:
-Ie SQ->ID(foo)->LN(100)
-   SQ->ID(bar)->LN(200)
-   SQ->ID(ram)->LN(300)->UR(xyz)
-   RG->ID(r)
- */
-
-#if 0
-typedef struct SAM_hdr_tag_s {
-    struct SAM_hdr_tag_s *next;
-    char key[2];
-    int idx;     // index into SAM_hdr->idx;
-} SAM_hdr_tag;
-
-typedef struct SAM_hdr_item_s {
-    struct SAM_hdr_item_s *next; // cirular
-    struct SAM_hdr_item_s *prev;
-    SAM_hdr_tag *tag;            // first tag
-} SAM_hdr_type;
-
-typedef struct {
-    dstring_t *text;      // concatenated text, indexed by SAM_hdr_tag
-    HashTable *h;         // 2-char IDs, values are SAM_hdr_type.
-} SAM_hdr;
-#endif
-
+#include "io_lib/sam_header.h"
 
 /* BAM header structs */
 typedef struct tag_list {
@@ -59,12 +13,6 @@ typedef struct tag_list {
     int key;
     int length;  
 } tag_list_t;
-
-typedef struct {
-    char *name;
-    uint32_t len;
-} bam_ref_t;
-
 
 /* The main bam sequence struct */
 typedef struct {
@@ -130,18 +78,7 @@ typedef struct {
     /* BAM specifics */
     int32_t next_len;
 
-    uint32_t header_len;
-    char *header;
-
-    HashTable *ref_hash;  /* keyed on SN, value = numeric id */
-    HashTable *rg_hash;   /* keyed on ID, value = taglist ptr */
-
-    int        nrg;       /* Number of RG records */
-    char     **rg_id;     /* Array of RG identifiers */
-    int       *rg_len;    /* Length of RG identifiers */
-
-    uint32_t nref;
-    bam_ref_t *ref;
+    SAM_hdr *header;      /* Parsed SAM header */
 
     /* Cached bam_seq_t, to avoid excessive mallocs */
     bam_seq_t *bs;
