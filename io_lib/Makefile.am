@@ -69,6 +69,8 @@ libstaden_read_la_SOURCES = \
 	pooled_alloc.h \
 	bam.h \
 	bam.c \
+	sam_header.h \
+	sam_header.c \
 	cram.h \
 	cram_codecs.c \
 	cram_codecs.h \

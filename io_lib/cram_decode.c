@@ -465,7 +465,7 @@ static int sort_freqs(const void *vp1, const void *vp2) {
  * Generates the sequence, quality and cigar components.
  */
 static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
-			   cram_block *blk, cram_record *cr, bam_file_t *bfd,
+			   cram_block *blk, cram_record *cr, SAM_hdr *bfd,
 			   int cf, char *seq, char *qual) {
     int prev_pos = 0, f, r = 0, out_sz = 1;
     int seq_pos = 1;
@@ -894,7 +894,7 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
  *        -1 on failure
  */
 int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
-		      bam_file_t *bfd) {
+		      SAM_hdr *bfd) {
     cram_block *blk = s->block[0];
     int32_t bf, ref_id;
     unsigned char cf;
@@ -907,7 +907,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
     /* Look for unknown RG, added as last by Java CRAM? */
     if (bfd->nrg > 0 &&
-	!strncmp(bfd->rg_id[bfd->nrg-1], "UNKNOWN", bfd->rg_len[bfd->nrg-1]))
+	!strcmp(bfd->rg[bfd->nrg-1].name, "UNKNOWN"))
 	unknown_rg = bfd->nrg-1;
 
     assert(blk->content_type == CORE);
@@ -1124,7 +1124,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
  * Returns the used size of the bam record on success
  *         -1 on failure.
  */
-static int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s,
+static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 		       cram_record *cr, int rec, bam_seq_t **bam,
 		       size_t *bam_alloc) {
     int bam_idx, bam_len, rg_len, old_idx;
@@ -1231,7 +1231,7 @@ static int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s,
     }
 
     /* Generate BAM record */
-    rg_len = (cr->rg != -1) ? bfd->rg_len[cr->rg] + 4 : 0;
+    rg_len = (cr->rg != -1) ? bfd->rg[cr->rg].name_len + 4 : 0;
 
     bam_len = cr->name_len + cr->len + (cr->len+1)/2 + 9*36 + cr->ncigar*4
 	+ rg_len + cr->aux_size + 1;
@@ -1267,11 +1267,11 @@ static int cram_to_bam(bam_file_t *bfd, cram_fd *fd, cram_slice *s,
 
     /* RG:Z: */
     if (cr->rg != -1) {
-	int len = bfd->rg_len[cr->rg];
+	int len = bfd->rg[cr->rg].name_len;
 	((char *)*bam)[bam_idx++] = 'R';
 	((char *)*bam)[bam_idx++] = 'G';
 	((char *)*bam)[bam_idx++] = 'Z';
-	memcpy(&((char *)*bam)[bam_idx], bfd->rg_id[cr->rg], len);
+	memcpy(&((char *)*bam)[bam_idx], bfd->rg[cr->rg].name, len);
 	bam_idx += len;
 	((char *)*bam)[bam_idx++] = 0;
     }

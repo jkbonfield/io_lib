@@ -53,9 +53,6 @@ int main(int argc, char **argv) {
 
     /* Copy header and refs from in to out, for writing purposes */
     out->header     = in->header;
-    out->header_len = in->header_len;
-    out->ref        = in->ref;
-    out->nref       = in->nref;
 
     if (in->header) {
 	if (bam_write_header(out))
@@ -65,7 +62,6 @@ int main(int argc, char **argv) {
     nm[0] = nm[1] = 0;
     s = NULL;
     while (bam_next_seq(in, &s) > 0) {
-	out->ref = in->ref; // tmp hack
 	if (-1 == bam_put_seq(out, s))
 	    return 1;
 	nr++;
@@ -77,7 +73,6 @@ int main(int argc, char **argv) {
     printf("Total reads = %d\n",nr);
 
     out->header = NULL;
-    out->ref    = NULL;
 
     bam_close(in);
     bam_close(out);

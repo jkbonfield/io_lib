@@ -185,7 +185,7 @@ void cram_load_reference(cram_fd *fd, char *fn);
  * Indexes references by the order they appear in a BAM file. This may not
  * necessarily be the same order they appear in the fasta reference file.
  */
-void refs2id(refs *r, bam_file_t *bfd);
+void refs2id(refs *r, SAM_hdr *bfd);
 
 /*
  * Returns a portion of a reference sequence from start to end inclusive.
@@ -312,22 +312,6 @@ void cram_free_file_def(cram_file_def *def);
  */
 
 /*
- * Creates a CRAM header from a SAM header in string format.
- *
- * FIXME: consider either rejecting this completely and using
- * "char *SAM_hdr" throughout, or instead finishing this off by copying
- * the bam_parse_header() code into here.
- *
- * FIXME 2: check consistency of header. Needs SQ:MD5, HD:SO as POS,
- * RG lines, etc.
- *
- * Returns cram_SAM_hdr* on success
- *         NULL on failure
- */
-cram_SAM_hdr *cram_new_SAM_hdr(char *str, size_t len);
-void cram_free_SAM_hdr(cram_SAM_hdr *hdr);
-
-/*
  * Reads the SAM header from the first CRAM data block.
  * Also performs minimal parsing to extract read-group
  * and sample information.
@@ -335,14 +319,14 @@ void cram_free_SAM_hdr(cram_SAM_hdr *hdr);
  * Returns SAM hdr ptr on success
  *         NULL on failure
  */
-cram_SAM_hdr *cram_read_SAM_hdr(cram_fd *fd);
+SAM_hdr *cram_read_SAM_hdr(cram_fd *fd);
 
 /*
  * Writes a CRAM SAM header.
  * Returns 0 on success
  *        -1 on failure
  */
-int cram_write_SAM_hdr(cram_fd *fd, cram_SAM_hdr *hdr);
+int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr);
 
 
 /* ----------------------------------------------------------------------

@@ -1600,13 +1600,13 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     /* Read group, identified earlier */
     if (rg) {
-	HashItem *hi = HashTableSearch(fd->SAM_hdr->rg_hash, rg, 0);
-	tag_list_t *tl = hi->data.p;
-	cr->rg = hi ? tl->key : -1;
+	SAM_RG *brg = sam_header_find_rg(fd->SAM_hdr, rg);
+	cr->rg = brg ? brg->id : -1;
+    } else if (fd->version == CRAM_1_VERS) {
+	SAM_RG *brg = sam_header_find_rg(fd->SAM_hdr, "UNKNOWN");
+	assert(brg);
     } else {
-	HashItem *hi = HashTableSearch(fd->SAM_hdr->rg_hash, "UNKNOWN", 0);
-	assert(hi);
-	cr->rg = ((tag_list_t *)hi->data.p)->key;
+	cr->rg = -1;
     }
     cram_stats_add(c->RG_stats, cr->rg);
 

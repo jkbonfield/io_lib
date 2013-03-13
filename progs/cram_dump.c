@@ -141,7 +141,8 @@ int main(int argc, char **argv) {
     printf("    file_id:    %.20s\n", fd->file_def->file_id);
 
     printf("\nBAM header:\n%.*s\n",
-	   fd->SAM_hdr->header_len, fd->SAM_hdr->header);
+	   sam_header_length(fd->SAM_hdr),
+	   sam_header_str(fd->SAM_hdr));
 
     pos = ftello(fd->fp);
     while ((c = cram_read_container(fd))) {
