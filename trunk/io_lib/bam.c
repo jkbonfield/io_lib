@@ -1,12 +1,3 @@
-/*
- * TODO: Go through with gcc -Wall and fix all the warnings!
- */
-
-/*
- * Handles reading (only for now) from a BAM format file.
- * We use zlib to read the data in and fetch data one read at a time.
- */
-
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
