@@ -220,6 +220,14 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 	h->Qs_codec->store(h->Qs_codec, map, "Qs", fd->version), mc++;
     if (h->RI_codec)
 	h->RI_codec->store(h->RI_codec, map, "RI", fd->version), mc++;
+    if (fd->version != CRAM_1_VERS) {
+	if (h->RS_codec)
+	    h->RS_codec->store(h->RS_codec, map, "RS", fd->version), mc++;
+	if (h->PD_codec)
+	    h->PD_codec->store(h->PD_codec, map, "PD", fd->version), mc++;
+	if (h->HC_codec)
+	    h->HC_codec->store(h->HC_codec, map, "HC", fd->version), mc++;
+    }
     if (h->TM_codec)
 	h->TM_codec->store(h->TM_codec, map, "TM", fd->version), mc++;
     if (h->TV_codec)
@@ -668,6 +676,25 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 //					     (char *)&uc, 1);
 		    break;
 
+		case 'N':
+		    i32 = f->N.len;
+		    r |= h->RS_codec->encode(s, h->RS_codec, core,
+					     (char *)&i32, 1);
+		    break;
+		    
+		case 'P':
+		    i32 = f->P.len;
+		    r |= h->PD_codec->encode(s, h->PD_codec, core,
+					     (char *)&i32, 1);
+		    break;
+		    
+		case 'H':
+		    i32 = f->H.len;
+		    r |= h->HC_codec->encode(s, h->HC_codec, core,
+					     (char *)&i32, 1);
+		    break;
+		    
+
 		default:
 		    fprintf(stderr, "unhandled feature code %c\n",
 			    f->X.code);
@@ -928,6 +955,22 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	h->RI_codec = cram_encoder_init(cram_stats_encoding(fd, c->RI_stats),
 					c->RI_stats, E_INT, NULL,
 					fd->version);
+
+	//fprintf(stderr, "=== RS ===\n");
+	h->RS_codec = cram_encoder_init(cram_stats_encoding(fd, c->RS_stats),
+					c->RS_stats, E_INT, NULL,
+					fd->version);
+
+	//fprintf(stderr, "=== PD ===\n");
+	h->PD_codec = cram_encoder_init(cram_stats_encoding(fd, c->PD_stats),
+					c->PD_stats, E_INT, NULL,
+					fd->version);
+
+	//fprintf(stderr, "=== HC ===\n");
+	h->HC_codec = cram_encoder_init(cram_stats_encoding(fd, c->HC_stats),
+					c->HC_stats, E_INT, NULL,
+					fd->version);
+
     }
     
     if (1) {
@@ -1122,6 +1165,36 @@ static int cram_add_softclip(cram_container *c, cram_slice *s, cram_record *r,
     f.S.seq_idx = BLOCK_SIZE(s->base_blk);
     BLOCK_APPEND(s->base_blk, base, len);
     BLOCK_APPEND_CHAR(s->base_blk, '\0');
+    return cram_add_feature(c, s, r, &f);
+}
+
+static int cram_add_hardclip(cram_container *c, cram_slice *s, cram_record *r,
+			     int pos, int len, char *base) {
+    cram_feature f;
+    f.S.pos = pos+1;
+    f.S.code = 'H';
+    f.S.len = len;
+    cram_stats_add(c->HC_stats, len);
+    return cram_add_feature(c, s, r, &f);
+}
+
+static int cram_add_skip(cram_container *c, cram_slice *s, cram_record *r,
+			     int pos, int len, char *base) {
+    cram_feature f;
+    f.S.pos = pos+1;
+    f.S.code = 'N';
+    f.S.len = len;
+    cram_stats_add(c->RS_stats, len);
+    return cram_add_feature(c, s, r, &f);
+}
+
+static int cram_add_pad(cram_container *c, cram_slice *s, cram_record *r,
+			     int pos, int len, char *base) {
+    cram_feature f;
+    f.S.pos = pos+1;
+    f.S.code = 'P';
+    f.S.len = len;
+    cram_stats_add(c->PD_stats, len);
     return cram_add_feature(c, s, r, &f);
 }
 
@@ -1717,7 +1790,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		break;
 
 	    case BAM_CREF_SKIP:
-		fprintf(stderr, "BAM_CREF_SKIP unimplemented\n");
+		cram_add_skip(c, s, cr, spos, cig_len, &seq[spos]);
 		apos += cig_len;
 		break;
 
@@ -1732,11 +1805,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		break;
 
 	    case BAM_CHARD_CLIP:
-		fprintf(stderr, "BAM_HARD_CLIP unimplemented\n");
+		cram_add_hardclip(c, s, cr, spos, cig_len, &seq[spos]);
 		break;
 	
 	    case BAM_CPAD:
-		fprintf(stderr, "BAM_HARD_CLIP unimplemented\n");
+		cram_add_pad(c, s, cr, spos, cig_len, &seq[spos]);
 		break;
 	    }
 	}
