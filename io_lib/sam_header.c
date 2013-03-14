@@ -734,6 +734,9 @@ void sam_header_free(SAM_hdr *hdr) {
 	free(hdr->pg);
     }
 
+    if (hdr->pg_end)
+	free(hdr->pg_end);
+
     if (hdr->type_pool)
 	pool_destroy(hdr->type_pool);
 
