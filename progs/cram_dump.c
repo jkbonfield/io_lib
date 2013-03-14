@@ -417,9 +417,16 @@ int main(int argc, char **argv) {
 				int32_t out_sz2 = 1;
 
 				dat[0]='?';dat[1]=0;
-				if (c->comp_hdr->IN_codec) {
-				    r = c->comp_hdr->IN_codec->decode(s,c->comp_hdr->IN_codec, b, dat, &out_sz2);
-				    printf("  %d: IN(S) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, dat, r, out_sz2);
+				if (fd->version == CRAM_1_VERS) {
+				    if (c->comp_hdr->IN_codec) {
+					r = c->comp_hdr->IN_codec->decode(s,c->comp_hdr->IN_codec, b, dat, &out_sz2);
+					printf("  %d: IN(S) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, dat, r, out_sz2);
+				    }
+				} else {
+				    if (c->comp_hdr->SC_codec) {
+					r = c->comp_hdr->SC_codec->decode(s,c->comp_hdr->SC_codec, b, dat, &out_sz2);
+					printf("  %d: SC(S) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, dat, r, out_sz2);
+				    }
 				}
 				break;
 			    }

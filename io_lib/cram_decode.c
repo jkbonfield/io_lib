@@ -310,6 +310,10 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    hdr->IN_codec = cram_decoder_init(encoding, cp, size,
 					      E_BYTE_ARRAY,
 					      fd->version);
+	else if (key[0] == 'S' && key[1] == 'C')
+	    hdr->SC_codec = cram_decoder_init(encoding, cp, size,
+					      E_BYTE_ARRAY,
+					      fd->version);
 	else if (key[0] == 'D' && key[1] == 'L')
 	    hdr->DL_codec = cram_decoder_init(encoding, cp, size, E_INT,
 					      fd->version);
@@ -554,10 +558,17 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		cigar[ncigar++] = (cig_len<<4) + cig_op;
 		cig_len = 0;
 	    }
-	    r |= c->comp_hdr->IN_codec
-		? c->comp_hdr->IN_codec->decode(s, c->comp_hdr->IN_codec, blk,
-						&seq[pos-1], &out_sz2)
-		: (seq[pos-1] = 'N', out_sz2 = 1, 0);
+	    if (fd->version == CRAM_1_VERS) {
+		r |= c->comp_hdr->IN_codec
+		    ? c->comp_hdr->IN_codec->decode(s, c->comp_hdr->IN_codec,
+						    blk, &seq[pos-1], &out_sz2)
+		    : (seq[pos-1] = 'N', out_sz2 = 1, 0);
+	    } else {
+		r |= c->comp_hdr->SC_codec
+		    ? c->comp_hdr->SC_codec->decode(s, c->comp_hdr->SC_codec,
+						    blk, &seq[pos-1], &out_sz2)
+		    : (seq[pos-1] = 'N', out_sz2 = 1, 0);
+	    }
 	    cigar[ncigar++] = (out_sz2<<4) + BAM_CSOFT_CLIP;
 	    cig_op = BAM_CSOFT_CLIP;
 	    seq_pos += out_sz2;

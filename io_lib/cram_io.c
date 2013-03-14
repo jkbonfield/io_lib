@@ -1147,7 +1147,6 @@ void cram_free_container(cram_container *c) {
     if (c->TL_stats) cram_stats_free(c->TL_stats);
     if (c->MQ_stats) cram_stats_free(c->MQ_stats);
     if (c->TM_stats) cram_stats_free(c->TM_stats);
-    if (c->IN_stats) cram_stats_free(c->IN_stats);
     if (c->QS_stats) cram_stats_free(c->QS_stats);
     if (c->NP_stats) cram_stats_free(c->NP_stats);
     if (c->RI_stats) cram_stats_free(c->RI_stats);
@@ -1380,6 +1379,7 @@ void cram_free_compression_header(cram_block_compression_hdr *hdr) {
     if (hdr->FP_codec) hdr->FP_codec->free(hdr->FP_codec);
     if (hdr->BS_codec) hdr->BS_codec->free(hdr->BS_codec);
     if (hdr->IN_codec) hdr->IN_codec->free(hdr->IN_codec);
+    if (hdr->SC_codec) hdr->SC_codec->free(hdr->SC_codec);
     if (hdr->DL_codec) hdr->DL_codec->free(hdr->DL_codec);
     if (hdr->BA_codec) hdr->BA_codec->free(hdr->BA_codec);
     if (hdr->MQ_codec) hdr->MQ_codec->free(hdr->MQ_codec);
@@ -1456,6 +1456,10 @@ void cram_free_slice(cram_slice *s) {
 
     if (s->base_blk)
 	cram_free_block(s->base_blk);
+
+    if (s->soft_blk)
+	cram_free_block(s->soft_blk);
+
 #ifdef TN_external
     if (s->tn_blk)
 	cram_free_block(s->tn_blk);
@@ -1507,12 +1511,13 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->ncigar = 0;
 
     s->seqs_blk = cram_new_block(EXTERNAL, 0);
-    s->qual_blk = cram_new_block(EXTERNAL, 1);
-    s->name_blk = cram_new_block(EXTERNAL, 2);
-    s->aux_blk  = cram_new_block(EXTERNAL, 4);
-    s->base_blk = cram_new_block(EXTERNAL, 0);
+    s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL);
+    s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME);
+    s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG);
+    s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN);
+    s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC);
 #ifdef TN_external
-    s->tn_blk   = cram_new_block(EXTERNAL, 6);
+    s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN);
 #endif
 
     s->features = NULL;
@@ -1602,12 +1607,13 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->ncigar = 0;
 
     s->seqs_blk = cram_new_block(EXTERNAL, 0);
-    s->qual_blk = cram_new_block(EXTERNAL, 1);
-    s->name_blk = cram_new_block(EXTERNAL, 2);
-    s->aux_blk  = cram_new_block(EXTERNAL, 4);
-    s->base_blk = cram_new_block(EXTERNAL, 0);
+    s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL);
+    s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME);
+    s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG);
+    s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN);
+    s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC);
 #ifdef TN_external
-    s->tn_blk   = cram_new_block(EXTERNAL, 6);
+    s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN);
 #endif
 
 
