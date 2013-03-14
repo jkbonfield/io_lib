@@ -316,6 +316,15 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	else if (key[0] == 'B' && key[1] == 'A')
 	    hdr->BA_codec = cram_decoder_init(encoding, cp, size, E_BYTE,
 					      fd->version);
+	else if (key[0] == 'R' && key[1] == 'S')
+	    hdr->RS_codec = cram_decoder_init(encoding, cp, size, E_INT,
+					      fd->version);
+	else if (key[0] == 'P' && key[1] == 'D')
+	    hdr->PD_codec = cram_decoder_init(encoding, cp, size, E_INT,
+					      fd->version);
+	else if (key[0] == 'H' && key[1] == 'C')
+	    hdr->HC_codec = cram_decoder_init(encoding, cp, size, E_INT,
+					      fd->version);
 	else if (key[0] == 'M' && key[1] == 'Q')
 	    hdr->MQ_codec = cram_decoder_init(encoding, cp, size, E_INT,
 					      fd->version);
@@ -699,6 +708,46 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	    seq_pos++;
 	    ref_pos++;
 	    //printf("  %d: QS = %d (ret %d)\n", f, qc, r);
+	}
+
+	case 'H': { // hard clip; HC
+	    if (cig_len && cig_op != BAM_CHARD_CLIP) {
+		cigar[ncigar++] = (cig_len<<4) + cig_op;
+		cig_len = 0;
+	    }
+	    r |= c->comp_hdr->HC_codec->decode(s, c->comp_hdr->HC_codec, blk,
+					       (char *)&i32, &out_sz);
+	    cig_op = BAM_CHARD_CLIP;
+	    cig_len += i32;
+	    nm      += i32;
+	    break;
+	}
+
+	case 'P': { // padding; PD
+	    if (cig_len && cig_op != BAM_CPAD) {
+		cigar[ncigar++] = (cig_len<<4) + cig_op;
+		cig_len = 0;
+	    }
+	    r |= c->comp_hdr->PD_codec->decode(s, c->comp_hdr->PD_codec, blk,
+					       (char *)&i32, &out_sz);
+	    cig_op = BAM_CPAD;
+	    cig_len += i32;
+	    nm      += i32;
+	    break;
+	}
+
+	case 'N': { // Ref skip; RS
+	    if (cig_len && cig_op != BAM_CREF_SKIP) {
+		cigar[ncigar++] = (cig_len<<4) + cig_op;
+		cig_len = 0;
+	    }
+	    r |= c->comp_hdr->RS_codec->decode(s, c->comp_hdr->RS_codec, blk,
+					       (char *)&i32, &out_sz);
+	    cig_op = BAM_CREF_SKIP;
+	    cig_len += i32;
+	    ref_pos += i32;
+	    nm      += i32;
+	    break;
 	}
 
 	default:
