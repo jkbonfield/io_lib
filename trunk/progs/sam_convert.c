@@ -77,5 +77,8 @@ int main(int argc, char **argv) {
     bam_close(in);
     bam_close(out);
 
+    if (s)
+	free(s);
+
     return 0;
 }

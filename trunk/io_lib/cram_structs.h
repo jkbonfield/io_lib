@@ -169,6 +169,7 @@ typedef struct {
     struct cram_codec *FP_codec; // feature pos
     struct cram_codec *BS_codec; // base subst feature
     struct cram_codec *IN_codec; // insertion feature
+    struct cram_codec *SC_codec; // soft-clip feature
     struct cram_codec *DL_codec; // deletion len feature
     struct cram_codec *BA_codec; // base feature
     struct cram_codec *RS_codec; // ref skip length feature
@@ -269,7 +270,6 @@ typedef struct {
     cram_stats *TL_stats;
     cram_stats *MQ_stats;
     cram_stats *TM_stats;
-    cram_stats *IN_stats;
     cram_stats *QS_stats;
     cram_stats *NP_stats;
     cram_stats *RI_stats;
@@ -420,7 +420,8 @@ typedef struct cram_slice {
     cram_block *seqs_blk;
     cram_block *qual_blk;
     cram_block *aux_blk;
-    cram_block *base_blk; // substitutions, soft-clips
+    cram_block *base_blk; // substitutions (soft-clips for 1.0)
+    cram_block *soft_blk; // soft-clips
 
     cram_feature *features;
     int           nfeatures;
@@ -590,5 +591,16 @@ typedef union {
 #define CRAM_FLAG_PRESERVE_QUAL_SCORES (1<<0)
 #define CRAM_FLAG_DETACHED             (1<<1)
 #define CRAM_FLAG_MATE_DOWNSTREAM      (1<<2)
+
+/* External IDs used by this implementation (only assumed during writing) */
+#define CRAM_EXT_IN	0
+#define CRAM_EXT_QUAL	1
+#define CRAM_EXT_NAME	2
+#define CRAM_EXT_TS_NP	3
+#define CRAM_EXT_TAG	4
+#define CRAM_EXT_TAG_S	"\004"
+#define CRAM_EXT_BA	5
+#define CRAM_EXT_TN	6
+#define CRAM_EXT_SC	7
 
 #endif /* _CRAM_STRUCTS_H_ */
