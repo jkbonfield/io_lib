@@ -468,6 +468,21 @@ int main(int argc, char **argv) {
 				printf("  %d: QS = %d (ret %d)\n", f, qc, r);
 			    }
 
+			    case 'N':
+				r = c->comp_hdr->RS_codec->decode(s,c->comp_hdr->RS_codec, b, (char *)&i32, &out_sz);
+				printf("  %d: RS = %d (ret %d)\n", f, i32, r);
+				break;
+
+			    case 'P':
+				r = c->comp_hdr->PD_codec->decode(s,c->comp_hdr->PD_codec, b, (char *)&i32, &out_sz);
+				printf("  %d: PD = %d (ret %d)\n", f, i32, r);
+				break;
+
+			    case 'H':
+				r = c->comp_hdr->HC_codec->decode(s,c->comp_hdr->HC_codec, b, (char *)&i32, &out_sz);
+				printf("  %d: HC = %d (ret %d)\n", f, i32, r);
+				break;
+
 			    default:
 				abort();
 			    }

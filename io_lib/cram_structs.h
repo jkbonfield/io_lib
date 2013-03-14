@@ -171,6 +171,9 @@ typedef struct {
     struct cram_codec *IN_codec; // insertion feature
     struct cram_codec *DL_codec; // deletion len feature
     struct cram_codec *BA_codec; // base feature
+    struct cram_codec *RS_codec; // ref skip length feature
+    struct cram_codec *PD_codec; // padding length feature
+    struct cram_codec *HC_codec; // hard clip length feature
     struct cram_codec *MQ_codec; // mapping quality
     struct cram_codec *RN_codec; // read names
     struct cram_codec *QS_codec; // quality value (single)
@@ -270,6 +273,9 @@ typedef struct {
     cram_stats *QS_stats;
     cram_stats *NP_stats;
     cram_stats *RI_stats;
+    cram_stats *RS_stats;
+    cram_stats *PD_stats;
+    cram_stats *HC_stats;
 
     HashTable *tags_used; // hash of tag types in use, for tag encoding map
 } cram_container;
@@ -366,6 +372,21 @@ typedef struct {
 	    int code;
 	    int len;
 	} D;
+	struct {
+	    int pos;
+	    int code;
+	    int len;
+	} N;
+	struct {
+	    int pos;
+	    int code;
+	    int len;
+	} P;
+	struct {
+	    int pos;
+	    int code;
+	    int len;
+	} H;
     };
 } cram_feature;
 

@@ -1092,6 +1092,9 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->TN_stats = cram_stats_create();
     c->TL_stats = cram_stats_create();
     c->RI_stats = cram_stats_create();
+    c->RS_stats = cram_stats_create();
+    c->PD_stats = cram_stats_create();
+    c->HC_stats = cram_stats_create();
 
     //c->aux_B_stats = cram_stats_create();
 
@@ -1148,6 +1151,9 @@ void cram_free_container(cram_container *c) {
     if (c->QS_stats) cram_stats_free(c->QS_stats);
     if (c->NP_stats) cram_stats_free(c->NP_stats);
     if (c->RI_stats) cram_stats_free(c->RI_stats);
+    if (c->RS_stats) cram_stats_free(c->RS_stats);
+    if (c->PD_stats) cram_stats_free(c->PD_stats);
+    if (c->HC_stats) cram_stats_free(c->HC_stats);
 
     //if (c->aux_B_stats) cram_stats_free(c->aux_B_stats);
     
@@ -1381,6 +1387,9 @@ void cram_free_compression_header(cram_block_compression_hdr *hdr) {
     if (hdr->QS_codec) hdr->QS_codec->free(hdr->QS_codec);
     if (hdr->Qs_codec) hdr->Qs_codec->free(hdr->Qs_codec);
     if (hdr->RI_codec) hdr->RI_codec->free(hdr->RI_codec);
+    if (hdr->RS_codec) hdr->RS_codec->free(hdr->RS_codec);
+    if (hdr->PD_codec) hdr->PD_codec->free(hdr->PD_codec);
+    if (hdr->HC_codec) hdr->HC_codec->free(hdr->HC_codec);
 
     if (hdr->TL)
 	free(hdr->TL);
@@ -1638,6 +1647,7 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
     }
 
     if (!(def->major_version == 1 && def->minor_version == 0) &&
+	!(def->major_version == 1 && def->minor_version == 1) &&
 	!(def->major_version == 2 && def->minor_version == 0)) {
 	fprintf(stderr, "CRAM version number mismatch\n"
 		"Expected 1.0 or 2.0, got %d.%d\n",
