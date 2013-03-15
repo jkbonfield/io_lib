@@ -1177,7 +1177,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
  * the allocated size. These can initially be pointers to NULL and zero.
  *
  * This function will reallocate the bam buffer as required and update
- * bam_alloc accordingly, allowing it to be used within a loop
+ * (*bam)->alloc accordingly, allowing it to be used within a loop
  * efficiently without needing to allocate new bam objects over and
  * over again.
  *
@@ -1185,8 +1185,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
  *         -1 on failure.
  */
 static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
-		       cram_record *cr, int rec, bam_seq_t **bam,
-		       size_t *bam_alloc) {
+		       cram_record *cr, int rec, bam_seq_t **bam) {
     int bam_idx, bam_len, rg_len, old_idx;
     char *bam_cp;
     char name_a[1024], *name;
@@ -1295,13 +1294,12 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 
     bam_len = cr->name_len + cr->len + (cr->len+1)/2 + 9*36 + cr->ncigar*4
 	+ rg_len + cr->aux_size + 1;
-    bam_cp = (char *)*bam;
-    if (*bam_alloc < bam_len) {
-	*bam_alloc = bam_len;
-	bam_cp = realloc(bam_cp, *bam_alloc);
-	*bam = (bam_seq_t *)bam_cp;
+    if (!*bam || (*bam)->alloc < bam_len) {
+	if (!(*bam = realloc(*bam, bam_len)))
+	    return -1;
+	(*bam)->alloc = bam_len;
     }
-    bam_idx = bam_construct_seq(*bam, *bam_alloc,
+    bam_idx = bam_construct_seq(*bam, (*bam)->alloc,
 				name, name_len,
 				cr->flags,
 				cr->ref_id,
@@ -1516,7 +1514,7 @@ cram_record *cram_get_seq(cram_fd *fd) {
  * Returns 0 on success
  *        -1 on EOF or failure (check fd->err)
  */
-int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc) {
+int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam) {
     cram_record *cr;
     cram_container *c;
     cram_slice *s;
@@ -1526,7 +1524,7 @@ int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam, size_t *bam_alloc) {
 
     c = fd->ctr;
     s = c->slice;
-    cram_to_bam(fd->SAM_hdr, fd, s, cr, c->curr_rec-1, bam, bam_alloc);
+    cram_to_bam(fd->SAM_hdr, fd, s, cr, c->curr_rec-1, bam);
 
     return 0;
 }
