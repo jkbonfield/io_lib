@@ -135,11 +135,10 @@ int main(int argc, char **argv) {
     if (!ref_fn) {
 	SAM_hdr_type *ty = sam_header_find(fd->SAM_hdr, "SQ", NULL, NULL);
 	if (ty) {
-	    int len;
-	    ref_fn = sam_header_find_key2(fd->SAM_hdr, ty, "UR", &len);
-	    if (ref_fn) {
-		ref_fn[len] = 0;
-		ref_fn += 3;
+	    SAM_hdr_tag *tag;
+
+	    if ((tag = sam_header_find_key(fd->SAM_hdr, ty, "UR", NULL))) {
+		ref_fn  = tag->str + 3;
 		if (strncmp(ref_fn, "file:", 5) == 0)
 		    ref_fn += 5;
 	    }
