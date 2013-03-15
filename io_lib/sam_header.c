@@ -6,6 +6,7 @@
 #include <assert.h>
 
 #include "io_lib/sam_header.h"
+#include "io_lib/string_alloc.h"
 
 void sam_header_error(char *msg, char *line, int len, int lno) {
     int j;
@@ -18,7 +19,6 @@ void sam_header_error(char *msg, char *line, int len, int lno) {
 void sam_header_dump(SAM_hdr *hdr) {
     HashIter *iter = HashTableIterCreate();
     HashItem *hi;
-    char *str = dstring_str(hdr->text);
     int i;
 
     printf("===DUMP===\n");
@@ -33,7 +33,7 @@ void sam_header_dump(SAM_hdr *hdr) {
 	    printf(">>>%d ", t1->order);
 	    for (tag = t1->tag; tag; tag=tag->next) {
 		printf("\"%.2s\":\"%.*s\"\t",
-		       str+tag->idx, tag->len-3, str+tag->idx+3);
+		       tag->str, tag->len-3, tag->str+3);
 	    }
 	    putchar('\n');
 	    t1 = t1->next;
@@ -64,7 +64,6 @@ static int sam_header_update_hashes(SAM_hdr *sh,
     /* Add to reference hash? */
     if (type[0] == 'S' && type[1] == 'Q') {
 	SAM_hdr_tag *tag;
-	char *str = dstring_str(sh->text);
 	int nref = sh->nref;
 
 	sh->ref = realloc(sh->ref, (sh->nref+1)*sizeof(*sh->ref));
@@ -77,16 +76,13 @@ static int sam_header_update_hashes(SAM_hdr *sh,
 	sh->ref[nref].tag  = tag;
 
 	while (tag) {
-	    if (str[tag->idx+0] == 'S' &&
-		str[tag->idx+1] == 'N') {
+	    if (tag->str[0] == 'S' && tag->str[1] == 'N') {
 		if (!(sh->ref[nref].name = malloc(tag->len)))
 		    return -1;
-		strncpy(sh->ref[nref].name, &str[tag->idx+3],
-			tag->len-3);
+		strncpy(sh->ref[nref].name, tag->str+3, tag->len-3);
 		sh->ref[nref].name[tag->len-3] = 0;
-	    } else if (str[tag->idx+0] == 'L' &&
-		       str[tag->idx+1] == 'N') {
-		sh->ref[nref].len = atoi(&str[tag->idx+3]);
+	    } else if (tag->str[0] == 'L' && tag->str[1] == 'N') {
+		sh->ref[nref].len = atoi(tag->str+3);
 	    }
 	    tag = tag->next;
 	}
@@ -104,7 +100,6 @@ static int sam_header_update_hashes(SAM_hdr *sh,
     /* Add to read-group hash? */
     if (type[0] == 'R' && type[1] == 'G') {
 	SAM_hdr_tag *tag;
-	char *str = dstring_str(sh->text);
 	int nrg = sh->nrg;
 
 	sh->rg = realloc(sh->rg, (sh->nrg+1)*sizeof(*sh->rg));
@@ -118,11 +113,10 @@ static int sam_header_update_hashes(SAM_hdr *sh,
 	sh->rg[nrg].id   = nrg;
 
 	while (tag) {
-	    if (str[tag->idx+0] == 'I' &&
-		str[tag->idx+1] == 'D') {
+	    if (tag->str[0] == 'I' && tag->str[1] == 'D') {
 		if (!(sh->rg[nrg].name = malloc(tag->len)))
 		    return -1;
-		strncpy(sh->rg[nrg].name, &str[tag->idx+3], tag->len-3);
+		strncpy(sh->rg[nrg].name, tag->str+3, tag->len-3);
 		sh->rg[nrg].name[tag->len-3] = 0;
 		sh->rg[nrg].name_len = strlen(sh->rg[nrg].name);
 	    }
@@ -142,7 +136,6 @@ static int sam_header_update_hashes(SAM_hdr *sh,
     /* Add to program hash? */
     if (type[0] == 'P' && type[1] == 'G') {
 	SAM_hdr_tag *tag;
-	char *str = dstring_str(sh->text);
 	int npg = sh->npg;
 
 	sh->pg = realloc(sh->pg, (sh->npg+1)*sizeof(*sh->pg));
@@ -157,18 +150,16 @@ static int sam_header_update_hashes(SAM_hdr *sh,
 	sh->pg[npg].prev_id = -1;
 
 	while (tag) {
-	    if (str[tag->idx+0] == 'I' &&
-		str[tag->idx+1] == 'D') {
+	    if (tag->str[0] == 'I' && tag->str[1] == 'D') {
 		if (!(sh->pg[npg].name = malloc(tag->len)))
 		    return -1;
-		strncpy(sh->pg[npg].name, &str[tag->idx+3], tag->len-3);
+		strncpy(sh->pg[npg].name, tag->str+3, tag->len-3);
 		sh->pg[npg].name[tag->len-3] = 0;
 		sh->pg[npg].name_len = strlen(sh->pg[npg].name);
-	    } else if (str[tag->idx+0] == 'P' &&
-		       str[tag->idx+1] == 'P') {
+	    } else if (tag->str[0] == 'P' && tag->str[1] == 'P') {
 		// Resolve later if needed
 		HashItem *hi = HashTableSearch(sh->pg_hash,
-					       &str[tag->idx+3],
+					       tag->str+3,
 					       tag->len-3);
 		if (hi) {
 		    sh->pg[npg].prev_id = sh->pg[hi->data.i].id;
@@ -239,14 +230,10 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 
     if (!len)
 	len = strlen(lines);
-    hdr = DSTRING_STR(sh->text);
-    if (hdr)
-	hdr += (text_offset = DSTRING_LEN(sh->text));
-    else
-	text_offset = 0;
+
+    text_offset = DSTRING_LEN(sh->text);
     dstring_nappend(sh->text, lines, len);
-    if (!hdr)
-	hdr = DSTRING_STR(sh->text);
+    hdr = DSTRING_STR(sh->text) + text_offset;
 
     for (i = 0; i < len; i++) {
 	char *type;
@@ -300,7 +287,7 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 		;
 	    
 	    h_tag = pool_alloc(sh->tag_pool);
-	    h_tag->idx = i + text_offset;
+	    h_tag->str = string_ndup(sh->str_pool, &hdr[i], j-i);
 	    h_tag->len = j-i;
 	    h_tag->next = NULL;
 	    
@@ -380,6 +367,7 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
     va_start(args, ap);
     for (;;) {
 	char *k, *v;
+	int idx;
 	
 	if (!(k = (char *)va_arg(args, char *)))
 	    break;
@@ -389,7 +377,7 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
 	    return -1;
 
 	h_tag = pool_alloc(sh->tag_pool);
-	h_tag->idx = DSTRING_LEN(sh->text);
+	idx = DSTRING_LEN(sh->text);
 	
 	if (-1 == dstring_append(sh->text, k))
 	    return -1;
@@ -398,7 +386,10 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
 	if (-1 == dstring_append(sh->text, v))
 	    return -1;
 
-	h_tag->len = DSTRING_LEN(sh->text) - h_tag->idx;
+	h_tag->len = DSTRING_LEN(sh->text) - idx;
+	h_tag->str = string_ndup(sh->str_pool,
+				 DSTRING_STR(sh->text) + idx,
+				 h_tag->len);
 	h_tag->next = NULL;
 
 	if (last)
@@ -418,6 +409,7 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
     // Plus the specified va_list params
     for (;;) {
 	char *k, *v;
+	int idx;
 	
 	if (!(k = (char *)va_arg(ap, char *)))
 	    break;
@@ -427,7 +419,7 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
 	    return -1;
 
 	h_tag = pool_alloc(sh->tag_pool);
-	h_tag->idx = DSTRING_LEN(sh->text);
+	idx = DSTRING_LEN(sh->text);
 	
 	if (-1 == dstring_append(sh->text, k))
 	    return -1;
@@ -436,7 +428,10 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
 	if (-1 == dstring_append(sh->text, v))
 	    return -1;
 
-	h_tag->len = DSTRING_LEN(sh->text) - h_tag->idx;
+	h_tag->len = DSTRING_LEN(sh->text) - idx;
+	h_tag->str = string_ndup(sh->str_pool,
+				 DSTRING_STR(sh->text) + idx,
+				 h_tag->len);
 	h_tag->next = NULL;
 
 	if (last)
@@ -467,7 +462,6 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
 			      char *ID_key, char *ID_value) {
     HashItem *hi;
     SAM_hdr_type *t1, *t2;
-    char *str = dstring_str(hdr->text);
 
     if (!(hi = HashTableSearch(hdr->h, type, 2)))
 	return NULL;
@@ -479,15 +473,12 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
     do {
 	SAM_hdr_tag *tag;
 	for (tag = t1->tag; tag; tag = tag->next) {
-	    if (str[tag->idx  ] == ID_key[0] &&
-		str[tag->idx+1] == ID_key[1]) {
-		char *cp1 = &str[tag->idx+3];
+	    if (tag->str[0] == ID_key[0] && tag->str[1] == ID_key[1]) {
+		char *cp1 = tag->str+3;
 		char *cp2 = ID_value;
-		while (*cp1 == *cp2)
+		while (*cp1 && *cp1 == *cp2)
 		    cp1++, cp2++;
-		if (*cp2)
-		    continue;
-		if (*cp1 != '\t' && *cp1 != '\n' && *cp1 != '\0')
+		if (*cp2 || *cp1)
 		    continue;
 		return t1;
 	    }
@@ -527,7 +518,7 @@ char *sam_header_find_line(SAM_hdr *hdr, char *type,
     r |= dstring_append(ds, type);
     for (tag = ty->tag; tag; tag = tag->next) {
 	r |= dstring_append_char(ds, '\t');
-	r |= dstring_nappend(ds, str+tag->idx, tag->len);
+	r |= dstring_nappend(ds, tag->str, tag->len);
     }
 
     if (r) {
@@ -559,11 +550,9 @@ SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
 				 char *key,
 				 SAM_hdr_tag **prev) {
     SAM_hdr_tag *tag, *p = NULL;
-    char *str = DSTRING_STR(sh->text);
 
     for (tag = type->tag; tag; p = tag, tag = tag->next) {
-	if (str[tag->idx+0] == key[0] &&
-	    str[tag->idx+1] == key[1]) {
+	if (tag->str[0] == key[0] && tag->str[1] == key[1]) {
 	    if (prev)
 		*prev = p;
 	    return tag;
@@ -574,19 +563,6 @@ SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
 	*prev = p;
 
     return NULL;
-}
-
-
-// Temporary function unti we rewrite sam_header to use string_pool_t
-char *sam_header_find_key2(SAM_hdr *sh,
-			   SAM_hdr_type *type,
-			   char *key,
-			   int *len /* out */) {
-    SAM_hdr_tag *tag = sam_header_find_key(sh, type, key, NULL);
-    if (!tag)
-	return NULL;
-    if (len) *len = tag->len;
-    return dstring_str(sh->text) + tag->idx;
 }
 
 
@@ -608,6 +584,7 @@ int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
     
     for (;;) {
 	char *k, *v;
+	int idx;
 	SAM_hdr_tag *tag, *prev;
 
 	if (!(k = (char *)va_arg(ap, char *)))
@@ -624,10 +601,13 @@ int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
 		type->tag = tag;
 	}
 
-	tag->idx = DSTRING_LEN(hdr->text);
+	idx = DSTRING_LEN(hdr->text);
 	if (0 != dstring_appendf(hdr->text, "%2.2s:%s", k, v))
 	    return -1;
-	tag->len = DSTRING_LEN(hdr->text) - tag->idx;
+	tag->len = DSTRING_LEN(hdr->text) - idx;
+	tag->str = string_ndup(hdr->str_pool,
+			       DSTRING_STR(hdr->text) + idx,
+			       tag->len);
 	tag->next = NULL;
     }
 
@@ -636,7 +616,6 @@ int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
     return 0;
 }
 
-static void sam_header_free_internals(SAM_hdr *hdr);
 /*
  * Reconstructs the dstring from the header hash table.
  * Returns 0 on success
@@ -647,7 +626,6 @@ int sam_header_rebuild(SAM_hdr *hdr) {
     HashItem *hi;
     HashIter *iter = HashTableIterCreate();
     dstring_t *ds = dstring_create(NULL);
-    char *str = dstring_str(hdr->text);
 
     if (!iter || !ds)
 	return -1;
@@ -660,7 +638,7 @@ int sam_header_rebuild(SAM_hdr *hdr) {
 	for (tag = ty->tag; tag; tag = tag->next) {
 	    if (-1 == dstring_append_char(ds, '\t'))
 		return -1;
-	    if (-1 == dstring_nappend(ds, str+tag->idx, tag->len))
+	    if (-1 == dstring_nappend(ds, tag->str, tag->len))
 		return -1;
 	}
 	if (-1 == dstring_append_char(ds, '\n'))
@@ -682,7 +660,7 @@ int sam_header_rebuild(SAM_hdr *hdr) {
 	    for (tag = t1->tag; tag; tag=tag->next) {
 		if (-1 == dstring_append_char(ds, '\t'))
 		    return -1;
-		if (-1 == dstring_nappend(ds, str+tag->idx, tag->len))
+		if (-1 == dstring_nappend(ds, tag->str, tag->len))
 		    return -1;
 	    }
 	    if (-1 == dstring_append_char(ds, '\n'))
@@ -693,18 +671,8 @@ int sam_header_rebuild(SAM_hdr *hdr) {
 
     HashTableIterDestroy(iter);
 
-    /* We now need to reparse too as indices changed - messy! */
-    // FIXME: switch to using Misc/string_alloc.c for efficient string pool
-    {
-	SAM_hdr *h2 = sam_header_parse(dstring_str(ds), dstring_length(ds));
-	sam_header_free_internals(hdr);
-	*hdr = *h2;
-	dstring_destroy(ds);
-	free(h2);
-    }
-	
-    //dstring_destroy(hdr->text);
-    //hdr->text = ds;
+    dstring_destroy(hdr->text);
+    hdr->text = ds;
 
     return 0;
 }
@@ -762,6 +730,9 @@ SAM_hdr *sam_header_parse(char *hdr, int len) {
     if (!(sh->type_pool = pool_create(sizeof(SAM_hdr_type))))
 	goto err;
 
+    if (!(sh->str_pool = string_pool_create(8192)))
+	goto err;
+
     /* Parse the header, line by line */
     if (-1 == sam_header_add_lines(sh, hdr, len))
 	goto err;
@@ -789,15 +760,18 @@ SAM_hdr *sam_header_parse(char *hdr, int len) {
     if (sh->type_pool)
 	pool_destroy(sh->type_pool);
 
+    if (sh->str_pool)
+	string_pool_destroy(sh->str_pool);
+
     free(sh);
 
     return NULL;
 }
 
-/*
- * Deallocates all storage used by a SAM_hdr struct.
- */
-static void sam_header_free_internals(SAM_hdr *hdr) {
+void sam_header_free(SAM_hdr *hdr) {
+    if (!hdr)
+	return;
+
     if (hdr->text)
 	dstring_destroy(hdr->text);
 
@@ -845,13 +819,10 @@ static void sam_header_free_internals(SAM_hdr *hdr) {
 
     if (hdr->tag_pool)
 	pool_destroy(hdr->tag_pool);
-}
 
-void sam_header_free(SAM_hdr *hdr) {
-    if (!hdr)
-	return;
+    if (hdr->str_pool)
+	string_pool_destroy(hdr->str_pool);
 
-    sam_header_free_internals(hdr);
     free(hdr);
 }
 
@@ -899,7 +870,6 @@ SAM_RG *sam_header_find_rg(SAM_hdr *hdr, char *rg) {
  */
 int sam_header_link_pg(SAM_hdr *hdr) {
     int i, j, ret = 0;
-    char *str = dstring_str(hdr->text);
 
     hdr->npg_end_alloc = hdr->npg;
     hdr->pg_end = realloc(hdr->pg_end, hdr->npg * sizeof(*hdr->pg_end));
@@ -914,7 +884,7 @@ int sam_header_link_pg(SAM_hdr *hdr) {
 	SAM_hdr_tag *tag;
 
 	for (tag = hdr->pg[i].tag; tag; tag = tag->next) {
-	    if (str[tag->idx+0] == 'P' && str[tag->idx+1] == 'P')
+	    if (tag->str[0] == 'P' && tag->str[1] == 'P')
 		break;
 	}
 	if (!tag) {
@@ -922,7 +892,7 @@ int sam_header_link_pg(SAM_hdr *hdr) {
 	    continue;
 	}
 
-	hi = HashTableSearch(hdr->pg_hash, &str[tag->idx+3], tag->len-3);
+	hi = HashTableSearch(hdr->pg_hash, tag->str+3, tag->len-3);
 	if (!hi) {
 	    ret = -1;
 	    continue;

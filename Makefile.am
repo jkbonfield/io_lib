@@ -71,6 +71,7 @@ pkginclude_HEADERS = \
 	io_lib/bam.h \
 	io_lib/sam_header.h \
 	io_lib/dstring.h \
+	io_lib/string_alloc.h \
 	io_lib_config.h \
 	io_lib/md5.h
 
