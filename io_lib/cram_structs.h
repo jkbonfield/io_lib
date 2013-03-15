@@ -531,6 +531,7 @@ typedef struct {
     int   ref_id;
     int   ref_start;
     int   ref_end;
+    char *ref_fn;   // reference fasta filename
 
     // compression level and metrics
     int level;
