@@ -28,6 +28,7 @@
 
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
+#include "io_lib/md5.h"
 
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
@@ -1034,6 +1035,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 void cram_load_reference(cram_fd *fd, char *fn) {
     fd->refs = load_reference(fn);
     refs2id(fd->refs, fd->SAM_hdr);
+    fd->ref_fn = strdup(fn);
 }
 
 /* ----------------------------------------------------------------------
@@ -1759,8 +1761,33 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
     /* Parse */
     hdr = sam_header_parse(header, header_len);
     free(header);
-    
+
     return hdr;
+}
+
+/*
+ * Converts 'in' to a full pathname to store in out.
+ * Out must be at least PATH_MAX bytes long.
+ */
+static void full_path(char *out, char *in) {
+    if (*in == '/') {
+	strncpy(out, in, PATH_MAX);
+	out[PATH_MAX-1] = 0;
+    } else {
+	size_t len;
+
+	// unable to get dir or out+in is too long
+	if (!getcwd(out, PATH_MAX) ||
+	    (len = strlen(out))+1+strlen(in) >= PATH_MAX) {
+	    strncpy(out, in, PATH_MAX);
+	    out[PATH_MAX-1] = 0;
+	    return;
+	}
+
+	sprintf(out+len, "/%.*s", PATH_MAX - len, in);
+
+	// FIXME: cope with `pwd`/../../../foo.fa ?
+    }
 }
 
 /*
@@ -1777,6 +1804,42 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    sam_header_add(hdr, "RG", "ID", "UNKNOWN", "SM", "UNKNOWN", NULL);
     }
 
+    /* Fix M5 strings */
+    if (fd->refs) {
+	int i;
+	for (i = 0; i < hdr->nref; i++) {
+	    SAM_hdr_type *ty;
+
+	    ty = sam_header_find(hdr, "SQ", "SN", hdr->ref[i].name);
+	    assert(ty);
+
+	    if (!sam_header_find_key(hdr, ty, "M5", NULL)) {
+		char unsigned buf[16], buf2[33];
+		int j, rlen;
+		MD5_CTX md5;
+
+		rlen = fd->refs->ref_id[i]->length;
+		MD5_Init(&md5);
+		cram_get_ref(fd, i, 1, rlen);
+		MD5_Update(&md5, fd->ref, rlen);
+		MD5_Final(buf, &md5);
+
+		for (j = 0; j < 16; j++) {
+		    buf2[j*2+0] = "0123456789abcdef"[buf[j]>>4];
+		    buf2[j*2+1] = "0123456789abcdef"[buf[j]&15];
+		}
+		buf2[32] = 0;
+		sam_header_update(hdr, ty, "M5", buf2, NULL);
+	    }
+
+	    if (fd->ref_fn) {
+		char ref_fn[PATH_MAX];
+		full_path(ref_fn, fd->ref_fn);
+		sam_header_update(hdr, ty, "UR", ref_fn, NULL);
+	    }
+	}
+    }
+    
     sam_header_rebuild(hdr);
 
     /* Length */
@@ -2011,6 +2074,7 @@ cram_fd *cram_open(char *filename, char *mode) {
 
     fd->range.refid = -2; // no ref.
     fd->eof = 0;
+    fd->ref_fn = NULL;
 
     return fd;
 
@@ -2066,6 +2130,9 @@ int cram_close(cram_fd *fd) {
 
     if (fd->index)
 	cram_index_free(fd);
+
+    if (fd->ref_fn)
+	free(fd->ref_fn);
 
     free(fd);
     return 0;

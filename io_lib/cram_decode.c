@@ -1187,7 +1187,6 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 		       cram_record *cr, int rec, bam_seq_t **bam) {
     int bam_idx, bam_len, rg_len, old_idx;
-    char *bam_cp;
     char name_a[1024], *name;
     int name_len;
 

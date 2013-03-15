@@ -156,7 +156,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...);
  *
  * Returns NULL if no type/ID is found
  */
-SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type, char *ID);
+SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
+			      char *ID_key, char *ID_value);
 
 /*
  * As per SAM_hdr_type, but returns a complete line of formatted text
@@ -168,7 +169,40 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type, char *ID);
  *
  * Returns NULL if no type/ID is found.
  */
-char *sam_header_find_line(SAM_hdr *hdr, char *type, char *ID);
+char *sam_header_find_line(SAM_hdr *hdr, char *type,
+			   char *ID_key, char *ID_value);
+
+/*
+ * Looks for a specific key in a single sam header line.
+ * If prev is non-NULL it also fills this out with the previous tag, to
+ * permit use in key removal. *prev is set to NULL when the tag is the first
+ * key in the list. When a tag isn't found, prev (if non NULL) will be the last
+ * tag in the existing list.
+ *
+ * Returns the tag pointer on success
+ *         NULL on failure
+ */
+SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
+				 SAM_hdr_type *type,
+				 char *key,
+				 SAM_hdr_tag **prev);
+char *sam_header_find_key2(SAM_hdr *sh,
+			   SAM_hdr_type *type,
+			   char *key,
+			   int *len);
+
+/*
+ * Adds or updates tag key,value pairs in a header line.
+ * Eg for adding M5 tags to @SQ lines or updating sort order for the
+ * @HD line (although use the sam_header_sort_order() function for
+ * HD manipulation, which is a wrapper around this funuction).
+ *
+ * Specify multiple key,value pairs ending in NULL.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...);
 
 /*
  * Reconstructs the dstring from the header hash table.
