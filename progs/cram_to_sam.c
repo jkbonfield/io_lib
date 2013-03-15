@@ -30,7 +30,6 @@ int main(int argc, char **argv) {
     cram_fd *fd;
     bam_file_t *bfd;
     bam_seq_t *bam = NULL;
-    size_t bam_alloc = 0;
     char mode[4] = {'w', '\0', '\0', '\0'};
     char *prefix = NULL;
     int decode_md = 0;
@@ -156,7 +155,7 @@ int main(int argc, char **argv) {
 
     bam_write_header(bfd);
 
-    while (cram_get_bam_seq(fd, &bam, &bam_alloc) == 0) {
+    while (cram_get_bam_seq(fd, &bam) == 0) {
 	bam_put_seq(bfd, bam);
     }
 
