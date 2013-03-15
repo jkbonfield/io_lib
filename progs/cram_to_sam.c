@@ -15,15 +15,16 @@
 #include <io_lib/bam.h>
 
 void usage(FILE *fp) {
-    fprintf(fp, "Usage: cram_to_sam [-m] [-b] [-0..9] [-u] "
-	    "filename.cram ref.fa [output_filename]\n\n");
+    fprintf(fp, "Usage: cram_to_sam [-r ref.fa] [-m] [-b] [-0..9] [-u] "
+	    "filename.cram [output_filename]\n\n");
     fprintf(fp, "Options:\n");
+    fprintf(fp, "    -r ref.fa      Specifies the reference file.\n");
     fprintf(fp, "    -m             Generate MD and NM tags:\n");
     fprintf(fp, "    -b             Output in BAM (defaults to SAM)\n");
     fprintf(fp, "    -1 to -9       Set zlib compression level for BAM\n");
     fprintf(fp, "    -0 or -u       Output uncompressed, if BAM.\n");
     fprintf(fp, "    -p str         Set the prefix for auto-generated seq. names\n");
-    fprintf(fp, "    -r region	    Extract region 'ref:start-end', eg -r chr1:1000-2000\n");
+    fprintf(fp, "    -R region	    Extract region 'ref:start-end', eg -R chr1:1000-2000\n");
 }
 
 int main(int argc, char **argv) {
@@ -36,9 +37,9 @@ int main(int argc, char **argv) {
     cram_opt opt;
     int C;
     int start, end;
-    char ref_name[1024] = {0}, *arg_list;
+    char ref_name[1024] = {0}, *arg_list, *ref_fn = NULL;
 
-    while ((C = getopt(argc, argv, "bu0123456789mp:hr:")) != -1) {
+    while ((C = getopt(argc, argv, "bu0123456789mp:hr:R:")) != -1) {
 	switch (C) {
 	case 'b':
 	    mode[1] = 'b';
@@ -65,7 +66,11 @@ int main(int argc, char **argv) {
 	    usage(stdout);
 	    return 0;
 
-	case 'r': {
+	case 'r':
+	    ref_fn = optarg;
+	    break;
+
+	case 'R': {
 	    char *cp = strchr(optarg, ':');
 	    if (cp) {
 		*cp = 0;
@@ -94,20 +99,20 @@ int main(int argc, char **argv) {
 	}
     }
 
-    if (argc - optind != 2 && argc - optind != 3) {
+    if (argc - optind != 1 && argc - optind != 2) {
 	usage(stderr);
 	return 1;
     }
 
-    if (argc - optind == 2) {
+    if (argc - optind == 1) {
 	if (NULL == (bfd = bam_open("-", mode))) {
 	    fprintf(stderr, "Failed to open SAM/BAM output\n.");
 	    return 1;
 	}
     } else {
-	if (NULL == (bfd = bam_open(argv[optind+2], mode))) {
+	if (NULL == (bfd = bam_open(argv[optind+1], mode))) {
 	    fprintf(stderr, "Failed to open SAM/BAM output\n.");
-	    perror(argv[optind+2]);
+	    perror(argv[optind+1]);
 	    return 1;
 	}
     }
@@ -126,7 +131,10 @@ int main(int argc, char **argv) {
     if (decode_md)
 	opt.i = decode_md, cram_set_option(fd, CRAM_OPT_DECODE_MD, &opt);
 
-    cram_load_reference(fd, argv[optind+1]);
+    if (ref_fn)
+	cram_load_reference(fd, ref_fn);
+    if (!fd->refs)
+	return 1;
 
     bfd->header = fd->SAM_hdr;
 

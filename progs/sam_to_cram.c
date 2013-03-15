@@ -17,8 +17,10 @@
 #include <io_lib/cram.h>
 
 void usage(FILE *fp) {
-    fprintf(fp, "Usage: sam_to_cram [-0..9] [-u] [-v] [-s] [-S] in.sam/bam ref.fa [output.cram]\n\n");
+    fprintf(fp, "Usage: sam_to_cram [-r ref.fa] [-0..9] [-u] [-v] [-s int] "
+	    "[-S int] in.sam/bam [output.cram]\n\n");
     fprintf(fp, "Options:\n");
+    fprintf(fp, "    -r ref.fa      Specifies the reference file.\n");
     fprintf(fp, "    -1 to -9       Set zlib compression level for CRAM\n");
     fprintf(fp, "    -0 or -u       No zlib compression.\n");
     fprintf(fp, "    -v             Verbose output.\n");
@@ -39,9 +41,9 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     cram_opt opt;
     int s_opt = 0, S_opt = 0;
-    char *arg_list;
+    char *arg_list, *ref_fn = NULL;
 
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -72,6 +74,10 @@ int main(int argc, char **argv) {
 	    cram_set_option(NULL, CRAM_OPT_VERSION, (cram_opt *)&optarg);
 	    break;
 
+	case 'r':
+	    ref_fn = optarg;
+	    break;
+
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
 	    usage(stderr);
@@ -79,7 +85,7 @@ int main(int argc, char **argv) {
 	}
     }
 
-    if (argc - optind != 2 && argc - optind != 3) {
+    if (argc - optind != 1 && argc - optind != 2) {
 	usage(stderr);
 	return 1;
     }
@@ -90,7 +96,7 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    out_fn = argc - optind == 3 ? argv[optind+2] : "-";
+    out_fn = argc - optind == 2 ? argv[optind+1] : "-";
     sprintf(out_mode, "wb%c", level);
     if (NULL == (out = cram_open(out_fn, out_mode))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", out_fn);
@@ -110,9 +116,13 @@ int main(int argc, char **argv) {
 
     out->SAM_hdr = in->header;
     
-    cram_load_reference(out, argv[optind+1]);
-    if (!out->refs)
+    if (ref_fn)
+	cram_load_reference(out, ref_fn);
+    if (!out->refs) {
+	fprintf(stderr, "Unable to open reference.\n"
+		"Please specify a valid reference with -r ref.fa option.\n");
 	return 1;
+    }
     refs2id(out->refs, out->SAM_hdr);
 
     opt.i = verbose;
