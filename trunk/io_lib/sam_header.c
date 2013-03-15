@@ -463,7 +463,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
  *
  * Returns NULL if no type/ID is found
  */
-SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type, char *ID) {
+SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
+			      char *ID_key, char *ID_value) {
     HashItem *hi;
     SAM_hdr_type *t1, *t2;
     char *str = dstring_str(hdr->text);
@@ -471,17 +472,17 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type, char *ID) {
     if (!(hi = HashTableSearch(hdr->h, type, 2)))
 	return NULL;
 
-    if (!ID)
+    if (!ID_key)
 	return hi->data.p;
 
     t1 = t2 = hi->data.p;
     do {
 	SAM_hdr_tag *tag;
 	for (tag = t1->tag; tag; tag = tag->next) {
-	    if (str[tag->idx  ] == ID[0] &&
-		str[tag->idx+1] == ID[1]) {
+	    if (str[tag->idx  ] == ID_key[0] &&
+		str[tag->idx+1] == ID_key[1]) {
 		char *cp1 = &str[tag->idx+3];
-		char *cp2 = ID;
+		char *cp2 = ID_value;
 		while (*cp1 == *cp2)
 		    cp1++, cp2++;
 		if (*cp2)
@@ -507,8 +508,9 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type, char *ID) {
  *
  * Returns NULL if no type/ID is found.
  */
-char *sam_header_find_line(SAM_hdr *hdr, char *type, char *ID) {
-    SAM_hdr_type *ty = sam_header_find(hdr, type, ID);
+char *sam_header_find_line(SAM_hdr *hdr, char *type,
+			   char *ID_key, char *ID_value) {
+    SAM_hdr_type *ty = sam_header_find(hdr, type, ID_key, ID_value);
     dstring_t *ds;
     SAM_hdr_tag *tag;
     char *str = dstring_str(hdr->text);
@@ -541,6 +543,100 @@ char *sam_header_find_line(SAM_hdr *hdr, char *type, char *ID) {
     return str;
 }
 
+
+/*
+ * Looks for a specific key in a single sam header line.
+ * If prev is non-NULL it also fills this out with the previous tag, to
+ * permit use in key removal. *prev is set to NULL when the tag is the first
+ * key in the list. When a tag isn't found, prev (if non NULL) will be the last
+ * tag in the existing list.
+ *
+ * Returns the tag pointer on success
+ *         NULL on failure
+ */
+SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
+				 SAM_hdr_type *type,
+				 char *key,
+				 SAM_hdr_tag **prev) {
+    SAM_hdr_tag *tag, *p = NULL;
+    char *str = DSTRING_STR(sh->text);
+
+    for (tag = type->tag; tag; p = tag, tag = tag->next) {
+	if (str[tag->idx+0] == key[0] &&
+	    str[tag->idx+1] == key[1]) {
+	    if (prev)
+		*prev = p;
+	    return tag;
+	}
+    }
+
+    if (prev)
+	*prev = p;
+
+    return NULL;
+}
+
+
+// Temporary function unti we rewrite sam_header to use string_pool_t
+char *sam_header_find_key2(SAM_hdr *sh,
+			   SAM_hdr_type *type,
+			   char *key,
+			   int *len /* out */) {
+    SAM_hdr_tag *tag = sam_header_find_key(sh, type, key, NULL);
+    if (!tag)
+	return NULL;
+    if (len) *len = tag->len;
+    return dstring_str(sh->text) + tag->idx;
+}
+
+
+/*
+ * Adds or updates tag key,value pairs in a header line.
+ * Eg for adding M5 tags to @SQ lines or updating sort order for the
+ * @HD line (although use the sam_header_sort_order() function for
+ * HD manipulation, which is a wrapper around this funuction).
+ *
+ * Specify multiple key,value pairs ending in NULL.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
+    va_list ap;
+
+    va_start(ap, type);
+    
+    for (;;) {
+	char *k, *v;
+	SAM_hdr_tag *tag, *prev;
+
+	if (!(k = (char *)va_arg(ap, char *)))
+	    break;
+	v = va_arg(ap, char *);
+
+	tag = sam_header_find_key(hdr, type, k, &prev);
+	if (!tag) {
+	    if (!(tag = pool_alloc(hdr->tag_pool)))
+		return -1;
+	    if (prev)
+		prev->next = tag;
+	    else
+		type->tag = tag;
+	}
+
+	tag->idx = DSTRING_LEN(hdr->text);
+	if (0 != dstring_appendf(hdr->text, "%2.2s:%s", k, v))
+	    return -1;
+	tag->len = DSTRING_LEN(hdr->text) - tag->idx;
+	tag->next = NULL;
+    }
+
+    va_end(ap);
+
+    return 0;
+}
+
+static void sam_header_free_internals(SAM_hdr *hdr);
 /*
  * Reconstructs the dstring from the header hash table.
  * Returns 0 on success
@@ -597,8 +693,18 @@ int sam_header_rebuild(SAM_hdr *hdr) {
 
     HashTableIterDestroy(iter);
 
-    dstring_destroy(hdr->text);
-    hdr->text = ds;
+    /* We now need to reparse too as indices changed - messy! */
+    // FIXME: switch to using Misc/string_alloc.c for efficient string pool
+    {
+	SAM_hdr *h2 = sam_header_parse(dstring_str(ds), dstring_length(ds));
+	sam_header_free_internals(hdr);
+	*hdr = *h2;
+	dstring_destroy(ds);
+	free(h2);
+    }
+	
+    //dstring_destroy(hdr->text);
+    //hdr->text = ds;
 
     return 0;
 }
@@ -691,10 +797,7 @@ SAM_hdr *sam_header_parse(char *hdr, int len) {
 /*
  * Deallocates all storage used by a SAM_hdr struct.
  */
-void sam_header_free(SAM_hdr *hdr) {
-    if (!hdr)
-	return;
-
+static void sam_header_free_internals(SAM_hdr *hdr) {
     if (hdr->text)
 	dstring_destroy(hdr->text);
 
@@ -742,7 +845,13 @@ void sam_header_free(SAM_hdr *hdr) {
 
     if (hdr->tag_pool)
 	pool_destroy(hdr->tag_pool);
+}
 
+void sam_header_free(SAM_hdr *hdr) {
+    if (!hdr)
+	return;
+
+    sam_header_free_internals(hdr);
     free(hdr);
 }
 

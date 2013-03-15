@@ -111,19 +111,34 @@ int main(int argc, char **argv) {
 		      "CL", arg_list, NULL);
     free(arg_list);
 
-    if (-1 == cram_write_SAM_hdr(out, in->header))
-	return 1;
+    /* Find and load reference */
+    if (!ref_fn) {
+	SAM_hdr_type *ty = sam_header_find(in->header, "SQ", NULL, NULL);
+	if (ty) {
+	    int len;
+	    ref_fn = sam_header_find_key2(in->header, ty, "UR", &len);
+	    if (ref_fn) {
+		ref_fn[len] = 0;
+		ref_fn += 3;
+		if (strncmp(ref_fn, "file:", 5) == 0)
+		    ref_fn += 5;
+	    }
+	}
+    }
 
     out->SAM_hdr = in->header;
-    
     if (ref_fn)
 	cram_load_reference(out, ref_fn);
+
     if (!out->refs) {
 	fprintf(stderr, "Unable to open reference.\n"
 		"Please specify a valid reference with -r ref.fa option.\n");
 	return 1;
     }
     refs2id(out->refs, out->SAM_hdr);
+
+    if (-1 == cram_write_SAM_hdr(out, in->header))
+	return 1;
 
     opt.i = verbose;
     cram_set_option(out, CRAM_OPT_VERBOSITY, &opt);

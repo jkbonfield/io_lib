@@ -131,10 +131,28 @@ int main(int argc, char **argv) {
     if (decode_md)
 	opt.i = decode_md, cram_set_option(fd, CRAM_OPT_DECODE_MD, &opt);
 
+    /* Find and load reference */
+    if (!ref_fn) {
+	SAM_hdr_type *ty = sam_header_find(fd->SAM_hdr, "SQ", NULL, NULL);
+	if (ty) {
+	    int len;
+	    ref_fn = sam_header_find_key2(fd->SAM_hdr, ty, "UR", &len);
+	    if (ref_fn) {
+		ref_fn[len] = 0;
+		ref_fn += 3;
+		if (strncmp(ref_fn, "file:", 5) == 0)
+		    ref_fn += 5;
+	    }
+	}
+    }
+
     if (ref_fn)
 	cram_load_reference(fd, ref_fn);
-    if (!fd->refs)
+    if (!fd->refs) {
+	fprintf(stderr, "Unable to find an appropriate reference.\n"
+		"Please specify a valid reference with -r ref.fa option.\n");
 	return 1;
+    }
 
     bfd->header = fd->SAM_hdr;
 
