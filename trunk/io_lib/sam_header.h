@@ -18,6 +18,7 @@
 
 #include "io_lib/dstring.h"
 #include "io_lib/hash_table.h"
+#include "io_lib/string_alloc.h"
 
 /*
  * Proposed new SAM header parsing
@@ -48,8 +49,8 @@ Ie SQ->ID(foo)->LN(100)
 
 typedef struct SAM_hdr_tag_s {
     struct SAM_hdr_tag_s *next;
-    int idx;     // index into SAM_hdr->text, format [2-char key]:[value];
-    int len;     // length of tag
+    char *str;
+    int   len;
 } SAM_hdr_tag;
 
 typedef struct SAM_hdr_item_s {
@@ -84,8 +85,9 @@ typedef struct {
 typedef struct {
     dstring_t *text;      // concatenated text, indexed by SAM_hdr_tag
     HashTable *h;         // 2-char IDs, values are SAM_hdr_type.
-    pool_alloc_t *type_pool;
-    pool_alloc_t *tag_pool;
+    string_alloc_t *str_pool;
+    pool_alloc_t   *type_pool;
+    pool_alloc_t   *tag_pool;
 
     // @SQ lines / references
     int nref;
@@ -186,10 +188,6 @@ SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
 				 SAM_hdr_type *type,
 				 char *key,
 				 SAM_hdr_tag **prev);
-char *sam_header_find_key2(SAM_hdr *sh,
-			   SAM_hdr_type *type,
-			   char *key,
-			   int *len);
 
 /*
  * Adds or updates tag key,value pairs in a header line.

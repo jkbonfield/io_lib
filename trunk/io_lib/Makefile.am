@@ -89,6 +89,8 @@ libstaden_read_la_SOURCES = \
 	zfio.h \
 	dstring.c \
 	dstring.h \
+	string_alloc.c \
+	string_alloc.h \
 	md5.c \
 	md5.h
 
