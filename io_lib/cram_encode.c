@@ -1708,6 +1708,10 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     }
 
     ref = fd->ref;
+    if (!ref) {
+	fprintf(stderr, "No reference found\n");
+	return -1;
+    }
 
     // Create a cram_record
     s = c->slice;

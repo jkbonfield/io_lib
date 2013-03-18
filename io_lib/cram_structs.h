@@ -567,7 +567,8 @@ enum cram_option {
     CRAM_OPT_SLICES_PER_CONTAINER,
     CRAM_OPT_RANGE,
     CRAM_OPT_VERSION,
-    CRAM_OPT_EMBED_REF
+    CRAM_OPT_EMBED_REF,
+    CRAM_OPT_REFERENCE
 };
 
 typedef union {
