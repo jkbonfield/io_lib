@@ -978,15 +978,31 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
     ref_id = s->hdr->ref_seq_id;
 
-#if 0
-    s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, s->hdr->ref_seq_start,
-			  s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
-    s->ref_start = s->hdr->ref_seq_start;
-#else
-    // Avoid Java cramtools bug by loading entire reference seq
-    s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
-    s->ref_start = 1;
-#endif
+    if (ref_id >= 0) {
+	if (fd->embed_ref) {
+	    cram_block *b;
+	    if (s->hdr->ref_base_id < 0) {
+		fprintf(stderr, "No reference specified and "
+			"no embedded reference is available.\n");
+		return -1;
+	    }
+	    if (!s->block_by_id ||
+		!(b = s->block_by_id[s->hdr->ref_base_id]))
+		return -1;
+	    s->ref = (char *)BLOCK_DATA(b);
+	    s->ref_start = s->hdr->ref_seq_start;
+	} else {
+	    // Avoid Java cramtools bug by loading entire reference seq 
+	    s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
+	    s->ref_start = 1;
+
+	    //s->ref =
+	    //   cram_get_ref(fd, s->hdr->ref_seq_id,
+	    //                s->hdr->ref_seq_start,
+	    //		      s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
+	    //s->ref_start = s->hdr->ref_seq_start;
+	}
+    }
 
     if (s->ref == NULL && s->hdr->ref_seq_id >= 0) {
 	fprintf(stderr, "Unable to fetch reference #%d %d..%d\n",

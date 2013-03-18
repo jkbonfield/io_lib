@@ -184,8 +184,11 @@ void cram_load_reference(cram_fd *fd, char *fn);
 /*
  * Indexes references by the order they appear in a BAM file. This may not
  * necessarily be the same order they appear in the fasta reference file.
+ *
+ * Returns 0 on success
+ *        -1 on failure
  */
-void refs2id(refs *r, SAM_hdr *bfd);
+int refs2id(refs *r, SAM_hdr *bfd);
 
 /*
  * Returns a portion of a reference sequence from start to end inclusive.
