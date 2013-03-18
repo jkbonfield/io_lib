@@ -33,7 +33,7 @@
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
  *
- * Also see the itf8_get and itf8_put macros in cram_io.h
+* Also see the itf8_get and itf8_put macros in cram_io.h
  */
 
 /*
@@ -474,6 +474,8 @@ static char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size) {
 
     /* Starting point at uncompressed size, 4x compressed */
     data = malloc(data_alloc = csize*4+10);
+    if (!data)
+	return NULL;
 
     /* Initialise zlib stream */
     s.zalloc = Z_NULL; /* use default allocation functions */
@@ -507,6 +509,8 @@ static char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size) {
 
 	/* More to come, so realloc */
 	data = realloc(data, data_alloc += s.avail_in*4 + 10);
+	if (!data)
+	    return NULL;
 	s.avail_out += s.avail_in*4+10;
     }
     inflateEnd(&s);
@@ -524,6 +528,8 @@ static char *zlib_mem_deflate(char *data, size_t size, size_t *cdata_size,
     int err;
 
     cdata = malloc(cdata_alloc = size*1.05+100);
+    if (!cdata)
+	return NULL;
     cdata_pos = 0;
 
     /* Initialise zlib stream */
@@ -798,6 +804,8 @@ void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
 cram_metrics *cram_new_metrics(void) {
     cram_metrics *m = malloc(sizeof(*m));
+    if (!m)
+	return NULL;
     m->m1 = m->m2 = 0;
     m->trial = 2;
     m->next_trial = 100;
@@ -837,7 +845,7 @@ char *cram_content_type2str(enum cram_content_type t) {
  * Returns a ref_seq structure on success
  *         NULL on failure
  */
-static refs *load_reference(char *fn) {
+static refs *load_reference(char *fn, int is_err) {
     struct stat sb;
     FILE *fp;
     HashData hd;
@@ -850,12 +858,14 @@ static refs *load_reference(char *fn) {
 
     /* Open reference, for later use */
     if (stat(fn, &sb) != 0) {
-	perror(fn);
+	if (is_err)
+	    perror(fn);
 	return NULL;
     }
 
     if (!(r->fp = fopen(fn, "r"))) {
-	perror(fn);
+	if (is_err)
+	    perror(fn);
 	return NULL;
     }
 
@@ -866,18 +876,20 @@ static refs *load_reference(char *fn) {
     /* Parse .fai file and load meta-data */
     sprintf(fai_fn, "%.*s.fai", PATH_MAX-5, fn);
     if (stat(fai_fn, &sb) != 0) {
-	perror(fai_fn);
+	if (is_err)
+	    perror(fai_fn);
 	return NULL;
     }
     if (!(fp = fopen(fai_fn, "r"))) {
-	perror(fai_fn);
+	if (is_err)
+	    perror(fai_fn);
 	return NULL;
     }
     while (fgets(line, 1024, fp) != NULL) {
 	ref_entry *e = malloc(sizeof(*e));
 	char *cp;
 
-	if (!r)
+	if (!e)
 	    return NULL;
 
 	// id
@@ -930,13 +942,18 @@ static void free_refs(refs *r) {
 /*
  * Indexes references by the order they appear in a BAM file. This may not
  * necessarily be the same order they appear in the fasta reference file.
+ *
+ * Returns 0 on success
+ *        -1 on failure
  */
-void refs2id(refs *r, SAM_hdr *bfd) {
+int refs2id(refs *r, SAM_hdr *bfd) {
     int i;
     if (r->ref_id)
 	free(r->ref_id);
 
     r->ref_id = malloc(bfd->nref * sizeof(*r->ref_id));
+    if (!r->ref_id)
+	return -1;
     for (i = 0; i < bfd->nref; i++) {
 	HashItem *hi;
 	if ((hi = HashTableSearch(r->h_meta, bfd->ref[i].name, 0))) {
@@ -946,6 +963,8 @@ void refs2id(refs *r, SAM_hdr *bfd) {
 		    bfd->ref[i].name);
 	}
     }
+
+    return 0;
 }
 
 /*
@@ -1010,6 +1029,8 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     // Load the data enmasse and then strip whitespace as we go 
     fd->ref = realloc(fd->ref, len);     // FIXME: grow only?
+    if (!fd->ref)
+	return NULL;
 
     if (len != fread(fd->ref, 1, len, fd->refs->fp)) {
 	perror("fread() on reference file");
@@ -1033,9 +1054,13 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 }
 
 void cram_load_reference(cram_fd *fd, char *fn) {
-    fd->refs = load_reference(fn);
-    refs2id(fd->refs, fd->SAM_hdr);
-    fd->ref_fn = strdup(fn);
+    fd->refs = load_reference(fn, !(fd->embed_ref && fd->mode == 'r'));
+    if (fd->refs) {
+	refs2id(fd->refs, fd->SAM_hdr);
+	fd->ref_fn = strdup(fn);
+    } else {
+	fd->ref_fn = NULL;
+    }
 }
 
 /* ----------------------------------------------------------------------
@@ -1065,42 +1090,45 @@ cram_container *cram_new_container(int nrec, int nslice) {
 
     c->pos_sorted = 1;
 
-    c->slices = (cram_slice **)calloc(nslice, sizeof(cram_slice *));
+    if (!(c->slices = (cram_slice **)calloc(nslice, sizeof(cram_slice *))))
+	return NULL;
     c->slice = NULL;
 
-    c->comp_hdr = cram_new_compression_header();
+    if (!(c->comp_hdr = cram_new_compression_header()))
+	return NULL;
     c->comp_hdr_block = NULL;
 
-    c->BF_stats = cram_stats_create();
-    c->CF_stats = cram_stats_create();
-    c->RN_stats = cram_stats_create();
-    c->AP_stats = cram_stats_create();
-    c->RG_stats = cram_stats_create();
-    c->MQ_stats = cram_stats_create();
-    c->NS_stats = cram_stats_create();
-    c->NP_stats = cram_stats_create();
-    c->TS_stats = cram_stats_create();
-    c->MF_stats = cram_stats_create();
-    c->NF_stats = cram_stats_create();
-    c->RL_stats = cram_stats_create();
-    c->FN_stats = cram_stats_create();
-    c->FC_stats = cram_stats_create();
-    c->FP_stats = cram_stats_create();
-    c->DL_stats = cram_stats_create();
-    c->BA_stats = cram_stats_create();
-    c->QS_stats = cram_stats_create();
-    c->BS_stats = cram_stats_create();
-    c->TC_stats = cram_stats_create();
-    c->TN_stats = cram_stats_create();
-    c->TL_stats = cram_stats_create();
-    c->RI_stats = cram_stats_create();
-    c->RS_stats = cram_stats_create();
-    c->PD_stats = cram_stats_create();
-    c->HC_stats = cram_stats_create();
-
+    if (!(c->BF_stats = cram_stats_create())) return NULL;
+    if (!(c->CF_stats = cram_stats_create())) return NULL;
+    if (!(c->RN_stats = cram_stats_create())) return NULL;
+    if (!(c->AP_stats = cram_stats_create())) return NULL;
+    if (!(c->RG_stats = cram_stats_create())) return NULL;
+    if (!(c->MQ_stats = cram_stats_create())) return NULL;
+    if (!(c->NS_stats = cram_stats_create())) return NULL;
+    if (!(c->NP_stats = cram_stats_create())) return NULL;
+    if (!(c->TS_stats = cram_stats_create())) return NULL;
+    if (!(c->MF_stats = cram_stats_create())) return NULL;
+    if (!(c->NF_stats = cram_stats_create())) return NULL;
+    if (!(c->RL_stats = cram_stats_create())) return NULL;
+    if (!(c->FN_stats = cram_stats_create())) return NULL;
+    if (!(c->FC_stats = cram_stats_create())) return NULL;
+    if (!(c->FP_stats = cram_stats_create())) return NULL;
+    if (!(c->DL_stats = cram_stats_create())) return NULL;
+    if (!(c->BA_stats = cram_stats_create())) return NULL;
+    if (!(c->QS_stats = cram_stats_create())) return NULL;
+    if (!(c->BS_stats = cram_stats_create())) return NULL;
+    if (!(c->TC_stats = cram_stats_create())) return NULL;
+    if (!(c->TN_stats = cram_stats_create())) return NULL;
+    if (!(c->TL_stats = cram_stats_create())) return NULL;
+    if (!(c->RI_stats = cram_stats_create())) return NULL;
+    if (!(c->RS_stats = cram_stats_create())) return NULL;
+    if (!(c->PD_stats = cram_stats_create())) return NULL;
+    if (!(c->HC_stats = cram_stats_create())) return NULL;
+    
     //c->aux_B_stats = cram_stats_create();
 
-    c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE);
+    if (!(c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
+	return NULL;
 
     return c;
 }
@@ -1327,9 +1355,14 @@ int cram_flush_container(cram_fd *fd, cram_container *c) {
  */
 cram_block_compression_hdr *cram_new_compression_header(void) {
     cram_block_compression_hdr *hdr = calloc(1, sizeof(*hdr));
+    if (!hdr)
+	return NULL;
 
-    hdr->TD_blk = cram_new_block(CORE, 0);
-    hdr->TD = HashTableCreate(16, HASH_DYNAMIC_SIZE);
+    if (!(hdr->TD_blk = cram_new_block(CORE, 0)))
+	return NULL;
+
+    if (!(hdr->TD = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
+	return NULL;
 
     return hdr;
 }
@@ -1499,7 +1532,8 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     if (!s)
 	return NULL;
 
-    s->hdr = (cram_block_slice_hdr *)calloc(1, sizeof(*s->hdr));
+    if (!(s->hdr = (cram_block_slice_hdr *)calloc(1, sizeof(*s->hdr))))
+	return NULL;
     s->hdr->content_type = type;
 
     s->hdr_block = NULL;
@@ -1507,19 +1541,19 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->block_by_id = NULL;
     s->last_apos = 0;
     s->id = 0;
-    s->crecs = malloc(nrecs * sizeof(cram_record));
+    if (!(s->crecs = malloc(nrecs * sizeof(cram_record))))        return NULL;
     s->cigar = NULL;
     s->cigar_alloc = 0;
     s->ncigar = 0;
 
-    s->seqs_blk = cram_new_block(EXTERNAL, 0);
-    s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL);
-    s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME);
-    s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG);
-    s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN);
-    s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC);
+    if (!(s->seqs_blk = cram_new_block(EXTERNAL, 0)))             return NULL;
+    if (!(s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL))) return NULL;
+    if (!(s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME))) return NULL;
+    if (!(s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG)))  return NULL;
+    if (!(s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN)))   return NULL;
+    if (!(s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC)))   return NULL;
 #ifdef TN_external
-    s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN);
+    if (!(s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN)))   return NULL;
 #endif
 
     s->features = NULL;
@@ -1531,8 +1565,8 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
 #endif
 
     // Volatile keys as we do realloc in dstring
-    s->pair = HashTableCreate(10000, HASH_DYNAMIC_SIZE);
-
+    if (!(s->pair = HashTableCreate(10000, HASH_DYNAMIC_SIZE)))   return NULL;
+    
 #ifdef BA_external
     s->BA_len = 0;
 #endif
@@ -1870,7 +1904,8 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 
 	c->num_blocks = 1;
 	c->num_landmarks = 1;
-	c->landmark = malloc(sizeof(*c->landmark));
+	if (!(c->landmark = malloc(sizeof(*c->landmark))))
+	    return -1;
 	c->landmark[0] = 0;
 	
 	if (-1 == cram_write_container(fd, c)) {
@@ -2066,6 +2101,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->verbose = 0;
     fd->seqs_per_slice = SEQS_PER_SLICE;
     fd->slices_per_container = SLICE_PER_CNT;
+    fd->embed_ref = 0;
 
     fd->index = NULL;
 
@@ -2176,6 +2212,10 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
 
     case CRAM_OPT_SLICES_PER_CONTAINER:
 	fd->slices_per_container = val->i;
+	break;
+
+    case CRAM_OPT_EMBED_REF:
+	fd->embed_ref = val->i;
 	break;
 
     case CRAM_OPT_RANGE:

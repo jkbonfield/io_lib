@@ -70,12 +70,13 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 	h->preservation_map = HashTableCreate(4, HASH_NONVOLATILE_KEYS);
 	HashData hd;
 	hd.i = 1; HashTableAdd(h->preservation_map, "RN", 2, hd, NULL);
-	hd.i = 0; HashTableAdd(h->preservation_map, "SM", 2, hd, NULL);
 	if (fd->version == CRAM_1_VERS) {
 	    hd.i = 0; HashTableAdd(h->preservation_map, "PI", 2, hd, NULL);
 	    hd.i = 1; HashTableAdd(h->preservation_map, "UI", 2, hd, NULL);
 	    hd.i = 1; HashTableAdd(h->preservation_map, "MI", 2, hd, NULL);
 	} else {
+	    // Technically SM was in 1.0, but wasn't in Java impl.
+	    hd.i = 0; HashTableAdd(h->preservation_map, "SM", 2, hd, NULL);
 	    hd.i = 0; HashTableAdd(h->preservation_map, "TD", 2, hd, NULL);
 	    hd.i = c->pos_sorted; // => DELTA
 	    HashTableAdd(h->preservation_map, "AP", 2, hd, NULL);
@@ -436,7 +437,9 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 			     cram_block_compression_hdr *h, cram_slice *s) {
     int rec, r = 0, last_pos;
     cram_block *core;
-    int nblk;
+    int nblk, embed_ref;
+
+    embed_ref = fd->embed_ref && s->hdr->ref_seq_id >= 0 ? 1 : 0;
 
     /*
      * Slice external blocks:
@@ -451,7 +454,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
      */
 
     /* Create cram slice header, num_blocks etc */
-    s->hdr->ref_base_id = 0;
+    s->hdr->ref_base_id = embed_ref ? CRAM_EXT_REF : -1;
     s->hdr->record_counter = c->num_records + c->record_counter;
     c->num_records += s->hdr->num_records;
     nblk = (fd->version == CRAM_1_VERS) ? 5 : 6;
@@ -463,54 +466,74 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	nblk++;
     }
 #endif
+    if (embed_ref)
+	nblk++;
+
     s->hdr->num_content_ids = nblk;
     s->hdr->num_blocks = s->hdr->num_content_ids+1;
     s->block = calloc(s->hdr->num_blocks, sizeof(s->block[0]));
     s->hdr->block_content_ids = malloc(s->hdr->num_content_ids *
 				       sizeof(int32_t));
-    s->hdr->block_content_ids[0] = 0;
-    s->hdr->block_content_ids[1] = 1;
-    s->hdr->block_content_ids[2] = 2;
-    s->hdr->block_content_ids[3] = 3;
-    s->hdr->block_content_ids[4] = 4;
-    s->hdr->block_content_ids[5] = 10;
+    if (!s->block || !s->hdr->block_content_ids)
+	return -1;
+    s->hdr->block_content_ids[0] = 0; // core
+    s->hdr->block_content_ids[1] = CRAM_EXT_QUAL;
+    s->hdr->block_content_ids[2] = CRAM_EXT_NAME;
+    s->hdr->block_content_ids[3] = CRAM_EXT_TS_NP;
+    s->hdr->block_content_ids[4] = CRAM_EXT_TAG;
+    s->hdr->block_content_ids[5] = CRAM_EXT_SC;
     nblk = (fd->version == CRAM_1_VERS) ? 5 : 6;
 #ifdef BA_external
-    s->hdr->block_content_ids[(s->ba_id = ++nblk)-1] = 5;
+    s->hdr->block_content_ids[(s->ba_id = ++nblk)-1] = CRAM_EXT_BA;
 #endif
 #ifdef TN_external
     if (fd->version == CRAM_1_VERS) {
-	s->hdr->block_content_ids[(s->tn_id = ++nblk)-1] = 6;
+	s->hdr->block_content_ids[(s->tn_id = ++nblk)-1] = CRAM_EXT_TN;
     }
 #endif
+    if (embed_ref)
+	s->hdr->block_content_ids[(s->ref_id = ++nblk)-1] = CRAM_EXT_REF;
 
-    s->block[0] = cram_new_block(CORE, 0);     // Core 
-    s->block[1] = cram_new_block(EXTERNAL, CRAM_EXT_IN);
-    s->block[2] = cram_new_block(EXTERNAL, CRAM_EXT_QUAL);
-    s->block[3] = cram_new_block(EXTERNAL, CRAM_EXT_NAME);
-    s->block[4] = cram_new_block(EXTERNAL, CRAM_EXT_TS_NP);
-    s->block[5] = cram_new_block(EXTERNAL, CRAM_EXT_TAG);
+    if (!(s->block[0] = cram_new_block(CORE, 0)))                  return -1;
+    if (!(s->block[1] = cram_new_block(EXTERNAL, CRAM_EXT_IN)))    return -1;
+    if (!(s->block[2] = cram_new_block(EXTERNAL, CRAM_EXT_QUAL)))  return -1;
+    if (!(s->block[3] = cram_new_block(EXTERNAL, CRAM_EXT_NAME)))  return -1;
+    if (!(s->block[4] = cram_new_block(EXTERNAL, CRAM_EXT_TS_NP))) return -1;
+    if (!(s->block[5] = cram_new_block(EXTERNAL, CRAM_EXT_TAG)))   return -1;
     if (fd->version != CRAM_1_VERS) {
-	s->block[6] = cram_new_block(EXTERNAL, CRAM_EXT_SC);
+	if (!(s->block[6] = cram_new_block(EXTERNAL, CRAM_EXT_SC)))
+	    return -1;
     }
 #ifdef BA_external
-    s->block[s->ba_id] = cram_new_block(EXTERNAL, CRAM_EXT_BA);
+    if (!(s->block[s->ba_id] = cram_new_block(EXTERNAL, CRAM_EXT_BA)))
+	return -1;
 #endif
 #ifdef TN_external
     if (fd->version == CRAM_1_VERS) {
-	s->block[s->tn_id] = cram_new_block(EXTERNAL, CRAM_EXT_TN);
+	if (!(s->block[s->tn_id] = cram_new_block(EXTERNAL, CRAM_EXT_TN)))
+	    return -1;
     }
 #endif
+    if (embed_ref) {
+	if (!(s->block[s->ref_id] = cram_new_block(EXTERNAL, CRAM_EXT_REF)))
+	    return -1;
+	BLOCK_APPEND(s->block[s->ref_id],
+		     fd->ref + fd->first_base - fd->ref_start,
+		     fd->last_base - fd->first_base + 1);
+    }
 
     core = s->block[0];
 		 
     /* Create a formal method for stealing from dstrings! */
-    //s->block[4]->data = calloc(5, s->hdr->num_records);
     s->block[4]->data = calloc(10, s->hdr->num_records); // NP TS
+    if (!s->block[4]->data)
+	return -1;
     s->block[4]->comp_size = s->block[4]->uncomp_size = 0;
 
 #ifdef BA_external
     s->block[s->ba_id]->data = calloc(1, s->BA_len);
+    if (!s->block[s->ba_id]->data)
+	return -1;
     s->block[s->ba_id]->comp_size = s->block[s->ba_id]->uncomp_size = 0;
 #endif
 
@@ -724,6 +747,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[0]->uncomp_size = s->block[0]->byte + (s->block[0]->bit < 7);
     s->block[0]->comp_size = s->block[0]->uncomp_size;
 
+    // FIXME: we should avoid creating these in the first place and just
+    // point them to s->base_blk et al.
     cram_free_block(s->block[1]);
     cram_free_block(s->block[2]);
     cram_free_block(s->block[3]);
@@ -782,6 +807,11 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 			    fd->level, Z_DEFAULT_STRATEGY, -1, -1);
     }
 #endif
+    if (embed_ref) {
+	BLOCK_UPLEN(s->block[s->ref_id]);
+	cram_compress_block(fd, s->block[s->ref_id], NULL,
+			    fd->level, Z_DEFAULT_STRATEGY, -1, -1);
+    }
 
     return r ? -1 : 0;
 }

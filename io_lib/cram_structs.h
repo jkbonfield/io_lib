@@ -445,6 +445,7 @@ typedef struct cram_slice {
     int BA_len;
     int ba_id;
 #endif
+    int ref_id;
 } cram_slice;
 
 /*-----------------------------------------------------------------------------
@@ -509,7 +510,7 @@ typedef struct {
     int            version;
     cram_file_def *file_def;
     SAM_hdr       *SAM_hdr;
-    
+
     char          *prefix;
     int            record_counter;
     int            slice_num;
@@ -537,10 +538,12 @@ typedef struct {
     int level;
     cram_metrics *m[7];
 
+    // options
     int decode_md; // Whether to export MD and NM tags
     int verbose;
     int seqs_per_slice;
     int slices_per_container;
+    int embed_ref;
     cram_range range;
 
     // lookup tables, stored here so we can be trivially multi-threaded
@@ -563,7 +566,8 @@ enum cram_option {
     CRAM_OPT_SEQS_PER_SLICE,
     CRAM_OPT_SLICES_PER_CONTAINER,
     CRAM_OPT_RANGE,
-    CRAM_OPT_VERSION
+    CRAM_OPT_VERSION,
+    CRAM_OPT_EMBED_REF
 };
 
 typedef union {
@@ -603,5 +607,6 @@ typedef union {
 #define CRAM_EXT_BA	5
 #define CRAM_EXT_TN	6
 #define CRAM_EXT_SC	7
+#define CRAM_EXT_REF    8
 
 #endif /* _CRAM_STRUCTS_H_ */

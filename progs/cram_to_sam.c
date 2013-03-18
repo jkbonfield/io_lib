@@ -25,6 +25,7 @@ void usage(FILE *fp) {
     fprintf(fp, "    -0 or -u       Output uncompressed, if BAM.\n");
     fprintf(fp, "    -p str         Set the prefix for auto-generated seq. names\n");
     fprintf(fp, "    -R region	    Extract region 'ref:start-end', eg -R chr1:1000-2000\n");
+    fprintf(fp, "    -X             Extract using the embedded reference (if present).\n");
 }
 
 int main(int argc, char **argv) {
@@ -38,8 +39,9 @@ int main(int argc, char **argv) {
     int C;
     int start, end;
     char ref_name[1024] = {0}, *arg_list, *ref_fn = NULL;
+    int embed_ref = 0;
 
-    while ((C = getopt(argc, argv, "bu0123456789mp:hr:R:")) != -1) {
+    while ((C = getopt(argc, argv, "bu0123456789mp:hr:R:X")) != -1) {
 	switch (C) {
 	case 'b':
 	    mode[1] = 'b';
@@ -68,6 +70,10 @@ int main(int argc, char **argv) {
 
 	case 'r':
 	    ref_fn = optarg;
+	    break;
+
+	case 'X':
+	    embed_ref = 1;
 	    break;
 
 	case 'R': {
@@ -131,6 +137,9 @@ int main(int argc, char **argv) {
     if (decode_md)
 	opt.i = decode_md, cram_set_option(fd, CRAM_OPT_DECODE_MD, &opt);
 
+    if (embed_ref)
+	opt.i = embed_ref, cram_set_option(fd, CRAM_OPT_EMBED_REF, &opt);
+
     /* Find and load reference */
     if (!ref_fn) {
 	SAM_hdr_type *ty = sam_header_find(fd->SAM_hdr, "SQ", NULL, NULL);
@@ -147,7 +156,7 @@ int main(int argc, char **argv) {
 
     if (ref_fn)
 	cram_load_reference(fd, ref_fn);
-    if (!fd->refs) {
+    if (!fd->refs && !embed_ref) {
 	fprintf(stderr, "Unable to find an appropriate reference.\n"
 		"Please specify a valid reference with -r ref.fa option.\n");
 	return 1;
