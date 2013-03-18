@@ -68,6 +68,7 @@ pkginclude_HEADERS = \
 	io_lib/cram_codecs.h \
 	io_lib/cram_index.h \
 	io_lib/zfio.h \
+	io_lib/scram.h \
 	io_lib/bam.h \
 	io_lib/sam_header.h \
 	io_lib/dstring.h \

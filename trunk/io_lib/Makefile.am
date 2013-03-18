@@ -92,7 +92,9 @@ libstaden_read_la_SOURCES = \
 	string_alloc.c \
 	string_alloc.h \
 	md5.c \
-	md5.h
+	md5.h \
+	scram.c \
+	scram.h
 
 libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
 

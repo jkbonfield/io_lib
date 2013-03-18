@@ -141,21 +141,7 @@ int main(int argc, char **argv) {
 	opt.i = embed_ref, cram_set_option(fd, CRAM_OPT_EMBED_REF, &opt);
 
     /* Find and load reference */
-    if (!ref_fn) {
-	SAM_hdr_type *ty = sam_header_find(fd->SAM_hdr, "SQ", NULL, NULL);
-	if (ty) {
-	    SAM_hdr_tag *tag;
-
-	    if ((tag = sam_header_find_key(fd->SAM_hdr, ty, "UR", NULL))) {
-		ref_fn  = tag->str + 3;
-		if (strncmp(ref_fn, "file:", 5) == 0)
-		    ref_fn += 5;
-	    }
-	}
-    }
-
-    if (ref_fn)
-	cram_load_reference(fd, ref_fn);
+    cram_load_reference(fd, ref_fn);
     if (!fd->refs && !embed_ref) {
 	fprintf(stderr, "Unable to find an appropriate reference.\n"
 		"Please specify a valid reference with -r ref.fa option.\n");

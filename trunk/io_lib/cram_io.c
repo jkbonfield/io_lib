@@ -994,7 +994,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	return NULL;
     }
 
-    if (!fd->refs->ref_id[id])
+    if (!fd->refs || !fd->refs->ref_id[id])
 	return NULL;
 
     if (!(r = fd->refs->ref_id[id])) {
@@ -1053,7 +1053,28 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     return fd->ref;
 }
 
+/*
+ * If fd has been opened for reading, it may be permitted to specify 'fn'
+ * as NULL and let the code auto-detect the reference by parsing the
+ * SAM header @SQ lines.
+ */
 void cram_load_reference(cram_fd *fd, char *fn) {
+    if (!fn && fd->mode == 'r') {
+	SAM_hdr_type *ty = sam_header_find(fd->SAM_hdr, "SQ", NULL, NULL);
+	if (ty) {
+	    SAM_hdr_tag *tag;
+
+	    if ((tag = sam_header_find_key(fd->SAM_hdr, ty, "UR", NULL))) {
+		fn  = tag->str + 3;
+		if (strncmp(fn, "file:", 5) == 0)
+		    fn += 5;
+	    }
+	}
+	
+	if (!fn)
+	    return;
+    }
+
     fd->refs = load_reference(fn, !(fd->embed_ref && fd->mode == 'r'));
     if (fd->refs) {
 	refs2id(fd->refs, fd->SAM_hdr);
@@ -2063,9 +2084,6 @@ cram_fd *cram_open(char *filename, char *mode) {
 	if (!(fd->SAM_hdr = cram_read_SAM_hdr(fd)))
 	    goto err;
 
-	//if (0 != parse_SAM_hdr(&fd->SAM_hdr))
-	//    goto err;
-
     } else {
 	/* Writer */
 	cram_file_def def;
@@ -2221,6 +2239,10 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
     case CRAM_OPT_RANGE:
 	fd->range = *(cram_range *)val->s;
 	cram_seek_to_refpos(fd, &fd->range);
+	break;
+
+    case CRAM_OPT_REFERENCE:
+	cram_load_reference(fd, val->s);
 	break;
 
     case CRAM_OPT_VERSION: {
