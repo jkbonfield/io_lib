@@ -118,7 +118,7 @@ int scram_write_header(scram_fd *fd) {
 
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
     if (fd->is_bam)
-	return bam_next_seq(fd->b, bsp);
+	return bam_next_seq(fd->b, bsp) ? 0 : -1;
     else
 	return cram_get_bam_seq(fd->c, bsp);
 }
