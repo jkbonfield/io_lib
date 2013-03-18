@@ -1015,12 +1015,15 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	MD5_CTX md5;
 	unsigned char digest[16];
 
-	MD5_Init(&md5);
-	MD5_Update(&md5,
-		   fd->ref + s->hdr->ref_seq_start - fd->ref_start,
-		   s->hdr->ref_seq_span);
-	MD5_Final(digest, &md5);
-	if (memcmp(digest, s->hdr->md5, 16) != 0) {
+	if (fd->ref) {
+	    MD5_Init(&md5);
+	    MD5_Update(&md5,
+		       fd->ref + s->hdr->ref_seq_start - fd->ref_start,
+		       s->hdr->ref_seq_span);
+	    MD5_Final(digest, &md5);
+	}
+
+	if (!fd->ref || memcmp(digest, s->hdr->md5, 16) != 0) {
 	    fprintf(stderr, "ERROR: md5sum reference mismatch\n");
 	    return -1;
 	}

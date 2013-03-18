@@ -291,8 +291,12 @@ bam_file_t *bam_open(char *fn, char *mode) {
     } else {
 	b->mode = O_RDONLY;
     }
-    if (-1 == (b->fd = open(fn, b->mode, 0)))
-	goto error;
+    if (strcmp(fn, "-") == 0) {
+	b->fd = 0; /* Stdin */
+    } else {
+	if (-1 == (b->fd = open(fn, b->mode, 0)))
+	    goto error;
+    }
 
     /* Load first block so we can check */
     bam_more_input(b);
