@@ -112,6 +112,8 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 	    vals_alloc = vals_alloc ? vals_alloc*2 : 1024;
 	    vals  = realloc(vals,  vals_alloc * sizeof(int));
 	    freqs = realloc(freqs, vals_alloc * sizeof(int));
+	    if (!vals || !freqs)
+		return E_HUFFMAN; // Cannot do much else atm
 	}
 	vals[nvals] = i;
 	freqs[nvals] = st->freqs[i];
@@ -130,6 +132,8 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 		vals_alloc = vals_alloc ? vals_alloc*2 : 1024;
 		vals  = realloc(vals,  vals_alloc * sizeof(int));
 		freqs = realloc(freqs, vals_alloc * sizeof(int));
+		if (!vals || !freqs)
+		    return E_HUFFMAN; // Cannot do much else atm
 	    }
 	    i = (int)hi->key;
 	    vals[nvals]=i;
@@ -228,6 +232,8 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
     /* Vals holds link data */
     freqs = realloc(freqs, 2*nvals*sizeof(*freqs));
     codes = calloc(2*nvals, sizeof(*codes));
+    if (!freqs || !codes)
+	return E_HUFFMAN; // Cannot do much else atm
 
     /* Inefficient, use pointers to form chain so we can insert and maintain
      * a sorted list? This is currently O(nvals^2) complexity.

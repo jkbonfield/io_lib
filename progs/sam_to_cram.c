@@ -29,6 +29,7 @@ void usage(FILE *fp) {
     fprintf(fp, "    -S integer     Slices per container, default %d.\n",
 	    SLICE_PER_CNT);
     fprintf(fp, "    -V version     Specify the CRAM format version to write (eg 1.1, 2.0)\n");
+    fprintf(fp, "    -X             Embed reference sequence.\n");
 }
 
 int main(int argc, char **argv) {
@@ -40,10 +41,10 @@ int main(int argc, char **argv) {
     char out_mode[4];
     int c, verbose = 0;
     cram_opt opt;
-    int s_opt = 0, S_opt = 0;
+    int s_opt = 0, S_opt = 0, embed_ref = 0;
     char *arg_list, *ref_fn = NULL;
 
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:X")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -76,6 +77,10 @@ int main(int argc, char **argv) {
 
 	case 'r':
 	    ref_fn = optarg;
+	    break;
+
+	case 'X':
+	    embed_ref = 1;
 	    break;
 
 	case '?':
@@ -148,6 +153,10 @@ int main(int argc, char **argv) {
     if (S_opt) {
 	opt.i = S_opt;
 	cram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, &opt);
+    }
+    if (embed_ref) {
+	opt.i = embed_ref;
+	cram_set_option(out, CRAM_OPT_EMBED_REF, &opt);
     }
 
     /* Sequence iterators */
