@@ -1732,6 +1732,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->out_p++ = '\t';
 
 	/* RNAME */
+	if (b->ref < -1 || b->ref >= fp->header->nref)
+	    return -1;
+
 	if (b->ref != -1) {
 	    size_t l = strlen(fp->header->ref[b->ref].name);
 	    if (end-fp->out_p < l+1) BF_FLUSH();
@@ -1744,6 +1747,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->out_p++ = '\t';
 
 	/* POS */
+	if (b->pos < 0) return -1;
 	if (end-fp->out_p < 12) BF_FLUSH();
 	fp->out_p = append_int(fp->out_p, b->pos+1); *fp->out_p++ = '\t';
 
@@ -1753,6 +1757,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* CIGAR */
 	n = bam_cigar_len(b);dat = (uc *)bam_cigar(b);
+	if (n < 0 || dat - (uc *)b + n*4 > b->blk_size) return -1;
 	for (i = 0; i < n; i++, dat+=4) {
 	    uint32_t c = dat[0] + (dat[1]<<8) + (dat[2]<<16) + (dat[3]<<24);
 	    if (end-fp->out_p < 13) BF_FLUSH();
@@ -1766,6 +1771,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->out_p++='\t';
 
 	/* NRNM */
+	if (b->mate_ref < -1 || b->mate_ref >= fp->header->nref)
+	    return -1;
+
 	if (b->mate_ref != -1) {
 	    if (b->mate_ref == b->ref) {
 		if (end-fp->out_p < 2) BF_FLUSH();
@@ -1840,7 +1848,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* QUAL */
 	n = b->len;
+	if (b->len < 0) return -1;
 	dat = (uc *)bam_qual(b);
+	if (dat - (uc *)b + b->len > b->blk_size) return -1;
 	/* BAM encoding */
 //	while (n) {
 //	    int l = end-fp->out_p < n ? end-fp->out_p : n;
