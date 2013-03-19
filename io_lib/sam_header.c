@@ -688,7 +688,7 @@ int sam_header_rebuild(SAM_hdr *hdr) {
 SAM_hdr *sam_header_parse(char *hdr, int len) {
     SAM_hdr *sh = calloc(1, sizeof(*sh));
 
-    if (!sh)
+    if (!sh || !hdr)
 	return NULL;
     
     sh->h = HashTableCreate(16, HASH_FUNC_HSIEH |
