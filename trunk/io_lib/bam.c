@@ -1748,7 +1748,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->out_p++ = '\t';
 
 	/* POS */
-	if (b->pos < 0) return -1;
+	if (b->pos < -1) return -1;
 	if (end-fp->out_p < 12) BF_FLUSH();
 	fp->out_p = append_int(fp->out_p, b->pos+1); *fp->out_p++ = '\t';
 
