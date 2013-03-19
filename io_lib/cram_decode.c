@@ -243,6 +243,9 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	m->offset   = cp - (char *)b->data;
 	m->codec = NULL;
 
+	if (m->encoding == E_NULL)
+	    continue;
+
 	//printf("%s codes for %.2s\n", cram_encoding2str(encoding), key);
 
 	/*
@@ -1046,7 +1049,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 					   (char *)&cf, &out_sz);
 	cr->cram_flags = cf;
 
-	if (fd->version != CRAM_1_VERS)
+	if (fd->version != CRAM_1_VERS && ref_id == -2)
 	    r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, blk,
 					       (char *)&cr->ref_id, &out_sz);
 	else
