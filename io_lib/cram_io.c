@@ -2057,6 +2057,10 @@ cram_fd *cram_open(char *filename, char *mode) {
     if (!fd)
 	return NULL;
 
+    if (strlen(mode) > 1 && mode[1] == 'c') {
+	mode[1] = 'b';
+    }
+
     fd->level = 5;
     if (strlen(mode) > 2 && mode[2] >= '0' && mode[2] <= '9')
 	fd->level = mode[2] - '0';

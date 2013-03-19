@@ -29,11 +29,11 @@ static char *detect_format(char *fn) {
     char *cp = strrchr(fn, '.');
     FILE *fp;
 
-    if (strcmp(cp, ".sam") == 0 || strcmp(cp, ".SAM"))
+    if (strcmp(cp, ".sam") == 0 || strcmp(cp, ".SAM") == 0)
 	return "";
-    if (strcmp(cp, ".bam") == 0 || strcmp(cp, ".BAM"))
+    if (strcmp(cp, ".bam") == 0 || strcmp(cp, ".BAM") == 0)
 	return "b";
-    if (strcmp(cp, ".cram") == 0 || strcmp(cp, ".CRAM"))
+    if (strcmp(cp, ".cram") == 0 || strcmp(cp, ".CRAM") == 0)
 	return "c";
 }
 
@@ -149,7 +149,7 @@ int main(int argc, char **argv) {
     sprintf(omode, "w%s%c", out_f, level);
     if (argc - optind > 1) {
 	if (*out_f == 0)
-	    sprintf(imode, "w%s%c", detect_format(argv[optind]), level);
+	    sprintf(omode, "w%s%c", detect_format(argv[optind+1]), level);
 	if (!(out = scram_open(argv[optind+1], omode))) {
 	    fprintf(stderr, "Failed to open bam file %s\n", argv[optind+1]);
 	    return 1;
