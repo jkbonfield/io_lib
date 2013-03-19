@@ -12,25 +12,6 @@
 
 #include <io_lib/cram.h>
 
-void HashTableDumpMap(HashTable *h, FILE *fp, char *prefix, char *data) {
-    int i, j, k;
-    for (i = 0; i < h->nbuckets; i++) {
-	HashItem *hi;
-	cram_map *m;
-	for (hi = h->bucket[i]; hi; hi = hi->next) {
-	    m = hi->data.p;
-	    fprintf(fp, "%s%.*s => %16s {",
-		    prefix ? prefix : "",
-		    hi->key_len, hi->key,
-		    cram_encoding2str(m->encoding));
-	    for (k = m->offset, j = 0; j < m->size; j++, k++) {
-		printf(j ? ", %d" : "%d", (unsigned char)data[k]);
-	    }
-	    printf("}\n");
-	}
-    }
-}
-
 void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data) {
     int i, j, k;
     for (i = 0; i < CRAM_MAP_HASH; i++) {
@@ -181,17 +162,20 @@ int main(int argc, char **argv) {
 
 	printf("      Preservation map:\n");
 	HashTableDump(c->comp_hdr->preservation_map, stdout, "\t");
+	printf("      Substitution map:\n");
+	printf("        A: %.4s\n", c->comp_hdr->substitution_matrix[0]);
+	printf("        C: %.4s\n", c->comp_hdr->substitution_matrix[1]);
+	printf("        G: %.4s\n", c->comp_hdr->substitution_matrix[2]);
+	printf("        T: %.4s\n", c->comp_hdr->substitution_matrix[3]);
+	printf("        N: %.4s\n", c->comp_hdr->substitution_matrix[4]);
 
 	printf("\n      Record encoding map:\n");
 	DumpMap2(c->comp_hdr->rec_encoding_map, stdout, "\t", 
 		 (char *)c->comp_hdr_block->data);
-	//HashTableDumpMap(c->comp_hdr->rec_encoding_map, stdout, "\t", c->comp_hdr_block->data);
 
 	printf("\n      Tag encoding map:\n");
 	DumpMap2(c->comp_hdr->tag_encoding_map, stdout, "\t",
 		 (char *)c->comp_hdr_block->data);
-	
-
 
 	for (j = 0; j < c->num_landmarks; j++) {
 	    cram_slice *s;
@@ -259,7 +243,7 @@ int main(int argc, char **argv) {
 		    r = c->comp_hdr->CF_codec->decode(s,c->comp_hdr->CF_codec, b, (char *)&cf, &out_sz);
 		    printf("CF = %d (ret %d, out_sz %d)\n", cf, r, out_sz);
 
-		    if (fd->version != CRAM_1_VERS) {
+		    if (fd->version != CRAM_1_VERS && s->hdr->ref_seq_id == -2) {
 			int32_t ri;
 			r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, b, (char *)&ri, &out_sz);
 			printf("RI = %d (ret %d, out_sz %d)\n", ri, r, out_sz);
