@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <stddef.h>
 
 #include "io_lib/bam.h"
 #include "io_lib/os.h"
@@ -1757,7 +1758,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* CIGAR */
 	n = bam_cigar_len(b);dat = (uc *)bam_cigar(b);
-	if (n < 0 || dat - (uc *)b + n*4 > b->blk_size) return -1;
+	if (n < 0 ||
+	    dat - (uc *)b + n*4 > b->blk_size + offsetof(bam_seq_t, ref))
+	    return -1;
 	for (i = 0; i < n; i++, dat+=4) {
 	    uint32_t c = dat[0] + (dat[1]<<8) + (dat[2]<<16) + (dat[3]<<24);
 	    if (end-fp->out_p < 13) BF_FLUSH();
@@ -1850,7 +1853,8 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	n = b->len;
 	if (b->len < 0) return -1;
 	dat = (uc *)bam_qual(b);
-	if (dat - (uc *)b + b->len > b->blk_size) return -1;
+	if (dat - (uc *)b + b->len > b->blk_size + offsetof(bam_seq_t, ref))
+	    return -1;
 	/* BAM encoding */
 //	while (n) {
 //	    int l = end-fp->out_p < n ? end-fp->out_p : n;
