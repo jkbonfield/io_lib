@@ -27,7 +27,6 @@ static char *parse_format(char *str) {
 
 static char *detect_format(char *fn) {
     char *cp = strrchr(fn, '.');
-    FILE *fp;
 
     if (strcmp(cp, ".sam") == 0 || strcmp(cp, ".SAM") == 0)
 	return "";
@@ -35,6 +34,8 @@ static char *detect_format(char *fn) {
 	return "b";
     if (strcmp(cp, ".cram") == 0 || strcmp(cp, ".CRAM") == 0)
 	return "c";
+
+    return "";
 }
 
 static void usage(FILE *fp) {
@@ -49,6 +50,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -1 to -9       Set zlib compression level.\n");
     fprintf(fp, "    -0 or -u       No zlib compression.\n");
     //fprintf(fp, "    -v             Verbose output.\n");
+    fprintf(fp, "    -R range       [Cram] Specifies the refseq:start-end range\n");
     fprintf(fp, "    -r ref.fa      [Cram] Specifies the reference file.\n");
     fprintf(fp, "    -s integer     [Cram] Sequences per slice, default %d.\n",
 	    SEQS_PER_SLICE);
@@ -67,10 +69,12 @@ int main(int argc, char **argv) {
     cram_opt opt;
     int s_opt = 0, S_opt = 0, embed_ref = 0;
     char *ref_fn = NULL;
+    int start, end;
+    char ref_name[1024] = {0};
     refs *refs;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -116,6 +120,28 @@ int main(int argc, char **argv) {
 	case 'O':
 	    out_f = parse_format(optarg);
 	    break;
+
+	case 'R': {
+	    char *cp = strchr(optarg, ':');
+	    if (cp) {
+		*cp = 0;
+		switch (sscanf(cp+1, "%d-%d", &start, &end)) {
+		case 1:
+		    end = start;
+		    break;
+		case 2:
+		    break;
+		default:
+		    fprintf(stderr, "Malformed range format\n");
+		    return 1;
+		}
+	    } else {
+		start = INT_MIN;
+		end   = INT_MAX;
+	    }
+	    strncpy(ref_name, optarg, 1023);
+	    break;
+	}
 
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -195,6 +221,31 @@ int main(int argc, char **argv) {
 	    return 1;
     }
 
+
+    /* Support for sub-range queries, currently implemented for CRAM only */
+    if (*ref_name != 0) {
+	cram_range r;
+	int refid;
+
+	if (in->is_bam) {
+	    fprintf(stderr, "Currently the -R option is only implemented for CRAM indices\n");
+	    return 1;
+	}
+	    
+	cram_index_load(in->c, argv[optind]);
+
+	refid = sam_header_name2ref(in->c->SAM_hdr, ref_name);
+
+	if (refid == -1 && *ref_name != '*') {
+	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
+	    return 1;
+	}
+	r.refid = refid;
+	r.start = start;
+	r.end = end;
+	opt.s = (char *)&r;
+	scram_set_option(in, CRAM_OPT_RANGE, &opt);
+    }
 
     /* Do the actual file format conversion */
     s = NULL;
