@@ -1708,7 +1708,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     }
 
     ref = fd->ref;
-    if (!ref) {
+    if (!ref && b->ref >= 0) {
 	fprintf(stderr, "No reference found\n");
 	return -1;
     }
