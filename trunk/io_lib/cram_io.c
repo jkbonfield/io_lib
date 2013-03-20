@@ -984,9 +984,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     off_t offset, len;
     char *cp_from, *cp_to;
 
-    //fd->first_base = start;
-    //fd->last_base = end;
-
+    //struct timeval tv1, tv2;
+    //fprintf(stderr, "Cram_get_ref %d %d..%d\n", id, start, end);
+    //gettimeofday(&tv1, NULL);
+    
     if (id < 0) {
 	if (fd->ref)
 	    free(fd->ref);
@@ -1037,10 +1038,22 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	return NULL;
     }
 
+#if 0
     for (cp_from = cp_to = fd->ref; len; len--, cp_from++) {
 	if (!isspace(*cp_from))
 	    *cp_to++ = toupper(*cp_from);
     }
+#else
+    {
+	int i, j;
+	char *cp = fd->ref;
+	for (i = j = 0; i < len; i++) {
+	    if (cp[i] >= '!' && cp[i] <= '~')
+		cp[j++] = cp[i] & ~0x20;
+	}
+	cp_to = cp+j;
+    }
+#endif
     if (cp_to - fd->ref != end-start+1) {
 	fprintf(stderr, "Malformed reference file?\n");
 	return NULL;
@@ -1049,6 +1062,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     fd->ref_id    = id;
     fd->ref_start = start;
     fd->ref_end   = end;
+
+    //gettimeofday(&tv2, NULL);
+    //fprintf(stderr, "Done %ld usec\n",
+    //	    (tv2.tv_sec - tv1.tv_sec)*1000000 + tv2.tv_usec - tv1.tv_usec);
 
     return fd->ref;
 }
