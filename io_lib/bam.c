@@ -1445,7 +1445,7 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
 }
 		      
 
-static unsigned char *append_int(unsigned char *cp, volatile int32_t i) {
+static unsigned char *append_int(unsigned char *cp, int32_t i) {
     int32_t j;
 
     if (i < 0) {
