@@ -1069,7 +1069,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	r |= c->comp_hdr->AP_codec->decode(s, c->comp_hdr->AP_codec, blk,
 					   (char *)&cr->apos, &out_sz);
-	cr->apos += s->last_apos;
+	if (c->comp_hdr->AP_delta)
+	    cr->apos += s->last_apos;
 	s->last_apos=  cr->apos;
 		    
 	r |= c->comp_hdr->RG_codec->decode(s, c->comp_hdr->RG_codec, blk,
