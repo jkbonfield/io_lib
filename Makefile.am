@@ -8,6 +8,7 @@ man_MANS = \
 	man/man1/srf_list.1 \
 	man/man1/srf2fasta.1 \
 	man/man1/srf2fastq.1 \
+	man/man1/scramble.1 \
 	man/man3/read_scf_header.3 \
 	man/man3/read_allocate.3 \
 	man/man3/ExperimentFile.3 \
