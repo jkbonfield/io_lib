@@ -251,6 +251,10 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 	}
 
 	type = &hdr[i+1];
+	if (type[0] < 'A' || type[0] > 'z' ||
+	    type[1] < 'A' || type[1] > 'z')
+	    return -1;
+
 	i += 3;
 	if (hdr[i] == '\n')
 	    continue;
@@ -282,7 +286,9 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 	last = NULL;
 	do {
 	    int j;
-	    assert(hdr[i] == '\t');
+	    if (hdr[i] != '\t')
+		return -1;
+
 	    for (j = ++i; j < len && hdr[j] != '\n' && hdr[j] != '\t'; j++)
 		;
 	    

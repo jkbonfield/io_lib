@@ -1779,9 +1779,10 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    return NULL;
 
 	/* Alloc and read */
-	if (NULL == (header = malloc(header_len)))
+	if (NULL == (header = malloc(header_len+1)))
 	    return NULL;
 
+	*header = 0;
 	if (header_len != fread(header, 1, header_len, fd->fp))
 	    return NULL;
 

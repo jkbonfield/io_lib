@@ -156,8 +156,9 @@ int load_bam_header(bam_file_t *b) {
     if (4 != bam_read(b, &header_len, 4))
 	return -1;
     header_len = le_int4(header_len);
-    if (!(header = malloc(header_len+100))) // FIXME, for bam_add_rg()
+    if (!(header = malloc(header_len+1)))
 	return -1;
+    *header = 0;
     if (header_len != bam_read(b, header, header_len))
 	return -1;
 
