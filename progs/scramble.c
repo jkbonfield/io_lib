@@ -151,7 +151,7 @@ int main(int argc, char **argv) {
     }    
 
     if (argc - optind > 2) {
-	fprintf(stderr, "Usage: scram_convert [input_file [output_file]]\n");
+	fprintf(stderr, "Usage: scramble [input_file [output_file]]\n");
 	return 1;
     }
     
