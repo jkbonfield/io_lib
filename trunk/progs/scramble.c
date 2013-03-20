@@ -171,6 +171,15 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }
+    if (!in->is_bam && ref_fn) {
+	cram_load_reference(in->c, ref_fn);
+	if (!in->c->refs && !embed_ref) {
+	    fprintf(stderr, "Unable to find an appropriate reference.\n"
+		    "Please specify a valid reference with "
+		    "-r ref.fa option.\n");
+	    return 1;
+	}
+    }
 
     sprintf(omode, "w%s%c", out_f, level);
     if (argc - optind > 1) {
