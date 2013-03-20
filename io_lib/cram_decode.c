@@ -995,15 +995,15 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    s->ref = (char *)BLOCK_DATA(b);
 	    s->ref_start = s->hdr->ref_seq_start;
 	} else {
-	    // Avoid Java cramtools bug by loading entire reference seq 
-	    s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
-	    s->ref_start = 1;
+	    //// Avoid Java cramtools bug by loading entire reference seq 
+	    //s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
+	    //s->ref_start = 1;
 
-	    //s->ref =
-	    //   cram_get_ref(fd, s->hdr->ref_seq_id,
-	    //                s->hdr->ref_seq_start,
-	    //		      s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
-	    //s->ref_start = s->hdr->ref_seq_start;
+	    s->ref =
+	       cram_get_ref(fd, s->hdr->ref_seq_id,
+	                    s->hdr->ref_seq_start,
+	    		      s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
+	    s->ref_start = s->hdr->ref_seq_start;
 	}
     }
 
@@ -1045,9 +1045,17 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	bf = fd->bam_flag_swap[bf];
 	cr->flags = bf;
 
-	r |= c->comp_hdr->CF_codec->decode(s, c->comp_hdr->CF_codec, blk,
-					   (char *)&cf, &out_sz);
-	cr->cram_flags = cf;
+	if (fd->version == CRAM_1_VERS) {
+	    /* CF is byte in 1.0, int32 in 2.0 */
+	    r |= c->comp_hdr->CF_codec->decode(s, c->comp_hdr->CF_codec, blk,
+					       (char *)&cf, &out_sz);
+	    cr->cram_flags = cf;
+	} else {
+	    r |= c->comp_hdr->CF_codec->decode(s, c->comp_hdr->CF_codec, blk,
+					       (char *)&cr->cram_flags,
+					       &out_sz);
+	    cf = cr->cram_flags;
+	}
 
 	if (fd->version != CRAM_1_VERS && ref_id == -2)
 	    r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, blk,
@@ -1084,10 +1092,18 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	cr->mate_line = -1;
 	cr->mate_ref_id = -1;
 	if (cf & CRAM_FLAG_DETACHED) {
-	    unsigned char mf;
-	    r |= c->comp_hdr->MF_codec->decode(s, c->comp_hdr->MF_codec, blk,
-					       (char *)&mf, &out_sz);
-	    cr->mate_flags = mf;
+	    if (fd->version == CRAM_1_VERS) {
+		/* MF is byte in 1.0, int32 in 2.0 */
+		unsigned char mf;
+		r |= c->comp_hdr->MF_codec->decode(s, c->comp_hdr->MF_codec,
+						   blk, (char *)&mf, &out_sz);
+		cr->mate_flags = mf;
+	    } else {
+		r |= c->comp_hdr->MF_codec->decode(s, c->comp_hdr->MF_codec,
+						   blk,
+						   (char *)&cr->mate_flags,
+						   &out_sz);
+	    }
 
 	    if (!c->comp_hdr->read_names_included) {
 		int32_t out_sz2 = 1;
