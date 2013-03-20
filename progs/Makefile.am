@@ -1,4 +1,4 @@
-bin_PROGRAMS = convert_trace makeSCF extract_seq extract_qual extract_fastq index_tar scf_dump scf_info scf_update get_comment hash_tar hash_extract hash_list trace_dump hash_sff append_sff ztr_dump srf_dump_all srf_index_hash srf_extract_linear srf_extract_hash srf2fastq srf2fasta srf_filter srf_info srf_list hash_exp sam_convert cram_dump cram_index cram_to_sam sam_to_cram scramble
+bin_PROGRAMS = convert_trace makeSCF extract_seq extract_qual extract_fastq index_tar scf_dump scf_info scf_update get_comment hash_tar hash_extract hash_list trace_dump hash_sff append_sff ztr_dump srf_dump_all srf_index_hash srf_extract_linear srf_extract_hash srf2fastq srf2fasta srf_filter srf_info srf_list hash_exp sam_convert cram_dump cram_index cram_to_sam sam_to_cram scramble scram_merge
 
 convert_trace_SOURCES = convert_trace.c
 convert_trace_LDADD = $(top_builddir)/io_lib/libstaden-read.la
@@ -97,5 +97,8 @@ sam_convert_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 scramble_SOURCES = scramble.c
 scramble_LDADD = $(top_builddir)/io_lib/libstaden-read.la
+
+scram_merge_SOURCES = scram_merge.c
+scram_merge_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 INCLUDES= -I${top_srcdir}

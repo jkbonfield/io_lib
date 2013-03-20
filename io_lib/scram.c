@@ -25,9 +25,29 @@
  *         NULL on failure
  */
 scram_fd *scram_open(char *filename, char *mode) {
+//    char mode2[10];
     scram_fd *fd = calloc(1, sizeof(*fd));
     if (!fd)
 	return NULL;
+
+#if 0
+    // Non functioning at present as bam IO is read() while cram is fread().
+    if (strcmp(filename, "-") == 0 &&
+	mode[0] == 'r' && mode[1] != 'b' && mode[1] != 'c') { 
+	int c;
+	/*
+	 * Crude auto-detection.
+	 * First char @ = sam, 0x1f = bam (gzip), C = cram
+	 */
+	c = fgetc(stdin);
+	ungetc(c, stdin);
+
+	if (c == 0x1f)
+	    sprintf(mode2, "rb%.7s", mode+1), mode = mode2;
+	else if (c == 'C')
+	    sprintf(mode2, "rc%.7s", mode+1), mode = mode2;
+    }
+#endif
 
     if (*mode == 'r') {
 	if (mode[1] == 'c') {
