@@ -1445,19 +1445,19 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
 }
 		      
 
-static unsigned char *append_int(unsigned char *cp, int32_t i) {
+static unsigned char *append_int(unsigned char *cp, volatile int32_t i) {
     int32_t j;
 
     if (i < 0) {
 	*cp++ = '-';
-	i = -i;
-
-	if (i < 0) {
+	if (i == INT_MIN) {
 	    *cp++ = '2'; *cp++ = '1'; *cp++ = '4'; *cp++ = '7';
 	    *cp++ = '4'; *cp++ = '8'; *cp++ = '3'; *cp++ = '6';
 	    *cp++ = '4'; *cp++ = '8';
 	    return cp;
 	}
+
+	i = -i;
     } else if (i == 0) {
 	*cp++ = '0';
 	return cp;
