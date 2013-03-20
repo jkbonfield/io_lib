@@ -1,0 +1,7 @@
+@SQ	SN:xx	LN:20
+a1	16	xx	1	1	10M	*	0	0	AAAAAAAAAA	**********
+b1	16	xx	1	1	10M	*	0	0	AAAAAAAAAA	**********
+c1	16	xx	1	1	10M	*	0	0	AAAAAAAAAA	**********
+a1	16	xx	11	1	10M	*	0	0	TTTTTTTTTT	**********
+b1	16	xx	11	1	10M	*	0	0	TTTTTTTTTT	**********
+c1	16	xx	11	1	10M	*	0	0	TTTTTTTTTT	**********
