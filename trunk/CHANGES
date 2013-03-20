@@ -1,3 +1,17 @@
+Version 1.13.0 (20th Mar 2013)
+--------------
+
+* Added SAM, BAM and CRAM APIs.
+
+* Added scramble and cram_merge tools using the above APIs.
+
+* Copied in (needs to be "move") dstring, string_alloc and zfio files
+  from main Staden Package tree.
+
+* Minor code tidyups to remove warnings from gcc -Wall and from the
+  Intel compiler.
+
+
 Version 1.12.5 (3rd Feb 2011)
 --------------
 

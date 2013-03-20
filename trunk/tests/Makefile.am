@@ -1,6 +1,6 @@
 ## Makefile.am -- Process this file with automake to produce Makefile.in
 
-EXTRA_DIST              = $(TESTS) data
+EXTRA_DIST              = $(TESTS) data compare_sam.pl
 MAINTAINERCLEANFILES    = Makefile.in
 
 test_outdir              = test.out
@@ -14,7 +14,8 @@ TESTS                   = \
                         srf2fastq.test \
 			srf_info.test \
 			srf_filter.test \
-			srf_index.test
+			srf_index.test \
+			scram.test
 
 dist-hook:
 	rm -rf `find $(distdir)/data -name .svn`
