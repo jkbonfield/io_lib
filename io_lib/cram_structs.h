@@ -544,6 +544,7 @@ typedef struct {
     int seqs_per_slice;
     int slices_per_container;
     int embed_ref;
+    int ignore_md5;
     cram_range range;
 
     // lookup tables, stored here so we can be trivially multi-threaded
@@ -568,6 +569,7 @@ enum cram_option {
     CRAM_OPT_RANGE,
     CRAM_OPT_VERSION,
     CRAM_OPT_EMBED_REF,
+    CRAM_OPT_IGNORE_MD5,
     CRAM_OPT_REFERENCE
 };
 
