@@ -2142,6 +2142,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->seqs_per_slice = SEQS_PER_SLICE;
     fd->slices_per_container = SLICE_PER_CNT;
     fd->embed_ref = 0;
+    fd->ignore_md5 = 0;
 
     fd->index = NULL;
 
@@ -2256,6 +2257,10 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
 
     case CRAM_OPT_EMBED_REF:
 	fd->embed_ref = val->i;
+	break;
+
+    case CRAM_OPT_IGNORE_MD5:
+	fd->ignore_md5 = val->i;
 	break;
 
     case CRAM_OPT_RANGE:
