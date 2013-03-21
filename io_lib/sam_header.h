@@ -119,6 +119,14 @@ typedef struct {
  */
 SAM_hdr *sam_header_parse(char *hdr, int len);
 
+
+/*
+ * Produces a duplicate copy of hdr and returns it.
+ * Returns NULL on failure
+ */
+SAM_hdr *sam_header_dup(SAM_hdr *hdr);
+
+
 /*
  * Deallocates all storage used by a SAM_hdr struct.
  */
