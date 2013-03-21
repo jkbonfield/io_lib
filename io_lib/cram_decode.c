@@ -176,7 +176,6 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    break;
 
 	case CRAM_KEY('S','M'):
-#if 1
 	    hdr->substitution_matrix[0][(cp[0]>>6)&3] = 'C';
 	    hdr->substitution_matrix[0][(cp[0]>>4)&3] = 'G';
 	    hdr->substitution_matrix[0][(cp[0]>>2)&3] = 'T';
@@ -201,33 +200,6 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    hdr->substitution_matrix[4][(cp[4]>>4)&3] = 'C';
 	    hdr->substitution_matrix[4][(cp[4]>>2)&3] = 'G';
 	    hdr->substitution_matrix[4][(cp[4]>>0)&3] = 'T';
-#else
-	    // Java implementation has order ACGNT
-	    hdr->substitution_matrix[0][(cp[0]>>6)&3] = 'C';
-	    hdr->substitution_matrix[0][(cp[0]>>4)&3] = 'G';
-	    hdr->substitution_matrix[0][(cp[0]>>2)&3] = 'N';
-	    hdr->substitution_matrix[0][(cp[0]>>0)&3] = 'T';
-
-	    hdr->substitution_matrix[1][(cp[1]>>6)&3] = 'A';
-	    hdr->substitution_matrix[1][(cp[1]>>4)&3] = 'G';
-	    hdr->substitution_matrix[1][(cp[1]>>2)&3] = 'N';
-	    hdr->substitution_matrix[1][(cp[1]>>0)&3] = 'T';
-
-	    hdr->substitution_matrix[2][(cp[2]>>6)&3] = 'A';
-	    hdr->substitution_matrix[2][(cp[2]>>4)&3] = 'C';
-	    hdr->substitution_matrix[2][(cp[2]>>2)&3] = 'N';
-	    hdr->substitution_matrix[2][(cp[2]>>0)&3] = 'T';
-
-	    hdr->substitution_matrix[3][(cp[4]>>6)&3] = 'A';
-	    hdr->substitution_matrix[3][(cp[4]>>4)&3] = 'C';
-	    hdr->substitution_matrix[3][(cp[4]>>2)&3] = 'G';
-	    hdr->substitution_matrix[3][(cp[4]>>0)&3] = 'N';
-
-	    hdr->substitution_matrix[4][(cp[3]>>6)&3] = 'A';
-	    hdr->substitution_matrix[4][(cp[3]>>4)&3] = 'C';
-	    hdr->substitution_matrix[4][(cp[3]>>2)&3] = 'G';
-	    hdr->substitution_matrix[4][(cp[3]>>0)&3] = 'T';
-#endif
 	    hd.p = cp;
 	    cp += 5;
 	    HashTableAdd(hdr->preservation_map, "SM", 2, hd, NULL);
