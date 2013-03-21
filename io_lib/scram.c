@@ -30,6 +30,8 @@ scram_fd *scram_open(char *filename, char *mode) {
     if (!fd)
 	return NULL;
 
+    fd->eof = 0;
+
 #if 0
     // Non functioning at present as bam IO is read() while cram is fread().
     if (strcmp(filename, "-") == 0 &&
@@ -137,10 +139,25 @@ int scram_write_header(scram_fd *fd) {
 }
 
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
-    if (fd->is_bam)
-	return bam_next_seq(fd->b, bsp) ? 0 : -1;
-    else
-	return cram_get_bam_seq(fd->c, bsp);
+    if (fd->is_bam) {
+	switch (bam_next_seq(fd->b, bsp)) {
+	case 1:
+	    return 0;
+
+	case 0:
+	    fd->eof = 1;
+
+	default:
+	    return -1;
+	}
+    }
+
+    if (-1 == cram_get_bam_seq(fd->c, bsp)) {
+	if (cram_eof(fd->c))
+	    fd->eof = 1;
+	return -1;
+    }
+    return 0;
 }
 
 int scram_put_seq(scram_fd *fd, bam_seq_t *s) {

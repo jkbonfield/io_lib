@@ -220,7 +220,7 @@ int main(int argc, char **argv) {
     }
     if (ignore_md5) {
 	opt.i = ignore_md5;
-	scram_set_option(out, CRAM_OPT_IGNORE_MD5, &opt);
+	scram_set_option(in, CRAM_OPT_IGNORE_MD5, &opt);
     }
     
 
@@ -270,7 +270,8 @@ int main(int argc, char **argv) {
 	if (-1 == scram_put_seq(out, s))
 	    return 1;
     }
-
+    if (!scram_eof(in))
+	return 1;
 
     /* Finally tidy up and close files */
     scram_set_header(out, NULL);
