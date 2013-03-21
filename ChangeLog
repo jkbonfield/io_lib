@@ -1,5 +1,126 @@
 ===============================================================================
-2013-03-20: RELEASE 1.13.0 (candidate)
+2013-03-21: RELEASE 1.13.0 (candidate)
+
+------------------------------------------------------------------------
+r3235 | jkbonfield | 2013-03-21 17:02:04 +0000 (Thu, 21 Mar 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Removal of temporary alternative method for decoding subst matrix. (The
+java code is now in agreement with C code.)
+
+------------------------------------------------------------------------
+r3234 | jkbonfield | 2013-03-21 15:21:50 +0000 (Thu, 21 Mar 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/scram.c
+   M /io_lib/trunk/io_lib/scram.h
+   M /io_lib/trunk/progs/scramble.c
+
+Fix handling of -! option (ignore md5) and also added scram_eof() so
+we can correct distinguish errors from EOF again.
+
+------------------------------------------------------------------------
+r3233 | jkbonfield | 2013-03-21 15:21:06 +0000 (Thu, 21 Mar 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/scram_merge.c
+
+Remove minor memory leak on exit
+
+------------------------------------------------------------------------
+r3232 | jkbonfield | 2013-03-21 15:02:13 +0000 (Thu, 21 Mar 2013) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/progs/scramble.c
+
+Fixed decoding of the substitution matrix. There are two variants of
+this too due to compatibility with the Java code which uses ordering
+ACGNT instead of ACGTN as documented in the spec. (The correct version
+is the one used.)
+
+Added an undocumented option to ignore MD5 checksum errors. Useful for
+debugging at times, but not to be recommended.
+
+------------------------------------------------------------------------
+r3230 | jkbonfield | 2013-03-21 10:26:14 +0000 (Thu, 21 Mar 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/sam_header.c
+   M /io_lib/trunk/io_lib/sam_header.h
+   M /io_lib/trunk/progs/scram_merge.c
+
+Added a sam_header_dup() function and use it in scram_merge to avoid a
+memory deallocation bug caused by closing in[0].
+
+------------------------------------------------------------------------
+r3229 | jkbonfield | 2013-03-20 17:34:23 +0000 (Wed, 20 Mar 2013) | 4 lines
+Changed paths:
+   M /io_lib/trunk/configure.in
+
+Commented out the rpath removal hackery. It doesn't work well anyway
+as the file it's modifying is only there on the second call to
+./configure.
+
+------------------------------------------------------------------------
+r3228 | jkbonfield | 2013-03-20 17:33:44 +0000 (Wed, 20 Mar 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Now honour the AP_delta container header field to request no delta of
+positions.
+
+------------------------------------------------------------------------
+r3227 | jkbonfield | 2013-03-20 16:38:36 +0000 (Wed, 20 Mar 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/progs/scramble.c
+
+Fix for -r ref.fa. It only appeared to work for me as it was figuring
+out the ref seq of my test data by using the @SQ lines UR tag.
+
+------------------------------------------------------------------------
+r3226 | jkbonfield | 2013-03-20 16:24:30 +0000 (Wed, 20 Mar 2013) | 2 lines
+Changed paths:
+   A /io_lib/trunk/tests/compare_sam.pl
+   A /io_lib/trunk/tests/data/aux#aux.sam
+   A /io_lib/trunk/tests/data/aux.fa
+   A /io_lib/trunk/tests/data/aux.fa.fai
+   A /io_lib/trunk/tests/data/c1#clip.sam
+   A /io_lib/trunk/tests/data/c1#pad1.sam
+   A /io_lib/trunk/tests/data/c1#pad2.sam
+   A /io_lib/trunk/tests/data/c1#pad3.sam
+   A /io_lib/trunk/tests/data/c1.fa
+   A /io_lib/trunk/tests/data/c1.fa.fai
+   A /io_lib/trunk/tests/data/ce#1.sam
+   A /io_lib/trunk/tests/data/ce#2.sam
+   A /io_lib/trunk/tests/data/ce#5.sam
+   A /io_lib/trunk/tests/data/ce#5b.sam
+   A /io_lib/trunk/tests/data/ce#large_seq.sam
+   A /io_lib/trunk/tests/data/ce#unmap1.sam
+   A /io_lib/trunk/tests/data/ce#unmap2.sam
+   A /io_lib/trunk/tests/data/ce.fa
+   A /io_lib/trunk/tests/data/ce.fa.fai
+   A /io_lib/trunk/tests/data/xx#large_aux.sam
+   A /io_lib/trunk/tests/data/xx#large_aux2.sam
+   A /io_lib/trunk/tests/data/xx#pair.sam
+   A /io_lib/trunk/tests/data/xx#rg.sam
+   A /io_lib/trunk/tests/data/xx#triplet.sam
+   A /io_lib/trunk/tests/data/xx.fa
+   A /io_lib/trunk/tests/data/xx.fa.fai
+   A /io_lib/trunk/tests/scram.test
+
+Added sam/bam/cram test script and data.
+
+------------------------------------------------------------------------
+r3225 | jkbonfield | 2013-03-20 16:22:53 +0000 (Wed, 20 Mar 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/Makefile.am
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/tests/Makefile.am
+
+Updates preparing for 1.13.0 release.
 
 ------------------------------------------------------------------------
 r3224 | jkbonfield | 2013-03-20 14:03:19 +0000 (Wed, 20 Mar 2013) | 7 lines
