@@ -180,6 +180,10 @@ int main(int argc, char **argv) {
     /* Open multiple input files */
     sprintf(imode, "r%s%c", in_f, level);
     n_input = argc - optind;
+    if (!n_input) {
+	fprintf(stderr, "No input files specified.\n");
+	return 1;
+    }
     if (!(in = malloc(n_input * sizeof(*in))))
 	return 1;
     if (!(s = malloc(n_input * sizeof(*s))))
@@ -222,7 +226,7 @@ int main(int argc, char **argv) {
     /* Copy header and refs from in to out, for writing purposes */
     // FIXME: do proper merging of @PG lines
     // FIXME: track mapping of old PG aux name to new PG aux name per seq
-    scram_set_header(out, scram_get_header(in[0]));
+    scram_set_header(out, sam_header_dup(scram_get_header(in[0])));
 
     // Needs doing after loading the header.
     if (ref_fn) {
@@ -246,7 +250,8 @@ int main(int argc, char **argv) {
     }
 
     for (;;) {
-	int64_t best_val = INT64_MAX, best_j, j;
+	int64_t best_val = INT64_MAX;
+	int best_j, j;
 
 	for (j = 0; j < n_input; j++) {
 	    bam_seq_t *b = s[j];
@@ -278,8 +283,6 @@ int main(int argc, char **argv) {
     }
 
     /* Finally tidy up and close files */
-    scram_set_header(out, NULL);
-
     if (refs == scram_get_refs(out)) {
 	scram_set_refs(out, NULL);
     }
