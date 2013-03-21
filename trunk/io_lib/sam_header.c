@@ -774,6 +774,17 @@ SAM_hdr *sam_header_parse(char *hdr, int len) {
     return NULL;
 }
 
+/*
+ * Produces a duplicate copy of hdr and returns it.
+ * Returns NULL on failure
+ */
+SAM_hdr *sam_header_dup(SAM_hdr *hdr) {
+    if (-1 == sam_header_rebuild(hdr))
+	return NULL;
+
+    return sam_header_parse(sam_header_str(hdr), sam_header_length(hdr));
+}
+
 void sam_header_free(SAM_hdr *hdr) {
     if (!hdr)
 	return;
