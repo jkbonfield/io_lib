@@ -288,6 +288,8 @@ int main(int argc, char **argv) {
     }
 
     scram_close(out);
+    free(in);
+    free(s);
 
     return 0;
 }
