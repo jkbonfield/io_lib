@@ -176,30 +176,58 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    break;
 
 	case CRAM_KEY('S','M'):
-	    hdr->substitution_matrix[0][0] = "CGTN"[(cp[0]>>6)&3];
-	    hdr->substitution_matrix[0][1] = "CGTN"[(cp[0]>>4)&3];
-	    hdr->substitution_matrix[0][2] = "CGTN"[(cp[0]>>2)&3];
-	    hdr->substitution_matrix[0][3] = "CGTN"[(cp[0]>>0)&3];
+#if 1
+	    hdr->substitution_matrix[0][(cp[0]>>6)&3] = 'C';
+	    hdr->substitution_matrix[0][(cp[0]>>4)&3] = 'G';
+	    hdr->substitution_matrix[0][(cp[0]>>2)&3] = 'T';
+	    hdr->substitution_matrix[0][(cp[0]>>0)&3] = 'N';
 
-	    hdr->substitution_matrix[1][0] = "AGTN"[(cp[1]>>6)&3];
-	    hdr->substitution_matrix[1][1] = "AGTN"[(cp[1]>>4)&3];
-	    hdr->substitution_matrix[1][2] = "AGTN"[(cp[1]>>2)&3];
-	    hdr->substitution_matrix[1][3] = "AGTN"[(cp[1]>>0)&3];
+	    hdr->substitution_matrix[1][(cp[1]>>6)&3] = 'A';
+	    hdr->substitution_matrix[1][(cp[1]>>4)&3] = 'G';
+	    hdr->substitution_matrix[1][(cp[1]>>2)&3] = 'T';
+	    hdr->substitution_matrix[1][(cp[1]>>0)&3] = 'N';
 
-	    hdr->substitution_matrix[2][0] = "ACTN"[(cp[2]>>6)&3];
-	    hdr->substitution_matrix[2][1] = "ACTN"[(cp[2]>>4)&3];
-	    hdr->substitution_matrix[2][2] = "ACTN"[(cp[2]>>2)&3];
-	    hdr->substitution_matrix[2][3] = "ACTN"[(cp[2]>>0)&3];
+	    hdr->substitution_matrix[2][(cp[2]>>6)&3] = 'A';
+	    hdr->substitution_matrix[2][(cp[2]>>4)&3] = 'C';
+	    hdr->substitution_matrix[2][(cp[2]>>2)&3] = 'T';
+	    hdr->substitution_matrix[2][(cp[2]>>0)&3] = 'N';
 
-	    hdr->substitution_matrix[3][0] = "ACGN"[(cp[3]>>6)&3];
-	    hdr->substitution_matrix[3][1] = "ACGN"[(cp[3]>>4)&3];
-	    hdr->substitution_matrix[3][2] = "ACGN"[(cp[3]>>2)&3];
-	    hdr->substitution_matrix[3][3] = "ACGN"[(cp[3]>>0)&3];
+	    hdr->substitution_matrix[3][(cp[3]>>6)&3] = 'A';
+	    hdr->substitution_matrix[3][(cp[3]>>4)&3] = 'C';
+	    hdr->substitution_matrix[3][(cp[3]>>2)&3] = 'G';
+	    hdr->substitution_matrix[3][(cp[3]>>0)&3] = 'N';
 
-	    hdr->substitution_matrix[4][0] = "ACGT"[(cp[4]>>6)&3];
-	    hdr->substitution_matrix[4][1] = "ACGT"[(cp[4]>>4)&3];
-	    hdr->substitution_matrix[4][2] = "ACGT"[(cp[4]>>2)&3];
-	    hdr->substitution_matrix[4][3] = "ACGT"[(cp[4]>>0)&3];
+	    hdr->substitution_matrix[4][(cp[4]>>6)&3] = 'A';
+	    hdr->substitution_matrix[4][(cp[4]>>4)&3] = 'C';
+	    hdr->substitution_matrix[4][(cp[4]>>2)&3] = 'G';
+	    hdr->substitution_matrix[4][(cp[4]>>0)&3] = 'T';
+#else
+	    // Java implementation has order ACGNT
+	    hdr->substitution_matrix[0][(cp[0]>>6)&3] = 'C';
+	    hdr->substitution_matrix[0][(cp[0]>>4)&3] = 'G';
+	    hdr->substitution_matrix[0][(cp[0]>>2)&3] = 'N';
+	    hdr->substitution_matrix[0][(cp[0]>>0)&3] = 'T';
+
+	    hdr->substitution_matrix[1][(cp[1]>>6)&3] = 'A';
+	    hdr->substitution_matrix[1][(cp[1]>>4)&3] = 'G';
+	    hdr->substitution_matrix[1][(cp[1]>>2)&3] = 'N';
+	    hdr->substitution_matrix[1][(cp[1]>>0)&3] = 'T';
+
+	    hdr->substitution_matrix[2][(cp[2]>>6)&3] = 'A';
+	    hdr->substitution_matrix[2][(cp[2]>>4)&3] = 'C';
+	    hdr->substitution_matrix[2][(cp[2]>>2)&3] = 'N';
+	    hdr->substitution_matrix[2][(cp[2]>>0)&3] = 'T';
+
+	    hdr->substitution_matrix[3][(cp[4]>>6)&3] = 'A';
+	    hdr->substitution_matrix[3][(cp[4]>>4)&3] = 'C';
+	    hdr->substitution_matrix[3][(cp[4]>>2)&3] = 'G';
+	    hdr->substitution_matrix[3][(cp[4]>>0)&3] = 'N';
+
+	    hdr->substitution_matrix[4][(cp[3]>>6)&3] = 'A';
+	    hdr->substitution_matrix[4][(cp[3]>>4)&3] = 'C';
+	    hdr->substitution_matrix[4][(cp[3]>>2)&3] = 'G';
+	    hdr->substitution_matrix[4][(cp[3]>>0)&3] = 'T';
+#endif
 	    hd.p = cp;
 	    cp += 5;
 	    HashTableAdd(hdr->preservation_map, "SM", 2, hd, NULL);
@@ -1028,7 +1056,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	if (!fd->ref || memcmp(digest, s->hdr->md5, 16) != 0) {
 	    fprintf(stderr, "ERROR: md5sum reference mismatch\n");
-	    return -1;
+	    if (!fd->ignore_md5)
+		return -1;
 	}
     }
 
