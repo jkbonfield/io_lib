@@ -10,11 +10,14 @@
 
 typedef struct {
     int is_bam;
+    int eof;
     union {
 	bam_file_t *b;
 	cram_fd    *c;
     };
 } scram_fd;
+
+#define scram_eof(fd) ((fd)->eof)
 
 scram_fd *scram_open(char *filename, char *mode);
 int scram_close(scram_fd *fd);
