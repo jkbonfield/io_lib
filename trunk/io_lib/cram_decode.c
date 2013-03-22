@@ -1311,6 +1311,8 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	    cr->flags |= BAM_FMUNMAP;
 	    //cr->mate_ref_id = -1;
 	}
+	if (!(cr->flags & BAM_FPAIRED))
+	    cr->mate_ref_id = -1;
     }
     
     if (cr->name_len) {
