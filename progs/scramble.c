@@ -28,6 +28,9 @@ static char *parse_format(char *str) {
 static char *detect_format(char *fn) {
     char *cp = strrchr(fn, '.');
 
+    if (!cp)
+	return "";
+
     if (strcmp(cp, ".sam") == 0 || strcmp(cp, ".SAM") == 0)
 	return "";
     if (strcmp(cp, ".bam") == 0 || strcmp(cp, ".BAM") == 0)
