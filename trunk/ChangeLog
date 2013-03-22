@@ -1,6 +1,39 @@
 ===============================================================================
 2013-03-21: RELEASE 1.13.0 (candidate)
 
+r3238 | jkbonfield | 2013-03-22 15:10:23 +0000 (Fri, 22 Mar 2013) | 11 lines
+Changed paths:
+   M /io_lib/trunk/Makefile.am
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/bam.h
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Fixed bam behaviour when ALLOW_UAC is undefined.
+Also (untested) fixed some big-endian issues. Need to experiment with
+proper systems.
+
+Changed the bam structure to have explicit flag, bin, map_qual,
+cigar_len and flags instead of manually bit-packing into two
+int32s. This is similar speed (if not slower), but was changed to
+allow better compatibility with samtools API.
+
+Added cram_stats.h to Makefile.am
+
+------------------------------------------------------------------------
+r3237 | jkbonfield | 2013-03-22 15:07:05 +0000 (Fri, 22 Mar 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/scramble.c
+
+Fixeda crash in file extension parsing.
+
+------------------------------------------------------------------------
+r3236 | jkbonfield | 2013-03-21 17:06:11 +0000 (Thu, 21 Mar 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+
+Refreshed change logs for 1.13.0.
+
 ------------------------------------------------------------------------
 r3235 | jkbonfield | 2013-03-21 17:02:04 +0000 (Thu, 21 Mar 2013) | 3 lines
 Changed paths:

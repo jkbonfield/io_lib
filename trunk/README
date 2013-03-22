@@ -34,8 +34,18 @@ them named "scramble".
 
 See the scramble man page for more information.
 
-Note that the CRAM code should be considered a work in progress
-currently and is still subject to changes in the CRAM specification.
+At the time of writing the CRAM-2.0 specification is in draft form
+with the official release two months away. This code is subject to any
+changes that may occur between the current and official CRAM release.
+Note that it should also be considered beta quality, given a relative
+lack of testing and real-world experience with CRAM.
+
+The command line tools (scramble) are unlikely to change
+substantially, but the sam, bam cram and "scram" API may undergo
+considerable changes.
+
+So please consider the sam/bam/cram code as beta with the rest of
+io_lib as a stable release.
 
 
 What's new in 1.12.5
