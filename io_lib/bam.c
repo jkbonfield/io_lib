@@ -28,12 +28,6 @@ static int reg2bin(int start, int end);
 static int bgzf_write(int fd, int level, const void *buf, size_t count);
 
 /*
- * Allow for unaligned memory access. This is used in cigar string processing
- * as the packed BAM data struct has cigar after read name instead of before.
- */
-#define ALLOW_UAC
-
-/*
  * Reads len bytes from fp into data.
  *
  * Returns the number of bytes read.
@@ -606,8 +600,8 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     }
 
     bs = *bsp;
-    bs->flag_nc = 0;
-    bs->bin_mq_nl = 0;
+    bs->flag_packed = 0;
+    bs->bin_packed = 0;
     
     /* Decode line */
     cpf = b->sam_str;
@@ -1000,6 +994,7 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     int32_t blk_size, blk_ret;
     bam_seq_t *bs;
+    uint32_t i32;
 
     b->line++;
 
@@ -1042,16 +1037,22 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     bs->blk_size  = blk_size;
     bs->ref       = le_int4(bs->ref);
     bs->pos       = le_int4(bs->pos);
-    bs->bin_mq_nl = le_int4(bs->bin_mq_nl);
-    bs->flag_nc   = le_int4(bs->flag_nc);
+
+    // order of bit-fields in struct is platform specific, so manually decode
+    i32           = le_int4(bs->bin_packed);
+    bs->bin      = i32 >> 16;
+    bs->map_qual = (i32 >> 8) & 0xff;
+    bs->name_len = i32 & 0xff;
+
+    i32           = le_int4(bs->flag_packed);
+    bs->flag      = i32 >> 16;
+    bs->cigar_len = i32 & 0xffff;
+
     bs->len       = le_int4(bs->len);
     bs->mate_ref  = le_int4(bs->mate_ref);
     bs->mate_pos  = le_int4(bs->mate_pos);
     bs->ins_size  = le_int4(bs->ins_size);
 
-    /* Unpack flag_nc into separate flag & cigar_len */
-    bs->cigar_len = bs->flag_nc & 0xffff;
-    
     if (10 == be_int4(10)) {
 	int i, cigar_len = bam_cigar_len(bs);
 	uint32_t *cigar = bam_cigar(bs);
@@ -1068,6 +1069,9 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     int32_t blk_size, blk_ret;
     bam_seq_t *bs;
+    uint32_t i32;
+
+    b->line++;
 
     if (!b->bam)
 	return sam_next_seq(b, bsp);
@@ -1095,18 +1099,24 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     if (blk_ret != 32)
 	return -1;
 
-    //bs->blk_size  = blk_size;
+    bs->blk_size  = blk_size;
     bs->ref       = le_int4(bs->ref);
     bs->pos       = le_int4(bs->pos);
-    bs->bin_mq_nl = le_int4(bs->bin_mq_nl);
-    bs->flag_nc   = le_int4(bs->flag_nc);
+
+    // order of bit-fields in struct is platform specific, so manually decode
+    i32           = le_int4(bs->bin_packed);
+    bs->bin      = i32 >> 16;
+    bs->map_qual = (i32 >> 8) & 0xff;
+    bs->name_len = i32 & 0xff;
+
+    i32           = le_int4(bs->flag_packed);
+    bs->flag      = i32 >> 16;
+    bs->cigar_len = i32 & 0xffff;
+
     bs->len       = le_int4(bs->len);
     bs->mate_ref  = le_int4(bs->mate_ref);
     bs->mate_pos  = le_int4(bs->mate_pos);
     bs->ins_size  = le_int4(bs->ins_size);
-
-    /* Unpack flag_nc into separate flag & cigar_len */
-    bs->cigar_len = bs->flag_nc & 0xffff;
 
     /* Name */
     if (bam_read(b, &bs->data, bam_name_len(bs)) != bam_name_len(bs))
@@ -1114,17 +1124,32 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     /* Pad name out to end on a word-aligned boundary */
     blk_ret = blk_size - 32 - bam_name_len(bs);
-    bam_set_name_len(bs, round4(bam_name_len(bs)));
+    //bam_set_name_len(bs, round4(bam_name_len(bs)));
+
+    bs->blk_size += round4(bam_name_len(bs)) - bam_name_len(bs);
 
     /* The remainder, word aligned */
-    if (bam_read(b, &bs->data + bam_name_len(bs), blk_ret) != blk_ret)
-	return -1;
+    blk_size = blk_ret;
+    if ((blk_ret = bam_read(b, (char *)bam_cigar(bs), blk_size+4)) == 0)
+	return 0;
+    if (blk_size+4 != blk_ret) {
+	if (blk_size != blk_ret) {
+	    return -1;
+	} else {
+	    b->next_len = 0;
+	    ((char *)bam_cigar(bs))[blk_size] = 0;
+	}
+    } else {
+	memcpy(&b->next_len, &((char *)bam_cigar(bs))[blk_size], 4);
+	((char *)bam_cigar(bs))[blk_size] = 0;
+    }
+    b->next_len = le_int4(b->next_len);
 
     if (10 == be_int4(10)) {
 	int i, cigar_len = bam_cigar_len(bs);
 	uint32_t *cigar = bam_cigar(bs);
 	for (i = 0; i < cigar_len; i++) {
-	    bs[i] = le_int4(bs[i]);
+	    cigar[i] = le_int4(cigar[i]);
 	}
     }
 
@@ -1675,6 +1700,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
      *       init_done = 1;
      *   }
      */
+#ifdef ALLOW_UAC
     static const uint16_t code2base[256] = {
 	15677, 16701, 17213, 19773, 18237, 21053, 21309, 22077,
 	21565, 22333, 22845, 18493, 19261, 17469, 16957, 20029,
@@ -1709,6 +1735,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	15694, 16718, 17230, 19790, 18254, 21070, 21326, 22094,
 	21582, 22350, 22862, 18510, 19278, 17486, 16974, 20046
     };
+#endif
 
     if (!fp->binary) {
 	/* SAM */
@@ -1878,9 +1905,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		    }
 		} else {
 		    unsigned char *cp = fp->out_p;
-		    int n = b->len & ~3;
 		    i = 0;
 #ifdef ALLOW_UAC
+		    int n = b->len & ~3;
 		    for (; i < n; i+=4) {
 			//*cp++ = *dat++ + '!';
 			*(uint32_t *)cp = *(uint32_t *)dat + 0x21212121;
@@ -2074,6 +2101,16 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	/* BAM */
 	unsigned char *end = fp->out + BGZF_BUFF_SIZE, *ptr;
 	size_t to_write;
+	uint32_t i32;
+#ifndef ALLOW_UAC
+	int name_len = bam_name_len(b);
+#endif
+#if !defined(ALLOW_UAC) || defined(SP_BIG_ENDIAN)
+	uint32_t *cigar = bam_cigar(b);
+#endif
+#if defined(SP_BIG_ENDIAN)
+	int i, n = bam_cigar_len(b);
+#endif
 
 #define CF_FLUSH() \
 	do {			  \
@@ -2082,39 +2119,90 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    fp->out_p=fp->out;				\
 	} while(0)
 
+	/* If big endian, byte swap inline, write it out, and byte swap back */
+	b->bin_packed  = (b->bin  << 16) | (b->map_qual << 8) | b->name_len;
+	b->flag_packed = (b->flag << 16) | b->cigar_len;
 
-	if (end - fp->out_p < 4) CF_FLUSH();
-	*fp->out_p++ = (b->blk_size >> 0) & 0xff;
-	*fp->out_p++ = (b->blk_size >> 8) & 0xff;
-	*fp->out_p++ = (b->blk_size >>16) & 0xff;
-	*fp->out_p++ = (b->blk_size >>24) & 0xff;
-
-#if 0
-	memcpy(fp->out_p, (unsigned char *)&b->ref, b->blk_size);
-	fp->out_p += b->blk_size;
-#else
-
-	to_write = b->blk_size;
-	ptr = (unsigned char *)&b->ref;
-	//printf("blk_size=%d\n", b->blk_size);
-	do {
-	    size_t blk_len = MIN(to_write, end - fp->out_p);
-	    memcpy(fp->out_p, ptr, blk_len);
-	    fp->out_p += blk_len;
-	    to_write -= blk_len;
-	    ptr += blk_len;
-
-	    if (to_write) {
-		//printf("flushing %d+%d\n",
-		//       (int)(ptr-(unsigned char *)&b->ref),
-		//       (int)(fp->out_p-fp->out));
-		CF_FLUSH();
-	    }
-	} while(to_write > 0);
+#ifdef SP_BIG_ENDIAN
+	b->ref         = le_int4(b->ref);
+	b->pos         = le_int4(b->pos);
+	b->bin_packed  = le_int4(b->bin_packed);
+	b->flag_packed = le_int4(b->flag_packed);
+	b->mate_ref    = le_int4(b->mate_ref);
+	b->mate_pos    = le_int4(b->mate_pos);
+	b->ins_size    = le_int4(b->ins_size);
+	    
+	for (i = 0; i < n; i++) {
+	    cigar[i] = le_int4(cigar[i]);
+	}
 #endif
 
-	//len = 4*9 + bam_name_len(b) + 1 + 4*bam_cigar_len(b) +
-	//    (bam_seq_len(b)+1)/2 + bam_seq_len(b);
+#ifdef ALLOW_UAC
+	/* Room for fixed size bits + name */
+	if (end - fp->out_p < 4) CF_FLUSH();
+	to_write = b->blk_size;
+	*fp->out_p++ = (to_write >> 0) & 0xff;
+	*fp->out_p++ = (to_write >> 8) & 0xff;
+	*fp->out_p++ = (to_write >>16) & 0xff;
+	*fp->out_p++ = (to_write >>24) & 0xff;
+
+        ptr = (unsigned char *)&b->ref;
+#else
+	/* Room for fixed size bits + name */
+	if (end - fp->out_p < 36+257) CF_FLUSH();
+	to_write = b->blk_size - (round4(name_len) - name_len);
+	//to_write = b->blk_size;
+	*fp->out_p++ = (to_write >> 0) & 0xff;
+	*fp->out_p++ = (to_write >> 8) & 0xff;
+	*fp->out_p++ = (to_write >>16) & 0xff;
+	*fp->out_p++ = (to_write >>24) & 0xff;
+
+        ptr = (unsigned char *)&b->ref;
+
+	/* Do fixed size bits + name first */
+	memcpy(fp->out_p, ptr, 32 + name_len);
+	fp->out_p += 32 + name_len;
+	to_write  -= 32 + name_len;
+	ptr        = (unsigned char *)cigar;
+#endif
+
+        do {
+            size_t blk_len = MIN(to_write, end - fp->out_p);
+            memcpy(fp->out_p, ptr, blk_len);
+            fp->out_p += blk_len;
+            to_write  -= blk_len;
+            ptr       += blk_len;
+
+            if (to_write) {
+                //printf("flushing %d+%d\n",
+                //       (int)(ptr-(unsigned char *)&b->ref),
+                //       (int)(fp->out_p-fp->out));
+                CF_FLUSH();
+            }
+        } while(to_write > 0);
+
+#ifdef SP_BIG_ENDIAN
+	b->ref         = le_int4(b->ref);
+	b->pos         = le_int4(b->pos);
+	b->bin_packed  = le_int4(b->bin_packed);
+	b->flag_packed = le_int4(b->flag_packed);
+	b->mate_ref    = le_int4(b->mate_ref);
+	b->mate_pos    = le_int4(b->mate_pos);
+	b->ins_size    = le_int4(b->ins_size);
+	    
+	for (i = 0; i < n; i++) {
+	    cigar[i] = le_int4(cigar[i]);
+	}
+#endif
+
+	i32 = b->bin_packed;
+	b->bin       = i32 >> 16;
+	b->map_qual  = (i32 >> 8) & 0xff;
+	b->name_len  = i32 & 0xff;
+
+	i32          = b->flag_packed;
+	b->flag      = i32 >> 16;
+	b->cigar_len = i32 & 0xffff;
     }
 
     return 0;

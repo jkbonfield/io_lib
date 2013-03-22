@@ -1,6 +1,12 @@
 #ifndef _BAM_H_
 #define _BAM_H_
 
+/*
+ * Allow for unaligned memory access. This is used in cigar string processing
+ * as the packed BAM data struct has cigar after read name instead of before.
+ */
+#define ALLOW_UAC
+
 #include <inttypes.h>
 #include <zlib.h>
 
@@ -19,17 +25,24 @@ typedef struct {
     uint32_t alloc; /* total size of this struct + 'data' onwards */
     uint32_t blk_size;
 
-    /* Unpacked copy of cigar_len */
-    uint32_t cigar_len;
-
     /* The raw bam block follows, in same order as on the disk */
     /* This is the analogue of a bam1_core_t in samtools */
     int32_t  ref;
     int32_t  pos;
-    uint32_t bin_mq_nl;
-    //uint32_t bin:16, map_qual:8, name_len:8;
-    uint32_t flag_nc;
-    //uint32_t flag:16, cigar_len:16;
+
+    union {
+	struct {
+	    uint32_t name_len:8, map_qual:8, bin:16;
+	};
+	uint32_t bin_packed;
+    };
+    union {
+	struct {
+	    uint32_t cigar_len:16, flag:16;
+	};
+	uint32_t flag_packed;
+    };
+
     int32_t  len;
     int32_t  mate_ref;
     int32_t  mate_pos;
@@ -106,35 +119,26 @@ typedef struct {
 } bam_file_t;
 
 /* Decoding the above struct */
-#define bam_map_qual(b)  (((b)->bin_mq_nl >> 8) & 0xff)
-#define bam_bin(b)       ((b)->bin_mq_nl >> 16)
-#define bam_name_len(b)  (((b)->bin_mq_nl) & 0xff)
-#define bam_set_map_qual(b,v) \
-    ((b)->bin_mq_nl = ((b)->bin_mq_nl & 0xffff00ff) | (((v) & 0xff)<<8))
-#define bam_set_bin(b,v) \
-    ((b)->bin_mq_nl = ((b)->bin_mq_nl & 0x0000ffff) | (((v) & 0xffff)<<16))
-#define bam_set_name_len(b,v) \
-    ((b)->bin_mq_nl = ((b)->bin_mq_nl & 0xffffff00) | ((v) & 0xff))
-//#define bam_map_qual(b)  ((b)->map_qual)
-//#define bam_bin(b)       ((b)->bin)
-//#define bam_name_len(b)  ((b)->name_len)
+#define bam_map_qual(b)  ((b)->map_qual)
+#define bam_bin(b)       ((b)->bin)
+#define bam_name_len(b)  ((b)->name_len)
+#define bam_set_map_qual(b,v) ((b)->map_qual = (v))
+#define bam_set_bin(b,v)      ((b)->bin = (v))
+#define bam_set_name_len(b,v) ((b)->name_len = (v))
 
-#define bam_flag(b)      ((b)->flag_nc >> 16)
-#define bam_set_flag(b,v) \
-    ((b)->flag_nc = ((b)->flag_nc & 0x0000ffff) | (((v) & 0xffff)<<16))
+#define bam_flag(b)       ((b)->flag)
+#define bam_set_flag(b,v) ((b)->flag = (v));
 
-#if 0
-#  define bam_cigar_len(b) ((b)->flag_nc & 0xffff)
-#  define bam_set_cigar_len(b,v) \
-    ((b)->flag_nc = ((b)->flag_nc & 0xffff0000) | ((v) & 0xffff))
-#else
-#  define bam_cigar_len(b)        ((b)->cigar_len)
-#  define bam_set_cigar_len(b, v) ((b)->cigar_len = (v), (b)->flag_nc = ((b)->flag_nc & 0xffff0000) | ((v) & 0xffff))
-#endif
+#define bam_cigar_len(b)        ((b)->cigar_len)
+#define bam_set_cigar_len(b, v) ((b)->cigar_len = (v))
 
 #define bam_strand(b)    ((bam_flag((b)) & BAM_FREVERSE) != 0)
 #define bam_name(b)      ((char *)(&(b)->data))
+#ifdef ALLOW_UAC
 #define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + bam_name_len((b))))
+#else
+#define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + round4(bam_name_len((b)))))
+#endif
 #define bam_seq_len(b)   ((b)->len)
 #define bam_seq(b)       (((char *)bam_cigar((b))) + 4*bam_cigar_len(b))
 #define bam_qual(b)      (bam_seq(b) + (int)(((b)->len+1)/2))
