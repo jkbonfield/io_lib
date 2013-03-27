@@ -1,15 +1,10 @@
 #ifndef _BAM_H_
 #define _BAM_H_
 
-/*
- * Allow for unaligned memory access. This is used in cigar string processing
- * as the packed BAM data struct has cigar after read name instead of before.
- */
-#define ALLOW_UAC
-
 #include <inttypes.h>
 #include <zlib.h>
 
+#include "io_lib/os.h"
 #include "io_lib/hash_table.h"
 #include "io_lib/sam_header.h"
 
@@ -57,10 +52,11 @@ typedef struct {
 
 /* Auxillary field handling */
 typedef union {
-    char  *s;
-    int    i;
-    float  f;
-    double d;
+    char    *s;
+    int      i;
+    uint64_t i64;
+    float    f;
+    double   d;
     struct {
 	int n, t;
 	unsigned char *s;
