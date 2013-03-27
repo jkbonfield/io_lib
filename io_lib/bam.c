@@ -678,6 +678,7 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     /* cigar */
     n = 0;
     cigar_len = 0;
+    cpt = (unsigned char *)bam_cigar(bs);
     if (*cpf == '*') {
 	cpf++;
     } else {
@@ -1298,13 +1299,25 @@ int bam_aux_iter(bam_seq_t *b, char **iter_handle,
 
     case 'f':
 	if (type) *type = 'f';
-	if (val) memcpy(&val->f, s+3, 4);
+	if (val) /* Assume same endianness as integer */
+	    val->i = (int32_t)((((unsigned char *)s)[3]<< 0) +
+			       (((unsigned char *)s)[4]<< 8) +
+			       (((unsigned char *)s)[5]<<16) +
+			       (((unsigned char *)s)[6]<<24));
 	s+=7;
 	break;
 
     case 'd':
 	if (type) *type = 'd';
-	if (val) memcpy(&val->d, s+3, 8);
+	if (val) /* Assume same endianness as integer */
+	    val->i64 = (uint64_t)(((uint64_t)(((unsigned char *)s)[ 3])<< 0) +
+				  ((uint64_t)(((unsigned char *)s)[ 4])<< 8) +
+				  ((uint64_t)(((unsigned char *)s)[ 5])<<16) +
+				  ((uint64_t)(((unsigned char *)s)[ 6])<<24) +
+				  ((uint64_t)(((unsigned char *)s)[ 7])<<32) +
+				  ((uint64_t)(((unsigned char *)s)[ 8])<<40) +
+				  ((uint64_t)(((unsigned char *)s)[ 9])<<48) +
+				  ((uint64_t)(((unsigned char *)s)[10])<<54));
 	s+=11;
 	break;
 
@@ -1387,6 +1400,7 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
 		      char *qual) {
     char *cp;
     int i;
+    uint32_t *ip;
 
     /*
      * cp = "=ACMGRSVTWYHKDBN";
@@ -1432,19 +1446,14 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
     cp = bam_name(b);
     memcpy(cp, qname, qname_len);
     cp[qname_len] = 0;
-    cp += qname_len+1;
 
     /* Cigar */
+    cp = (char *)bam_cigar(b);
+    ip = (uint32_t *)cp;
     for (i = 0; i < ncigar; i++) {
-	uint32_t i32 = cigar[i];
-	*cp++ = i32&0xff;
-	i32>>=8;
-	*cp++ = i32&0xff;
-	i32>>=8;
-	*cp++ = i32&0xff;
-	i32>>=8;
-	*cp++ = i32&0xff;
+	ip[i] = cigar[i];
     }
+    cp += ncigar*4;
 
     /* Seq */
     for (i = 0; i < len-1; i += 2) {
@@ -1790,7 +1799,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    dat - (uc *)b + n*4 > b->blk_size + offsetof(bam_seq_t, ref))
 	    return -1;
 	for (i = 0; i < n; i++, dat+=4) {
-	    uint32_t c = dat[0] + (dat[1]<<8) + (dat[2]<<16) + (dat[3]<<24);
+	    uint32_t c = *(uint32_t *)dat;
 	    if (end-fp->out_p < 13) BF_FLUSH();
 	    fp->out_p = append_int(fp->out_p, c>>4);
 	    *fp->out_p++="MIDNSHP=X"[c&15];
@@ -2128,6 +2137,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	b->pos         = le_int4(b->pos);
 	b->bin_packed  = le_int4(b->bin_packed);
 	b->flag_packed = le_int4(b->flag_packed);
+	b->len         = le_int4(b->len);
 	b->mate_ref    = le_int4(b->mate_ref);
 	b->mate_pos    = le_int4(b->mate_pos);
 	b->ins_size    = le_int4(b->ins_size);
@@ -2186,6 +2196,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	b->pos         = le_int4(b->pos);
 	b->bin_packed  = le_int4(b->bin_packed);
 	b->flag_packed = le_int4(b->flag_packed);
+	b->len         = le_int4(b->len);
 	b->mate_ref    = le_int4(b->mate_ref);
 	b->mate_pos    = le_int4(b->mate_pos);
 	b->ins_size    = le_int4(b->ins_size);
