@@ -1498,10 +1498,9 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    break;
 
 	case 'd':
-	    aux+=3;
+	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
-	    break;
 
 	case 'Z': case 'H':
 	    aux+=3;

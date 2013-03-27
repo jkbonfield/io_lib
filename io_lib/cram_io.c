@@ -982,7 +982,8 @@ int refs2id(refs *r, SAM_hdr *bfd) {
 char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     ref_entry *r;
     off_t offset, len;
-    char *cp_from, *cp_to;
+    //char *cp_from;
+    char *cp_to;
 
     //struct timeval tv1, tv2;
     //fprintf(stderr, "Cram_get_ref %d %d..%d\n", id, start, end);

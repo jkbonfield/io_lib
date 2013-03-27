@@ -944,7 +944,6 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 	BLOCK_APPEND(s->aux_blk, (char *)tag_data, 3);
 
 	r |= m->codec->decode(s, m->codec, blk, (char *)s->aux_blk, &out_sz);
-
 	cr->aux_size += out_sz + 3;
     }
     
@@ -1334,7 +1333,7 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     rg_len = (cr->rg != -1) ? bfd->rg[cr->rg].name_len + 4 : 0;
 
     bam_len = cr->name_len + cr->len + (cr->len+1)/2 + 9*36 + cr->ncigar*4
-	+ rg_len + cr->aux_size + 1;
+	+ rg_len + cr->aux_size + 1 + 3;
     if (!*bam || (*bam)->alloc < bam_len) {
 	if (!(*bam = realloc(*bam, bam_len)))
 	    return -1;
