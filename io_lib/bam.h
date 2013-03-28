@@ -1,3 +1,9 @@
+/*! \file
+ * The primary SAM/BAM API.
+ *
+ * Consider using scram.h if you wish to also have support for CRAM.
+ */ 
+
 #ifndef _BAM_H_
 #define _BAM_H_
 
@@ -177,11 +183,69 @@ enum cigar_op {
  * We only support reading, so basically we have open, read, close along
  * with some utility functions for querying aux records.
  */
+
+/*! Opens a SAM or BAM file.
+ *
+ * The mode parameter indicates the file
+ * type (if not auto-detecting) and whether it is for reading or
+ * writing. Use "rb" or "wb" for reading or writing BAM and "r" or
+ * "w" or reading or writing SAM. When writing BAM, the mode may end
+ * with a digit from 0 to 9 to indicate the compression to use with 0
+ * indicating uncompressed data.
+ *
+ * @param fn The filename to open or create.
+ * @param mode The input/output mode, similar to fopen().
+ *
+ * @return
+ * Returns a bam_file_t pointer on success;
+ *         NULL on failure.
+ */
 bam_file_t *bam_open(char *fn, char *mode);
+
+/*! Closes a SAM or BAM file.
+ * 
+ * @param b The file to close.
+ */
 void bam_close(bam_file_t *b);
+
+/*! Reads the next sequence.
+ *
+ * Fills out the next bam_seq_t struct.
+ * This function will alloc and/or grow the memory accordingly, allowing for
+ * efficient reuse.
+ *
+ * @param bsp Must be non-null, but *bsp may be NULL or an existing
+ * bam_seq_t pointer.
+ *
+ * @return
+ * Returns 1 on success;
+ *         0 on eof;
+ *        -1 on error.
+ */
 int bam_next_seq(bam_file_t *b, bam_seq_t **bsp);
+
+/*!Looks for aux field 'key' and returns the value.
+ * @return
+ * Returns the value for key; NULL if not found.
+ */
 char *bam_aux_find(bam_seq_t *b, char *key);
-tag_list_t *bam_find_rg(bam_file_t *b, char *id);
+
+/*! An iterator on bam_aux_t fields.
+ *
+ * NB: This code is not reentrant or multi-thread capable. The values
+ * returned are valid until the next call to this function.
+ *
+ * @param key  points to an array of 2 characters (eg "RG", "NM")
+ * @param type points to an address of 1 character (eg 'Z', 'i')
+ * @paran val  points to an address of a bam_aux_t union.
+ * @param iter_handle NULL to initialise the search, and then the
+ * returned (modified) iter_handle on each subsequent call to continue
+ * the iteration.
+ *
+ * @return
+ * Returns 0 if the next value is valid, setting key, type and val;
+ *        -1 when no more found.
+ */
 int bam_aux_iter(bam_seq_t *b, char **iter_handle,
 		 char *key, char *type, bam_aux_t *val);
 
@@ -190,8 +254,27 @@ int bam_aux_iter(bam_seq_t *b, char **iter_handle,
 #define bam_nt16_rev_table "=ACMGRSVTWYHKDBN"
 
 /* Output code */
+
+/*! Writes a single bam sequence object.
+ *
+ * @param fp The SAM/BAM file handle.
+ * @param b  The bam_seq_t pointer
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
 int bam_put_seq(bam_file_t *fp, bam_seq_t *b);
 
+/*! Constructs a bam_seq_t from separate components.
+ *
+ * Note: ignores auxiliary tags for now. These need to be appended
+ * manually by the calling function.
+ *
+ * @return
+ * Returns number of bytes written to bam_seq_t on success (ie tag offset);
+ *         -1 on error.
+ */
 int bam_construct_seq(bam_seq_t *b, int s_size,
 		      char *qname, size_t qname_len,
 		      int flag,
@@ -207,20 +290,12 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
 		      char *seq,
 		      char *qual);
 
+/*! Writes a SAM header block.
+ *
+ * @return
+ * Returns 0 for success;
+ *        -1 for failure
+ */
 int bam_write_header(bam_file_t *out);
-
-/*
- * Extracts @RG records from the header and places them in a hash table.
- * Returns 0 on success
- *        -1 on failure
- */
-int bam_parse_header(bam_file_t *b);
-
-/*
- * Creates a new read-group.
- * Returns the read-group ID on success
- *         -1 on failure
- */
-int bam_add_rg(bam_file_t *b, char *id, char *sm);
 
 #endif /* _BAM_H_ */
