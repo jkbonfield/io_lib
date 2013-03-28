@@ -409,7 +409,18 @@ int cram_eof(cram_fd *fd);
  * Returns 0 on success;
  *        -1 on failure
  */
-int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val);
+int cram_set_option(cram_fd *fd, enum cram_option opt, ...);
+
+/*! Sets options on the cram_fd.
+ *
+ * See CRAM_OPT_* definitions in cram_structs.h.
+ * Use this immediately after opening.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args);
 
 /**@}*/
 

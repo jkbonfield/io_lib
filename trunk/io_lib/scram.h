@@ -156,6 +156,6 @@ int scram_put_seq(scram_fd *fd, bam_seq_t *s);
  * Returns 0 on success;
  *        -1 on failure
  */
-int scram_set_option(scram_fd *fd, enum cram_option opt, cram_opt *val);
+int scram_set_option(scram_fd *fd, enum cram_option opt, ...);
 
 #endif /* _SCRAM_H_ */
