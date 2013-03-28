@@ -992,7 +992,7 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
  *        -1 on error
  */
 #ifdef ALLOW_UAC
-int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
+int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
     int32_t blk_size, blk_ret;
     bam_seq_t *bs;
     uint32_t i32;
@@ -1067,7 +1067,7 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
 #else
 
-int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
+int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
     int32_t blk_size, blk_ret;
     bam_seq_t *bs;
     uint32_t i32;
@@ -1157,6 +1157,11 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     return 1;
 }
 #endif
+
+/* Old name */
+int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
+    return bam_get_seq(b, bsp);
+}
 
 /*
  * Looks for aux field 'key' and returns the value.

@@ -208,6 +208,10 @@ bam_file_t *bam_open(char *fn, char *mode);
  */
 void bam_close(bam_file_t *b);
 
+/*! Deprecated: please use bam_get_seq() instead.
+ */
+int bam_next_seq(bam_file_t *b, bam_seq_t **bsp);
+
 /*! Reads the next sequence.
  *
  * Fills out the next bam_seq_t struct.
@@ -222,7 +226,7 @@ void bam_close(bam_file_t *b);
  *         0 on eof;
  *        -1 on error.
  */
-int bam_next_seq(bam_file_t *b, bam_seq_t **bsp);
+int bam_get_seq(bam_file_t *b, bam_seq_t **bsp);
 
 /*!Looks for aux field 'key' and returns the value.
  * @return

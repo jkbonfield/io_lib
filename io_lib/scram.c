@@ -138,9 +138,9 @@ int scram_write_header(scram_fd *fd) {
 	: cram_write_SAM_hdr(fd->c, fd->c->SAM_hdr);
 }
 
-int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
+int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
     if (fd->is_bam) {
-	switch (bam_next_seq(fd->b, bsp)) {
+	switch (bam_get_seq(fd->b, bsp)) {
 	case 1:
 	    return 0;
 
@@ -158,6 +158,10 @@ int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
 	return -1;
     }
     return 0;
+}
+
+int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
+    return scram_get_seq(fd, bsp);
 }
 
 int scram_put_seq(scram_fd *fd, bam_seq_t *s) {

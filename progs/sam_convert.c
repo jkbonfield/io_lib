@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
 
     nm[0] = nm[1] = 0;
     s = NULL;
-    while (bam_next_seq(in, &s) > 0) {
+    while (bam_get_seq(in, &s) > 0) {
 	if (-1 == bam_put_seq(out, s))
 	    return 1;
 	nr++;
