@@ -97,13 +97,15 @@ typedef struct SAM_hdr_item_s {
 typedef struct {
     char *name;
     uint32_t len;
-    SAM_hdr_tag *tag;
+    SAM_hdr_type *ty;
+    SAM_hdr_tag  *tag;
 } SAM_SQ;
 
 /*! Parsed \@RG lines */
 typedef struct {
     char *name;
-    SAM_hdr_tag *tag;
+    SAM_hdr_type *ty;
+    SAM_hdr_tag  *tag;
     int name_len;
     int id;           // numerical ID
 } SAM_RG;
@@ -111,7 +113,8 @@ typedef struct {
 /*! Parsed \@PG lines */
 typedef struct {
     char *name;
-    SAM_hdr_tag *tag;
+    SAM_hdr_type *ty;
+    SAM_hdr_tag  *tag;
     int name_len;
     int id;           // numerical ID
     int prev_id;      // -1 if none

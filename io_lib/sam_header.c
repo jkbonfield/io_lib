@@ -73,6 +73,7 @@ static int sam_header_update_hashes(SAM_hdr *sh,
 	tag = h_type->tag;
 	sh->ref[nref].name = NULL;
 	sh->ref[nref].len  = 0;
+	sh->ref[nref].ty = h_type;
 	sh->ref[nref].tag  = tag;
 
 	while (tag) {
@@ -109,6 +110,7 @@ static int sam_header_update_hashes(SAM_hdr *sh,
 	tag = h_type->tag;
 	sh->rg[nrg].name = NULL;
 	sh->rg[nrg].name_len = 0;
+	sh->rg[nrg].ty   = h_type;
 	sh->rg[nrg].tag  = tag;
 	sh->rg[nrg].id   = nrg;
 
@@ -145,6 +147,7 @@ static int sam_header_update_hashes(SAM_hdr *sh,
 	tag = h_type->tag;
 	sh->pg[npg].name = NULL;
 	sh->pg[npg].name_len = 0;
+	sh->pg[npg].ty  = h_type;
 	sh->pg[npg].tag  = tag;
 	sh->pg[npg].id   = npg;
 	sh->pg[npg].prev_id = -1;
@@ -468,6 +471,25 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
 			      char *ID_key, char *ID_value) {
     HashItem *hi;
     SAM_hdr_type *t1, *t2;
+
+    /* Special case for types we have prebuilt hashes on */
+    if (type[0]   == 'S' && type[1]   == 'Q' &&
+	ID_key[0] == 'S' && ID_key[1] == 'N') {
+	hi = HashTableSearch(hdr->ref_hash, ID_value, strlen(ID_value));
+	return hi ? hdr->ref[hi->data.i].ty : NULL;
+    }
+
+    if (type[0]   == 'R' && type[1]   == 'G' &&
+	ID_key[0] == 'I' && ID_key[1] == 'D') {
+	hi = HashTableSearch(hdr->rg_hash, ID_value, strlen(ID_value));
+	return hi ? hdr->rg[hi->data.i].ty : NULL;
+    }
+
+    if (type[0]   == 'P' && type[1]   == 'G' &&
+	ID_key[0] == 'I' && ID_key[1] == 'D') {
+	hi = HashTableSearch(hdr->pg_hash, ID_value, strlen(ID_value));
+	return hi ? hdr->pg[hi->data.i].ty : NULL;
+    }
 
     if (!(hi = HashTableSearch(hdr->h, type, 2)))
 	return NULL;
