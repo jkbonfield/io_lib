@@ -40,7 +40,6 @@ int main(int argc, char **argv) {
     int level = '\0'; // nul terminate string => auto level
     char out_mode[4];
     int c, verbose = 0;
-    cram_opt opt;
     int s_opt = 0, S_opt = 0, embed_ref = 0;
     char *arg_list, *ref_fn = NULL;
 
@@ -72,7 +71,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    cram_set_option(NULL, CRAM_OPT_VERSION, (cram_opt *)&optarg);
+	    cram_set_option(NULL, CRAM_OPT_VERSION, optarg);
 	    break;
 
 	case 'r':
@@ -144,20 +143,15 @@ int main(int argc, char **argv) {
     if (-1 == cram_write_SAM_hdr(out, in->header))
 	return 1;
 
-    opt.i = verbose;
-    cram_set_option(out, CRAM_OPT_VERBOSITY, &opt);
-    if (s_opt) {
-	opt.i = s_opt;
-	cram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, &opt);
-    }
-    if (S_opt) {
-	opt.i = S_opt;
-	cram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, &opt);
-    }
-    if (embed_ref) {
-	opt.i = embed_ref;
-	cram_set_option(out, CRAM_OPT_EMBED_REF, &opt);
-    }
+    cram_set_option(out, CRAM_OPT_VERBOSITY, verbose);
+    if (s_opt)
+	cram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, s_opt);
+
+    if (S_opt)
+	cram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, S_opt);
+
+    if (embed_ref)
+	cram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref);
 
     /* Sequence iterators */
     while (bam_get_seq(in, &s) > 0) {

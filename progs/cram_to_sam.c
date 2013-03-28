@@ -35,7 +35,6 @@ int main(int argc, char **argv) {
     char mode[4] = {'w', '\0', '\0', '\0'};
     char *prefix = NULL;
     int decode_md = 0;
-    cram_opt opt;
     int C;
     int start, end;
     char ref_name[1024] = {0}, *arg_list, *ref_fn = NULL;
@@ -132,13 +131,13 @@ int main(int argc, char **argv) {
 	cram_index_load(fd, argv[optind]);
 
     if (prefix)
-	opt.s = prefix, cram_set_option(fd, CRAM_OPT_PREFIX, &opt);
+	cram_set_option(fd, CRAM_OPT_PREFIX, prefix);
 
     if (decode_md)
-	opt.i = decode_md, cram_set_option(fd, CRAM_OPT_DECODE_MD, &opt);
+	cram_set_option(fd, CRAM_OPT_DECODE_MD, decode_md);
 
     if (embed_ref)
-	opt.i = embed_ref, cram_set_option(fd, CRAM_OPT_EMBED_REF, &opt);
+	cram_set_option(fd, CRAM_OPT_EMBED_REF, embed_ref);
 
     /* Find and load reference */
     cram_load_reference(fd, ref_fn);
@@ -161,8 +160,7 @@ int main(int argc, char **argv) {
 	r.refid = refid;
 	r.start = start;
 	r.end = end;
-	opt.s = (char *)&r;
-	cram_set_option(fd, CRAM_OPT_RANGE, &opt);
+	cram_set_option(fd, CRAM_OPT_RANGE, &r);
     }
 
     /* SAM Header */

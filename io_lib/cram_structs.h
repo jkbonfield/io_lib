@@ -573,12 +573,6 @@ enum cram_option {
     CRAM_OPT_REFERENCE
 };
 
-typedef union {
-    int   i;
-    char *s;
-} cram_opt;
-
-
 /* BF bitfields */
 /* Corrected in 1.1. Use bam_flag_swap[bf] and BAM_* macros for 1.0 & 1.1 */
 #define CRAM_FPAIRED      256
