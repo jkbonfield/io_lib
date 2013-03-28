@@ -242,7 +242,7 @@ int main(int argc, char **argv) {
 
     /* Do the actual file format conversion */
     for (i = 0; i < n_input; i++) {
-	if (scram_next_seq(in[i], &s[i]) < 0) {
+	if (scram_get_seq(in[i], &s[i]) < 0) {
 	    scram_close(in[i]);
 	    in[i] = NULL;
 	    free(s[i]);
@@ -251,7 +251,7 @@ int main(int argc, char **argv) {
 
     for (;;) {
 	int64_t best_val = INT64_MAX;
-	int best_j, j;
+	int best_j = 0, j;
 
 	for (j = 0; j < n_input; j++) {
 	    bam_seq_t *b = s[j];
@@ -275,7 +275,7 @@ int main(int argc, char **argv) {
 	if (-1 == scram_put_seq(out, s[best_j]))
 	    return 1;
 	
-	if (scram_next_seq(in[best_j], &s[best_j]) < 0) {
+	if (scram_get_seq(in[best_j], &s[best_j]) < 0) {
 	    scram_close(in[best_j]);
 	    in[best_j] = NULL;
 	    free(s[best_j]);
