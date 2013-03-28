@@ -86,7 +86,6 @@ int main(int argc, char **argv) {
     char imode[10], *in_f = "", omode[10], *out_f = "";
     int level = '\0'; // nul terminate string => auto level
     int c, verbose = 0;
-    cram_opt opt;
     int s_opt = 0, S_opt = 0, embed_ref = 0;
     char *ref_fn = NULL;
     int start, end;
@@ -122,7 +121,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    cram_set_option(NULL, CRAM_OPT_VERSION, (cram_opt *)&optarg);
+	    cram_set_option(NULL, CRAM_OPT_VERSION, optarg);
 	    break;
 
 	case 'r':
@@ -208,20 +207,15 @@ int main(int argc, char **argv) {
     /* Set any format specific options */
     scram_set_refs(out, refs = scram_get_refs(in[0]));
 
-    opt.i = verbose;
-    scram_set_option(out, CRAM_OPT_VERBOSITY, &opt);
-    if (s_opt) {
-	opt.i = s_opt;
-	scram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, &opt);
-    }
-    if (S_opt) {
-	opt.i = S_opt;
-	scram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, &opt);
-    }
-    if (embed_ref) {
-	opt.i = embed_ref;
-	scram_set_option(out, CRAM_OPT_EMBED_REF, &opt);
-    }
+    scram_set_option(out, CRAM_OPT_VERBOSITY, verbose);
+    if (s_opt)
+	scram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, s_opt);
+
+    if (S_opt)
+	scram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, S_opt);
+
+    if (embed_ref)
+	scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref);
     
     /* Copy header and refs from in to out, for writing purposes */
     // FIXME: do proper merging of @PG lines
@@ -229,10 +223,8 @@ int main(int argc, char **argv) {
     scram_set_header(out, sam_header_dup(scram_get_header(in[0])));
 
     // Needs doing after loading the header.
-    if (ref_fn) {
-	opt.s = ref_fn;
-	scram_set_option(out, CRAM_OPT_REFERENCE, &opt);
-    }
+    if (ref_fn)
+	scram_set_option(out, CRAM_OPT_REFERENCE, ref_fn);
 
     if (scram_get_header(in[0])) {
 	if (scram_write_header(out))

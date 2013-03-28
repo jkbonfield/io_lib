@@ -170,10 +170,17 @@ int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
 	: cram_put_bam_seq(fd->c, s);
 }
 
-int scram_set_option(scram_fd *fd, enum cram_option opt, cram_opt *val) {
+int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
+    int r;
+    va_list args;
+
     if (fd->is_bam)
 	return 0;
 
-    return cram_set_option(fd->c, opt, val);
+    va_start(args, opt);
+    r = cram_set_voption(fd->c, opt, args);
+    va_end(args);
+
+    return r;
 }
 

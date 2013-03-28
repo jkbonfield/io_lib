@@ -2231,51 +2231,70 @@ int cram_eof(cram_fd *fd) {
  * Returns 0 on success
  *        -1 on failure
  */
-int cram_set_option(cram_fd *fd, enum cram_option opt, cram_opt *val) {
+int cram_set_option(cram_fd *fd, enum cram_option opt, ...) {
+    int r;
+    va_list args;
+
+    va_start(args, opt);
+    r = cram_set_voption(fd, opt, args);
+    va_end(args);
+
+    return r;
+}
+
+/*
+ * Sets options on the cram_fd. See CRAM_OPT_* definitions in cram_structs.h.
+ * Use this immediately after opening.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
     switch (opt) {
     case CRAM_OPT_DECODE_MD:
-	fd->decode_md = val->i;
+	fd->decode_md = va_arg(args, int);
 	break;
 
     case CRAM_OPT_PREFIX:
 	if (fd->prefix)
 	    free(fd->prefix);
-	if (!(fd->prefix = strdup(val->s)))
+	if (!(fd->prefix = strdup(va_arg(args, char *))))
 	    return -1;
 	break;
 
     case CRAM_OPT_VERBOSITY:
-	fd->verbose = val->i;
+	fd->verbose = va_arg(args, int);
 	break;
 
     case CRAM_OPT_SEQS_PER_SLICE:
-	fd->seqs_per_slice = val->i;
+	fd->seqs_per_slice = va_arg(args, int);
 	break;
 
     case CRAM_OPT_SLICES_PER_CONTAINER:
-	fd->slices_per_container = val->i;
+	fd->slices_per_container = va_arg(args, int);
 	break;
 
     case CRAM_OPT_EMBED_REF:
-	fd->embed_ref = val->i;
+	fd->embed_ref = va_arg(args, int);
 	break;
 
     case CRAM_OPT_IGNORE_MD5:
-	fd->ignore_md5 = val->i;
+	fd->ignore_md5 = va_arg(args, int);
 	break;
 
     case CRAM_OPT_RANGE:
-	fd->range = *(cram_range *)val->s;
+	fd->range = *va_arg(args, cram_range *);
 	cram_seek_to_refpos(fd, &fd->range);
 	break;
 
     case CRAM_OPT_REFERENCE:
-	cram_load_reference(fd, val->s);
+	cram_load_reference(fd, va_arg(args, char *));
 	break;
 
     case CRAM_OPT_VERSION: {
-	if (2 != sscanf(val->s, "%d.%d", &major_version, &minor_version)) {
-	    fprintf(stderr, "Malformed version string %s\n", val->s);
+	char *s = va_arg(args, char *);
+	if (2 != sscanf(s, "%d.%d", &major_version, &minor_version)) {
+	    fprintf(stderr, "Malformed version string %s\n", s);
 	    return -1;
 	}
 	break;
