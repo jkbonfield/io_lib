@@ -133,6 +133,9 @@ void scram_set_refs(scram_fd *fd, refs *refs);
  * Returns 0 on success and fills out bsp;
  *        -1 on failure
  */
+int scram_get_seq(scram_fd *fd, bam_seq_t **bsp);
+
+/*! Deprecated: please use scram_get_seq() instead */
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp);
 
 

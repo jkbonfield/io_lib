@@ -269,7 +269,7 @@ int main(int argc, char **argv) {
 
     /* Do the actual file format conversion */
     s = NULL;
-    while (scram_next_seq(in, &s) >= 0) {
+    while (scram_get_seq(in, &s) >= 0) {
 	if (-1 == scram_put_seq(out, s))
 	    return 1;
     }

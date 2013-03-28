@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
     }
 
     /* Sequence iterators */
-    while (bam_next_seq(in, &s) > 0) {
+    while (bam_get_seq(in, &s) > 0) {
 	if (-1 == cram_put_bam_seq(out, s)) {
 	    fprintf(stderr, "Failed in cram_put_bam_seq()\n");
 	    return 1;
