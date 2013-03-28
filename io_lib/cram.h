@@ -1,3 +1,14 @@
+/*! \file
+ * CRAM interface.
+ *
+ * Consider using the higher level scram_*() API for programs that wish to
+ * be file format agnostic.
+ *
+ * This API should be used for CRAM specific code. The specifics of the
+ * public API are implemented in cram_io.h, cram_encode.h and cram_decode.h
+ * although these should not be included directly (use this file instead).
+ */
+
 #ifndef _CRAM_H_
 #define _CRAM_H_
 
