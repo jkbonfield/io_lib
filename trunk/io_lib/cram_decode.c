@@ -521,8 +521,8 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	pos += prev_pos;
 
 	if (pos > seq_pos) {
-	    if (s->ref && s->hdr->ref_seq_id >= 0) {
-		if (ref_pos + pos - seq_pos > bfd->ref[s->hdr->ref_seq_id].len) {
+	    if (s->ref && cr->ref_id >= 0) {
+		if (ref_pos + pos - seq_pos > bfd->ref[cr->ref_id].len) {
 		    static int whinged = 0;
 		    if (!whinged)
 			fprintf(stderr, "Ref pos outside of ref sequence boundary\n");
@@ -597,7 +597,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	    }
 	    r |= c->comp_hdr->BS_codec->decode(s, c->comp_hdr->BS_codec, blk,
 					       (char *)&base, &out_sz);
-	    if (ref_pos >= bfd->ref[s->hdr->ref_seq_id].len || !s->ref) {
+	    if (ref_pos >= bfd->ref[cr->ref_id].len || !s->ref) {
 		seq[pos-1] = 'N';
 	    } else {
 		ref_base = fd->L1[(uc)s->ref[ref_pos - s->ref_start +1]];
@@ -772,7 +772,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
     /* An implement match op for any unaccounted for bases */
     if (cr->len >= seq_pos) {
 	if (s->ref) {
-	    if (ref_pos + cr->len - seq_pos + 1 > bfd->ref[s->hdr->ref_seq_id].len) {
+	    if (ref_pos + cr->len - seq_pos + 1 > bfd->ref[cr->ref_id].len) {
 		static int whinged = 0;
 		if (!whinged)
 		    fprintf(stderr, "Ref pos outside of ref sequence boundary\n");
@@ -1017,7 +1017,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	MD5_CTX md5;
 	unsigned char digest[16];
 
-	if (fd->ref) {
+	if (fd->ref && s->hdr->ref_seq_id >= 0) {
 	    MD5_Init(&md5);
 	    MD5_Update(&md5,
 		       fd->ref + s->hdr->ref_seq_start - fd->ref_start,
@@ -1057,11 +1057,14 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    cf = cr->cram_flags;
 	}
 
-	if (fd->version != CRAM_1_VERS && ref_id == -2)
+	if (fd->version != CRAM_1_VERS && ref_id == -2) {
 	    r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, blk,
 					       (char *)&cr->ref_id, &out_sz);
-	else
+	    s->ref = cram_get_ref(fd, cr->ref_id, 1, 0);
+	    s->ref_start = 1;
+	} else {
 	    cr->ref_id = ref_id; // Forced constant in CRAM 1.0
+	}
 
 
 	r |= c->comp_hdr->RL_codec->decode(s, c->comp_hdr->RL_codec, blk,
