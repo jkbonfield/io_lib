@@ -71,12 +71,12 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0;
     char *ref_fn = NULL;
-    int start, end;
+    int start, end, multi_seq = 0;
     char ref_name[1024] = {0};
     refs *refs;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:!")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:!M")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -149,6 +149,10 @@ int main(int argc, char **argv) {
 	    ignore_md5 = 1;
 	    break;
 
+	case 'M':
+	    multi_seq = 1;
+	    break;
+
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
 	    usage(stderr);
@@ -215,6 +219,9 @@ int main(int argc, char **argv) {
 
     if (embed_ref)
 	scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref);
+
+    if (multi_seq)
+	scram_set_option(out, CRAM_OPT_MULTI_SEQ_PER_SLICE, multi_seq);
 
     if (ignore_md5)
 	scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5);

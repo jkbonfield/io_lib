@@ -473,22 +473,24 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
     SAM_hdr_type *t1, *t2;
 
     /* Special case for types we have prebuilt hashes on */
-    if (type[0]   == 'S' && type[1]   == 'Q' &&
-	ID_key[0] == 'S' && ID_key[1] == 'N') {
-	hi = HashTableSearch(hdr->ref_hash, ID_value, strlen(ID_value));
-	return hi ? hdr->ref[hi->data.i].ty : NULL;
-    }
+    if (ID_key) {
+	if (type[0]   == 'S' && type[1]   == 'Q' &&
+	    ID_key[0] == 'S' && ID_key[1] == 'N') {
+	    hi = HashTableSearch(hdr->ref_hash, ID_value, strlen(ID_value));
+	    return hi ? hdr->ref[hi->data.i].ty : NULL;
+	}
 
-    if (type[0]   == 'R' && type[1]   == 'G' &&
-	ID_key[0] == 'I' && ID_key[1] == 'D') {
-	hi = HashTableSearch(hdr->rg_hash, ID_value, strlen(ID_value));
-	return hi ? hdr->rg[hi->data.i].ty : NULL;
-    }
+	if (type[0]   == 'R' && type[1]   == 'G' &&
+	    ID_key[0] == 'I' && ID_key[1] == 'D') {
+	    hi = HashTableSearch(hdr->rg_hash, ID_value, strlen(ID_value));
+	    return hi ? hdr->rg[hi->data.i].ty : NULL;
+	}
 
-    if (type[0]   == 'P' && type[1]   == 'G' &&
-	ID_key[0] == 'I' && ID_key[1] == 'D') {
-	hi = HashTableSearch(hdr->pg_hash, ID_value, strlen(ID_value));
-	return hi ? hdr->pg[hi->data.i].ty : NULL;
+	if (type[0]   == 'P' && type[1]   == 'G' &&
+	    ID_key[0] == 'I' && ID_key[1] == 'D') {
+	    hi = HashTableSearch(hdr->pg_hash, ID_value, strlen(ID_value));
+	    return hi ? hdr->pg[hi->data.i].ty : NULL;
+	}
     }
 
     if (!(hi = HashTableSearch(hdr->h, type, 2)))

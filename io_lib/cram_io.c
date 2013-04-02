@@ -1128,6 +1128,7 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->curr_slice = 0;
 
     c->pos_sorted = 1;
+    c->multi_seq  = 0;
 
     if (!(c->slices = (cram_slice **)calloc(nslice, sizeof(cram_slice *))))
 	return NULL;
@@ -1304,6 +1305,7 @@ cram_container *cram_read_container(cram_fd *fd) {
     c->slices = NULL;
     c->curr_slice = 0;
     c->max_slice = c->num_landmarks;
+    c->slice_rec = 0;
     c->curr_rec = 0;
     c->max_rec = 0;
 
@@ -1326,9 +1328,15 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
 	*(int32_t *)cp = le_int4(c->length);
 	cp += 4;
     }
-    cp += itf8_put(cp, c->ref_seq_id);
-    cp += itf8_put(cp, c->ref_seq_start);
-    cp += itf8_put(cp, c->ref_seq_span);
+    if (c->multi_seq) {
+	cp += itf8_put(cp, -2);
+	cp += itf8_put(cp, 0);
+	cp += itf8_put(cp, 0);
+    } else {
+	cp += itf8_put(cp, c->ref_seq_id);
+	cp += itf8_put(cp, c->ref_seq_start);
+	cp += itf8_put(cp, c->ref_seq_span);
+    }
     cp += itf8_put(cp, c->num_records);
     if (fd->version != CRAM_1_VERS) {
 	cp += itf8_put(cp, c->record_counter);
@@ -1738,6 +1746,7 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
     }
 
     fd->first_container += 26;
+    fd->last_slice = 0;
 
     return def;
 }
@@ -2144,6 +2153,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->slices_per_container = SLICE_PER_CNT;
     fd->embed_ref = 0;
     fd->ignore_md5 = 0;
+    fd->multi_seq = 0;
 
     fd->index = NULL;
 
@@ -2299,6 +2309,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	}
 	break;
     }
+
+    case CRAM_OPT_MULTI_SEQ_PER_SLICE:
+	fd->multi_seq = va_arg(args, int);
+	break;
 
     default:
 	fprintf(stderr, "Unknown CRAM option code %d\n", opt);
