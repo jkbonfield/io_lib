@@ -242,10 +242,13 @@ typedef struct {
     /* For construction purposes */
     int max_slice, curr_slice;   // maximum number of slices
     int max_rec, curr_rec;       // current and max recs per slice
+    int slice_rec;               // rec no. for start of this slice
     int curr_ref;                // current ref ID. -2 for no previous
     int last_pos;                // last record position
     struct cram_slice **slices, *slice;
     int pos_sorted;              // boolean, 1=>position sorted data
+    int last_slice;              // number of reads in last slice (0 for 1st)
+    int multi_seq;               // true if packing multi seqs per cont/slice
 
     /* Statistics for encoding */
     cram_stats *TS_stats;
@@ -558,6 +561,8 @@ typedef struct {
     cram_index *index;                  // array, sizeof index_sz
     off_t first_container;
     int eof;
+    int last_slice;                     // number of recs encoded in last slice
+    int multi_seq;
 } cram_fd;
 
 enum cram_option {
@@ -570,7 +575,8 @@ enum cram_option {
     CRAM_OPT_VERSION,
     CRAM_OPT_EMBED_REF,
     CRAM_OPT_IGNORE_MD5,
-    CRAM_OPT_REFERENCE
+    CRAM_OPT_REFERENCE,
+    CRAM_OPT_MULTI_SEQ_PER_SLICE,
 };
 
 /* BF bitfields */
