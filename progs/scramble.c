@@ -172,12 +172,12 @@ int main(int argc, char **argv) {
 	if (*in_f == 0)
 	    sprintf(imode, "r%s%c", detect_format(argv[optind]), level);
 	if (!(in = scram_open(argv[optind], imode))) {
-	    fprintf(stderr, "Failed to open bam file %s\n", argv[optind]);
+	    fprintf(stderr, "Failed to open file %s\n", argv[optind]);
 	    return 1;
 	}
     } else {
 	if (!(in = scram_open("-", imode))) {
-	    fprintf(stderr, "Failed to open bam file %s\n", argv[optind]);
+	    fprintf(stderr, "Failed to open file %s\n", argv[optind]);
 	    return 1;
 	}
     }
@@ -196,12 +196,12 @@ int main(int argc, char **argv) {
 	if (*out_f == 0)
 	    sprintf(omode, "w%s%c", detect_format(argv[optind+1]), level);
 	if (!(out = scram_open(argv[optind+1], omode))) {
-	    fprintf(stderr, "Failed to open bam file %s\n", argv[optind+1]);
+	    fprintf(stderr, "Failed to open file %s\n", argv[optind+1]);
 	    return 1;
 	}
     } else {
 	if (!(out = scram_open("-", omode))) {
-	    fprintf(stderr, "Failed to open bam file %s\n", argv[optind+1]);
+	    fprintf(stderr, "Failed to open file %s\n", argv[optind+1]);
 	    return 1;
 	}
     }
