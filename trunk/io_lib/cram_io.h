@@ -12,6 +12,9 @@
 #ifndef _CRAM_IO_H_
 #define _CRAM_IO_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define ITF8_MACROS
 
@@ -205,7 +208,7 @@ void cram_load_reference(cram_fd *fd, char *fn);
  * Returns 0 on success;
  *        -1 on failure
  */
-int refs2id(refs *r, SAM_hdr *bfd);
+int refs2id(refs_t *r, SAM_hdr *bfd);
 
 /*! Returns a portion of a reference sequence from start to end inclusive.
  *
@@ -423,5 +426,9 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, ...);
 int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args);
 
 /**@}*/
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _CRAM_IO_H_ */

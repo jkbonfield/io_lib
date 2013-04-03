@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
     char *ref_fn = NULL;
     int start, end;
     char ref_name[1024] = {0};
-    refs *refs;
+    refs_t *refs;
 
     /* Parse command line arguments */
     while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:")) != -1) {

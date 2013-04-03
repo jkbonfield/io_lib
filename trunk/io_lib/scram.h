@@ -8,6 +8,10 @@
 #ifndef _SCRAM_H_
 #define _SCRAM_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
@@ -102,14 +106,14 @@ int scram_write_header(scram_fd *fd);
  * After failure, check with scram_eof(fd) to see whether an genuine
  * error occurred or whether we hit the end of file.
  */
-refs *scram_get_refs(scram_fd *fd);
+refs_t *scram_get_refs(scram_fd *fd);
 
 
 /*! Sets the reference sequence array.
  *
  * Note: this only works for CRAM files.
  */
-void scram_set_refs(scram_fd *fd, refs *refs);
+void scram_set_refs(scram_fd *fd, refs_t *refs);
 
 
 /*! Fetches the next sequence and returns it in BAM format.
@@ -157,5 +161,9 @@ int scram_put_seq(scram_fd *fd, bam_seq_t *s);
  *        -1 on failure
  */
 int scram_set_option(scram_fd *fd, enum cram_option opt, ...);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _SCRAM_H_ */

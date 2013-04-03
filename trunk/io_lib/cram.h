@@ -12,6 +12,10 @@
 #ifndef _CRAM_H_
 #define _CRAM_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "sam_header.h"
 #include "cram_structs.h"
 #include "cram_io.h"
@@ -20,5 +24,9 @@
 #include "cram_stats.h"
 #include "cram_codecs.h"
 #include "cram_index.h"
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

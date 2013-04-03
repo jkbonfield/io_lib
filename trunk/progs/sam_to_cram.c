@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
 	}
     }
 
-    out->SAM_hdr = in->header;
+    out->header = in->header;
     if (ref_fn)
 	cram_load_reference(out, ref_fn);
 
@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
 		"Please specify a valid reference with -r ref.fa option.\n");
 	return 1;
     }
-    refs2id(out->refs, out->SAM_hdr);
+    refs2id(out->refs, out->header);
 
     if (-1 == cram_write_SAM_hdr(out, in->header))
 	return 1;
@@ -162,7 +162,7 @@ int main(int argc, char **argv) {
     }
 
     bam_close(in);
-    out->SAM_hdr = NULL; // freed by bam_close()
+    out->header = NULL; // freed by bam_close()
     if (-1 == cram_close(out)) {
 	fprintf(stderr, "Failed in cram_close()\n");
 	return 1;

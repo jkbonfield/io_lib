@@ -7,6 +7,10 @@
 #ifndef _BAM_H_
 #define _BAM_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <inttypes.h>
 #include <zlib.h>
 
@@ -301,5 +305,9 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
  *        -1 for failure
  */
 int bam_write_header(bam_file_t *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _BAM_H_ */
