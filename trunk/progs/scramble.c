@@ -61,6 +61,7 @@ static void usage(FILE *fp) {
 	    SLICE_PER_CNT);
     fprintf(fp, "    -V version     [Cram] Specify the file format version to write (eg 1.1, 2.0)\n");
     fprintf(fp, "    -X             [Cram] Embed reference sequence.\n");
+    fprintf(fp, "    -m             [Cram] Generate MD and NM tags:\n");
 }
 
 int main(int argc, char **argv) {
@@ -69,14 +70,14 @@ int main(int argc, char **argv) {
     char imode[10], *in_f = "", omode[10], *out_f = "";
     int level = '\0'; // nul terminate string => auto level
     int c, verbose = 0;
-    int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0;
+    int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:!M")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:!Mm")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -101,6 +102,10 @@ int main(int argc, char **argv) {
 
 	case 'S':
 	    S_opt = atoi(optarg);
+	    break;
+
+	case 'm':
+	    decode_md = 1;
 	    break;
 
 	case 'V':
@@ -222,6 +227,9 @@ int main(int argc, char **argv) {
 
     if (multi_seq)
 	scram_set_option(out, CRAM_OPT_MULTI_SEQ_PER_SLICE, multi_seq);
+
+    if (decode_md)
+	scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md);
 
     if (ignore_md5)
 	scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5);
