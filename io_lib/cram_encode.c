@@ -1495,6 +1495,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	if (aux[0] == 'N' && aux[1] == 'M') {
 	    switch(aux[2]) {
 	    case 'A': case 'C': case 'c': aux+=4; break;
+	    case 'S': case 's':           aux+=5; break;
 	    case 'I': case 'i': case 'f': aux+=7; break;
 	    default:
 		fprintf(stderr, "Unhandled type code for NM tag\n");
