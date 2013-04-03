@@ -1,6 +1,10 @@
 #ifndef _CRAM_ENCODINGS_H_
 #define _CRAM_ENCODINGS_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <inttypes.h>
 
 struct cram_codec;
@@ -114,5 +118,9 @@ cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st,
 //void cram_decoder_free(void *codes);
 
 #define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, (--b->bit == -1) && (b->bit = 7, b->byte++))
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _CRAM_ENCODINGS_H_ */

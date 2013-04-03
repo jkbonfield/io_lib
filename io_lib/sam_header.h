@@ -21,6 +21,10 @@
 #ifndef _SAM_HEADER_H_
 #define _SAM_HEADER_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
@@ -359,5 +363,9 @@ int sam_header_add_PG(SAM_hdr *sh, char *name, ...);
  *         NULL on failure
  */
 char *stringify_argv(int argc, char *argv[]);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _SAM_HEADER_H_ */

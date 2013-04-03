@@ -1,6 +1,10 @@
 #ifndef _DSTRING_H
 #define _DSTRING_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdlib.h>
 #include <stdarg.h>
 
@@ -225,5 +229,9 @@ int dstring_htmlise_links(dstring_t *ds);
  *           -1 for failure
  */
 int dstring_perror(dstring_t *ds, const char *str);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

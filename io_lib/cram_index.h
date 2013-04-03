@@ -1,6 +1,10 @@
 #ifndef _CRAM_INDEX_H_
 #define _CRAM_INDEX_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * Loads a CRAM .crai index into memory.
  * Returns 0 for success
@@ -35,5 +39,9 @@ int cram_seek_to_refpos(cram_fd *fd, cram_range *r);
  *        -1 on failure
  */
 int cram_seek(cram_fd *fd, off_t offset, int whence);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

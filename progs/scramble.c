@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
     char *ref_fn = NULL;
     int start, end, multi_seq = 0;
     char ref_name[1024] = {0};
-    refs *refs;
+    refs_t *refs;
 
     /* Parse command line arguments */
     while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:!M")) != -1) {
@@ -252,7 +252,7 @@ int main(int argc, char **argv) {
 	    
 	cram_index_load(in->c, argv[optind]);
 
-	refid = sam_header_name2ref(in->c->SAM_hdr, ref_name);
+	refid = sam_header_name2ref(in->c->header, ref_name);
 
 	if (refid == -1 && *ref_name != '*') {
 	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);

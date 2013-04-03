@@ -147,11 +147,11 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    bfd->header = fd->SAM_hdr;
+    bfd->header = fd->header;
 
     if (*ref_name != 0) {
 	cram_range r;
-	int refid = sam_header_name2ref(fd->SAM_hdr, ref_name);
+	int refid = sam_header_name2ref(fd->header, ref_name);
 
 	if (refid == -1 && *ref_name != '*') {
 	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);

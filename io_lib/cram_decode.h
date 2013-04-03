@@ -11,6 +11,10 @@
 #ifndef _CRAM_READ_H_
 #define _CRAM_READ_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* ----------------------------------------------------------------------
  * CRAM sequence iterators.
  */
@@ -70,5 +74,9 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b);
 int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		      SAM_hdr *hdr);
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,10 @@
 #ifndef _CRAM_STRUCTS_H_
 #define _CRAM_STRUCTS_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * Defines in-memory structs for the basic file-format objects in the
  * CRAM format.
@@ -469,7 +473,7 @@ typedef struct {
     HashTable *h_meta;
     ref_entry **ref_id;
     FILE *fp;
-} refs;
+} refs_t;
 
 /*-----------------------------------------------------------------------------
  * CRAM index
@@ -512,7 +516,7 @@ typedef struct {
     int            mode;     // 'r' or 'w'
     int            version;
     cram_file_def *file_def;
-    SAM_hdr       *SAM_hdr;
+    SAM_hdr       *header;
 
     char          *prefix;
     int            record_counter;
@@ -530,7 +534,7 @@ typedef struct {
     int first_base, last_base;
 
     // cached reference portion
-    refs *refs;     // ref meta-data structure
+    refs_t *refs;     // ref meta-data structure
     char *ref;      // current portion held in memory
     int   ref_id;
     int   ref_start;
@@ -611,5 +615,9 @@ enum cram_option {
 #define CRAM_EXT_TN	6
 #define CRAM_EXT_SC	7
 #define CRAM_EXT_REF    8
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _CRAM_STRUCTS_H_ */
