@@ -770,7 +770,10 @@ void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 			      &s1, level, strat);
 	c2 = zlib_mem_deflate((char *)b->data, b->uncomp_size,
 			      &s2, level2, strat2);
-	if (s1 < s2) {
+	
+	//fprintf(stderr, "1: %6d   2: %6d   %5.1f\n", s1, s2, 100.0*s1/s2);
+
+	if (s1 < 0.98 * s2) { // 2nd one should be faster alternative
 	    if (fd->verbose > 1)
 		fprintf(stderr, "M1 wins\n");
 	    comp = c1; comp_size = s1;
