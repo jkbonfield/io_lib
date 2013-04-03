@@ -1310,7 +1310,8 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     } else {
 	if (cr->mate_flags & CRAM_M_REVERSE) {
 	    cr->flags |= BAM_FPAIRED | BAM_FMREVERSE;
-	} else if (cr->mate_flags & CRAM_M_UNMAP) {
+	}
+	if (cr->mate_flags & CRAM_M_UNMAP) {
 	    cr->flags |= BAM_FMUNMAP;
 	    //cr->mate_ref_id = -1;
 	}
