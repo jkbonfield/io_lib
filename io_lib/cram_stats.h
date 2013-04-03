@@ -1,6 +1,10 @@
 #ifndef _CRAM_STATS_H_
 #define _CRAM_STATS_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "io_lib/hash_table.h"
 
 cram_stats *cram_stats_create(void);
@@ -19,5 +23,9 @@ void cram_stats_free(cram_stats *st);
  * Returns the best codec to use.
  */
 enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

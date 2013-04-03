@@ -11,6 +11,9 @@
 #ifndef _CRAM_WRITE_H_
 #define _CRAM_WRITE_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* ----------------------------------------------------------------------
  * CRAM sequence iterators.
@@ -64,5 +67,9 @@ cram_block *cram_encode_slice_header(cram_fd *fd, cram_slice *s);
  * decode_container / encode_container.
  */
 int cram_encode_container(cram_fd *fd, cram_container *c);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

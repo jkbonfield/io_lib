@@ -111,14 +111,14 @@ int scram_close(scram_fd *fd) {
 }
 
 SAM_hdr *scram_get_header(scram_fd *fd) {
-    return fd->is_bam ? fd->b->header : fd->c->SAM_hdr;
+    return fd->is_bam ? fd->b->header : fd->c->header;
 }
 
-refs *scram_get_refs(scram_fd *fd) {
+refs_t *scram_get_refs(scram_fd *fd) {
     return fd->is_bam ? NULL : fd->c->refs;
 }
 
-void scram_set_refs(scram_fd *fd, refs *refs) {
+void scram_set_refs(scram_fd *fd, refs_t *refs) {
     if (fd->is_bam)
 	return;
     fd->c->refs = refs;
@@ -128,14 +128,14 @@ void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
     if (fd->is_bam) {
 	fd->b->header = sh;
     } else {
-	fd->c->SAM_hdr = sh;
+	fd->c->header = sh;
     }
 }
 
 int scram_write_header(scram_fd *fd) {
     return fd->is_bam
 	? bam_write_header(fd->b)
-	: cram_write_SAM_hdr(fd->c, fd->c->SAM_hdr);
+	: cram_write_SAM_hdr(fd->c, fd->c->header);
 }
 
 int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {

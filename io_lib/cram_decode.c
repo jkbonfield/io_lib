@@ -1525,7 +1525,7 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	}
 
 	/* Test decoding of 1st seq */
-	if (cram_decode_slice(fd, c, s, fd->SAM_hdr) != 0) {
+	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
 	    return NULL;
 	}
@@ -1569,7 +1569,7 @@ int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam) {
 
     c = fd->ctr;
     s = c->slice;
-    cram_to_bam(fd->SAM_hdr, fd, s, cr, c->curr_rec-1, bam);
+    cram_to_bam(fd->header, fd, s, cr, c->curr_rec-1, bam);
 
     return 0;
 }

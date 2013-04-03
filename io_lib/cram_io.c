@@ -848,14 +848,14 @@ char *cram_content_type2str(enum cram_content_type t) {
  * Returns a ref_seq structure on success
  *         NULL on failure
  */
-static refs *load_reference(char *fn, int is_err) {
+static refs_t *load_reference(char *fn, int is_err) {
     struct stat sb;
     FILE *fp;
     HashData hd;
     char fai_fn[PATH_MAX];
     char line[1024];
 
-    refs *r = malloc(sizeof(*r));
+    refs_t *r = malloc(sizeof(*r));
     if (!r)
 	return NULL;
 
@@ -928,7 +928,7 @@ static refs *load_reference(char *fn, int is_err) {
     return r;
 }
 
-static void free_refs(refs *r) {
+static void free_refs(refs_t *r) {
     if (r->ref_id)
 	free(r->ref_id);
     //if (r->h_seq)
@@ -949,7 +949,7 @@ static void free_refs(refs *r) {
  * Returns 0 on success
  *        -1 on failure
  */
-int refs2id(refs *r, SAM_hdr *bfd) {
+int refs2id(refs_t *r, SAM_hdr *bfd) {
     int i;
     if (r->ref_id)
 	free(r->ref_id);
@@ -1081,11 +1081,11 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
  */
 void cram_load_reference(cram_fd *fd, char *fn) {
     if (!fn && fd->mode == 'r') {
-	SAM_hdr_type *ty = sam_header_find(fd->SAM_hdr, "SQ", NULL, NULL);
+	SAM_hdr_type *ty = sam_header_find(fd->header, "SQ", NULL, NULL);
 	if (ty) {
 	    SAM_hdr_tag *tag;
 
-	    if ((tag = sam_header_find_key(fd->SAM_hdr, ty, "UR", NULL))) {
+	    if ((tag = sam_header_find_key(fd->header, ty, "UR", NULL))) {
 		fn  = tag->str + 3;
 		if (strncmp(fn, "file:", 5) == 0)
 		    fn += 5;
@@ -1098,7 +1098,7 @@ void cram_load_reference(cram_fd *fd, char *fn) {
 
     fd->refs = load_reference(fn, !(fd->embed_ref && fd->mode == 'r'));
     if (fd->refs) {
-	refs2id(fd->refs, fd->SAM_hdr);
+	refs2id(fd->refs, fd->header);
 	fd->ref_fn = strdup(fn);
     } else {
 	fd->ref_fn = NULL;
@@ -2116,7 +2116,7 @@ cram_fd *cram_open(char *filename, char *mode) {
 	fd->version = fd->file_def->major_version * 100 +
 	    fd->file_def->minor_version;
 
-	if (!(fd->SAM_hdr = cram_read_SAM_hdr(fd)))
+	if (!(fd->header = cram_read_SAM_hdr(fd)))
 	    goto err;
 
     } else {
@@ -2202,8 +2202,8 @@ int cram_close(cram_fd *fd) {
     if (fd->file_def)
 	cram_free_file_def(fd->file_def);
 
-    if (fd->SAM_hdr)
-	sam_header_free(fd->SAM_hdr);
+    if (fd->header)
+	sam_header_free(fd->header);
 
     free(fd->prefix);
 

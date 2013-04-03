@@ -1811,10 +1811,10 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     /* Read group, identified earlier */
     if (rg) {
-	SAM_RG *brg = sam_header_find_rg(fd->SAM_hdr, rg);
+	SAM_RG *brg = sam_header_find_rg(fd->header, rg);
 	cr->rg = brg ? brg->id : -1;
     } else if (fd->version == CRAM_1_VERS) {
-	SAM_RG *brg = sam_header_find_rg(fd->SAM_hdr, "UNKNOWN");
+	SAM_RG *brg = sam_header_find_rg(fd->header, "UNKNOWN");
 	assert(brg);
     } else {
 	cr->rg = -1;
