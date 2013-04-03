@@ -135,6 +135,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     hdr->unmapped_placed = 0;
     hdr->qs_included = 0;
     hdr->read_names_included = 0;
+    hdr->AP_delta = 1;
     memcpy(hdr->substitution_matrix, "CGTNAGTNACTNACGNACGT", 20);
 
     /* Preservation map */

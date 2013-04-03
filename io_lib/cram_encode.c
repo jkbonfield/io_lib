@@ -1237,17 +1237,20 @@ static int cram_add_deletion(cram_container *c, cram_slice *s, cram_record *r,
 }
 
 static int cram_add_softclip(cram_container *c, cram_slice *s, cram_record *r,
-			     int pos, int len, char *base) {
+			     int pos, int len, char *base, int version) {
     cram_feature f;
     f.S.pos = pos+1;
     f.S.code = 'S';
     f.S.len = len;
-    //f.S.seq_idx = BLOCK_SIZE(s->base_blk);
-    //BLOCK_APPEND(s->base_blk, base, len);
-    //BLOCK_APPEND_CHAR(s->base_blk, '\0');
-    f.S.seq_idx = BLOCK_SIZE(s->soft_blk);
-    BLOCK_APPEND(s->soft_blk, base, len);
-    BLOCK_APPEND_CHAR(s->soft_blk, '\0');
+    if (version == CRAM_1_VERS) {
+	f.S.seq_idx = BLOCK_SIZE(s->base_blk);
+	BLOCK_APPEND(s->base_blk, base, len);
+	BLOCK_APPEND_CHAR(s->base_blk, '\0');
+    } else {
+	f.S.seq_idx = BLOCK_SIZE(s->soft_blk);
+	BLOCK_APPEND(s->soft_blk, base, len);
+	BLOCK_APPEND_CHAR(s->soft_blk, '\0');
+    }
     return cram_add_feature(c, s, r, &f);
 }
 
@@ -1941,7 +1944,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		break;
 
 	    case BAM_CSOFT_CLIP:
-		cram_add_softclip(c, s, cr, spos, cig_len, &seq[spos]);
+		cram_add_softclip(c, s, cr, spos, cig_len, &seq[spos],
+				  fd->version);
 		spos += cig_len;
 		break;
 
