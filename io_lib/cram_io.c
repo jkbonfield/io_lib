@@ -874,7 +874,6 @@ static refs_t *load_reference(char *fn, int is_err) {
 
     r->ref_id = NULL;
     r->h_meta = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
-    //r->h_seq  = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
 
     /* Parse .fai file and load meta-data */
     sprintf(fai_fn, "%.*s.fai", PATH_MAX-5, fn);
@@ -921,6 +920,9 @@ static refs_t *load_reference(char *fn, int is_err) {
 	    cp++;
 	e->line_length = strtol(cp, &cp, 10);
 
+	e->count = 0;
+	e->seq = NULL;
+
 	hd.p = e;
 	HashTableAdd(r->h_meta, e->name, strlen(e->name), hd, NULL);
     }
@@ -929,10 +931,20 @@ static refs_t *load_reference(char *fn, int is_err) {
 }
 
 static void free_refs(refs_t *r) {
+    HashIter *iter;
+    HashItem *hi;
+
     if (r->ref_id)
 	free(r->ref_id);
-    //if (r->h_seq)
-    //    HashTableDestroy(r->h_seq, 0);
+
+    iter = HashTableIterCreate();
+    while ((hi = HashTableIterNext(r->h_meta, iter))) {
+	ref_entry *e = hi->data.p;
+	if (e->seq)
+	    free(e->seq);
+    }
+    HashTableIterDestroy(iter);
+
     if (r->h_meta)
 	HashTableDestroy(r->h_meta, 1);
 
@@ -989,13 +1001,15 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     char *cp_to;
 
     //struct timeval tv1, tv2;
-    //fprintf(stderr, "Cram_get_ref %d %d..%d\n", id, start, end);
     //gettimeofday(&tv1, NULL);
     
     if (id < 0) {
-	if (fd->ref)
-	    free(fd->ref);
+	if (fd->ref_free) {
+	    free(fd->ref_free);
+	    fd->ref_free = NULL;
+	}
 	fd->ref = NULL;
+	fd->ref_id = id;
 	return NULL;
     }
 
@@ -1011,15 +1025,37 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     if (end >= r->length)
 	end  = r->length; 
     assert(start >= 1);
+
+    /* If over half the ref, load all of it anyway */
+    if (end - start >= 0.5*r->length) {
+	start = 1;
+	end = r->length;
+    }
     
     /*
-     * Check if asking for same reference. A common issue in sam_to_cram
+     * Check if asking for same reference. A common issue in sam_to_cram.
+     * Similarly if it's a substring of the reference we already have, just
+     * keep that too.
      */
     if (id == fd->ref_id &&
-	start == fd->ref_start &&
-	end == fd->ref_end) {
+	start >= fd->ref_start &&
+	end <= fd->ref_end) {
 	return fd->ref;
     }
+
+    /*
+     * Maybe we have it cached already? This only happens if we're
+     * attempting to do reference based compression of unsorted data.
+     */
+    if (r->seq) {
+	fd->ref_id    = id;
+	fd->ref       = r->seq;
+	fd->ref_start = 1;
+	fd->ref_end   = r->length;
+	return fd->ref;
+    }
+
+    //fprintf(stderr, "Cram_get_ref %d %d..%d\n", id, start, end);
 
     // Compute location in file
     offset = r->offset + (start-1)/r->bases_per_line * r->line_length + 
@@ -1033,9 +1069,16 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	(end-1)%r->bases_per_line - offset + 1;
 
     // Load the data enmasse and then strip whitespace as we go 
-    fd->ref = realloc(fd->ref, len);     // FIXME: grow only?
-    if (!fd->ref)
+    if (fd->ref_free) {
+	free(fd->ref_free);
+	fd->ref_free = NULL;
+    }
+
+    if (!(fd->ref = malloc(len)))
 	return NULL;
+
+    //fprintf(stderr, "Load ref %d of len %d (%d..%d) = %p\n",
+    //	    id, len, start, end, fd->ref);
 
     if (len != fread(fd->ref, 1, len, fd->refs->fp)) {
 	perror("fread() on reference file");
@@ -1070,6 +1113,13 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     //gettimeofday(&tv2, NULL);
     //fprintf(stderr, "Done %ld usec\n",
     //	    (tv2.tv_sec - tv1.tv_sec)*1000000 + tv2.tv_usec - tv1.tv_usec);
+
+    if (fd->unsorted && start == 1 && end == r->length) {
+	r->seq = fd->ref;
+	fd->ref_free = NULL;
+    } else {
+	fd->ref_free = fd->ref;
+    }
 
     return fd->ref;
 }
@@ -1131,6 +1181,7 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->curr_slice = 0;
 
     c->pos_sorted = 1;
+    c->max_apos   = 0;
     c->multi_seq  = 0;
 
     if (!(c->slices = (cram_slice **)calloc(nslice, sizeof(cram_slice *))))
@@ -1311,6 +1362,11 @@ cram_container *cram_read_container(cram_fd *fd) {
     c->slice_rec = 0;
     c->curr_rec = 0;
     c->max_rec = 0;
+
+    if (c->ref_seq_id == -2) {
+	c->multi_seq = 1;
+	fd->multi_seq = 1;
+    }
 
     return c;
 }
@@ -2149,6 +2205,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->ctr = NULL;
     fd->refs = NULL; // refs meta-data structure
     fd->ref  = NULL; // current ref as char*
+    fd->ref_id = -1;
 
     fd->decode_md = 0;
     fd->verbose = 0;
@@ -2157,6 +2214,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->embed_ref = 0;
     fd->ignore_md5 = 0;
     fd->multi_seq = 0;
+    fd->unsorted   = 0;
 
     fd->index = NULL;
 
@@ -2212,8 +2270,10 @@ int cram_close(cram_fd *fd) {
 
     if (fd->refs)
 	free_refs(fd->refs);
-    if (fd->ref)
-	free(fd->ref);
+    if (fd->ref_free)
+        free(fd->ref_free);
+    if (fd->ref_fn)
+	free(fd->ref_fn);
 
     for (i = 0; i < 7; i++)
 	if (fd->m[i])
@@ -2221,9 +2281,6 @@ int cram_close(cram_fd *fd) {
 
     if (fd->index)
 	cram_index_free(fd);
-
-    if (fd->ref_fn)
-	free(fd->ref_fn);
 
     free(fd);
     return 0;

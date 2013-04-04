@@ -848,7 +848,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     if (c->slice) {
 	cram_slice *s = c->slice;
 	//s->hdr->ref_seq_id    = c->curr_ref;
-	assert(c->multi_seq || s->hdr->ref_seq_start == fd->first_base);
 	if (c->multi_seq) {
 	    s->hdr->ref_seq_id    = -2;
 	    s->hdr->ref_seq_start = 0;
@@ -903,9 +902,14 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 //				    fd->version);
 
     //fprintf(stderr, "=== AP ===\n");
-    h->AP_codec = cram_encoder_init(cram_stats_encoding(fd, c->AP_stats),
-				    c->AP_stats, E_INT, NULL,
-				    fd->version);
+    if (c->pos_sorted) {
+	h->AP_codec = cram_encoder_init(cram_stats_encoding(fd, c->AP_stats),
+					c->AP_stats, E_INT, NULL,
+					fd->version);
+    } else {
+	int p[2] = {0, c->max_apos};
+	h->AP_codec = cram_encoder_init(E_BETA, NULL, E_INT, p, fd->version);
+    }
 
     //fprintf(stderr, "=== RG ===\n");
     h->RG_codec = cram_encoder_init(cram_stats_encoding(fd, c->RG_stats),
@@ -1704,6 +1708,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 	c->slice->last_apos = 1;
     } else {
 	c->slice->hdr->ref_seq_id = b->ref;
+	// wrong for unsorted data, will fix during encoding.
 	c->slice->hdr->ref_seq_start = b->pos+1;
 	c->slice->last_apos = b->pos+1;
     }
@@ -1741,6 +1746,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     if (!c->slice || c->curr_rec == c->max_rec ||
 	(b->ref != c->curr_ref && c->curr_ref >= -1)) {
 	int slice_rec, curr_rec, multi_seq = fd->multi_seq == 1;
+	int curr_ref = c->slice ? c->curr_ref : b->ref;
 
 
 	/*
@@ -1780,7 +1786,22 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	fd->last_slice = curr_rec - slice_rec;
 	c->slice_rec = c->curr_rec;
 
-	cram_get_ref(fd, b->ref, 1, 0);
+	if (NULL == (cram_get_ref(fd, b->ref, 1, 0)) && b->ref >= 0) {
+	    fprintf(stderr, "Failed to load reference #%d\n", b->ref);
+	    return -1;
+	}
+
+	// Have we seen this reference before?
+	if (b->ref >= 0 && b->ref != curr_ref && 
+	    fd->refs->ref_id[b->ref]->count++) {
+	    //fprintf(stderr, "Currently cram_put_bam_seq() does not support "
+	    //	    "unsorted data. Aborting\n");
+	    //return -1;
+	    fd->unsorted = 1;
+	    fd->multi_seq = 1;
+	}
+
+	c->curr_ref = b->ref;
     }
 
     ref = fd->ref;
@@ -1836,11 +1857,16 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     c->num_bases   += cr->len;
     cr->apos        = b->pos+1;
     if (c->pos_sorted) {
-	cram_stats_add(c->AP_stats, cr->apos - s->last_apos);
-	s->last_apos = cr->apos;
+	if (cr->apos < s->last_apos) {
+	    c->pos_sorted = 0;
+	} else {
+	    cram_stats_add(c->AP_stats, cr->apos - s->last_apos);
+	    s->last_apos = cr->apos;
+	}
     } else {
-	cram_stats_add(c->AP_stats, cr->apos);
+	//cram_stats_add(c->AP_stats, cr->apos);
     }
+    c->max_apos += (cr->apos > c->max_apos) * (cr->apos - c->max_apos);
 
     cr->name        = BLOCK_SIZE(s->name_blk);
     cr->name_len    = bam_name_len(b);
@@ -2080,6 +2106,9 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cr->mate_ref_id = b->mate_ref;     cram_stats_add(c->NS_stats, b->mate_ref);
 
     fd->record_counter++;
+
+    if (fd->first_base > cr->apos)
+	fd->first_base = cr->apos;
 
     if (fd->last_base < cr->aend)
 	fd->last_base = cr->aend;
