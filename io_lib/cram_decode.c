@@ -1003,7 +1003,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	       cram_get_ref(fd, s->hdr->ref_seq_id,
 	                    s->hdr->ref_seq_start,
 	    		      s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
-	    s->ref_start = s->hdr->ref_seq_start;
+	    s->ref_start = fd->ref_start;
 	}
     }
 
@@ -1014,7 +1014,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	return -1;
     }
 
-    if (fd->version != CRAM_1_VERS && s->hdr->ref_seq_id >= 0) {
+    if (fd->version != CRAM_1_VERS && s->hdr->ref_seq_id >= 0
+	&& !fd->ignore_md5) {
 	MD5_CTX md5;
 	unsigned char digest[16];
 
@@ -1028,8 +1029,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	if (!fd->ref || memcmp(digest, s->hdr->md5, 16) != 0) {
 	    fprintf(stderr, "ERROR: md5sum reference mismatch\n");
-	    if (!fd->ignore_md5)
-		return -1;
+	    return -1;
 	}
     }
 
@@ -1434,6 +1434,8 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
 	if (!c->comp_hdr)
 	    return NULL;
+	if (!c->comp_hdr->AP_delta)
+	    fd->unsorted = 1;
 
 	if (fd->range.refid != -2) {
 	    // In the correct container, now find the first seq.
@@ -1490,6 +1492,9 @@ cram_record *cram_get_seq(cram_fd *fd) {
 							 c->comp_hdr_block);
 	    if (!c->comp_hdr)
 		return NULL;
+
+	    if (!c->comp_hdr->AP_delta)
+		fd->unsorted = 1;
 	}
 
 	if (!(s = c->slice = cram_read_slice(fd)))
