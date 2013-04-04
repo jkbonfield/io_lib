@@ -251,6 +251,7 @@ typedef struct {
     int last_pos;                // last record position
     struct cram_slice **slices, *slice;
     int pos_sorted;              // boolean, 1=>position sorted data
+    int max_apos;                // maximum position, used if pos_sorted==0
     int last_slice;              // number of reads in last slice (0 for 1st)
     int multi_seq;               // true if packing multi seqs per cont/slice
 
@@ -409,7 +410,7 @@ typedef struct cram_slice {
     cram_block **block_by_id;
 
     /* State used during encoding/decoding */
-    int last_apos;
+    int last_apos, max_apos;
 
     /* Identifier used for auto-assigning read names */
     uint64_t id;
@@ -465,11 +466,12 @@ typedef struct {
     int64_t offset;
     int bases_per_line;
     int line_length;
+    int64_t count;
+    char *seq;
 } ref_entry;
 
 // References structure.
 typedef struct {
-    HashTable *h_seq;
     HashTable *h_meta;
     ref_entry **ref_id;
     FILE *fp;
@@ -534,8 +536,8 @@ typedef struct {
     int first_base, last_base;
 
     // cached reference portion
-    refs_t *refs;     // ref meta-data structure
-    char *ref;      // current portion held in memory
+    refs_t *refs;              // ref meta-data structure
+    char *ref, *ref_free;      // current portion held in memory
     int   ref_id;
     int   ref_start;
     int   ref_end;
@@ -567,6 +569,7 @@ typedef struct {
     int eof;
     int last_slice;                     // number of recs encoded in last slice
     int multi_seq;
+    int unsorted;
 } cram_fd;
 
 enum cram_option {
