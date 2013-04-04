@@ -164,7 +164,7 @@ int load_bam_header(bam_file_t *b) {
     if (4 != bam_read(b, &nref, 4))
 	return -1;
     nref = le_int4(nref);
-    if (b->header->nref != nref) {
+    if (b->header->nref != nref && b->header->nref) {
 	fprintf(stderr, "Error: @RG lines are at odds with "
 		"binary encoded reference data\n");
 	return -1;
@@ -180,22 +180,27 @@ int load_bam_header(bam_file_t *b) {
 	if (nlen != bam_read(b, name, nlen))
 	    return -1;
 
-	if (strcmp(b->header->ref[i].name, name)) {
-	    fprintf(stderr, "Error: @RG lines are at odds with "
-		    "binary encoded reference data\n");
-	    return -1;
-	}
-
 	if (4 != bam_read(b, &len, 4))
 	    return -1;
 	len = le_int4(len);
 
-	if (b->header->ref[i].len != len) {
-	    fprintf(stderr, "Error: @RG lines are at odds with "
-		    "binary encoded reference data\n");
-	    return -1;
-	}
+	if (i < b->header->nref && b->header->ref[i].name) {
+	    if (strcmp(b->header->ref[i].name, name)) {
+		fprintf(stderr, "Error: @RG lines are at odds with "
+			"binary encoded reference data\n");
+		return -1;
+	    }
 
+	    if (b->header->ref[i].len != len) {
+		fprintf(stderr, "Error: @RG lines are at odds with "
+			"binary encoded reference data\n");
+		return -1;
+	    }
+	} else {
+	    char len_c[100];
+	    sprintf(len_c, "%d", len);
+	    sam_header_add(b->header, "SQ", "SN", name, "LN", len_c, NULL);
+	}
     }
 
     b->line = 0; // FIXME
