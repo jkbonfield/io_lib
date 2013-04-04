@@ -102,6 +102,7 @@ typedef struct cram_codec {
 	cram_external_decoder        e_external;
 	cram_byte_array_stop_decoder e_byte_array_stop;
 	cram_byte_array_len_encoder  e_byte_array_len;
+	cram_beta_decoder            e_beta;
     };
 } cram_codec;
 

@@ -493,6 +493,85 @@ cram_codec *cram_beta_decode_init(char *data, int size,
     return c;
 }
 
+int cram_beta_encode_store(cram_codec *c, cram_block *b,
+			   char *prefix, int version) {
+    char tmp[1024];
+    int len = 0;
+
+    if (prefix) {
+	size_t l = strlen(prefix);
+	BLOCK_APPEND(b, prefix, l);
+	len += l;
+    }
+
+    len += itf8_put_blk(b, c->codec);
+    len += itf8_put_blk(b, itf8_put(tmp, c->e_beta.offset)
+			+ itf8_put(tmp, c->e_beta.nbits)); // codec length
+    len += itf8_put_blk(b, c->e_beta.offset);
+    len += itf8_put_blk(b, c->e_beta.nbits);
+
+    return len;
+}
+
+int cram_beta_encode_int(cram_slice *slice, cram_codec *c,
+			 cram_block *out, char *in, int in_size) {
+    int *syms = (int *)in;
+    int i;
+
+    for (i = 0; i < in_size; i++)
+	store_bits_MSB(out, syms[i] + c->e_beta.offset, c->e_beta.nbits);
+
+    return 0;
+}
+
+int cram_beta_encode_char(cram_slice *slice, cram_codec *c,
+			 cram_block *out, char *in, int in_size) {
+    unsigned char *syms = (unsigned char *)in;
+    int i;
+
+    for (i = 0; i < in_size; i++)
+	store_bits_MSB(out, syms[i] + c->e_beta.offset, c->e_beta.nbits);
+
+    return 0;
+}
+
+void cram_beta_encode_free(cram_codec *c) {
+    if (c) free(c);
+}
+
+cram_codec *cram_beta_encode_init(cram_stats *st,
+				  enum cram_external_type option,
+				  void *dat,
+				  int version) {
+    cram_codec *c;
+    int min_val, max_val, len = 0;
+
+    c = malloc(sizeof(*c));
+    if (!c)
+	return NULL;
+    c->codec  = E_BETA;
+    c->free   = cram_beta_encode_free;
+    if (option == E_INT)
+	c->encode = cram_beta_encode_int;
+    else
+	c->encode = cram_beta_encode_char;
+    c->store  = cram_beta_encode_store;
+
+    min_val = ((int *)dat)[0];
+    max_val = ((int *)dat)[1];
+
+    assert(max_val >= min_val);
+    c->e_beta.offset = -min_val;
+    max_val -= min_val;
+    while (max_val) {
+	len++;
+	max_val >>= 1;
+    }
+    c->e_beta.nbits = len;
+
+    return c;
+}
+
 /*
  * ---------------------------------------------------------------------------
  * SUBEXP
@@ -1489,7 +1568,7 @@ static cram_codec *(*encode_init[])(cram_stats *stx,
     cram_huffman_encode_init,
     cram_byte_array_len_encode_init,
     cram_byte_array_stop_encode_init,
-    NULL, //cram_beta_encode_init,
+    cram_beta_encode_init,
     NULL, //cram_subexp_encode_init,
     NULL,
     NULL, //cram_gamma_encode_init,
