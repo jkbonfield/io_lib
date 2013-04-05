@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -109,7 +113,8 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    cram_set_option(NULL, CRAM_OPT_VERSION, optarg);
+	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
+		return 1;
 	    break;
 
 	case 'r':
@@ -217,22 +222,28 @@ int main(int argc, char **argv) {
 
     scram_set_option(out, CRAM_OPT_VERBOSITY, verbose);
     if (s_opt)
-	scram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, s_opt);
+	if (scram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, s_opt))
+	    return 1;
 
     if (S_opt)
-	scram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, S_opt);
+	if (scram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, S_opt))
+	    return 1;
 
     if (embed_ref)
-	scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref);
+	if (scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref))
+	    return 1;
 
     if (multi_seq)
-	scram_set_option(out, CRAM_OPT_MULTI_SEQ_PER_SLICE, multi_seq);
+	if (scram_set_option(out, CRAM_OPT_MULTI_SEQ_PER_SLICE, multi_seq))
+	    return 1;
 
     if (decode_md)
-	scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md);
+	if (scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md))
+	    return 1;
 
     if (ignore_md5)
-	scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5);
+	if (scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5))
+	    return 1;
     
 
     /* Copy header and refs from in to out, for writing purposes */
@@ -240,11 +251,24 @@ int main(int argc, char **argv) {
 
     // Needs doing after loading the header.
     if (ref_fn) 
-	scram_set_option(out, CRAM_OPT_REFERENCE, ref_fn);
+	if (scram_set_option(out, CRAM_OPT_REFERENCE, ref_fn))
+	    return 1;
 
-    if (scram_get_header(in)) {
+    if (scram_get_header(out)) {
+	char *arg_list = stringify_argv(argc, argv);
+
+	if (!arg_list)
+	    return 1;
+	if (sam_header_add_PG(scram_get_header(out), "scramble",
+			      "VN", PACKAGE_VERSION,
+			      "CL", arg_list, NULL))
+	    return 1;
+
 	if (scram_write_header(out))
 	    return 1;
+
+	free(arg_list);
+
     }
 
 
@@ -269,7 +293,8 @@ int main(int argc, char **argv) {
 	r.refid = refid;
 	r.start = start;
 	r.end = end;
-	scram_set_option(in, CRAM_OPT_RANGE, &r);
+	if (scram_set_option(in, CRAM_OPT_RANGE, &r))
+	    return 1;
     }
 
     /* Do the actual file format conversion */
@@ -288,8 +313,10 @@ int main(int argc, char **argv) {
 	scram_set_refs(out, NULL);
     }
 
-    scram_close(in);
-    scram_close(out);
+    if (scram_close(in))
+	return 1;
+    if (scram_close(out))
+	return 1;
 
     if (s)
 	free(s);

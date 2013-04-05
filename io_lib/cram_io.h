@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
 /*! \file
  * Include cram.h instead.
  *
@@ -118,8 +122,12 @@ int cram_write_block(cram_fd *fd, cram_block *b);
 void cram_free_block(cram_block *b);
 
 /*! Uncompresses a CRAM block, if compressed.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
  */
-void cram_uncompress_block(cram_block *b);
+int cram_uncompress_block(cram_block *b);
 
 /*! Compresses a block.
  *
@@ -129,10 +137,14 @@ void cram_uncompress_block(cram_block *b);
  * The logic here is that sometimes Z_RLE does a better job than Z_FILTERED
  * or Z_DEFAULT_STRATEGY on quality data. If so, we'd rather use it as it is
  * significantly faster.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
  */
-void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
-			 int level,  int strat,
-			 int level2, int strat2);
+int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
+			int level,  int strat,
+			int level2, int strat2);
 
 cram_metrics *cram_new_metrics(void);
 char *cram_block_method2str(enum cram_block_method m);
@@ -196,8 +208,13 @@ char *cram_content_type2str(enum cram_content_type t);
  * Reference sequence handling
  */
 
-/*! Loads a reference set from fn and stores in the cram_fd. */
-void cram_load_reference(cram_fd *fd, char *fn);
+/*! Loads a reference set from fn and stores in the cram_fd.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int cram_load_reference(cram_fd *fd, char *fn);
 
 /*! Generates a lookup table in refs based on the SQ headers in SAM_hdr.
  *

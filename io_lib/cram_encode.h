@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
 /*! \file
  * Include cram.h instead.
  *
