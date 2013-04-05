@@ -1022,7 +1022,7 @@ static int cram_decode_aux_1_0(cram_container *c, cram_slice *s,
 
     for (i = 0; i < cr->ntags; i++) {
 	int32_t id, out_sz = 1;
-	unsigned char tag_data[1024];
+	unsigned char tag_data[3];
 	cram_map *m;
 
 	//printf("Tag %d/%d\n", i+1, cr->ntags);
@@ -1068,7 +1068,7 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 
     for (i = 0; i < cr->ntags; i++) {
 	int32_t id, out_sz = 1;
-	unsigned char tag_data[1024];
+	unsigned char tag_data[3];
 	cram_map *m;
 
 	//printf("Tag %d/%d\n", i+1, cr->ntags);

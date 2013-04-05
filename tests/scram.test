@@ -3,6 +3,9 @@
 scramble=$top_builddir/progs/scramble
 compare_sam=$srcdir/compare_sam.pl
 
+#valgrind="valgrind --leak-check=full"
+#scramble="$valgrind $scramble"
+
 # fast cmp that does large blocks to avoid disk thrashing
 #cmp=fcmp
 cmp=cmp
@@ -33,12 +36,12 @@ do
     $scramble $outdir/$root.bam > $outdir/tmp.sam
     $compare_sam $srcdir/data/$root.sam $outdir/tmp.sam || exit 1
 
-    echo "$scramble -r $ref $outdir/$root.full.cram > $outdir/$root.full.sam"
-    $scramble -r $ref $outdir/$root.full.cram > $outdir/$root.full.sam
+    echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
+    $scramble $outdir/$root.full.cram > $outdir/$root.full.sam
     $compare_sam --nomd --unknownrg $srcdir/data/$root.sam $outdir/$root.full.sam || exit 1
 
-    echo "$scramble -r $ref -O bam $outdir/$root.full.cram > $outdir/$root.full.bam"
-    $scramble -r $ref -O bam $outdir/$root.full.cram > $outdir/$root.full.bam
+    echo "$scramble -O bam $outdir/$root.full.cram > $outdir/$root.full.bam"
+    $scramble -O bam $outdir/$root.full.cram > $outdir/$root.full.bam
     echo "$scramble $outdir/$root.full.bam $outdir/tmp.sam"
     $scramble $outdir/$root.full.bam $outdir/tmp.sam;
     sed '/^@PG.*scramble\.3.*/d;s/\(^@PG.*scramble.*\) -O bam/\1/' $outdir/tmp.sam > $outdir/$root.full.bam.sam

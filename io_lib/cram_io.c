@@ -1400,8 +1400,12 @@ cram_container *cram_read_container(cram_fd *fd) {
  *        -1 on failure
  */
 int cram_write_container(cram_fd *fd, cram_container *c) {
-    char buf[1024], *cp = buf;
+    char buf_a[1024], *buf = buf_a, *cp;
     int i;
+
+    if (50 + c->num_landmarks * 5 >= 1024)
+	buf = malloc(50 + c->num_landmarks * 5);
+    cp = buf;
 
     if (fd->version == CRAM_1_VERS) {
 	cp += itf8_put(cp, c->length);
@@ -1427,8 +1431,14 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
     cp += itf8_put(cp, c->num_landmarks);
     for (i = 0; i < c->num_landmarks; i++)
 	cp += itf8_put(cp, c->landmark[i]);
-    if (cp-buf != fwrite(buf, 1, cp-buf, fd->fp))
+    if (cp-buf != fwrite(buf, 1, cp-buf, fd->fp)) {
+	if (buf != buf_a)
+	    free(buf);
 	return -1;
+    }
+
+    if (buf != buf_a)
+	free(buf);
 
     return 0;
 }
