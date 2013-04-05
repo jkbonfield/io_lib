@@ -264,8 +264,11 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 
 	type = &hdr[i+1];
 	if (type[0] < 'A' || type[0] > 'z' ||
-	    type[1] < 'A' || type[1] > 'z')
+	    type[1] < 'A' || type[1] > 'z') {
+	    sam_header_error("Header line does not have a two character key",
+			     &hdr[l_start], len - l_start, lno);
 	    return -1;
+	}
 
 	i += 3;
 	if (hdr[i] == '\n')
@@ -299,8 +302,11 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 	last = NULL;
 	do {
 	    int j;
-	    if (hdr[i] != '\t')
+	    if (hdr[i] != '\t') {
+		sam_header_error("Missing tab",
+				 &hdr[l_start], len - l_start, lno);
 		return -1;
+	    }
 
 	    for (j = ++i; j < len && hdr[j] != '\n' && hdr[j] != '\t'; j++)
 		;
@@ -312,6 +318,12 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 	    h_tag->next = NULL;
 	    if (!h_tag->str)
 		return -1;
+
+	    if (h_tag->len < 3 || h_tag->str[2] != ':') {
+		sam_header_error("Malformed key:value pair",
+				 &hdr[l_start], len - l_start, lno);
+		return -1;
+	    }
 	    
 	    if (last)
 		last->next = h_tag;
