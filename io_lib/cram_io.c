@@ -11,6 +11,11 @@
  * - Reference sequence handling
  */
 
+/*
+ * TODO: BLOCK_GROW, BLOCK_RESIZE, BLOCK_APPEND and itf8_put_blk all need
+ * a way to return errors for when malloc fails.
+ */
+
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
@@ -699,17 +704,19 @@ void cram_free_block(cram_block *b) {
 /*
  * Uncompresses a CRAM block, if compressed.
  */
-void cram_uncompress_block(cram_block *b) {
+int cram_uncompress_block(cram_block *b) {
     char *uncomp;
     size_t uncomp_size = 0;
 
     switch (b->method) {
     case RAW:
 	b->uncomp_size = b->comp_size;
-	return;
+	return 0;
 
     case GZIP:
 	uncomp = zlib_mem_inflate((char *)b->data, b->comp_size, &uncomp_size);
+	if (!uncomp)
+	    return -1;
 	assert((int)uncomp_size == b->uncomp_size);
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
@@ -721,6 +728,8 @@ void cram_uncompress_block(cram_block *b) {
 	abort();
 	break;
     }
+
+    return 0;
 }
 
 /*
@@ -731,21 +740,21 @@ void cram_uncompress_block(cram_block *b) {
  * or Z_DEFAULT_STRATEGY on quality data. If so, we'd rather use it as it is
  * significantly faster.
  */
-void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
-			 int level,  int strat,
+int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
+			int level,  int strat,
 			 int level2, int strat2) {
-    char *comp;
+    char *comp = NULL;
     size_t comp_size = 0;
 
     if (level == 0) {
 	b->method = RAW;
 	b->comp_size = b->uncomp_size;
-	return;
+	return 0;
     }
 
     if (b->method != RAW) {
 	fprintf(stderr, "Attempt to compress an already compressed block.\n");
-	return;
+	return 0;
     }
 
     if (strat2 >= 0)
@@ -770,6 +779,8 @@ void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 			      &s1, level, strat);
 	c2 = zlib_mem_deflate((char *)b->data, b->uncomp_size,
 			      &s2, level2, strat2);
+	if (!c1 || !c2)
+	    return -1;
 	
 	//fprintf(stderr, "1: %6d   2: %6d   %5.1f\n", s1, s2, 100.0*s1/s2);
 
@@ -795,6 +806,9 @@ void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 				level, strat);
     }
 
+    if (!comp)
+	return -1;
+
     free(b->data);
     b->data = (unsigned char *)comp;
     b->method = GZIP;
@@ -803,6 +817,8 @@ void cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     if (fd->verbose)
 	fprintf(stderr, "Compressed block ID %d from %d to %d\n",
 		b->content_id, b->uncomp_size, b->comp_size);
+
+    return 0;
 }
 
 cram_metrics *cram_new_metrics(void) {
@@ -874,6 +890,8 @@ static refs_t *load_reference(char *fn, int is_err) {
 
     r->ref_id = NULL;
     r->h_meta = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
+    if (!r->h_meta)
+	return NULL;
 
     /* Parse .fai file and load meta-data */
     sprintf(fai_fn, "%.*s.fai", PATH_MAX-5, fn);
@@ -924,7 +942,8 @@ static refs_t *load_reference(char *fn, int is_err) {
 	e->seq = NULL;
 
 	hd.p = e;
-	HashTableAdd(r->h_meta, e->name, strlen(e->name), hd, NULL);
+	if (!HashTableAdd(r->h_meta, e->name, strlen(e->name), hd, NULL))
+	    return NULL;
     }
 
     return r;
@@ -1129,7 +1148,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
  * as NULL and let the code auto-detect the reference by parsing the
  * SAM header @SQ lines.
  */
-void cram_load_reference(cram_fd *fd, char *fn) {
+int cram_load_reference(cram_fd *fd, char *fn) {
     if (!fn && fd->mode == 'r') {
 	SAM_hdr_type *ty = sam_header_find(fd->header, "SQ", NULL, NULL);
 	if (ty) {
@@ -1143,16 +1162,19 @@ void cram_load_reference(cram_fd *fd, char *fn) {
 	}
 	
 	if (!fn)
-	    return;
+	    return -1;
     }
 
     fd->refs = load_reference(fn, !(fd->embed_ref && fd->mode == 'r'));
     if (fd->refs) {
 	refs2id(fd->refs, fd->header);
-	fd->ref_fn = strdup(fn);
+	if (!(fd->ref_fn = strdup(fn)))
+	    return -1;
     } else {
 	fd->ref_fn = NULL;
     }
+
+    return 0;
 }
 
 /* ----------------------------------------------------------------------
@@ -1431,16 +1453,18 @@ int cram_flush_container(cram_fd *fd, cram_container *c) {
 	return -1;
 
     /* And the compression header */
-    cram_write_block(fd, c->comp_hdr_block);
+    if (0 != cram_write_block(fd, c->comp_hdr_block))
+	return -1;
 
     /* Followed by the slice blocks */
     for (i = 0; i < c->curr_slice; i++) {
 	cram_slice *s = c->slices[i];
 
-	cram_write_block(fd, s->hdr_block);
+	if (0 != cram_write_block(fd, s->hdr_block))
+	    return -1;
 
 	for (j = 0; j < s->hdr->num_blocks; j++) {
-	    if (-1 == cram_write_block(fd, s->block[j]))
+	    if (0 != cram_write_block(fd, s->block[j]))
 		return -1;
 	}
     }
@@ -1706,7 +1730,8 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     switch (b->content_type) {
     case MAPPED_SLICE:
     case UNMAPPED_SLICE:
-	s->hdr = cram_decode_slice_header(fd, b);
+	if (!(s->hdr = cram_decode_slice_header(fd, b)))
+	    return NULL;
 	break;
 
     default:
@@ -1748,14 +1773,14 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->cigar_alloc = 0;
     s->ncigar = 0;
 
-    s->seqs_blk = cram_new_block(EXTERNAL, 0);
-    s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL);
-    s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME);
-    s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG);
-    s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN);
-    s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC);
+    if (!(s->seqs_blk = cram_new_block(EXTERNAL, 0)))             return NULL;
+    if (!(s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL))) return NULL;
+    if (!(s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME))) return NULL;
+    if (!(s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG)))  return NULL;
+    if (!(s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN)))   return NULL;
+    if (!(s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC)))   return NULL;
 #ifdef TN_external
-    s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN);
+    if (!(s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN)))   return NULL;
 #endif
 
 
@@ -1943,7 +1968,9 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
     /* 1.0 requires and UNKNOWN read-group */
     if (fd->version == CRAM_1_VERS) {
 	if (!sam_header_find_rg(hdr, "UNKNOWN"))
-	    sam_header_add(hdr, "RG", "ID", "UNKNOWN", "SM", "UNKNOWN", NULL);
+	    if (sam_header_add(hdr, "RG",
+			       "ID", "UNKNOWN", "SM", "UNKNOWN", NULL))
+		return -1;
     }
 
     /* Fix M5 strings */
@@ -1952,8 +1979,8 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	for (i = 0; i < hdr->nref; i++) {
 	    SAM_hdr_type *ty;
 
-	    ty = sam_header_find(hdr, "SQ", "SN", hdr->ref[i].name);
-	    assert(ty);
+	    if (!(ty = sam_header_find(hdr, "SQ", "SN", hdr->ref[i].name)))
+		return -1;
 
 	    if (!sam_header_find_key(hdr, ty, "M5", NULL)) {
 		char unsigned buf[16], buf2[33];
@@ -1971,18 +1998,21 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 		    buf2[j*2+1] = "0123456789abcdef"[buf[j]&15];
 		}
 		buf2[32] = 0;
-		sam_header_update(hdr, ty, "M5", buf2, NULL);
+		if (sam_header_update(hdr, ty, "M5", buf2, NULL))
+		    return -1;
 	    }
 
 	    if (fd->ref_fn) {
 		char ref_fn[PATH_MAX];
 		full_path(ref_fn, fd->ref_fn);
-		sam_header_update(hdr, ty, "UR", ref_fn, NULL);
+		if (sam_header_update(hdr, ty, "UR", ref_fn, NULL))
+		    return -1;
 	    }
 	}
     }
     
-    sam_header_rebuild(hdr);
+    if (sam_header_rebuild(hdr))
+	return -1;
 
     /* Length */
     header_len = sam_header_length(hdr);
@@ -2198,6 +2228,8 @@ cram_fd *cram_open(char *filename, char *mode) {
     cram_init_tables(fd);
 
     fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
+    if (!fd->prefix)
+	goto err;
     fd->slice_num = 0;
     fd->first_base = fd->last_base = -1;
     fd->record_counter = 0;
@@ -2358,8 +2390,7 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	break;
 
     case CRAM_OPT_REFERENCE:
-	cram_load_reference(fd, va_arg(args, char *));
-	break;
+	return cram_load_reference(fd, va_arg(args, char *));
 
     case CRAM_OPT_VERSION: {
 	char *s = va_arg(args, char *);

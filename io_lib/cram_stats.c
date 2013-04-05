@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
@@ -17,8 +21,7 @@
 #include "io_lib/os.h"
 
 cram_stats *cram_stats_create(void) {
-    cram_stats *st = calloc(1, sizeof(cram_stats));
-    return st;
+    return calloc(1, sizeof(cram_stats));
 }
 
 void cram_stats_add(cram_stats *st, int32_t val) {

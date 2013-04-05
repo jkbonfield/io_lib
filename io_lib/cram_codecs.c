@@ -1,4 +1,8 @@
 /*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
+/*
  * FIXME: add checking of cram_external_type to return NULL on unsupported
  * {codec,type} tuples.
  */
@@ -197,7 +201,7 @@ static signed int get_bits_MSB(cram_block *block, int nbits) {
  * characters with exactly the correct frequency distribution we check
  * for it elsewhere.)
  */
-static void store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
+static int store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
     /* fprintf(stderr, " store_bits: %02x %d\n", val, nbits); */
 
     /*
@@ -210,9 +214,13 @@ static void store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
 	if (block->byte) {
 	    block->alloc *= 2;
 	    block->data = realloc(block->data, block->alloc + 4);
+	    if (!block->data)
+		return -1;
 	} else {
 	    block->alloc = 1024;
 	    block->data = realloc(block->data, block->alloc + 4);
+	    if (!block->data)
+		return -1;
 	    block->data[0] = 0; // initialise first byte of buffer
 	}
     }
@@ -226,7 +234,7 @@ static void store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
 	    block->byte++;
 	    block->data[block->byte] = 0;
 	}
-	return;
+	return 0;
     }
 
     block->data[block->byte] |= (val >> (nbits -= block->bit+1));
@@ -245,6 +253,8 @@ static void store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
 	}
 	mask >>= 1;
     } while(--nbits);
+
+    return 0;
 }
 
 /*
@@ -516,23 +526,23 @@ int cram_beta_encode_store(cram_codec *c, cram_block *b,
 int cram_beta_encode_int(cram_slice *slice, cram_codec *c,
 			 cram_block *out, char *in, int in_size) {
     int *syms = (int *)in;
-    int i;
+    int i, r = 0;
 
     for (i = 0; i < in_size; i++)
-	store_bits_MSB(out, syms[i] + c->e_beta.offset, c->e_beta.nbits);
+	r |= store_bits_MSB(out, syms[i] + c->e_beta.offset, c->e_beta.nbits);
 
-    return 0;
+    return r;
 }
 
 int cram_beta_encode_char(cram_slice *slice, cram_codec *c,
 			 cram_block *out, char *in, int in_size) {
     unsigned char *syms = (unsigned char *)in;
-    int i;
+    int i, r = 0;
 
     for (i = 0; i < in_size; i++)
-	store_bits_MSB(out, syms[i] + c->e_beta.offset, c->e_beta.nbits);
+	r |= store_bits_MSB(out, syms[i] + c->e_beta.offset, c->e_beta.nbits);
 
-    return 0;
+    return r;
 }
 
 void cram_beta_encode_free(cram_codec *c) {
@@ -828,6 +838,8 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 	return NULL;
 
     codes = h->huffman.codes = malloc(ncodes * sizeof(*codes));
+    if (!codes)
+	return NULL;
 
     /* Read symbols and bit-lengths */
     for (i = 0; i < ncodes; i++) {
@@ -857,6 +869,9 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 
     /* Assign canonical codes */
     h->huffman.plen = calloc(max_len+2, sizeof(prefix_len));
+    if (!h->huffman.plen)
+	return NULL;
+
     val = -1, last_len = 0;
     for (i = 0; i < ncodes; i++) {
 	val++;
@@ -911,7 +926,7 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 
 int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
 			     cram_block *out, char *in, int in_size) {
-    int i, code, len;
+    int i, code, len, r = 0;
     unsigned char *syms = (unsigned char *)in;
 
     /* Special case of 0 length codes */
@@ -938,15 +953,15 @@ int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
 	    len  = c->e_huffman.codes[i].len;
 	}
 
-	store_bits_MSB(out, code, len);
+	r |= store_bits_MSB(out, code, len);
     } while (--in_size);
 
-    return 0;
+    return r;
 }
 
 int cram_huffman_encode_int(cram_slice *slice, cram_codec *c,
 			    cram_block *out, char *in, int in_size) {
-    int i, code, len;
+    int i, code, len, r = 0;
     int *syms = (int *)in;
 
     /* Special case of 0 length codes */
@@ -974,10 +989,10 @@ int cram_huffman_encode_int(cram_slice *slice, cram_codec *c,
 	    len  = c->e_huffman.codes[i].len;
 	}
 
-	store_bits_MSB(out, code, len);
+	r |= store_bits_MSB(out, code, len);
     } while (--in_size);
 
-    return 0;
+    return r;
 }
 
 void cram_huffman_encode_free(cram_codec *c) {
@@ -1008,6 +1023,9 @@ int cram_huffman_encode_store(cram_codec *c, cram_block *b, char *prefix,
      */
     char *tmp = malloc(6*c->e_huffman.nvals+16);
     char *tp = tmp;
+
+    if (!tmp)
+	return -1;
 
     if (prefix) {
 	size_t l = strlen(prefix);
@@ -1063,6 +1081,8 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 	    vals_alloc = vals_alloc ? vals_alloc*2 : 1024;
 	    vals  = realloc(vals,  vals_alloc * sizeof(int));
 	    freqs = realloc(freqs, vals_alloc * sizeof(int));
+	    if (!vals || !freqs)
+		return NULL;
 	}
 	vals[nvals] = i;
 	freqs[nvals] = st->freqs[i];
@@ -1081,6 +1101,8 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 		vals_alloc = vals_alloc ? vals_alloc*2 : 1024;
 		vals  = realloc(vals,  vals_alloc * sizeof(int));
 		freqs = realloc(freqs, vals_alloc * sizeof(int));
+		if (!vals || !freqs)
+		    return NULL;
 	    }
 	    vals[nvals]=(int)hi->key;
 	    freqs[nvals] = hi->data.i;
@@ -1097,6 +1119,8 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 
     freqs = realloc(freqs, 2*nvals*sizeof(*freqs));
     lens = calloc(2*nvals, sizeof(*lens));
+    if (!lens || !freqs)
+	return NULL;
 
     /* Inefficient, use pointers to form chain so we can insert and maintain
      * a sorted list? This is currently O(nvals^2) complexity.
@@ -1136,7 +1160,8 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 
 
     /* Sort, need in a struct */
-    codes = malloc(nvals * sizeof(*codes));
+    if (!(codes = malloc(nvals * sizeof(*codes))))
+	return NULL;
     for (i = 0; i < nvals; i++) {
 	codes[i].symbol = vals[i];
 	codes[i].len = lens[i];
@@ -1586,6 +1611,6 @@ cram_codec *cram_encoder_init(enum cram_encoding codec,
 	return encode_init[codec](st, option, dat, version);
     } else {
 	fprintf(stderr, "Unimplemented codec of type %s\n", codec2str(codec));
-	return NULL;
+	abort();
     }
 }

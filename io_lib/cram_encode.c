@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
@@ -41,7 +45,7 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
     int i, mc;
     char cnt_buf[5];
 
-    if (!cb)
+    if (!cb || !map)
 	return NULL;
 
     /*
@@ -67,19 +71,37 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 
     /* FIXME: should create this when we create the container */
     {
-	h->preservation_map = HashTableCreate(4, HASH_NONVOLATILE_KEYS);
 	HashData hd;
+
+	if (!(h->preservation_map = HashTableCreate(4, HASH_NONVOLATILE_KEYS)))
+	    return NULL;
+
 	hd.i = 1; HashTableAdd(h->preservation_map, "RN", 2, hd, NULL);
 	if (fd->version == CRAM_1_VERS) {
-	    hd.i = 0; HashTableAdd(h->preservation_map, "PI", 2, hd, NULL);
-	    hd.i = 1; HashTableAdd(h->preservation_map, "UI", 2, hd, NULL);
-	    hd.i = 1; HashTableAdd(h->preservation_map, "MI", 2, hd, NULL);
+	    hd.i = 0;
+	    if (!(HashTableAdd(h->preservation_map, "PI", 2, hd, NULL)))
+		return NULL;
+
+	    hd.i = 1;
+	    if (!(HashTableAdd(h->preservation_map, "UI", 2, hd, NULL)))
+		return NULL;
+
+	    hd.i = 1;
+	    if (!(HashTableAdd(h->preservation_map, "MI", 2, hd, NULL)))
+		return NULL;
 	} else {
 	    // Technically SM was in 1.0, but wasn't in Java impl.
-	    hd.i = 0; HashTableAdd(h->preservation_map, "SM", 2, hd, NULL);
-	    hd.i = 0; HashTableAdd(h->preservation_map, "TD", 2, hd, NULL);
+	    hd.i = 0;
+	    if (!(HashTableAdd(h->preservation_map, "SM", 2, hd, NULL)))
+		return NULL;
+
+	    hd.i = 0;
+	    if (!(HashTableAdd(h->preservation_map, "TD", 2, hd, NULL)))
+		return NULL;
+
 	    hd.i = c->pos_sorted; // => DELTA
-	    HashTableAdd(h->preservation_map, "AP", 2, hd, NULL);
+	    if (!(HashTableAdd(h->preservation_map, "AP", 2, hd, NULL)))
+		return NULL;
 	}
     }
 
@@ -89,6 +111,8 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
     if (h->preservation_map) {
         HashItem *hi;
         HashIter *iter = HashTableIterCreate();
+	if (!iter)
+	    return NULL;
 
         while ((hi = HashTableIterNext(h->preservation_map, iter))) {
             //cram_map *m = hi->data.p;
@@ -171,70 +195,163 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
     /* rec encoding map */
     mc = 0;
     BLOCK_SIZE(map) = 0;
-    if (h->BF_codec)
-	h->BF_codec->store(h->BF_codec, map, "BF", fd->version), mc++;
-    if (h->CF_codec)
-	h->CF_codec->store(h->CF_codec, map, "CF", fd->version), mc++;
-    if (h->RL_codec)
-	h->RL_codec->store(h->RL_codec, map, "RL", fd->version), mc++;
-    if (h->AP_codec)
-	h->AP_codec->store(h->AP_codec, map, "AP", fd->version), mc++;
-    if (h->RG_codec)
-	h->RG_codec->store(h->RG_codec, map, "RG", fd->version), mc++;
-    if (h->MF_codec)
-	h->MF_codec->store(h->MF_codec, map, "MF", fd->version), mc++;
-    if (h->NS_codec)
-	h->NS_codec->store(h->NS_codec, map, "NS", fd->version), mc++;
-    if (h->NP_codec)
-	h->NP_codec->store(h->NP_codec, map, "NP", fd->version), mc++;
-    if (h->TS_codec)
-	h->TS_codec->store(h->TS_codec, map, "TS", fd->version), mc++;
-    if (h->NF_codec)
-	h->NF_codec->store(h->NF_codec, map, "NF", fd->version), mc++;
-    if (h->TC_codec)
-	h->TC_codec->store(h->TC_codec, map, "TC", fd->version), mc++;
-    if (h->TN_codec)
-	h->TN_codec->store(h->TN_codec, map, "TN", fd->version), mc++;
-    if (h->TL_codec)
-	h->TL_codec->store(h->TL_codec, map, "TL", fd->version), mc++;
-    if (h->FN_codec)
-	h->FN_codec->store(h->FN_codec, map, "FN", fd->version), mc++;
-    if (h->FC_codec)
-	h->FC_codec->store(h->FC_codec, map, "FC", fd->version), mc++;
-    if (h->FP_codec)
-	h->FP_codec->store(h->FP_codec, map, "FP", fd->version), mc++;
-    if (h->BS_codec)
-	h->BS_codec->store(h->BS_codec, map, "BS", fd->version), mc++;
-    if (h->IN_codec)
-	h->IN_codec->store(h->IN_codec, map, "IN", fd->version), mc++;
-    if (h->DL_codec)
-	h->DL_codec->store(h->DL_codec, map, "DL", fd->version), mc++;
-    if (h->BA_codec)
-	h->BA_codec->store(h->BA_codec, map, "BA", fd->version), mc++;
-    if (h->MQ_codec)
-	h->MQ_codec->store(h->MQ_codec, map, "MQ", fd->version), mc++;
-    if (h->RN_codec)
-	h->RN_codec->store(h->RN_codec, map, "RN", fd->version), mc++;
-    if (h->QS_codec)
-	h->QS_codec->store(h->QS_codec, map, "QS", fd->version), mc++;
-    if (h->Qs_codec)
-	h->Qs_codec->store(h->Qs_codec, map, "Qs", fd->version), mc++;
-    if (h->RI_codec)
-	h->RI_codec->store(h->RI_codec, map, "RI", fd->version), mc++;
-    if (fd->version != CRAM_1_VERS) {
-	if (h->SC_codec)
-	    h->SC_codec->store(h->SC_codec, map, "SC", fd->version), mc++;
-	if (h->RS_codec)
-	    h->RS_codec->store(h->RS_codec, map, "RS", fd->version), mc++;
-	if (h->PD_codec)
-	    h->PD_codec->store(h->PD_codec, map, "PD", fd->version), mc++;
-	if (h->HC_codec)
-	    h->HC_codec->store(h->HC_codec, map, "HC", fd->version), mc++;
+    if (h->BF_codec) {
+	if (-1 == h->BF_codec->store(h->BF_codec, map, "BF", fd->version))
+	    return NULL;
+	mc++;
     }
-    if (h->TM_codec)
-	h->TM_codec->store(h->TM_codec, map, "TM", fd->version), mc++;
-    if (h->TV_codec)
-	h->TV_codec->store(h->TV_codec, map, "TV", fd->version), mc++;
+    if (h->CF_codec) {
+	if (-1 == h->CF_codec->store(h->CF_codec, map, "CF", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->RL_codec) {
+	if (-1 == h->RL_codec->store(h->RL_codec, map, "RL", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->AP_codec) {
+	if (-1 == h->AP_codec->store(h->AP_codec, map, "AP", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->RG_codec) {
+	if (-1 == h->RG_codec->store(h->RG_codec, map, "RG", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->MF_codec) {
+	if (-1 == h->MF_codec->store(h->MF_codec, map, "MF", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->NS_codec) {
+	if (-1 == h->NS_codec->store(h->NS_codec, map, "NS", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->NP_codec) {
+	if (-1 == h->NP_codec->store(h->NP_codec, map, "NP", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->TS_codec) {
+	if (-1 == h->TS_codec->store(h->TS_codec, map, "TS", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->NF_codec) {
+	if (-1 == h->NF_codec->store(h->NF_codec, map, "NF", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->TC_codec) {
+	if (-1 == h->TC_codec->store(h->TC_codec, map, "TC", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->TN_codec) {
+	if (-1 == h->TN_codec->store(h->TN_codec, map, "TN", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->TL_codec) {
+	if (-1 == h->TL_codec->store(h->TL_codec, map, "TL", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->FN_codec) {
+	if (-1 == h->FN_codec->store(h->FN_codec, map, "FN", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->FC_codec) {
+	if (-1 == h->FC_codec->store(h->FC_codec, map, "FC", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->FP_codec) {
+	if (-1 == h->FP_codec->store(h->FP_codec, map, "FP", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->BS_codec) {
+	if (-1 == h->BS_codec->store(h->BS_codec, map, "BS", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->IN_codec) {
+	if (-1 == h->IN_codec->store(h->IN_codec, map, "IN", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->DL_codec) {
+	if (-1 == h->DL_codec->store(h->DL_codec, map, "DL", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->BA_codec) {
+	if (-1 == h->BA_codec->store(h->BA_codec, map, "BA", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->MQ_codec) {
+	if (-1 == h->MQ_codec->store(h->MQ_codec, map, "MQ", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->RN_codec) {
+	if (-1 == h->RN_codec->store(h->RN_codec, map, "RN", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->QS_codec) {
+	if (-1 == h->QS_codec->store(h->QS_codec, map, "QS", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->Qs_codec) {
+	if (-1 == h->Qs_codec->store(h->Qs_codec, map, "Qs", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->RI_codec) {
+	if (-1 == h->RI_codec->store(h->RI_codec, map, "RI", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (fd->version != CRAM_1_VERS) {
+	if (h->SC_codec) {
+	    if (-1 == h->SC_codec->store(h->SC_codec, map, "SC", fd->version))
+		return NULL;
+	    mc++;
+	}
+	if (h->RS_codec) {
+	    if (-1 == h->RS_codec->store(h->RS_codec, map, "RS", fd->version))
+		return NULL;
+	    mc++;
+	}
+	if (h->PD_codec) {
+	    if (-1 == h->PD_codec->store(h->PD_codec, map, "PD", fd->version))
+		return NULL;
+	    mc++;
+	}
+	if (h->HC_codec) {
+	    if (-1 == h->HC_codec->store(h->HC_codec, map, "HC", fd->version))
+		return NULL;
+	    mc++;
+	}
+    }
+    if (h->TM_codec) {
+	if (-1 == h->TM_codec->store(h->TM_codec, map, "TM", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->TV_codec) {
+	if (-1 == h->TV_codec->store(h->TV_codec, map, "TV", fd->version))
+	    return NULL;
+	mc++;
+    }
     itf8_put_blk(cb, BLOCK_SIZE(map) + itf8_put(cnt_buf, mc));
     itf8_put_blk(cb, mc);    
     BLOCK_APPEND(cb, BLOCK_DATA(map), BLOCK_SIZE(map));
@@ -245,11 +362,17 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
     if (h->tag_encoding_map) {
         HashItem *hi;
         HashIter *iter = HashTableIterCreate();
+	if (!iter)
+	    return NULL;
 
         while ((hi = HashTableIterNext(h->tag_encoding_map, iter))) {
             cram_map *m = hi->data.p;
+	    int sz;
+
 	    mp += itf8_put(mp, (hi->key[0]<<16)|(hi->key[1]<<8)|hi->key[2]);
-	    mp += m->codec->store(m->codec, mp, NULL, fd->version);
+	    if (-1 == (sz = m->codec->store(m->codec, mp, NULL, fd->version)))
+		return NULL;
+	    mp += sz;
 	    mc++;
         }
 
@@ -261,6 +384,8 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
     if (c->tags_used) {
         HashItem *hi;
         HashIter *iter = HashTableIterCreate();
+	if (!iter)
+	    return NULL;
 
         while ((hi = HashTableIterNext(c->tags_used, iter))) {
 	    mc++;
@@ -420,15 +545,18 @@ cram_block *cram_encode_slice_header(cram_fd *fd, cram_slice *s) {
 	memcpy(cp, s->hdr->md5, 16); cp += 16;
     }
     
+    assert(cp-buf <= 16+5*(8+s->hdr->num_blocks));
+
     b->data = (unsigned char *)buf;
     b->comp_size = b->uncomp_size = cp-buf;
-    
+
     return b;
 }
 
 
 /*
  * Encodes a single slice from a container
+ * FIXME: break into smaller components.
  *
  * Returns 0 on success
  *        -1 on failure
@@ -538,7 +666,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 #endif
 
     /* Generate core block */
-    s->hdr_block = cram_encode_slice_header(fd, s);
+    if (!(s->hdr_block = cram_encode_slice_header(fd, s)))
+	return -1;
 
     last_pos = s->hdr->ref_seq_start;
     for (rec = 0; rec < s->hdr->num_records; rec++) {
@@ -748,6 +877,9 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	    r |= h->BA_codec->encode(s, h->BA_codec, core, seq, cr->len);
 #endif
 	}
+
+	if (r)
+	    return -1;
     }
     s->block[0]->uncomp_size = s->block[0]->byte + (s->block[0]->bit < 7);
     s->block[0]->comp_size = s->block[0]->uncomp_size;
@@ -788,34 +920,49 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	cram_compress_block(fd, s->block[0], NULL, 1, Z_FILTERED, -1, -1);
 
     /* Compress the other blocks */
-    cram_compress_block(fd, s->block[1], fd->m[0], fd->level, Z_FILTERED,
-			-1, -1);			      
-    cram_compress_block(fd, s->block[2], fd->m[1], fd->level, Z_FILTERED, 
-			 1, Z_RLE);			      
-    cram_compress_block(fd, s->block[3], fd->m[2], fd->level, Z_FILTERED,
-			-1, -1);			      
-    cram_compress_block(fd, s->block[4], fd->m[3], fd->level, Z_FILTERED,
-			-1, -1);			      
-    cram_compress_block(fd, s->block[5], fd->m[4], fd->level, Z_FILTERED,
-			 1, Z_RLE);
+    if (cram_compress_block(fd, s->block[1], fd->m[0],
+			    fd->level, Z_FILTERED,
+			    -1, -1))
+	return -1;
+    if (cram_compress_block(fd, s->block[2], fd->m[1],
+			    fd->level, Z_FILTERED, 
+			    1, Z_RLE))
+	return -1;
+    if (cram_compress_block(fd, s->block[3], fd->m[2],
+			    fd->level, Z_FILTERED,
+			    -1, -1))
+	return -1;
+    if (cram_compress_block(fd, s->block[4], fd->m[3],
+			    fd->level, Z_FILTERED,
+			    -1, -1))
+	return -1;
+    if (cram_compress_block(fd, s->block[5], fd->m[4],
+			    fd->level, Z_FILTERED,
+			    1, Z_RLE))
+	return -1;
     if (fd->version != CRAM_1_VERS) {
-	cram_compress_block(fd, s->block[6], fd->m[0], fd->level, Z_FILTERED,
-			    -1, -1);			      
+	if (cram_compress_block(fd, s->block[6], fd->m[0],
+				fd->level, Z_FILTERED,
+				-1, -1))
+	    return -1;
     }
 #ifdef BA_external
-    cram_compress_block(fd, s->block[s->ba_id], fd->m[5],
-			fd->level, Z_FILTERED, -1, -1);
+    if (cram_compress_block(fd, s->block[s->ba_id], fd->m[5],
+			    fd->level, Z_FILTERED, -1, -1))
+	return -1;
 #endif
 #ifdef TN_external
     if (fd->version == CRAM_1_VERS) {
-	cram_compress_block(fd, s->block[s->tn_id], fd->m[6],
-			    fd->level, Z_DEFAULT_STRATEGY, -1, -1);
+	if (cram_compress_block(fd, s->block[s->tn_id], fd->m[6],
+				fd->level, Z_DEFAULT_STRATEGY, -1, -1))
+	    return -1;
     }
 #endif
     if (embed_ref) {
 	BLOCK_UPLEN(s->block[s->ref_id]);
-	cram_compress_block(fd, s->block[s->ref_id], NULL,
-			    fd->level, Z_DEFAULT_STRATEGY, -1, -1);
+	if (cram_compress_block(fd, s->block[s->ref_id], NULL,
+				fd->level, Z_DEFAULT_STRATEGY, -1, -1))
+	    return -1;
     }
 
     return r ? -1 : 0;
@@ -895,7 +1042,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     h->CF_codec = cram_encoder_init(cram_stats_encoding(fd, c->CF_stats),
 				    c->CF_stats, E_INT, NULL,
 				    fd->version);
-
 //    fprintf(stderr, "=== RN ===\n");
 //    h->RN_codec = cram_encoder_init(cram_stats_encoding(fd, c->RN_stats),
 //				    c->RN_stats, E_BYTE_ARRAY, NULL,
@@ -1106,7 +1252,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	// h->...  fixme
 	memcpy(h->substitution_matrix, CRAM_SUBST_MATRIX, 20);
 
-	c_hdr = cram_encode_compression_header(fd, c, h);
+	if (!(c_hdr = cram_encode_compression_header(fd, c, h)))
+	    return -1;
     }
 
     /* Compute landmarks */
@@ -1131,9 +1278,9 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    itf8_put(tmp, c_hdr->uncomp_size);
     }
 
-    c->ref_seq_id = c->slices[0]->hdr->ref_seq_id;
+    c->ref_seq_id    = c->slices[0]->hdr->ref_seq_id;
     c->ref_seq_start = c->slices[0]->hdr->ref_seq_start;
-    c->ref_seq_span = c->slices[0]->hdr->ref_seq_span;
+    c->ref_seq_span  = c->slices[0]->hdr->ref_seq_span;
     for (i = 0; i < c->curr_slice; i++) {
 	char tmp[5];
 	cram_slice *s = c->slices[i];
@@ -1188,7 +1335,7 @@ static int cram_add_feature(cram_container *c, cram_slice *s,
 			    cram_record *r, cram_feature *f) {
     if (s->nfeatures >= s->afeatures) {
 	s->afeatures = s->afeatures ? s->afeatures*2 : 1024;
-	s->features = realloc(s->features, s->afeatures * sizeof(*s->features));
+	s->features = realloc(s->features, s->afeatures*sizeof(*s->features));
 	if (!s->features)
 	    return -1;
     }
@@ -1365,7 +1512,8 @@ static char *cram_encode_aux_1_0(cram_fd *fd, bam_seq_t *b, cram_container *c,
 #ifndef TN_external
 	if (s->nTN >= s->aTN) {
 	    s->aTN = s->aTN ? s->aTN*2 : 1024;
-	    s->TN = realloc(s->TN, s->aTN * sizeof(*s->TN));
+	    if (!(s->TN = realloc(s->TN, s->aTN * sizeof(*s->TN))))
+		return NULL;
 	}
 	s->TN[s->nTN++] = i32;
 	cram_stats_add(c->TN_stats, i32);
@@ -1511,7 +1659,8 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	BLOCK_APPEND(td_b, aux, 3);
 
 	// replace with fast hash too
-	HashTableAdd(c->tags_used, aux, 3, hd, NULL);
+	if (!HashTableAdd(c->tags_used, aux, 3, hd, NULL))
+	    return NULL;
 
 	switch(aux[2]) {
 	case 'A': case 'C': case 'c':
@@ -1592,6 +1741,9 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     hi = HashTableAdd(c->comp_hdr->TD,
 		      (char *)BLOCK_DATA(td_b) + TD_blk_size,
 		      BLOCK_SIZE(td_b) - TD_blk_size, hd, &new);
+    if (!hi)
+	return NULL;
+
     if (!new) {
 	BLOCK_SIZE(td_b) = TD_blk_size;
     } else {
@@ -1690,6 +1842,8 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 	cram_free_container(c);
 	c = fd->ctr = cram_new_container(fd->seqs_per_slice,
 					 fd->slices_per_container);
+	if (!c)
+	    return NULL;
 	c->record_counter = fd->record_counter;
 	c->curr_ref = b->ref;
     }
@@ -1739,6 +1893,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     if (!fd->ctr) {
 	fd->ctr = cram_new_container(fd->seqs_per_slice,
 				     fd->slices_per_container);
+	if (!fd->ctr)
+	    return -1;
 	fd->ctr->record_counter = fd->record_counter;
     }
     c = fd->ctr;
@@ -1904,6 +2060,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	while (cr->cigar + cr->ncigar >= s->cigar_alloc) {
 	    s->cigar_alloc = s->cigar_alloc ? s->cigar_alloc*2 : 1024;
 	    s->cigar = realloc(s->cigar, s->cigar_alloc * sizeof(*s->cigar));
+	    if (!s->cigar)
+		return -1;
 	}
 
 	cig_to = (int32_t *)s->cigar;
@@ -1931,9 +2089,10 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		    if (ref[apos] != seq[spos]) {
 			//fprintf(stderr, "Subst: %d; %c vs %c\n",
 			//	spos, ref[apos], seq[spos]);
-			cram_add_substitution(fd, c, s, cr, spos,
-					      seq[spos], qual[spos],
-					      ref[apos]);
+			if (cram_add_substitution(fd, c, s, cr, spos,
+						  seq[spos], qual[spos],
+						  ref[apos]))
+			    return -1;
 		    }
 		}
 		break;
@@ -1949,39 +2108,47 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		//fprintf(stderr, "\nBAM_CBASE_MISMATCH\nR: %.*s\nS: %.*s\n",
 		//	cig_len, &ref[apos], cig_len, &seq[spos]);
 		for (l = 0; l < cig_len; l++, apos++, spos++) {
-		    cram_add_substitution(fd, c, s, cr, spos,
-					  seq[spos], qual[spos], ref[apos]);
+		    if (cram_add_substitution(fd, c, s, cr, spos,
+					      seq[spos], qual[spos],
+					      ref[apos]))
+			return -1;
 		}
 		break;
 #endif
 		
 	    case BAM_CDEL:
-		cram_add_deletion(c, s, cr, spos, cig_len, &seq[spos]);
+		if (cram_add_deletion(c, s, cr, spos, cig_len, &seq[spos]))
+		    return -1;
 		apos += cig_len;
 		break;
 
 	    case BAM_CREF_SKIP:
-		cram_add_skip(c, s, cr, spos, cig_len, &seq[spos]);
+		if (cram_add_skip(c, s, cr, spos, cig_len, &seq[spos]))
+		    return -1;
 		apos += cig_len;
 		break;
 
 	    case BAM_CINS:
-		cram_add_insertion(c, s, cr, spos, cig_len, &seq[spos]);
+		if (cram_add_insertion(c, s, cr, spos, cig_len, &seq[spos]))
+		    return -1;
 		spos += cig_len;
 		break;
 
 	    case BAM_CSOFT_CLIP:
-		cram_add_softclip(c, s, cr, spos, cig_len, &seq[spos],
-				  fd->version);
+		if (cram_add_softclip(c, s, cr, spos, cig_len, &seq[spos],
+				      fd->version))
+		    return -1;
 		spos += cig_len;
 		break;
 
 	    case BAM_CHARD_CLIP:
-		cram_add_hardclip(c, s, cr, spos, cig_len, &seq[spos]);
+		if (cram_add_hardclip(c, s, cr, spos, cig_len, &seq[spos]))
+		    return -1;
 		break;
 	
 	    case BAM_CPAD:
-		cram_add_pad(c, s, cr, spos, cig_len, &seq[spos]);
+		if (cram_add_pad(c, s, cr, spos, cig_len, &seq[spos]))
+		    return -1;
 		break;
 	    }
 	}
@@ -2026,6 +2193,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    hi = HashTableAdd(s->pair,
 			      (char *)BLOCK_DATA(s->name_blk)+cr->name,
 			      cr->name_len, hd, &new);
+	    if (!hi)
+		return -1;
 	} else {
 	    new = 1;
 	}

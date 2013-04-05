@@ -100,9 +100,9 @@ int scram_close(scram_fd *fd) {
     int r;
 
     if (fd->is_bam) {
-	bam_close(fd->b);
+	r = bam_close(fd->b);
 	free(fd);
-	return 0;
+	return r;
     }
 
     r = cram_close(fd->c);

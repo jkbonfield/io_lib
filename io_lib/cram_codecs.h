@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
 #ifndef _CRAM_ENCODINGS_H_
 #define _CRAM_ENCODINGS_H_
 
