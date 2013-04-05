@@ -122,11 +122,7 @@ char *string_dup(string_alloc_t *a_str, char *instr) {
 }
 
 char *string_ndup(string_alloc_t *a_str, char *instr, size_t len) {
-    char *str;
-    
-    if (len > a_str->max_length) len = a_str->max_length - 1;
-    
-    str = string_alloc(a_str, len + 1);
+    char *str = string_alloc(a_str, len + 1);
     
     if (NULL == str) return NULL;
     

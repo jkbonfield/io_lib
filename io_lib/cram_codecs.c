@@ -417,7 +417,7 @@ void cram_external_encode_free(cram_codec *c) {
 
 int cram_external_encode_store(cram_codec *c, cram_block *b, char *prefix,
 			       int version) {
-    char tmp[8192], *tp = tmp;
+    char tmp[99], *tp = tmp;
     int len = 0;
 
     if (prefix) {
@@ -505,7 +505,7 @@ cram_codec *cram_beta_decode_init(char *data, int size,
 
 int cram_beta_encode_store(cram_codec *c, cram_block *b,
 			   char *prefix, int version) {
-    char tmp[1024];
+    char tmp[99];
     int len = 0;
 
     if (prefix) {

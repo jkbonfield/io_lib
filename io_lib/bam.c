@@ -97,7 +97,7 @@ int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
     unsigned char *buf = *str;
     int used_l = 0;
     size_t alloc_l = *len;
-    int next_condition, r;
+    int next_condition, r = 0;
 
     while (b->out_sz || (r=bam_more_output(b)) > 0) {
 	int tmp;
@@ -178,9 +178,12 @@ static int load_bam_header(bam_file_t *b) {
 
     for (i = 0; i < nref; i++) {
 	uint32_t nlen, len;
-	char name[1024];
+	char name_a[1024], *name;;
 
 	if (4 != bam_read(b, &nlen, 4))
+	    return -1;
+	name = nlen < 1024 ? name_a : malloc(nlen);
+	if (!name)
 	    return -1;
 	nlen = le_int4(nlen);
 	if (nlen != bam_read(b, name, nlen))
@@ -208,6 +211,9 @@ static int load_bam_header(bam_file_t *b) {
 	    if (sam_header_add(b->header, "SQ", "SN", name, "LN", len_c, NULL))
 		return -1;
 	}
+
+	if (name != name_a)
+	    free(name);
     }
 
     b->line = 0; // FIXME
@@ -219,7 +225,7 @@ static int load_sam_header(bam_file_t *b) {
     unsigned char *str = NULL;
     size_t alloc = 0, len;
     dstring_t *header = dstring_create(NULL);;
-    int r;
+    int r = 0;
 
     while ((b->out_sz > 0 || (r=bam_more_output(b)) > 0) && *b->out_p == '@') {
 	b->line++;
@@ -654,6 +660,10 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	*cpt++ = *cpf++;
     *cpt++ = 0;
     if (!*cpf++) return -1;
+    if (cpf-cp > 255) {
+	fprintf(stderr, "SAM name length >= 256 characters are invalid\n");
+	return -1;
+    }
     bam_set_name_len(bs, cpf-cp);
 
     /* flag */
