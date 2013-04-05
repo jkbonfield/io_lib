@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -207,15 +211,19 @@ int main(int argc, char **argv) {
     /* Set any format specific options */
     scram_set_refs(out, refs = scram_get_refs(in[0]));
 
-    scram_set_option(out, CRAM_OPT_VERBOSITY, verbose);
+    if (scram_set_option(out, CRAM_OPT_VERBOSITY, verbose))
+	return 1;
     if (s_opt)
-	scram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, s_opt);
+	if (scram_set_option(out, CRAM_OPT_SEQS_PER_SLICE, s_opt))
+	    return 1;
 
     if (S_opt)
-	scram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, S_opt);
+	if (scram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, S_opt))
+	    return 1;
 
     if (embed_ref)
-	scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref);
+	if (scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref))
+	    return 1;
     
     /* Copy header and refs from in to out, for writing purposes */
     // FIXME: do proper merging of @PG lines
@@ -224,7 +232,8 @@ int main(int argc, char **argv) {
 
     // Needs doing after loading the header.
     if (ref_fn)
-	scram_set_option(out, CRAM_OPT_REFERENCE, ref_fn);
+	if (scram_set_option(out, CRAM_OPT_REFERENCE, ref_fn))
+	    return 1;
 
     if (scram_get_header(in[0])) {
 	if (scram_write_header(out))
@@ -235,7 +244,8 @@ int main(int argc, char **argv) {
     /* Do the actual file format conversion */
     for (i = 0; i < n_input; i++) {
 	if (scram_get_seq(in[i], &s[i]) < 0) {
-	    scram_close(in[i]);
+	    if (scram_close(in[i]))
+		return 1;
 	    in[i] = NULL;
 	    free(s[i]);
 	}
@@ -268,7 +278,8 @@ int main(int argc, char **argv) {
 	    return 1;
 	
 	if (scram_get_seq(in[best_j], &s[best_j]) < 0) {
-	    scram_close(in[best_j]);
+	    if (scram_close(in[best_j]))
+		return 1;
 	    in[best_j] = NULL;
 	    free(s[best_j]);
 	}
@@ -279,7 +290,8 @@ int main(int argc, char **argv) {
 	scram_set_refs(out, NULL);
     }
 
-    scram_close(out);
+    if (scram_close(out))
+	return 1;
     free(in);
     free(s);
 

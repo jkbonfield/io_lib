@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
+ */
+
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
@@ -8,7 +12,7 @@
 #include "io_lib/sam_header.h"
 #include "io_lib/string_alloc.h"
 
-void sam_header_error(char *msg, char *line, int len, int lno) {
+static void sam_header_error(char *msg, char *line, int len, int lno) {
     int j;
     
     for (j = 0; j < len && line[j] != '\n'; j++)
@@ -58,6 +62,11 @@ void sam_header_dump(SAM_hdr *hdr) {
     HashTableIterDestroy(iter);
 }
 
+/* Updates the HashTables in the SAM_hdr structure.
+ *
+ * Returns 0 on success;
+ *        -1 on failure
+ */
 static int sam_header_update_hashes(SAM_hdr *sh,
 				    char *type,
 				    SAM_hdr_type *h_type) {
@@ -263,7 +272,8 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 	    continue;
 
 	// Add the header line type
-	h_type = pool_alloc(sh->type_pool);
+	if (!(h_type = pool_alloc(sh->type_pool)))
+	    return -1;
 	hd.p = h_type;
 	if (!(hi = HashTableAdd(sh->h, type, 2, hd, &new)))
 	    return -1;
@@ -295,10 +305,13 @@ int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
 	    for (j = ++i; j < len && hdr[j] != '\n' && hdr[j] != '\t'; j++)
 		;
 	    
-	    h_tag = pool_alloc(sh->tag_pool);
+	    if (!(h_tag = pool_alloc(sh->tag_pool)))
+		return -1;
 	    h_tag->str = string_ndup(sh->str_pool, &hdr[i], j-i);
 	    h_tag->len = j-i;
 	    h_tag->next = NULL;
+	    if (!h_tag->str)
+		return -1;
 	    
 	    if (last)
 		last->next = h_tag;
@@ -348,7 +361,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
     if (-1 == dstring_nappend(sh->text, type, 2))
 	return -1;
 
-    h_type = pool_alloc(sh->type_pool);
+    if (!(h_type = pool_alloc(sh->type_pool)))
+	return -1;
     hd.p = h_type;
     if (!(hi = HashTableAdd(sh->h, type, 2, hd, &new)))
 	return -1;
@@ -385,7 +399,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
 	if (-1 == dstring_append_char(sh->text, '\t'))
 	    return -1;
 
-	h_tag = pool_alloc(sh->tag_pool);
+	if (!(h_tag = pool_alloc(sh->tag_pool)))
+	    return -1;
 	idx = DSTRING_LEN(sh->text);
 	
 	if (-1 == dstring_append(sh->text, k))
@@ -400,6 +415,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
 				 DSTRING_STR(sh->text) + idx,
 				 h_tag->len);
 	h_tag->next = NULL;
+	if (!h_tag->str)
+	    return -1;
 
 	if (last)
 	    last->next = h_tag;
@@ -427,7 +444,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
 	if (-1 == dstring_append_char(sh->text, '\t'))
 	    return -1;
 
-	h_tag = pool_alloc(sh->tag_pool);
+	if (!(h_tag = pool_alloc(sh->tag_pool)))
+	    return -1;
 	idx = DSTRING_LEN(sh->text);
 	
 	if (-1 == dstring_append(sh->text, k))
@@ -442,6 +460,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
 				 DSTRING_STR(sh->text) + idx,
 				 h_tag->len);
 	h_tag->next = NULL;
+	if (!h_tag->str)
+	    return -1;
 
 	if (last)
 	    last->next = h_tag;
@@ -639,6 +659,8 @@ int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
 			       DSTRING_STR(hdr->text) + idx,
 			       tag->len);
 	tag->next = NULL;
+	if (!tag->str)
+	    return -1;
     }
 
     va_end(ap);
@@ -1005,19 +1027,21 @@ int sam_header_add_PG(SAM_hdr *sh, char *name, ...) {
 	    strncpy(PP, sh->pg[end[i]].name, len);
 	    PP[len] = 0;
 
-	    sam_header_vadd(sh, "PG", args,
-			    "ID", sam_header_PG_ID(sh, name),
-			    "PN", name,
-			    "PP", PP,
-			    NULL);
+	    if (-1 == sam_header_vadd(sh, "PG", args,
+				      "ID", sam_header_PG_ID(sh, name),
+				      "PN", name,
+				      "PP", PP,
+				      NULL))
+		return  -1;
 	}
 
 	free(end);
     } else {
-	sam_header_vadd(sh, "PG", args,
-			"ID", sam_header_PG_ID(sh, name),
-			"PN", name,
-			NULL);
+	if (-1 == sam_header_vadd(sh, "PG", args,
+				  "ID", sam_header_PG_ID(sh, name),
+				  "PN", name,
+				  NULL))
+	    return -1;
     }
 
     //sam_header_dump(sh);

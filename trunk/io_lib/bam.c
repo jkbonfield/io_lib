@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2010-3
+ */
+
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
@@ -93,9 +97,9 @@ int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
     unsigned char *buf = *str;
     int used_l = 0;
     size_t alloc_l = *len;
-    int next_condition;
+    int next_condition, r;
 
-    while (b->out_sz || bam_more_output(b) > 0) {
+    while (b->out_sz || (r=bam_more_output(b)) > 0) {
 	int tmp;
 	unsigned char *from = b->out_p;
 	unsigned char *to   = &buf[used_l];
@@ -135,10 +139,12 @@ int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 	}
     }
 
+    if (r == -1)
+	return -1;
     return b->out_sz ? -1 : 0;
 }
 
-int load_bam_header(bam_file_t *b) {
+static int load_bam_header(bam_file_t *b) {
     char magic[4], *header;
     int i;
     int32_t header_len, nref;
@@ -199,7 +205,8 @@ int load_bam_header(bam_file_t *b) {
 	} else {
 	    char len_c[100];
 	    sprintf(len_c, "%d", len);
-	    sam_header_add(b->header, "SQ", "SN", name, "LN", len_c, NULL);
+	    if (sam_header_add(b->header, "SQ", "SN", name, "LN", len_c, NULL))
+		return -1;
 	}
     }
 
@@ -208,12 +215,13 @@ int load_bam_header(bam_file_t *b) {
     return 0;
 }
 
-int load_sam_header(bam_file_t *b) {
+static int load_sam_header(bam_file_t *b) {
     unsigned char *str = NULL;
     size_t alloc = 0, len;
     dstring_t *header = dstring_create(NULL);;
+    int r;
 
-    while ((b->out_sz > 0 || bam_more_output(b) > 0) && *b->out_p == '@') {
+    while ((b->out_sz > 0 || (r=bam_more_output(b)) > 0) && *b->out_p == '@') {
 	b->line++;
 	if ((len = bam_get_line(b, &str, &alloc)) == -1)
 	    return -1;
@@ -223,6 +231,8 @@ int load_sam_header(bam_file_t *b) {
 	if (-1 == dstring_append_char(header, '\n'))
 	    return -1;
     }
+    if (r == -1)
+	return -1;
     b->line = 0; // FIXME
 
     if (!(b->header = sam_header_parse((char *)dstring_str(header),
@@ -243,6 +253,22 @@ int load_sam_header(bam_file_t *b) {
 #    define O_BINARY 0
 #endif
 
+/*! Opens a SAM or BAM file.
+ *
+ * The mode parameter indicates the file
+ * type (if not auto-detecting) and whether it is for reading or
+ * writing. Use "rb" or "wb" for reading or writing BAM and "r" or
+ * "w" or reading or writing SAM. When writing BAM, the mode may end
+ * with a digit from 0 to 9 to indicate the compression to use with 0
+ * indicating uncompressed data.
+ *
+ * @param fn The filename to open or create.
+ * @param mode The input/output mode, similar to fopen().
+ *
+ * @return
+ * Returns a bam_file_t pointer on success;
+ *         NULL on failure.
+ */
 bam_file_t *bam_open(char *fn, char *mode) {
     bam_file_t *b = calloc(1, sizeof *b);
     
@@ -316,7 +342,8 @@ bam_file_t *bam_open(char *fn, char *mode) {
 	inflateInit2(&b->s, -15);
     }
 
-    bam_more_output(b);
+    if (-1 == bam_more_output(b))
+	return NULL;
     /* Auto-correct open file type if we detect a BAM */
     if (b->out_sz >= 3 && strncmp("BAM", (char *)b->out_p, 3) != 0) {
 	b->mode &= ~O_BINARY;
@@ -349,7 +376,9 @@ bam_file_t *bam_open(char *fn, char *mode) {
     return NULL;
 }
 
-void bam_close(bam_file_t *b) {
+int bam_close(bam_file_t *b) {
+    int r;
+
     if (b->mode & O_WRONLY) {
 	if (b->binary) {
 	    if (bgzf_write(b->fd, b->level, b->out, b->out_p - b->out)) {
@@ -382,9 +411,11 @@ void bam_close(bam_file_t *b) {
     if (b->sam_str)
 	free(b->sam_str);
 
-    close(b->fd);
+    r = close(b->fd);
 
     free(b);
+
+    return r;
 }
 
 /*
@@ -562,8 +593,12 @@ static int bam_more_output(bam_file_t *b) {
 
 /*
  * Decodes the next line of SAM into a bam_seq_t struct.
+ *
+ * Returns 1 on success
+ *         0 on eof
+ *        -1 on error
  */
-int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
+static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     int used_l, n, sign;
     unsigned char *cpf, *cpt, *cp;
     int cigar_len;
@@ -651,6 +686,8 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 		return -1;
 	    sh->ref[sh->nref].len  = 0; /* Unknown value */
 	    sh->ref[sh->nref].name = malloc(cpf-cp+1);
+	    if (!sh->ref[sh->nref].name)
+		return -1;
 	    memcpy(sh->ref[sh->nref].name, cp, cpf-cp);
 	    sh->ref[sh->nref].name[cpf-cp] = 0;
 
@@ -751,6 +788,8 @@ int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 		return -1;
 	    sh->ref[sh->nref].len  = 0; /* Unknown value */
 	    sh->ref[sh->nref].name = malloc(cpf-cp+1);
+	    if (!sh->ref[sh->nref].name)
+		return -1;
 	    memcpy(sh->ref[sh->nref].name, cp, cpf-cp);
 	    sh->ref[sh->nref].name[cpf-cp] = 0;
 
@@ -1169,7 +1208,9 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 }
 
 /*
- * Looks for aux field 'key' and returns the value.
+ * Looks for aux field 'key' and returns the type + value.
+ * The type is the first char and the value is the 2nd character onwards.
+ *
  * Returns NULL if not found.
  */
 char *bam_aux_find(bam_seq_t *b, char *key) {
@@ -1198,7 +1239,7 @@ char *bam_aux_find(bam_seq_t *b, char *key) {
 	//printf("%c%c:%c:?\n", cp[0], cp[1], cp[2]);
 
 	if (cp[0] == key[0] && cp[1] == key[1])
-	    return cp+3;
+	    return cp+2;
 	
 	if ((sz = type_size[(unsigned char)cp[2]])) {
 	    /* Fixed length fields */
@@ -1593,6 +1634,9 @@ static unsigned char *append_uint(unsigned char *cp, uint32_t i) {
  * This has been chosen to deliberately be small enough such that the
  * bgzf header/footer + worst-case expansion (deflateBound() func) of 'buf'
  * are <= 65536, thus ensuring BGZF BSIZE is always 16-bit.
+ *
+ * Returns 0 on success;
+ *        -1 on error
  */
 static int bgzf_write(int fd, int level, const void *buf, size_t count) {
     unsigned char blk[Z_BUFF_SIZE];
@@ -2239,7 +2283,9 @@ int bam_write_header(bam_file_t *out) {
     size_t hdr_size;
     int i, htext_len;
 
-    sam_header_rebuild(out->header);
+    if (sam_header_rebuild(out->header))
+	return -1;
+
     htext = sam_header_str(out->header);
     htext_len = sam_header_length(out->header);
 

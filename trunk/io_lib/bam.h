@@ -1,3 +1,7 @@
+/*
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2010-3
+ */
+
 /*! \file
  * The primary SAM/BAM API.
  *
@@ -209,8 +213,12 @@ bam_file_t *bam_open(char *fn, char *mode);
 /*! Closes a SAM or BAM file.
  * 
  * @param b The file to close.
+ *
+ * @return
+ * Retrurns 0 on success;
+ *         -1 on failure.
  */
-void bam_close(bam_file_t *b);
+int bam_close(bam_file_t *b);
 
 /*! Deprecated: please use bam_get_seq() instead.
  */
@@ -233,6 +241,8 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp);
 int bam_get_seq(bam_file_t *b, bam_seq_t **bsp);
 
 /*!Looks for aux field 'key' and returns the value.
+ * The type is the first char and the value is the 2nd character onwards.
+ *
  * @return
  * Returns the value for key; NULL if not found.
  */
