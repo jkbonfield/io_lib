@@ -1027,7 +1027,6 @@ int sam_header_add_PG(SAM_hdr *sh, char *name, ...) {
 	/* Copy ends array to avoid us looping while modifying it */
 	int *end = malloc(sh->npg_end * sizeof(int));
 	int i, nends = sh->npg_end;
-	char PP[1024];
 
 	if (!end)
 	    return -1;
@@ -1035,14 +1034,10 @@ int sam_header_add_PG(SAM_hdr *sh, char *name, ...) {
 	memcpy(end, sh->pg_end, nends * sizeof(*end));
 
 	for (i = 0; i < nends; i++) {
-	    int len = MIN(1023, sh->pg[end[i]].name_len);
-	    strncpy(PP, sh->pg[end[i]].name, len);
-	    PP[len] = 0;
-
 	    if (-1 == sam_header_vadd(sh, "PG", args,
 				      "ID", sam_header_PG_ID(sh, name),
 				      "PN", name,
-				      "PP", PP,
+				      "PP", sh->pg[end[i]].name,
 				      NULL))
 		return  -1;
 	}
