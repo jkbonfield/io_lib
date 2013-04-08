@@ -661,6 +661,8 @@ int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
 		prev->next = tag;
 	    else
 		type->tag = tag;
+
+	    tag->next = NULL;
 	}
 
 	idx = DSTRING_LEN(hdr->text);
@@ -670,7 +672,6 @@ int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
 	tag->str = string_ndup(hdr->str_pool,
 			       DSTRING_STR(hdr->text) + idx,
 			       tag->len);
-	tag->next = NULL;
 	if (!tag->str)
 	    return -1;
     }
