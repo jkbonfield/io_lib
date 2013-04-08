@@ -839,6 +839,13 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 //					     (char *)&uc, 1);
 		    break;
 
+		case 'Q':
+//                  Already added
+//		    uc  = f->B.qual;
+//		    r |= h->QS_codec->encode(s, h->QS_codec, core,
+//					     (char *)&uc, 1);
+		    break;
+
 		case 'N':
 		    i32 = f->N.len;
 		    r |= h->RS_codec->encode(s, h->RS_codec, core,
@@ -1006,7 +1013,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	s->hdr->num_records   = c->curr_rec;
 
 	if (fd->version != CRAM_1_VERS) {
-	    if (s->hdr->ref_seq_id >= 0 && c->multi_seq == 0) {
+	    if (s->hdr->ref_seq_id >= 0 && c->multi_seq == 0 && !fd->no_ref) {
 		MD5_CTX md5;
 		MD5_Init(&md5);
 		MD5_Update(&md5,
@@ -1375,6 +1382,36 @@ static int cram_add_substitution(cram_fd *fd, cram_container *c,
 	BLOCK_APPEND_CHAR(s->qual_blk, qual);
     }
     return cram_add_feature(c, s, r, &f);
+}
+
+static int cram_add_base(cram_fd *fd, cram_container *c,
+			 cram_slice *s, cram_record *r,
+			 int pos, char base, char qual) {
+    cram_feature f;
+    f.B.pos = pos+1;
+    f.B.code = 'B';
+    f.B.base = base;
+    f.B.qual = qual;
+#ifdef BA_external
+    s->BA_len++;
+#else
+    cram_stats_add(c->BA_stats, base);
+#endif
+    cram_stats_add(c->QS_stats, qual);
+    BLOCK_APPEND_CHAR(s->qual_blk, qual);
+    cram_add_feature(c, s, r, &f);
+}
+
+static int cram_add_quality(cram_fd *fd, cram_container *c,
+			    cram_slice *s, cram_record *r,
+			    int pos, char qual) {
+    cram_feature f;
+    f.Q.pos = pos+1;
+    f.Q.code = 'Q';
+    f.Q.qual = qual;
+    cram_stats_add(c->QS_stats, qual);
+    BLOCK_APPEND_CHAR(s->qual_blk, qual);
+    cram_add_feature(c, s, r, &f);
 }
 
 static int cram_add_deletion(cram_container *c, cram_slice *s, cram_record *r,
@@ -1942,9 +1979,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	fd->last_slice = curr_rec - slice_rec;
 	c->slice_rec = c->curr_rec;
 
-	if (NULL == (cram_get_ref(fd, b->ref, 1, 0)) && b->ref >= 0) {
-	    fprintf(stderr, "Failed to load reference #%d\n", b->ref);
-	    return -1;
+	if (!fd->no_ref) {
+	    if (NULL == (cram_get_ref(fd, b->ref, 1, 0)) && b->ref >= 0) {
+		fprintf(stderr, "Failed to load reference #%d\n", b->ref);
+		return -1;
+	    }
 	}
 
 	// Have we seen this reference before?
@@ -1961,7 +2000,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     }
 
     ref = fd->ref;
-    if (!ref && b->ref >= 0) {
+    if (!ref && b->ref >= 0 && !fd->no_ref) {
 	fprintf(stderr, "No reference found\n");
 	return -1;
     }
@@ -2006,7 +2045,10 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	cr->flags |= BAM_FUNMAP;
     cram_stats_add(c->BF_stats, fd->cram_flag_swap[cr->flags & 0x7ff]);
 
-    cr->cram_flags  = CRAM_FLAG_PRESERVE_QUAL_SCORES; // FIXME
+    if (!fd->no_ref)
+	cr->cram_flags = CRAM_FLAG_PRESERVE_QUAL_SCORES;
+    else
+	cr->cram_flags = 0;
     //cram_stats_add(c->CF_stats, cr->cram_flags);
 
     cr->len         = bam_seq_len(b);  cram_stats_add(c->RL_stats, cr->len);
@@ -2085,36 +2127,26 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    case BAM_CBASE_MISMATCH:
 		//fprintf(stderr, "\nBAM_CMATCH\nR: %.*s\nS: %.*s\n",
 		//	cig_len, &ref[apos], cig_len, &seq[spos]);
-		for (l = 0; l < cig_len; l++, apos++, spos++) {
-		    if (ref[apos] != seq[spos]) {
-			//fprintf(stderr, "Subst: %d; %c vs %c\n",
-			//	spos, ref[apos], seq[spos]);
-			if (cram_add_substitution(fd, c, s, cr, spos,
-						  seq[spos], qual[spos],
-						  ref[apos]))
+		if (!fd->no_ref) {
+		    for (l = 0; l < cig_len; l++, apos++, spos++) {
+			if (ref[apos] != seq[spos]) {
+			    //fprintf(stderr, "Subst: %d; %c vs %c\n",
+			    //	spos, ref[apos], seq[spos]);
+			    if (cram_add_substitution(fd, c, s, cr, spos,
+						      seq[spos], qual[spos],
+						      ref[apos]))
+				return -1;
+			}
+		    }
+		} else {
+		    for (l = 0; l < cig_len; l++, spos++) {
+			if (cram_add_base(fd, c, s, cr, spos,
+					  seq[spos], qual[spos]))
 			    return -1;
 		    }
+		    apos += cig_len;
 		}
 		break;
-#if 0
-	    case BAM_CBASE_MATCH:
-		//fprintf(stderr, "\nBAM_CBASE_MATCH\nR: %.*s\nS: %.*s\n",
-		//	cig_len, &ref[apos], cig_len, &seq[spos]);
-		apos += cig_len;
-		spos += cig_len;
-		break;
-
-	    case BAM_CBASE_MISMATCH:
-		//fprintf(stderr, "\nBAM_CBASE_MISMATCH\nR: %.*s\nS: %.*s\n",
-		//	cig_len, &ref[apos], cig_len, &seq[spos]);
-		for (l = 0; l < cig_len; l++, apos++, spos++) {
-		    if (cram_add_substitution(fd, c, s, cr, spos,
-					      seq[spos], qual[spos],
-					      ref[apos]))
-			return -1;
-		}
-		break;
-#endif
 		
 	    case BAM_CDEL:
 		if (cram_add_deletion(c, s, cr, spos, cig_len, &seq[spos]))
@@ -2131,14 +2163,26 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    case BAM_CINS:
 		if (cram_add_insertion(c, s, cr, spos, cig_len, &seq[spos]))
 		    return -1;
-		spos += cig_len;
+		if (fd->no_ref) {
+		    for (l = 0; l < cig_len; l++, spos++) {
+			cram_add_quality(fd, c, s, cr, spos, qual[spos]);
+		    }
+		} else {
+		    spos += cig_len;
+		}
 		break;
 
 	    case BAM_CSOFT_CLIP:
 		if (cram_add_softclip(c, s, cr, spos, cig_len, &seq[spos],
 				      fd->version))
 		    return -1;
-		spos += cig_len;
+		if (fd->no_ref) {
+		    for (l = 0; l < cig_len; l++, spos++) {
+			cram_add_quality(fd, c, s, cr, spos, qual[spos]);
+		    }
+		} else {
+		    spos += cig_len;
+		}
 		break;
 
 	    case BAM_CHARD_CLIP:
@@ -2156,6 +2200,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	cram_stats_add(c->FN_stats, cr->nfeature);
     } else {
 	// Unmapped
+	cr->cram_flags |= CRAM_FLAG_PRESERVE_QUAL_SCORES;
 	cr->cigar  = 0;
 	cr->ncigar = 0;
 	cr->nfeature = 0;
@@ -2173,12 +2218,14 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
      * cram_add_substitution() can generate BA/QS events which need to 
      * be in the qual block before we append the rest of the data.
      */
-    BLOCK_GROW(s->qual_blk, cr->len);
-    qual = cp = (char *)BLOCK_END(s->qual_blk);
-    for (i = 0; i < cr->len; i++) {
-	cp[i] = bam_qual(b)[i];
+    if (cr->cram_flags & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
+	BLOCK_GROW(s->qual_blk, cr->len);
+	qual = cp = (char *)BLOCK_END(s->qual_blk);
+	for (i = 0; i < cr->len; i++) {
+	    cp[i] = bam_qual(b)[i];
+	}
+	BLOCK_SIZE(s->qual_blk) += cr->len;
     }
-    BLOCK_SIZE(s->qual_blk) += cr->len;
 
     /* Now we know apos and aend both, update mate-pair information */
     {

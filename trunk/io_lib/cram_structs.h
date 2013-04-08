@@ -361,6 +361,11 @@ typedef struct {
 	struct {
 	    int pos;
 	    int code;
+	    int qual;
+	} Q;
+	struct {
+	    int pos;
+	    int code;
 	    int len;
 	    int seq_idx; // soft-clip multiple bases
 	} S;
@@ -553,6 +558,7 @@ typedef struct {
     int seqs_per_slice;
     int slices_per_container;
     int embed_ref;
+    int no_ref;
     int ignore_md5;
     cram_range range;
 
@@ -584,6 +590,7 @@ enum cram_option {
     CRAM_OPT_IGNORE_MD5,
     CRAM_OPT_REFERENCE,
     CRAM_OPT_MULTI_SEQ_PER_SLICE,
+    CRAM_OPT_NO_REF,
 };
 
 /* BF bitfields */

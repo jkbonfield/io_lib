@@ -65,6 +65,7 @@ static void usage(FILE *fp) {
 	    SLICE_PER_CNT);
     fprintf(fp, "    -V version     [Cram] Specify the file format version to write (eg 1.1, 2.0)\n");
     fprintf(fp, "    -X             [Cram] Embed reference sequence.\n");
+    fprintf(fp, "    -x             [Cram] Non-reference based encoding.\n");
     fprintf(fp, "    -m             [Cram] Generate MD and NM tags:\n");
 }
 
@@ -76,12 +77,12 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
-    int start, end, multi_seq = 0;
+    int start, end, multi_seq = 0, no_ref = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:!Mm")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXI:O:R:!Mm")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -123,6 +124,10 @@ int main(int argc, char **argv) {
 
 	case 'X':
 	    embed_ref = 1;
+	    break;
+
+	case 'x':
+	    no_ref = 1;
 	    break;
 
 	case 'I':
@@ -233,13 +238,25 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref))
 	    return 1;
 
+    if (no_ref) {
+	if (scram_set_option(in, CRAM_OPT_NO_REF, no_ref))
+	    return 1;
+	if (scram_set_option(out, CRAM_OPT_NO_REF, no_ref))
+	    return 1;
+    }
+
     if (multi_seq)
 	if (scram_set_option(out, CRAM_OPT_MULTI_SEQ_PER_SLICE, multi_seq))
 	    return 1;
 
-    if (decode_md)
+    if (decode_md) {
+	if (no_ref) {
+	    fprintf(stderr, "Cannot use -m in conjunction with -x.\n");
+	    return 1;
+	}
 	if (scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md))
 	    return 1;
+    }
 
     if (ignore_md5)
 	if (scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5))
@@ -250,9 +267,13 @@ int main(int argc, char **argv) {
     scram_set_header(out, scram_get_header(in));
 
     // Needs doing after loading the header.
-    if (ref_fn) 
+    if (ref_fn) {
 	if (scram_set_option(out, CRAM_OPT_REFERENCE, ref_fn))
 	    return 1;
+    } else {
+	// Attempt to fill out a cram->refs[] array from @SQ headers
+	scram_set_option(out, CRAM_OPT_REFERENCE, NULL);
+    }
 
     if (scram_get_header(out)) {
 	char *arg_list = stringify_argv(argc, argv);
