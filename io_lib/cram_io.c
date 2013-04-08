@@ -1036,7 +1036,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     if (!fd->refs || !fd->refs->ref_id[id])
 	return NULL;
 
-    if (!(r = fd->refs->ref_id[id])) {
+    if (!(r = fd->refs->ref_id[id]) || r->length == 0) {
 	fprintf(stderr, "No reference found for id %d\n", id);
 	return NULL;
     }
