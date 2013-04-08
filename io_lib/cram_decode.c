@@ -628,6 +628,10 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
     int decode_md = fd->decode_md;
     char buf[20];
 
+    if (!(cf & CRAM_FLAG_PRESERVE_QUAL_SCORES)) {
+	memset(qual, 30, cr->len);
+    }
+
     if (decode_md) {
 	orig_aux = BLOCK_SIZE(s->aux_blk);
 	BLOCK_APPEND(s->aux_blk, "MDZ", 3);
@@ -836,28 +840,10 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	}
 
 	case 'Q': { // Quality score; QS
-#ifdef USE_X
-	    if (cig_len && cig_op != BAM_CBASE_MISMATCH) {
-		cigar[ncigar++] = (cig_len<<4) + cig_op;
-		cig_len = 0;
-	    }
-#else
-	    if (cig_len && cig_op != BAM_CMATCH) {
-		cigar[ncigar++] = (cig_len<<4) + cig_op;
-		cig_len = 0;
-	    }
-#endif
 	    r |= c->comp_hdr->QS_codec->decode(s, c->comp_hdr->QS_codec, blk,
 					       (char *)&qual[pos-1], &out_sz);
-#ifdef USE_X
-	    cig_op = BAM_CBASE_MISMATCH;
-#else
-	    cig_op = BAM_CMATCH;
-#endif
-	    cig_len++;
-	    seq_pos++;
-	    ref_pos++;
 	    //printf("  %d: QS = %d (ret %d)\n", f, qc, r);
+	    break;
 	}
 
 	case 'H': { // hard clip; HC
@@ -968,8 +954,6 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	r |= c->comp_hdr->Qs_codec->decode(s, c->comp_hdr->Qs_codec, blk,
 					   qual, &out_sz2);
-    } else {
-	memset(qual, 30, cr->len);
     }
 
     s->cigar = cigar;
@@ -1132,7 +1116,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		return -1;
 	    s->ref = (char *)BLOCK_DATA(b);
 	    s->ref_start = s->hdr->ref_seq_start;
-	} else {
+	} else if (!fd->no_ref) {
 	    //// Avoid Java cramtools bug by loading entire reference seq 
 	    //s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
 	    //s->ref_start = 1;
@@ -1145,7 +1129,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	}
     }
 
-    if (s->ref == NULL && s->hdr->ref_seq_id >= 0) {
+    if (s->ref == NULL && s->hdr->ref_seq_id >= 0 && !fd->no_ref) {
 	fprintf(stderr, "Unable to fetch reference #%d %d..%d\n",
 		s->hdr->ref_seq_id, s->hdr->ref_seq_start,
 		s->hdr->ref_seq_start + s->hdr->ref_seq_span-1);
@@ -1153,7 +1137,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     }
 
     if (fd->version != CRAM_1_VERS && s->hdr->ref_seq_id >= 0
-	&& !fd->ignore_md5) {
+	&& !fd->ignore_md5
+	&& memcmp(s->hdr->md5, "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16)) {
 	MD5_CTX md5;
 	unsigned char digest[16];
 
@@ -1199,7 +1184,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	if (fd->version != CRAM_1_VERS && ref_id == -2) {
 	    r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, blk,
 					       (char *)&cr->ref_id, &out_sz);
-	    s->ref = cram_get_ref(fd, cr->ref_id, 1, 0);
+	    if (!fd->no_ref)
+		s->ref = cram_get_ref(fd, cr->ref_id, 1, 0);
 	    s->ref_start = 1;
 	} else {
 	    cr->ref_id = ref_id; // Forced constant in CRAM 1.0

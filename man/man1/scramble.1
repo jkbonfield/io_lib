@@ -26,7 +26,9 @@ type is automatically chosen based on the filename suffix.
 .PP
 .TP
 \fB-I\fR \fIformat\fR
-Selects the input format, where \fIformat\fR is one of sam, bam or cram.
+Selects the input format, where \fIformat\fR is one of sam, bam or
+cram.  Use this when reading via a pipe to avoid input bytes being
+consumed when attempting to detect if the input is in SAM or BAM format.
 
 .TP
 \fB-O\fR \fIformat\fR
@@ -80,6 +82,17 @@ CRAM encoding only.  Sets the CRAM file format version. Supported values are
 CRAM encoding only. Embed snippets of the reference sequence in every slice.
 This means the files can be decoded without needing to specify the
 reference fasta file.
+
+.TP
+\fB-x\fR
+CRAM only. When encoding, omit reference based compression and instead
+store details of every base verbatim. During decoding -x is still
+required to avoid checking that the reference can be loaded.
+
+.TP
+\fB-m\fR
+CRAM decoding only. Generate MD:Z: and NM:I: auxiliary fields based on
+the reference-based compression.
 
 .SH "EXAMPLES"
 .PP
