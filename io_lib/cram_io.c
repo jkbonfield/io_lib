@@ -956,16 +956,17 @@ static void free_refs(refs_t *r) {
     if (r->ref_id)
 	free(r->ref_id);
 
-    iter = HashTableIterCreate();
-    while ((hi = HashTableIterNext(r->h_meta, iter))) {
-	ref_entry *e = hi->data.p;
-	if (e->seq)
-	    free(e->seq);
-    }
-    HashTableIterDestroy(iter);
+    if (r->h_meta) {
+	iter = HashTableIterCreate();
+	while ((hi = HashTableIterNext(r->h_meta, iter))) {
+	    ref_entry *e = hi->data.p;
+	    if (e->seq)
+		free(e->seq);
+	}
+	HashTableIterDestroy(iter);
 
-    if (r->h_meta)
 	HashTableDestroy(r->h_meta, 1);
+    } // else leak if r->ref_id is set. Need r->nref too
 
     if (r->fp)
 	fclose(r->fp);
@@ -1149,6 +1150,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
  * SAM header @SQ lines.
  */
 int cram_load_reference(cram_fd *fd, char *fn) {
+    if (fd->refs)
+	free_refs(fd->refs);
+    fd->refs = NULL;
+       
     if (!fn && fd->mode == 'r') {
 	SAM_hdr_type *ty = sam_header_find(fd->header, "SQ", NULL, NULL);
 	if (ty) {
@@ -1160,10 +1165,39 @@ int cram_load_reference(cram_fd *fd, char *fn) {
 		    fn += 5;
 	    }
 	}
-	
+
 	if (!fn)
 	    return -1;
     }
+
+
+    /*
+     * Create refs_t struct from the parsed @SQ headers.
+     * We use this when running in reference-less mode as it still
+     * needs to be able to count which refs are being used so we can
+     * spot when do use multi-seq slice packing.
+     */
+    else if (!fn) {
+	SAM_hdr *h = fd->header;
+	refs_t *r;
+	int i;
+	
+	if (!(r = calloc(1, sizeof(*r))))
+	    return -1;
+	r->ref_id = calloc(h->nref, sizeof(*r->ref_id));
+	if (!r->ref_id) {
+	    free(r);
+	    return -1;
+	}
+	for (i = 0; i < h->nref; i++) {
+	    if (!(r->ref_id[i] = calloc(1, sizeof(ref_entry))))
+		return -1;
+	}
+	
+	fd->refs = r;
+	return 0;
+    }
+
 
     fd->refs = load_reference(fn, !(fd->embed_ref && fd->mode == 'r'));
     if (fd->refs) {
@@ -1984,7 +2018,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
     }
 
     /* Fix M5 strings */
-    if (fd->refs) {
+    if (fd->refs && !fd->no_ref) {
 	int i;
 	for (i = 0; i < hdr->nref; i++) {
 	    SAM_hdr_type *ty;
@@ -2254,6 +2288,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->seqs_per_slice = SEQS_PER_SLICE;
     fd->slices_per_container = SLICE_PER_CNT;
     fd->embed_ref = 0;
+    fd->no_ref = 0;
     fd->ignore_md5 = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
@@ -2388,6 +2423,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_EMBED_REF:
 	fd->embed_ref = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_NO_REF:
+	fd->no_ref = va_arg(args, int);
 	break;
 
     case CRAM_OPT_IGNORE_MD5:

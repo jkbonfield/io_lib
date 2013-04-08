@@ -467,6 +467,7 @@ int main(int argc, char **argv) {
 				char qc;
 				r = c->comp_hdr->QS_codec->decode(s,c->comp_hdr->QS_codec, b, &qc, &out_sz);
 				printf("  %d: QS = %d (ret %d)\n", f, qc, r);
+				break;
 			    }
 
 			    case 'N':
