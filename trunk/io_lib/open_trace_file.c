@@ -48,7 +48,8 @@
 static char *magics[] = {"", ".bz", ".gz", ".Z", ".z", ".bz2", ".sz"};
 
 /*
- * Tokenises the search path splitting on colons (unix) or semicolons (windows).
+ * Tokenises the search path splitting on colons (unix) or semicolons
+ * (windows).
  * We also  explicitly add a "./" to the end of the search path
  *
  * Returns: A new search path with items separated by nul chars. Two nul
@@ -58,7 +59,7 @@ static char *magics[] = {"", ".bz", ".gz", ".Z", ".z", ".bz2", ".sz"};
  * The returned data has been malloced. It is up to the caller to free this
  * memory.
  */
-static char *tokenise_search_path(char *searchpath) {
+char *tokenise_search_path(char *searchpath) {
     char *newsearch;
     unsigned int i, j;
     size_t len;
@@ -379,7 +380,7 @@ static mFILE *find_file_archive(char *file, char *arcname) {
 
 #ifdef USE_WGET
 /* NB: non-reentrant due to reuse of handle */
-static mFILE *find_file_url(char *file, char *url) {
+mFILE *find_file_url(char *file, char *url) {
     char buf[8192], *cp;
     mFILE *fp;
     int pid;
@@ -415,7 +416,7 @@ static mFILE *find_file_url(char *file, char *url) {
 #endif
 
 #ifdef HAVE_LIBCURL
-static mFILE *find_file_url(char *file, char *url) {
+mFILE *find_file_url(char *file, char *url) {
     char buf[8192], *cp;
     mFILE *mf = NULL, *headers = NULL;
     int maxlen = 8190 - strlen(file);
@@ -503,6 +504,12 @@ static mFILE *find_file_url(char *file, char *url) {
 	mfdestroy(headers);
     if (*errbuf)
 	fprintf(stderr, "%s\n", errbuf);
+    return NULL;
+}
+#endif
+
+#if !defined(USE_WGET) && !defined(HAVE_LIBCURL)
+mFILE *find_file_url(char *file, char *url) {
     return NULL;
 }
 #endif
