@@ -34,6 +34,7 @@
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
+#include "io_lib/open_trace_file.h"
 
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
@@ -1003,6 +1004,91 @@ int refs2id(refs_t *r, SAM_hdr *bfd) {
 }
 
 /*
+ * Queries the M5 string from the header and attempts to populate the
+ * reference from this using the REF_PATH environment.
+ *
+ * Returns 0 on sucess
+ *        -1 on failure
+ */
+static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
+    char *ref_path = getenv("REF_PATH");
+    char *md5;
+    SAM_hdr_type *ty;
+    SAM_hdr_tag *tag;
+    char path[PATH_MAX];
+    char *local_cache = getenv("REF_CACHE");
+    mFILE *mf;
+
+    if (!ref_path)
+	ref_path = ".";
+
+    if (!r->name)
+	return -1;
+
+    if (!(ty = sam_header_find(fd->header, "SQ", "SN", r->name)))
+	return -1;
+
+    if (!(tag = sam_header_find_key(fd->header, ty, "M5", NULL)))
+	return -1;
+
+    fprintf(stderr, "Querying ref %s\n", tag->str+3);
+
+    /* Use cache if available */
+    if (local_cache) {
+	struct stat sb;
+	FILE *fp;
+
+	snprintf(path, PATH_MAX, "%s/%s", local_cache, tag->str+3);
+
+	if (0 == stat(path, &sb) && (fp = fopen(path, "r"))) {
+	    r->length = sb.st_size;
+	    r->seq = malloc(r->length);
+	    if (!r->seq)
+		return -1;
+
+	    if (r->length == fread(r->seq, 1, r->length, fp)) {
+		if (!fd->unsorted)
+		    fd->ref_free = r->seq;
+		fclose(fp);
+		return 0;
+	    } else {
+		fclose(fp);
+	    }
+	} else {
+	    perror(path);
+	}
+    }
+
+    /* Otherwise search */
+    mf = open_path_mfile(tag->str+3, ref_path, NULL);
+    if (!mf)
+	return -1;
+
+    mfseek(mf, 0, SEEK_END);
+    r->length = mftell(mf);
+    r->seq = malloc(r->length);
+    mrewind(mf);
+    mfread(r->seq, 1, r->length, mf);
+    mfclose(mf);
+
+    if (local_cache) {
+	snprintf(path, PATH_MAX, "%s/%s", local_cache, tag->str+3);
+	fprintf(stderr, "Populating local cache: %s\n", path);
+	FILE *fp = fopen(path, "w");
+	if (!fp) {
+	    perror(path);
+	} else {
+	    if (r->length != fwrite(r->seq, 1, r->length, fp)) {
+		perror(path);
+	    }
+	    fclose(fp);
+	}
+    }
+
+    return 0;
+}
+
+/*
  * Returns a portion of a reference sequence from start to end inclusive.
  * The returned pointer is owned by the cram_file fd and should not be freed
  * by the caller. It is valid only until the next cram_get_ref is called
@@ -1036,10 +1122,17 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     if (!fd->refs || !fd->refs->ref_id[id])
 	return NULL;
 
-    if (!(r = fd->refs->ref_id[id]) || r->length == 0) {
+    if (!(r = fd->refs->ref_id[id])) {
 	fprintf(stderr, "No reference found for id %d\n", id);
 	return NULL;
     }
+    if (r->length == 0) {
+	if (cram_populate_ref(fd, id, r) == -1) {
+	    fprintf(stderr, "No reference found for id %d\n", id);
+	    return NULL;
+	}
+    }
+
     if (end < 1)
 	end = r->length;
     if (end >= r->length)
@@ -1166,8 +1259,8 @@ int cram_load_reference(cram_fd *fd, char *fn) {
 	    }
 	}
 
-	if (!fn)
-	    return -1;
+	//	if (!fn)
+	//	    return -1;
     }
 
 
@@ -1177,7 +1270,7 @@ int cram_load_reference(cram_fd *fd, char *fn) {
      * needs to be able to count which refs are being used so we can
      * spot when do use multi-seq slice packing.
      */
-    else if (!fn) {
+    if (!fn && fd->header) {
 	SAM_hdr *h = fd->header;
 	refs_t *r;
 	int i;
@@ -1192,6 +1285,9 @@ int cram_load_reference(cram_fd *fd, char *fn) {
 	for (i = 0; i < h->nref; i++) {
 	    if (!(r->ref_id[i] = calloc(1, sizeof(ref_entry))))
 		return -1;
+	    // FIXME:
+	    strncpy(r->ref_id[i]->name, h->ref[i].name, 256);
+	    r->ref_id[i]->name[255] = 0;
 	}
 	
 	fd->refs = r;
@@ -2301,6 +2397,9 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->range.refid = -2; // no ref.
     fd->eof = 0;
     fd->ref_fn = NULL;
+
+    /* Initialise dummy refs from the @SQ headers */
+    cram_load_reference(fd, NULL);
 
     return fd;
 
