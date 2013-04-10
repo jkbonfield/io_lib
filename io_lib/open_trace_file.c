@@ -904,10 +904,46 @@ static mFILE *find_file_dir(char *file, char *dirname) {
 	len--;
 
     /* Special case for "./" or absolute filenames */
-    if (*file == '/' || (len==1 && *dirname == '.'))
+    if (*file == '/' || (len==1 && *dirname == '.')) {
 	sprintf(path, "%s", file);
-    else
-	sprintf(path, "%.*s/%s", (int)len, dirname, file);
+    } else {
+	/* Handle %[0-9]*s expansions, if required */
+	char *path_end = path;
+	*path = 0;
+	while ((cp = strchr(dirname, '%'))) {
+	    char *endp;
+	    long l = strtol(cp+1, &endp, 10);
+	    if (*endp != 's') {
+		strncpy(path_end, dirname, (endp+1)-dirname);
+		path_end += (endp+1)-dirname;
+		dirname = endp+1;
+		continue;
+	    }
+	    
+	    strncpy(path_end, dirname, cp-dirname);
+	    path_end += cp-dirname;
+	    if (l) {
+		strncpy(path_end, file, l);
+		file     += MIN(strlen(file), l);
+		path_end += MIN(strlen(file), l);
+	    } else {
+		strcpy(path_end, file);
+		file     += strlen(file);
+		path_end += strlen(file);
+	    }
+	    len -= (endp+1) - dirname;
+	    dirname = endp+1;
+	}
+	strncpy(path_end, dirname, len);
+	path_end += MIN(strlen(dirname), len);
+	*path_end = 0;
+	if (*file) {
+	    *path_end++ = '/';
+	    strcpy(path_end, file);
+	}
+
+	//fprintf(stderr, "*PATH=\"%s\"\n", path);
+    }
 
     if (is_file(path)) {
 	return mfopen(path, "rb");
