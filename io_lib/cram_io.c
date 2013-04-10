@@ -676,17 +676,13 @@ int cram_write_block(cram_fd *fd, cram_block *b) {
     if (itf8_encode(fd, b->comp_size)   ==  -1) return -1;
     if (itf8_encode(fd, b->uncomp_size) ==  -1) return -1;
 
-    FILE *tmp = fopen("/dev/null", "wb");
     if (b->method == RAW) {
-	fwrite(b->data, 1, b->uncomp_size, tmp); 
 	if (b->uncomp_size != fwrite(b->data, 1, b->uncomp_size, fd->fp)) 
 	    return -1;
     } else {
-	fwrite(b->data, 1, b->comp_size, tmp); 
 	if (b->comp_size != fwrite(b->data, 1, b->comp_size, fd->fp)) 
 	    return -1;
     }
-    fclose(tmp);
 
     return 0;
 }
@@ -851,6 +847,29 @@ char *cram_content_type2str(enum cram_content_type t) {
     case CORE:                return "CORE";
     }
     return "?";
+}
+
+/*
+ * Extra error checking on fclose to really ensure data is written.
+ * Care needs to be taken to handle pipes vs real files.
+ *
+ * Returns 0 on success
+ *        -1 on failure.
+ */
+int paranoid_fclose(FILE *fp) {
+    if (-1 == fflush(fp) && errno != EBADF) {
+	fclose(fp);
+	return -1;
+    }
+
+    errno = 0;
+    if (-1 == fsync(fileno(fp))) {
+	if (errno != EINVAL) { // eg pipe
+	    fclose(fp);
+	    return -1;
+	}
+    }
+    return fclose(fp);
 }
 
 /* ----------------------------------------------------------------------
@@ -1312,10 +1331,14 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 	if (r->length != fwrite(r->seq, 1, r->length, fp)) {
 	    perror(path);
 	}
-	fclose(fp);
-
-	if (0 == chmod(path_tmp, 0444))
-	    rename(path_tmp, path);
+	if (-1 == paranoid_fclose(fp)) {
+	    unlink(path_tmp);
+	} else {
+	    if (0 == chmod(path_tmp, 0444))
+		rename(path_tmp, path);
+	    else
+		unlink(path_tmp);
+	}
     }
 
     return 0;
@@ -2663,7 +2686,7 @@ int cram_close(cram_fd *fd) {
 	    return -1;
     }
 
-    if (fclose(fd->fp) != 0)
+    if (paranoid_fclose(fd->fp) != 0)
 	return -1;
 
     if (fd->file_def)
