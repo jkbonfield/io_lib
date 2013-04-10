@@ -466,7 +466,8 @@ typedef struct cram_slice {
  */
 // from fa.fai / samtools faidx files
 typedef struct {
-    char name[256];
+    char *name;
+    char *fn;
     int64_t length;
     int64_t offset;
     int bases_per_line;
@@ -477,9 +478,14 @@ typedef struct {
 
 // References structure.
 typedef struct {
-    HashTable *h_meta;
-    ref_entry **ref_id;
-    FILE *fp;
+    string_alloc_t *pool;  // String pool for holding filenames and SN vals
+
+    HashTable *h_meta;     // ref_entry*, index by name
+    ref_entry **ref_id;    // ref_entry*, index by ID
+    int nref;              // number of ref_entry
+
+    char *fn;              // current file opened
+    FILE *fp;              // and the FILE* to go with it.
 } refs_t;
 
 /*-----------------------------------------------------------------------------

@@ -857,58 +857,120 @@ char *cram_content_type2str(enum cram_content_type t) {
  * Reference sequence handling
  */
 
-/*
- * Loads a reference.
- * FIXME: use the sam_comp.cpp get_ref_base() equivalent to allow
- * random access within an indexed reference instead?
- *
- * Returns a ref_seq structure on success
- *         NULL on failure
- */
-static refs_t *load_reference(char *fn, int is_err) {
-    struct stat sb;
-    FILE *fp;
-    HashData hd;
-    char fai_fn[PATH_MAX];
-    char line[1024];
+static void refs_free(refs_t *r) {
+    int i;
 
-    refs_t *r = malloc(sizeof(*r));
+    if (!r)
+	return;
+
+    if (r->pool)
+	string_pool_destroy(r->pool);
+
+    if (r->h_meta)
+	HashTableDestroy(r->h_meta, 0);
+    
+    if (r->ref_id) {
+	for (i = 0; i < r->nref; i++) {
+	    if (!r->ref_id[i])
+		continue;
+
+	    if (r->ref_id[i]->seq) {
+		//fprintf(stderr, "Free ref id %d in refs 0x%p\n", i, r);
+		free(r->ref_id[i]->seq);
+	    }
+	    free(r->ref_id[i]);
+	}
+
+	free(r->ref_id);
+    }
+
+    if (r->fp)
+	fclose(r->fp);
+
+    free(r);
+}
+
+static refs_t *refs_create(void) {
+    refs_t *r = calloc(1, sizeof(*r));
     if (!r)
 	return NULL;
+
+    if (!(r->pool = string_pool_create(8192)))
+	goto err;
+
+    r->ref_id = NULL; // see refs2id() to populate.
+
+    r->h_meta = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
+    if (!r->h_meta)
+	goto err;
+
+    return r;
+
+ err:
+    refs_free(r);
+    return NULL;
+}
+
+/*
+ * Loads a FAI file for a reference.fasta.
+ * "is_err" indicates whether failure to load is worthy of emitting an
+ * error message. In some cases (eg with embedded references) we
+ * speculatively load, just incase, and silently ignore errors.
+ *
+ * Returns the refs_t struct on success (maybe newly allocated);
+ *         NULL on failure
+ */
+static refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
+    struct stat sb;
+    FILE *fp = NULL;
+    HashData hd;
+    char fai_fn[PATH_MAX];
+    char line[8192];
+    refs_t *r = r_orig;
+
+    //fprintf(stderr, "refs_load_fai %s\n", fn);
+
+    if (!r)
+	if (!(r = refs_create()))
+	    goto err;
 
     /* Open reference, for later use */
     if (stat(fn, &sb) != 0) {
 	if (is_err)
 	    perror(fn);
-	return NULL;
+	goto err;
     }
+
+    if (r->fp)
+	fclose(r->fp);
+    r->fp = NULL;
+
+    if (!(r->fn = string_dup(r->pool, fn)))
+	goto err;
 
     if (!(r->fp = fopen(fn, "r"))) {
 	if (is_err)
 	    perror(fn);
-	return NULL;
+	goto err;
     }
-
-    r->ref_id = NULL;
-    r->h_meta = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
-    if (!r->h_meta)
-	return NULL;
 
     /* Parse .fai file and load meta-data */
     sprintf(fai_fn, "%.*s.fai", PATH_MAX-5, fn);
     if (stat(fai_fn, &sb) != 0) {
 	if (is_err)
 	    perror(fai_fn);
-	return NULL;
+	goto err;
     }
     if (!(fp = fopen(fai_fn, "r"))) {
 	if (is_err)
 	    perror(fai_fn);
-	return NULL;
+	goto err;
     }
-    while (fgets(line, 1024, fp) != NULL) {
+    while (fgets(line, 8192, fp) != NULL) {
 	ref_entry *e = malloc(sizeof(*e));
 	char *cp;
+	int n;
+	HashItem *hi;
 
 	if (!e)
 	    return NULL;
@@ -917,7 +979,7 @@ static refs_t *load_reference(char *fn, int is_err) {
 	for (cp = line; *cp && !isspace(*cp); cp++)
 	    ;
 	*cp++ = 0;
-	strncpy(e->name, line, 255); e->name[255] = 0;
+	e->name = string_dup(r->pool, line);
 	
 	// length
 	while (*cp && isspace(*cp))
@@ -939,40 +1001,35 @@ static refs_t *load_reference(char *fn, int is_err) {
 	    cp++;
 	e->line_length = strtol(cp, &cp, 10);
 
+	// filename
+	e->fn = r->fn;
+
 	e->count = 0;
 	e->seq = NULL;
 
 	hd.p = e;
-	if (!HashTableAdd(r->h_meta, e->name, strlen(e->name), hd, NULL))
+	if (!(hi = HashTableAdd(r->h_meta, e->name, strlen(e->name), hd, &n)))
 	    return NULL;
+
+	if (!n) {
+	    /* Replace old one if needed */
+	    ref_entry *r = (ref_entry *)hi->data.p;
+	    if (r)
+		free(r);
+	    hi->data.p = e;
+	}
     }
 
     return r;
-}
 
-static void free_refs(refs_t *r) {
-    HashIter *iter;
-    HashItem *hi;
+ err:
+    if (fp)
+	fclose(fp);
 
-    if (r->ref_id)
-	free(r->ref_id);
-
-    if (r->h_meta) {
-	iter = HashTableIterCreate();
-	while ((hi = HashTableIterNext(r->h_meta, iter))) {
-	    ref_entry *e = hi->data.p;
-	    if (e->seq)
-		free(e->seq);
-	}
-	HashTableIterDestroy(iter);
-
-	HashTableDestroy(r->h_meta, 1);
-    } // else leak if r->ref_id is set. Need r->nref too
-
-    if (r->fp)
-	fclose(r->fp);
-
-    free(r);
+    if (!r_orig)
+	refs_free(r);
+    
+    return NULL;
 }
 
 /*
@@ -982,25 +1039,159 @@ static void free_refs(refs_t *r) {
  * Returns 0 on success
  *        -1 on failure
  */
-int refs2id(refs_t *r, SAM_hdr *bfd) {
+int refs2id(refs_t *r, SAM_hdr *h) {
     int i;
     if (r->ref_id)
 	free(r->ref_id);
 
-    r->ref_id = malloc(bfd->nref * sizeof(*r->ref_id));
+    r->ref_id = calloc(h->nref, sizeof(*r->ref_id));
     if (!r->ref_id)
 	return -1;
-    for (i = 0; i < bfd->nref; i++) {
+
+    r->nref = h->nref;
+    for (i = 0; i < h->nref; i++) {
 	HashItem *hi;
-	if ((hi = HashTableSearch(r->h_meta, bfd->ref[i].name, 0))) {
+	if ((hi = HashTableSearch(r->h_meta, h->ref[i].name, 0))) {
 	    r->ref_id[i] = hi->data.p;
 	} else {
 	    fprintf(stderr, "Unable to find ref name '%s'\n",
-		    bfd->ref[i].name);
+		    h->ref[i].name);
 	}
     }
 
     return 0;
+}
+
+/*
+ * Generates refs_t entries based on @SQ lines in the header.
+ * Returns 0 on success
+ *         -1 on failure
+ */
+static int refs_from_header(refs_t *r, cram_fd *fd, SAM_hdr *h) {
+    int i;
+
+    if (!h)
+	return 0;
+
+    //fprintf(stderr, "refs_from_header for %p mode %c\n", fd, fd->mode);
+
+    /* Existing refs are fine, as long as they're compatible with the hdr. */
+    i = r->nref;
+    if (r->nref < h->nref)
+	r->nref = h->nref;
+
+    if (!(r->ref_id = realloc(r->ref_id, r->nref * sizeof(*r->ref_id))))
+	return -1;
+
+    for (; i < r->nref; i++)
+	r->ref_id[i] = NULL;
+
+    /* Copy info from h->ref[i] over to r */
+    for (i = 0; i < h->nref; i++) {
+	SAM_hdr_type *ty;
+	SAM_hdr_tag *tag;
+	HashData hd;
+	int n;
+
+	if (r->ref_id[i] && 0 == strcmp(r->ref_id[i]->name, h->ref[i].name))
+	    continue;
+
+	if (!(r->ref_id[i] = calloc(1, sizeof(ref_entry))))
+	    return -1;
+
+	r->ref_id[i]->name = string_dup(r->pool, h->ref[i].name);
+	r->ref_id[i]->length = 0; // marker for not yet loaded
+
+	/* Initialise likely filename if known */
+	if ((ty = sam_header_find(h, "SQ", "SN", h->ref[i].name))) {
+	    if ((tag = sam_header_find_key(h, ty, "M5", NULL))) {
+		r->ref_id[i]->fn = string_dup(r->pool, tag->str+3);
+		//fprintf(stderr, "Tagging @SQ %s / %s\n", r->ref_id[i]->name, r->ref_id[i]->fn);
+	    }
+	}
+
+	hd.p = r->ref_id[i];
+	if (!HashTableAdd(r->h_meta, r->ref_id[i]->name,
+			  strlen(r->ref_id[i]->name), hd, &n))
+	    return -1;
+	if (!n)
+	    return -1;
+    }
+
+    return 0;
+}
+
+/*
+ * Converts a directory and a filename into an expanded path, replacing %s
+ * in directory with the filename and %[0-9]+s with portions of the filename
+ * Any remaining parts of filename are added to the end with /%s.
+ */
+void expand_cache_path(char *path, char *dir, char *fn) {
+    char *cp;
+
+    while ((cp = strchr(dir, '%'))) {
+	strncpy(path, dir, cp-dir);
+	path += cp-dir;
+	dir += cp-dir;
+
+	if (*++cp == 's') {
+	    strcpy(path, fn);
+	    path += strlen(fn);
+	    fn += strlen(fn);
+	    cp++;
+	} else if (*cp >= '0' && *cp <= '9') {
+	    char *endp;
+	    long l;
+
+	    l = strtol(cp, &endp, 10);
+	    l = MIN(l, strlen(fn));
+	    if (*endp == 's') {
+		strncpy(path, fn, l);
+		path += l;
+		fn += l;
+		*path = 0;
+		cp = endp+1;
+	    } else {
+		*path++ = '%';
+		*path++ = *cp++;
+	    }
+	} else {
+	    *path++ = '%';
+	    *path++ = *cp++;
+	}
+	dir = cp;
+    }
+    strcpy(path, dir);
+    path += strlen(dir);
+    if (*fn && path[-1] != '/')
+	*path++ = '/';
+    strcpy(path, fn);
+}
+
+/*
+ * Make the directory containing path and any prefix directories.
+ */
+void mkdir_prefix(char *path, int mode) {
+    char *cp = strrchr(path, '/');
+    if (!cp)
+	return;
+
+    *cp = 0;
+    if (is_directory(path)) {
+	*cp = '/';
+	return;
+    }
+
+    if (mkdir(path, mode) == 0) {
+	chmod(path, mode);
+	*cp = '/';
+	return;
+    }
+
+    mkdir_prefix(path, mode);
+    mkdir(path, mode);
+    chmod(path, mode);
+    *cp = '/';
 }
 
 /*
@@ -1015,9 +1206,12 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     char *md5;
     SAM_hdr_type *ty;
     SAM_hdr_tag *tag;
-    char path[PATH_MAX];
+    char path[PATH_MAX], path_tmp[PATH_MAX];
     char *local_cache = getenv("REF_CACHE");
     mFILE *mf;
+
+    if (fd->verbose)
+	fprintf(stderr, "cram_populate_ref on fd %p, id %d\n", fd, id);
 
     if (!ref_path)
 	ref_path = ".";
@@ -1031,58 +1225,97 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     if (!(tag = sam_header_find_key(fd->header, ty, "M5", NULL)))
 	return -1;
 
-    fprintf(stderr, "Querying ref %s\n", tag->str+3);
+    if (fd->verbose)
+	fprintf(stderr, "Querying ref %s\n", tag->str+3);
 
     /* Use cache if available */
-    if (local_cache) {
+    if (local_cache && *local_cache) {
 	struct stat sb;
 	FILE *fp;
 
-	snprintf(path, PATH_MAX, "%s/%s", local_cache, tag->str+3);
+	expand_cache_path(path, local_cache, tag->str+3);
 
 	if (0 == stat(path, &sb) && (fp = fopen(path, "r"))) {
 	    r->length = sb.st_size;
-	    r->seq = malloc(r->length);
-	    if (!r->seq)
-		return -1;
+	    r->offset = r->line_length = r->bases_per_line = 0;
+	    r->fn = string_dup(fd->refs->pool, path);
 
-	    if (r->length == fread(r->seq, 1, r->length, fp)) {
-		if (!fd->unsorted)
-		    fd->ref_free = r->seq;
-		fclose(fp);
-		return 0;
-	    } else {
-		fclose(fp);
-	    }
-	} else {
-	    perror(path);
+	    if (fd->refs->fp)
+		fclose(fd->refs->fp);
+	    fd->refs->fp = fp;
+	    fd->refs->fn = r->fn;
+
+	    // Fall back to cram_get_ref() where it'll do the actual
+	    // reading of the file.
+	    return 0;
 	}
     }
 
     /* Otherwise search */
-    mf = open_path_mfile(tag->str+3, ref_path, NULL);
-    if (!mf)
-	return -1;
+    if ((mf = open_path_mfile(tag->str+3, ref_path, NULL))) {
+	mfseek(mf, 0, SEEK_END);
+	r->length = mftell(mf);
+	r->seq = malloc(r->length);
+	mrewind(mf);
+	mfread(r->seq, 1, r->length, mf);
+	mfclose(mf);
 
-    mfseek(mf, 0, SEEK_END);
-    r->length = mftell(mf);
-    r->seq = malloc(r->length);
-    mrewind(mf);
-    mfread(r->seq, 1, r->length, mf);
-    mfclose(mf);
+    } else {
+	refs_t *refs;
 
-    if (local_cache) {
-	snprintf(path, PATH_MAX, "%s/%s", local_cache, tag->str+3);
-	fprintf(stderr, "Populating local cache: %s\n", path);
-	FILE *fp = fopen(path, "w");
+	/* Failed to find in search path or M5 cache, see if @SQ UR: tag? */
+	if (!(tag = sam_header_find_key(fd->header, ty, "UR", NULL)))
+	    return -1;
+
+	if (fd->refs->fp)
+	    fclose(fd->refs->fp);
+	if (!(refs = refs_load_fai(fd->refs, tag->str+3, 0)))
+	    return -1;
+	fd->refs = refs;
+	fd->refs->fp = NULL;
+
+	if (!fd->refs->fn)
+	    return -1;
+	if (-1 == refs2id(fd->refs, fd->header))
+	    return -1;
+
+	if (!fd->refs->ref_id || !fd->refs->ref_id[id])
+	    return -1;
+
+	// Local copy already, so fall back to cram_get_ref().
+	return 0;
+    }
+
+    /* Populate the local disk cache if required */
+    if (local_cache && *local_cache) {
+	FILE *fp;
+	int i;
+
+	expand_cache_path(path, local_cache, tag->str+3);
+	if (fd->verbose)
+	    fprintf(stderr, "Path='%s'\n", path);
+	mkdir_prefix(path, 01777);
+
+	i = 0;
+	do {
+	    sprintf(path_tmp, "%s.tmp_%d", path, /*getpid(),*/ i);
+	    i++;
+	    fp = fopen(path_tmp, "wx");
+	} while (fp == NULL && errno == EEXIST);
 	if (!fp) {
-	    perror(path);
-	} else {
-	    if (r->length != fwrite(r->seq, 1, r->length, fp)) {
-		perror(path);
-	    }
-	    fclose(fp);
+	    perror(path_tmp);
+
+	    // Not fatal - we have the data already so keep going.
+	    return 0;
 	}
+
+	if (r->length != fwrite(r->seq, 1, r->length, fp)) {
+	    perror(path);
+	}
+	fclose(fp);
+
+	if (0 == chmod(path_tmp, 0444))
+	    rename(path_tmp, path);
     }
 
     return 0;
@@ -1103,48 +1336,11 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     ref_entry *r;
     off_t offset, len;
-    //char *cp_from;
-    char *cp_to;
 
-    //struct timeval tv1, tv2;
-    //gettimeofday(&tv1, NULL);
-    
-    if (id < 0) {
-	if (fd->ref_free) {
-	    free(fd->ref_free);
-	    fd->ref_free = NULL;
-	}
-	fd->ref = NULL;
-	fd->ref_id = id;
-	return NULL;
-    }
+    if (fd->verbose)
+	fprintf(stderr, "cram_get_ref on fd %p, id %d, range %d..%d\n",
+		fd, id, start, end);
 
-    if (!fd->refs || !fd->refs->ref_id[id])
-	return NULL;
-
-    if (!(r = fd->refs->ref_id[id])) {
-	fprintf(stderr, "No reference found for id %d\n", id);
-	return NULL;
-    }
-    if (r->length == 0) {
-	if (cram_populate_ref(fd, id, r) == -1) {
-	    fprintf(stderr, "No reference found for id %d\n", id);
-	    return NULL;
-	}
-    }
-
-    if (end < 1)
-	end = r->length;
-    if (end >= r->length)
-	end  = r->length; 
-    assert(start >= 1);
-
-    /* If over half the ref, load all of it anyway */
-    if (end - start >= 0.5*r->length) {
-	start = 1;
-	end = r->length;
-    }
-    
     /*
      * Check if asking for same reference. A common issue in sam_to_cram.
      * Similarly if it's a substring of the reference we already have, just
@@ -1155,6 +1351,68 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	end <= fd->ref_end) {
 	return fd->ref;
     }
+
+    //struct timeval tv1, tv2;
+    //gettimeofday(&tv1, NULL);
+
+    /* Unmapped ref ID */
+    if (id < 0) {
+	if (fd->ref_free) {
+	    free(fd->ref_free);
+	    fd->ref_free = NULL;
+	}
+	fd->ref = NULL;
+	fd->ref_id = id;
+	return NULL;
+    }
+
+    /* Does this ID exist? */
+    if (id >= fd->refs->nref) {
+	fprintf(stderr, "No reference found for id %d\n", id);
+	return NULL;
+    }
+
+    if (!fd->refs || !fd->refs->ref_id[id]) {
+	fprintf(stderr, "No reference found for id %d\n", id);
+	return NULL;
+    }
+
+    if (!(r = fd->refs->ref_id[id])) {
+	fprintf(stderr, "No reference found for id %d\n", id);
+	return NULL;
+    }
+
+    /*
+     * It has an entry, but may not have been populated yet.
+     * Any manually loaded .fai files have their lengths known.
+     * A ref entry computed from @SQ lines (M5 or UR field) will have
+     * r->length == 0 unless it's been loaded once and verified that we have
+     * an on-disk filename for it.
+     */
+    if (r->length == 0) {
+	if (cram_populate_ref(fd, id, r) == -1) {
+	    fprintf(stderr, "Failed to populate reference for id %d\n", id);
+	    return NULL;
+	}
+	r = fd->refs->ref_id[id];
+    }
+
+    /*
+     * We now know that we the filename containing the reference, so check
+     * for limits. If it's over half the reference we'll load all of it in
+     * memory as this will speed up subsequent calls.
+     */
+    if (end < 1)
+	end = r->length;
+    if (end >= r->length)
+	end  = r->length; 
+    assert(start >= 1);
+
+    if (end - start >= 0.5*r->length) {
+	start = 1;
+	end = r->length;
+    }
+    
 
     /*
      * Maybe we have it cached already? This only happens if we're
@@ -1168,18 +1426,36 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	return fd->ref;
     }
 
-    //fprintf(stderr, "Cram_get_ref %d %d..%d\n", id, start, end);
 
-    // Compute location in file
-    offset = r->offset + (start-1)/r->bases_per_line * r->line_length + 
-	(start-1)%r->bases_per_line;
+    /*
+     * Compute locations in file. This is trivial for the MD5 files, but
+     * is still necessary for the fasta variants.
+     */
+    offset = r->line_length
+	? r->offset + (start-1)/r->bases_per_line * r->line_length +
+	  (start-1)%r->bases_per_line
+	: start-1;
+
+    len = (r->line_length
+	   ? r->offset + (end-1)/r->bases_per_line * r->line_length + 
+	     (end-1)%r->bases_per_line
+	   : end-1) - offset + 1;
+
+    /* Open file if it's not already the current open reference */
+    if (strcmp(fd->refs->fn, r->fn) || fd->refs->fp == NULL) {
+	if (fd->refs->fp)
+	    fclose(fd->refs->fp);
+	fd->refs->fn = r->fn;
+	if (!(fd->refs->fp = fopen(fd->refs->fn, "r"))) {
+	    perror(fd->refs->fn);
+	    return NULL;
+	}
+    }
+
     if (0 != fseeko(fd->refs->fp, offset, SEEK_SET)) {
 	perror("fseeko() on reference file");
 	return NULL;
     }
-
-    len = r->offset + (end-1)/r->bases_per_line * r->line_length + 
-	(end-1)%r->bases_per_line - offset + 1;
 
     // Load the data enmasse and then strip whitespace as we go 
     if (fd->ref_free) {
@@ -1190,33 +1466,31 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     if (!(fd->ref = malloc(len)))
 	return NULL;
 
-    //fprintf(stderr, "Load ref %d of len %d (%d..%d) = %p\n",
-    //	    id, len, start, end, fd->ref);
+    if (fd->verbose)
+	fprintf(stderr, "Load ref %d (%d..%d) = %p\n",
+		id, start, end, fd->ref);
 
     if (len != fread(fd->ref, 1, len, fd->refs->fp)) {
 	perror("fread() on reference file");
 	return NULL;
     }
 
-#if 0
-    for (cp_from = cp_to = fd->ref; len; len--, cp_from++) {
-	if (!isspace(*cp_from))
-	    *cp_to++ = toupper(*cp_from);
-    }
-#else
-    {
+    // Strip white-space if required.
+    if (len != end-start+1) {
 	int i, j;
 	char *cp = fd->ref;
+	char *cp_to;
+
 	for (i = j = 0; i < len; i++) {
 	    if (cp[i] >= '!' && cp[i] <= '~')
 		cp[j++] = cp[i] & ~0x20;
 	}
 	cp_to = cp+j;
-    }
-#endif
-    if (cp_to - fd->ref != end-start+1) {
-	fprintf(stderr, "Malformed reference file?\n");
-	return NULL;
+
+	if (cp_to - fd->ref != end-start+1) {
+	    fprintf(stderr, "Malformed reference file?\n");
+	    return NULL;
+	}
     }
 
     fd->ref_id    = id;
@@ -1243,68 +1517,24 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
  * SAM header @SQ lines.
  */
 int cram_load_reference(cram_fd *fd, char *fn) {
-    if (fd->refs)
-	free_refs(fd->refs);
-    fd->refs = NULL;
-       
-    if (!fn && fd->mode == 'r') {
-	SAM_hdr_type *ty = sam_header_find(fd->header, "SQ", NULL, NULL);
-	if (ty) {
-	    SAM_hdr_tag *tag;
+    if (fn) {
+	fd->refs = refs_load_fai(fd->refs, fn,
+				 !(fd->embed_ref && fd->mode == 'r'));
+	fn = fd->refs ? fd->refs->fn : NULL;
+    }
+    fd->ref_fn = fn;
 
-	    if ((tag = sam_header_find_key(fd->header, ty, "UR", NULL))) {
-		fn  = tag->str + 3;
-		if (strncmp(fn, "file:", 5) == 0)
-		    fn += 5;
-	    }
-	}
-
-	//	if (!fn)
-	//	    return -1;
+    if (!fd->refs && fd->header) {
+	if (!(fd->refs = refs_create()))
+	    return -1;
+	if (-1 == refs_from_header(fd->refs, fd, fd->header))
+	    return -1;
     }
 
+    if (-1 == refs2id(fd->refs, fd->header))
+	return -1;
 
-    /*
-     * Create refs_t struct from the parsed @SQ headers.
-     * We use this when running in reference-less mode as it still
-     * needs to be able to count which refs are being used so we can
-     * spot when do use multi-seq slice packing.
-     */
-    if (!fn && fd->header) {
-	SAM_hdr *h = fd->header;
-	refs_t *r;
-	int i;
-	
-	if (!(r = calloc(1, sizeof(*r))))
-	    return -1;
-	r->ref_id = calloc(h->nref, sizeof(*r->ref_id));
-	if (!r->ref_id) {
-	    free(r);
-	    return -1;
-	}
-	for (i = 0; i < h->nref; i++) {
-	    if (!(r->ref_id[i] = calloc(1, sizeof(ref_entry))))
-		return -1;
-	    // FIXME:
-	    strncpy(r->ref_id[i]->name, h->ref[i].name, 256);
-	    r->ref_id[i]->name[255] = 0;
-	}
-	
-	fd->refs = r;
-	return 0;
-    }
-
-
-    fd->refs = load_reference(fn, !(fd->embed_ref && fd->mode == 'r'));
-    if (fd->refs) {
-	refs2id(fd->refs, fd->header);
-	if (!(fd->ref_fn = strdup(fn)))
-	    return -1;
-    } else {
-	fd->ref_fn = NULL;
-    }
-
-    return 0;
+    return fn ? 0 : -1;
 }
 
 /* ----------------------------------------------------------------------
@@ -2375,9 +2605,11 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->record_counter = 0;
 
     fd->ctr = NULL;
-    fd->refs = NULL; // refs meta-data structure
-    fd->ref  = NULL; // current ref as char*
-    fd->ref_id = -1;
+    fd->refs  = refs_create();
+    if (!fd->refs)
+	goto err;
+    fd->ref_id = -2;
+    fd->ref = NULL;
 
     fd->decode_md = 0;
     fd->verbose = 0;
@@ -2399,7 +2631,8 @@ cram_fd *cram_open(char *filename, char *mode) {
     fd->ref_fn = NULL;
 
     /* Initialise dummy refs from the @SQ headers */
-    cram_load_reference(fd, NULL);
+    if (-1 == refs_from_header(fd->refs, fd, fd->header))
+	goto err;
 
     return fd;
 
@@ -2445,11 +2678,9 @@ int cram_close(cram_fd *fd) {
 	cram_free_container(fd->ctr);
 
     if (fd->refs)
-	free_refs(fd->refs);
+	refs_free(fd->refs);
     if (fd->ref_free)
         free(fd->ref_free);
-    if (fd->ref_fn)
-	free(fd->ref_fn);
 
     for (i = 0; i < 7; i++)
 	if (fd->m[i])
