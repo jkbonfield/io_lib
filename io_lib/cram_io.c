@@ -1242,7 +1242,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 	return -1;
 
     if (!(tag = sam_header_find_key(fd->header, ty, "M5", NULL)))
-	return -1;
+	goto no_M5;
 
     if (fd->verbose)
 	fprintf(stderr, "Querying ref %s\n", tag->str+3);
@@ -1282,6 +1282,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     } else {
 	refs_t *refs;
 
+    no_M5:
 	/* Failed to find in search path or M5 cache, see if @SQ UR: tag? */
 	if (!(tag = sam_header_find_key(fd->header, ty, "UR", NULL)))
 	    return -1;
