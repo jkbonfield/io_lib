@@ -24,18 +24,13 @@ struct cram_codec;
  */
 typedef struct {
     int32_t symbol;
-    int32_t len;
+    int32_t p; // next code start value, minus index to codes[]
     int32_t code;
+    int32_t len;
 } cram_huffman_code;
 
 typedef struct {
-    int p;
-    int l;
-} prefix_len;
-
-typedef struct {
     cram_huffman_code *codes;
-    prefix_len *plen;
 } cram_huffman_decoder;
 
 #define MAX_HUFF 128
@@ -122,7 +117,9 @@ cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st,
 //int cram_decode(void *codes, char *in, int in_size, char *out, int *out_size);
 //void cram_decoder_free(void *codes);
 
-#define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, (--b->bit == -1) && (b->bit = 7, b->byte++))
+//#define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, (--b->bit == -1) && (b->bit = 7, b->byte++))
+
+#define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, b->byte += (b->bit==0), b->bit+=(b->bit==0)*8-1)
 
 #ifdef __cplusplus
 }

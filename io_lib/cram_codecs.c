@@ -131,7 +131,7 @@ static void store_bytes_MSB(cram_block *block, char *bytes, int len) {
 #endif
 
 /* Local optimised copy for inlining */
-static signed int get_bits_MSB(cram_block *block, int nbits) {
+static inline unsigned int get_bits_MSB(cram_block *block, int nbits) {
     unsigned int val = 0;
     int i;
 
@@ -183,9 +183,29 @@ static signed int get_bits_MSB(cram_block *block, int nbits) {
 	return val;
     }
 
-    for (i = 0; i < nbits; i++)
-	//val = (val << 1) | get_bit_MSB(block);
-	GET_BIT_MSB(block, val);
+    switch(nbits) {
+//    case 15: GET_BIT_MSB(block, val);
+//    case 14: GET_BIT_MSB(block, val);
+//    case 13: GET_BIT_MSB(block, val);
+//    case 12: GET_BIT_MSB(block, val);
+//    case 11: GET_BIT_MSB(block, val);
+//    case 10: GET_BIT_MSB(block, val);
+//    case  9: GET_BIT_MSB(block, val);
+    case  8: GET_BIT_MSB(block, val);
+    case  7: GET_BIT_MSB(block, val);
+    case  6: GET_BIT_MSB(block, val);
+    case  5: GET_BIT_MSB(block, val);
+    case  4: GET_BIT_MSB(block, val);
+    case  3: GET_BIT_MSB(block, val);
+    case  2: GET_BIT_MSB(block, val);
+    case  1: GET_BIT_MSB(block, val);
+	break;
+
+    default:
+	for (i = 0; i < nbits; i++)
+	    //val = (val << 1) | get_bit_MSB(block);
+	    GET_BIT_MSB(block, val);
+    }
 #endif
 
     //printf("=0x%x}", val);
@@ -735,42 +755,42 @@ void cram_huffman_decode_free(cram_codec *c) {
 
     if (c->huffman.codes)
 	free(c->huffman.codes);
-    if (c->huffman.plen)
-	free(c->huffman.plen);
     free(c);
 }
 
-int cram_huffman_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+int cram_huffman_decode_char0(cram_slice *slice, cram_codec *c,
+			      cram_block *in, char *out, int *out_size) {
     int i, n;
 
     /* Special case of 0 length codes */
-    if (c->huffman.codes[0].len == 0) {
-	for (i = 0, n = *out_size; i < n; i++) {
-	    out[i] = c->huffman.codes[0].symbol;
-	}
-	return 0;
+    for (i = 0, n = *out_size; i < n; i++) {
+	out[i] = c->huffman.codes[0].symbol;
     }
+    return 0;
+}
+
+int cram_huffman_decode_char(cram_slice *slice, cram_codec *c,
+			     cram_block *in, char *out, int *out_size) {
+    int i, n;
+    const cram_huffman_code * const codes = c->huffman.codes;
 
     for (i = 0, n = *out_size; i < n; i++) {
 	int idx = 0;
 	int val = 0, len = 0, last_len = 0;
 
 	for (;;) {
-#if 0
-	    GET_BIT_MSB(in, val);
-	    len++;
-#else    
-	    int dlen = c->huffman.codes[idx].len - last_len;
-	    val <<= dlen;
-	    val  |= get_bits_MSB(in, dlen);
-	    last_len = (len  += dlen);
-#endif
+	    int dlen = codes[idx].len - last_len;
 
-	    //idx = c->huffman.lengths[len] + val-c->huffman.prefix[len];
-	    idx = val-c->huffman.plen[len].p + c->huffman.plen[len].l;
-	    if (c->huffman.codes[idx].code == val && 
-		c->huffman.codes[idx].len == len) {
-		out[i] = c->huffman.codes[idx].symbol;
+	    //val <<= dlen;
+	    //val  |= get_bits_MSB(in, dlen);
+	    //last_len = (len  += dlen);
+
+	    last_len = (len  += dlen);
+	    for (; dlen; dlen--) GET_BIT_MSB(in, val);
+
+	    idx = val - codes[idx].p;
+	    if (codes[idx].code == val && codes[idx].len == len) {
+		out[i] = codes[idx].symbol;
 		break;
 	    }
 	}
@@ -779,17 +799,24 @@ int cram_huffman_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, c
     return 0;
 }
 
-int cram_huffman_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+int cram_huffman_decode_int0(cram_slice *slice, cram_codec *c,
+			     cram_block *in, char *out, int *out_size) {
     int32_t *out_i = (int32_t *)out;
     int i, n;
+    const cram_huffman_code * const codes = c->huffman.codes;
 
     /* Special case of 0 length codes */
-    if (c->huffman.codes[0].len == 0) {
-	for (i = 0, n = *out_size; i < n; i++) {
-	    out_i[i] = c->huffman.codes[0].symbol;
-	}
-	return 0;
+    for (i = 0, n = *out_size; i < n; i++) {
+	out_i[i] = codes[0].symbol;
     }
+    return 0;
+}
+
+int cram_huffman_decode_int(cram_slice *slice, cram_codec *c,
+			    cram_block *in, char *out, int *out_size) {
+    int32_t *out_i = (int32_t *)out;
+    int i, n;
+    const cram_huffman_code * const codes = c->huffman.codes;
 
     for (i = 0, n = *out_size; i < n; i++) {
 	int idx = 0;
@@ -797,21 +824,18 @@ int cram_huffman_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, ch
 
 	// Now one bit at a time for remaining checks
 	for (;;) {
-#if 0
-	    GET_BIT_MSB(in, val);
-	    len++;
-#else    
-	    int dlen = c->huffman.codes[idx].len - last_len;
-	    val <<= dlen;
-	    val  |= get_bits_MSB(in, dlen);
-	    last_len = (len  += dlen);
-#endif
+	    int dlen = codes[idx].len - last_len;
 
-	    //idx = c->huffman.lengths[len] + val-c->huffman.prefix[len];
-	    idx = val-c->huffman.plen[len].p + c->huffman.plen[len].l;
-	    if (c->huffman.codes[idx].code == val && 
-		c->huffman.codes[idx].len == len) {
-		out_i[i] = c->huffman.codes[idx].symbol;
+	    //val <<= dlen;
+	    //val  |= get_bits_MSB(in, dlen);
+	    //last_len = (len  += dlen);
+
+	    last_len = (len  += dlen);
+	    for (; dlen; dlen--) GET_BIT_MSB(in, val);
+
+	    idx = val - codes[idx].p;
+	    if (codes[idx].code == val && codes[idx].len == len) {
+		out_i[i] = codes[idx].symbol;
 		break;
 	    }
 	}
@@ -868,10 +892,6 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
     qsort(codes, ncodes, sizeof(*codes), code_sort);
 
     /* Assign canonical codes */
-    h->huffman.plen = calloc(max_len+2, sizeof(prefix_len));
-    if (!h->huffman.plen)
-	return NULL;
-
     val = -1, last_len = 0;
     for (i = 0; i < ncodes; i++) {
 	val++;
@@ -880,21 +900,22 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 		val <<= 1;
 		last_len++;
 	    }
-	    h->huffman.plen[last_len].p = val;
 	}
 	codes[i].code = val;
     }
-    h->huffman.plen[last_len+1].p = -1;
 
-    /* Identify length starting points */
-    h->huffman.plen[last_len+1].l = -1;
-    last_len = -1;
+    /*
+     * Compute the next starting point, offset by the i'th value.
+     * For example if codes 10, 11, 12, 13 are 30, 31, 32, 33 then
+     * codes[10..13].p = 30 - 10.
+     */
+    last_len = 0;
     for (i = j = 0; i < ncodes; i++) {
 	if (codes[i].len > last_len) {
+	    j = codes[i].code - i;
 	    last_len = codes[i].len;
-	    while (j <= last_len)
-		h->huffman.plen[j++].l = i;
 	}
+	codes[i].p = j;
     }
 
 //    puts("==HUFF LEN==");
@@ -913,25 +934,33 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 //    }
 
     h->codec  = E_HUFFMAN;
-    if (option == E_BYTE || option == E_BYTE_ARRAY)
-	h->decode = cram_huffman_decode_char;
-    else if (option == E_BYTE_ARRAY_BLOCK)
+    if (option == E_BYTE || option == E_BYTE_ARRAY) {
+	if (h->huffman.codes[0].len == 0)
+	    h->decode = cram_huffman_decode_char0;
+	else
+	    h->decode = cram_huffman_decode_char;
+    } else if (option == E_BYTE_ARRAY_BLOCK) {
 	abort();
-    else
-	h->decode = cram_huffman_decode_int;
+    } else {
+	if (h->huffman.codes[0].len == 0)
+	    h->decode = cram_huffman_decode_int0;
+	else
+	    h->decode = cram_huffman_decode_int;
+    }
     h->free   = cram_huffman_decode_free;
 
     return (cram_codec *)h;
+}
+
+int cram_huffman_encode_char0(cram_slice *slice, cram_codec *c,
+			      cram_block *out, char *in, int in_size) {
+    return 0;
 }
 
 int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
 			     cram_block *out, char *in, int in_size) {
     int i, code, len, r = 0;
     unsigned char *syms = (unsigned char *)in;
-
-    /* Special case of 0 length codes */
-    if (c->e_huffman.codes[0].len == 0)
-	return 0;
 
     do {
 	int sym = *syms++;
@@ -959,14 +988,15 @@ int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
     return r;
 }
 
+int cram_huffman_encode_int0(cram_slice *slice, cram_codec *c,
+			     cram_block *out, char *in, int in_size) {
+    return 0;
+}
+
 int cram_huffman_encode_int(cram_slice *slice, cram_codec *c,
 			    cram_block *out, char *in, int in_size) {
     int i, code, len, r = 0;
     int *syms = (int *)in;
-
-    /* Special case of 0 length codes */
-    if (c->e_huffman.codes[0].len == 0)
-	return 0;
 
     do {
 	int sym = *syms++;
@@ -1066,12 +1096,6 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
     if (!c)
 	return NULL;
     c->codec = E_HUFFMAN;
-    c->free = cram_huffman_encode_free;
-    if (option == E_BYTE || option == E_BYTE_ARRAY)
-	c->encode = cram_huffman_encode_char;
-    else
-	c->encode = cram_huffman_encode_int;
-    c->store = cram_huffman_encode_store;
 
     /* Count number of unique symbols */
     for (nvals = i = 0; i < MAX_STAT_VAL; i++) {
@@ -1209,6 +1233,20 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 
     c->e_huffman.codes = codes;
     c->e_huffman.nvals = nvals;
+
+    c->free = cram_huffman_encode_free;
+    if (option == E_BYTE || option == E_BYTE_ARRAY) {
+	if (c->e_huffman.codes[0].len == 0)
+	    c->encode = cram_huffman_encode_char0;
+	else
+	    c->encode = cram_huffman_encode_char;
+    } else {
+	if (c->e_huffman.codes[0].len == 0)
+	    c->encode = cram_huffman_encode_int0;
+	else
+	    c->encode = cram_huffman_encode_int;
+    }
+    c->store = cram_huffman_encode_store;
 
     return c;
 }
@@ -1386,15 +1424,17 @@ int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
 int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
 				      cram_block *in, char *out_,
 				      int *out_size) {
-    int i, space = 256;
+    int space = 256;
     cram_block *b = NULL;
     cram_block *out = (cram_block *)out_;
-    char *cp, ch, *out_cp;
+    char *cp, ch, *out_cp, *cp_end, *out_end;
+    char stop;
 
     if (slice->block_by_id) {
 	if (!(b = slice->block_by_id[c->byte_array_stop.content_id]))
 	    return -1;
     } else {
+	int i;
 	for (i = 0; i < slice->hdr->num_blocks; i++) {
 	    b = slice->block[i];
 	    if (b->content_type == EXTERNAL &&
@@ -1408,20 +1448,24 @@ int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
 
     assert(b->idx < b->uncomp_size);
     cp = (char *)b->data + b->idx;
+    cp_end = (char *)b->data + b->uncomp_size;
     BLOCK_GROW(out, space);
-    i = 0;
     out_cp = (char *)BLOCK_END(out);
-    while ((ch = *cp) != (char)c->byte_array_stop.stop) {
-	assert(cp - (char *)b->data < b->uncomp_size);
-	*out_cp++ = ch;
-	cp++;
+    out_end = out_cp + space;
 
-	if (++i == space) {
+    stop = c->byte_array_stop.stop;
+    while ((ch = *cp) != stop) {
+	if (cp++ == cp_end)
+	    return -1;
+	//assert(cp - (char *)b->data < b->uncomp_size);
+	*out_cp++ = ch;
+
+	if (out_cp == out_end) {
 	    BLOCK_SIZE(out) = out_cp - (char *)BLOCK_DATA(out);
 	    space *= 2;
 	    BLOCK_GROW(out, space);
-	    i = 0;
 	    out_cp = (char *)BLOCK_END(out);
+	    out_end = out_cp + space;
 	}
     }
     BLOCK_SIZE(out) = out_cp - (char *)BLOCK_DATA(out);
