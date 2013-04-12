@@ -2335,7 +2335,7 @@ static void full_path(char *out, char *in) {
 	strncpy(out, in, PATH_MAX);
 	out[PATH_MAX-1] = 0;
     } else {
-	size_t len;
+	int len;
 
 	// unable to get dir or out+in is too long
 	if (!getcwd(out, PATH_MAX) ||

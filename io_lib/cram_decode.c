@@ -986,10 +986,11 @@ static cram_map *map_find(cram_map **map, unsigned char *key, int id) {
     while (m && m->key != id)
 	m= m->next;
 
-    assert(m);
-
     return m;
 }
+
+//#define map_find(M,K,I) M[CRAM_MAP(K[0],K[1])];while (m && m->key != I);m= m->next
+
 
 static int cram_decode_aux_1_0(cram_container *c, cram_slice *s,
 			       cram_block *blk, cram_record *cr) {
