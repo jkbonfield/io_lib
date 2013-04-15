@@ -385,6 +385,9 @@ bam_file_t *bam_open(char *fn, char *mode) {
 int bam_close(bam_file_t *b) {
     int r;
 
+    if (!b)
+	return 0;
+
     if (b->mode & O_WRONLY) {
 	if (b->binary) {
 	    if (bgzf_write(b->fd, b->level, b->out, b->out_p - b->out)) {
@@ -402,9 +405,6 @@ int bam_close(bam_file_t *b) {
 	    }
 	}
     }
-
-    if (!b)
-	return;
 
     if (b->bs)
 	free(b->bs);
@@ -1494,20 +1494,21 @@ static int reg2bin(int start, int end) {
  * Returns -1 on error
  *          number of bytes written to bam_seq_t on success (ie tag offset)
  */
-int bam_construct_seq(bam_seq_t *b, int s_size,
-		      char *qname, size_t qname_len,
+int bam_construct_seq(bam_seq_t **b, size_t extra_len,
+		      const char *qname, size_t qname_len,
 		      int flag,
 		      int rname,      // Ref ID
-		      int pos,
-		      int start, int end, // aligned start/end coords
+		      int pos, // first aligned base (1-based)
+		      int end, // last aligned base (to calculate bin)
 		      int mapq,
-		      int ncigar, uint32_t *cigar,
+		      uint32_t ncigar, const uint32_t *cigar,
 		      int mrnm,       // Mate Ref ID
 		      int mpos,
 		      int isize,
 		      int len,
-		      char *seq,
-		      char *qual) {
+		      const char *seq,
+		      const char *qual) {
+    size_t required;
     char *cp;
     int i;
     uint32_t *ip;
@@ -1538,27 +1539,50 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
 	15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15
     };
 
-    b->ref = rname;
-    b->pos = pos-1;
-    bam_set_bin(b, reg2bin(start-1,end-1));
-    bam_set_map_qual(b, mapq);
-    bam_set_name_len(b, qname_len+1);
-    bam_set_flag(b, flag);
-    bam_set_cigar_len(b, ncigar);
-    b->len = len;
-    b->mate_ref = mrnm;
-    b->mate_pos = mpos-1;
-    b->ins_size = isize;
+    /* Sanity checks */
+    if (NULL == b) return -1;
+    if (len < 0) return -1;  /* not sure why the spec has it as an int */
+    if (qname_len > 0 && NULL == qname) return -1;
+    if (ncigar > 0 && NULL == cigar) return -1;
+    if (len > 0 && NULL == seq) return -1;
 
-    if (s_size < sizeof(b) + 4*ncigar + (len+1)/2 + len)
-	return -1;
+    /* Reallocate if needed */
+    required = (sizeof(**b)              /* the struct itself */
+#ifdef ALLOW_UAC
+		+ qname_len + 1         /* query name (unaligned) */
+#else
+		+ round4(qname_len + 1) /* query name (aligned) */
+#endif
+		+ 4 * ncigar            /* CIGAR string */
+		+ (len + 1) / 2         /* Sequence, 2 bases per byte */
+		+ len                   /* Quality */
+		+ extra_len + 1);       /* Extra for optional tags */
 
-    cp = bam_name(b);
+    if (NULL == *b || (*b)->alloc < required) {
+	bam_seq_t *new_bam = realloc(*b, required);
+	if (NULL == new_bam) return -1;
+	*b = new_bam;
+	(*b)->alloc = required;
+    }
+
+    (*b)->ref = rname;
+    (*b)->pos = pos-1;
+    bam_set_bin(*b, reg2bin(pos-1,end-1));
+    bam_set_map_qual(*b, mapq);
+    bam_set_name_len(*b, qname_len+1);
+    bam_set_flag(*b, flag);
+    bam_set_cigar_len(*b, ncigar);
+    (*b)->len = len;
+    (*b)->mate_ref = mrnm;
+    (*b)->mate_pos = mpos-1;
+    (*b)->ins_size = isize;
+
+    cp = bam_name(*b);
     memcpy(cp, qname, qname_len);
     cp[qname_len] = 0;
 
     /* Cigar */
-    cp = (char *)bam_cigar(b);
+    cp = (char *)bam_cigar(*b);
     ip = (uint32_t *)cp;
     for (i = 0; i < ncigar; i++) {
 	ip[i] = cigar[i];
@@ -1578,15 +1602,15 @@ int bam_construct_seq(bam_seq_t *b, int s_size,
 	cp += len;
     } else {
 	for (i = 0; i < len; i++) {
-	    *cp++ = '*';
+	    *cp++ = '\xff';
 	}
     }
 
     *cp = 0; /* terminate aux list, for ease of parsing later */
 
     /* cp now points to the auxiliary tags if required */
-    b->blk_size = (int)(cp-(char *)&b->ref);
-    return (int)(cp-(char *)b);
+    (*b)->blk_size = (int)(cp-(char *)&(*b)->ref);
+    return (int)(cp-(char *)(*b));
 }
 		      
 
