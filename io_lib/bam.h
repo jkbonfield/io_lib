@@ -30,7 +30,7 @@ typedef struct tag_list {
 } tag_list_t;
 
 /* The main bam sequence struct */
-typedef struct {
+typedef struct bam_seq_s {
     uint32_t alloc; /* total size of this struct + 'data' onwards */
     uint32_t blk_size;
 
@@ -57,6 +57,10 @@ typedef struct {
     int32_t  mate_pos;
     int32_t  ins_size;
 
+    // HACK for Samtools semi-compatibility
+    // struct bam_seq_s *core; // assigned to self
+    // still means bam->core.flag has to be edited as (*bam)->core->flag
+    
     /* Samtools has "int l_aux, data_len, m_data here too" */
 
     /* Followed by arbitrary bytes of packed data */
@@ -143,6 +147,7 @@ typedef struct {
 #define bam_set_cigar_len(b, v) ((b)->cigar_len = (v))
 
 #define bam_strand(b)    ((bam_flag((b)) & BAM_FREVERSE) != 0)
+#define bam_mstrand(b)   ((bam_flag((b)) & BAM_FMREVERSE) != 0)
 #define bam_name(b)      ((char *)(&(b)->data))
 #ifdef ALLOW_UAC
 #define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + bam_name_len((b))))
@@ -247,6 +252,16 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp);
  * Returns the value for key; NULL if not found.
  */
 char *bam_aux_find(bam_seq_t *b, char *key);
+
+//!Converts an encoded integer value return by bam_aux_find to an integer.
+int32_t bam_aux2i(const uint8_t *dat);
+float bam_aux2f(const uint8_t *s);
+double bam_aux2d(const uint8_t *s);
+char bam_aux2A(const uint8_t *s);
+char *bam_aux2Z(const uint8_t *s);
+int bam_aux_del(bam_seq_t *b, uint8_t *s);
+void bam_aux_append(bam_seq_t *b, const char tag[2],
+		    char type, int len, uint8_t *data);
 
 /*! An iterator on bam_aux_t fields.
  *
