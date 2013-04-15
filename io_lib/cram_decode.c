@@ -1354,7 +1354,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
  */
 static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 		       cram_record *cr, int rec, bam_seq_t **bam) {
-    int bam_idx, bam_len, rg_len, old_idx;
+    int bam_idx, rg_len, old_idx;
     char name_a[1024], *name;
     int name_len;
 
@@ -1462,19 +1462,12 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     /* Generate BAM record */
     rg_len = (cr->rg != -1) ? bfd->rg[cr->rg].name_len + 4 : 0;
 
-    bam_len = cr->name_len + cr->len + (cr->len+1)/2 + 9*36 + cr->ncigar*4
-	+ rg_len + cr->aux_size + 1 + 3;
-    if (!*bam || (*bam)->alloc < bam_len) {
-	if (!(*bam = realloc(*bam, bam_len)))
-	    return -1;
-	(*bam)->alloc = bam_len;
-    }
-    bam_idx = bam_construct_seq(*bam, (*bam)->alloc,
+    bam_idx = bam_construct_seq(bam, cr->aux_size + rg_len,
 				name, name_len,
 				cr->flags,
 				cr->ref_id,
 				cr->apos,
-				cr->apos, cr->aend,
+				cr->aend,
 				cr->mqual,
 				cr->ncigar, &s->cigar[cr->cigar],
 				cr->mate_ref_id,

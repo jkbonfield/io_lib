@@ -304,24 +304,46 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b);
  * Note: ignores auxiliary tags for now. These need to be appended
  * manually by the calling function.
  *
+ * @param b         Points to the location of a bam_seq_t *.  If *b is NULL
+ *                  or (*b)->alloc is too small, the bam_seq_t struct will
+ *                  be reallocated.
+ * @param extra_len Extra space to allocate for auxiliary tags
+ * @param qname     Query name
+ * @param qname_len Query name length
+ * @param flag      BAM flags
+ * @param rname     Reference ID
+ * @param pos       Mapped position (N.B. 1-based)
+ * @param end       Last aligned base
+ * @param mapq      Mapping quality
+ * @param ncigar    Number of CIGAR elements
+ * @param cigar     CIGAR alignment information
+ * @param mrnm      Mate reference ID
+ * @param mpos      Mate position (N.B. 1-based)
+ * @param isize     Insert size
+ * @param len       Sequence length
+ * @param seq       Sequence (ASCII format)
+ * @param qual      Quality values (phred scale, 8-bit binary, no offset)
+ *                  Passing in NULL to qual will cause all quality values
+ *                  to be treated as absent (i.e. set to 0xff).
+ *
  * @return
  * Returns number of bytes written to bam_seq_t on success (ie tag offset);
  *         -1 on error.
  */
-int bam_construct_seq(bam_seq_t *b, int s_size,
-		      char *qname, size_t qname_len,
+int bam_construct_seq(bam_seq_t **b, size_t extra_len,
+		      const char *qname, size_t qname_len,
 		      int flag,
 		      int rname,      // Ref ID
 		      int pos,
-		      int start, int end, // aligned start/end coords
+		      int end, // aligned start/end coords
 		      int mapq,
-		      int ncigar, uint32_t *cigar,
+		      uint32_t ncigar, const uint32_t *cigar,
 		      int mrnm,       // Mate Ref ID
 		      int mpos,
 		      int isize,
 		      int len,
-		      char *seq,
-		      char *qual);
+		      const char *seq,
+		      const char *qual);
 
 /*! Writes a SAM header block.
  *
