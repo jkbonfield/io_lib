@@ -11,6 +11,7 @@
 
 #include "io_lib/seqIOCTF.h"
 #include "io_lib/stdio_hack.h"
+#include "io_lib/xalloc.h"
 
 #define ACEDB4
 

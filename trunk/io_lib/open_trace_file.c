@@ -16,6 +16,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include "io_lib/os.h"
+#include "io_lib/xalloc.h"
 #ifdef TRACE_ARCHIVE
 #  include <sys/socket.h>
 #  include <netinet/in.h>

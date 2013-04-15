@@ -9,6 +9,7 @@
 #include "io_lib/misc.h"
 #include "io_lib/ztr.h"
 #include "io_lib/hash_table.h"
+#include "io_lib/xalloc.h"
 
 #include "io_lib/srf.h"
 
