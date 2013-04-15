@@ -171,6 +171,13 @@ typedef struct {
     // @endcond
 } SAM_hdr;
 
+/*! Creates an empty SAM header, ready to be populated.
+ * 
+ * @return
+ * Returns a SAM_hdr struct on success (free with sam_header_free())
+ *         NULL on failure
+ */
+SAM_hdr *sam_header_new();
 
 /*! Tokenises a SAM header into a hash table.
  *
@@ -180,7 +187,7 @@ typedef struct {
  * Returns a SAM_hdr struct on success (free with sam_header_free());
  *         NULL on failure
  */
-SAM_hdr *sam_header_parse(char *hdr, int len);
+SAM_hdr *sam_header_parse(const char *hdr, int len);
 
 
 /*! Produces a duplicate copy of hdr and returns it.
@@ -219,7 +226,7 @@ char *sam_header_str(SAM_hdr *hdr);
  * Returns 0 on success;
  *        -1 on failure
  */
-int sam_header_add_lines(SAM_hdr *sh, char *lines, int len);
+int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len);
 
 /*! Adds a single line to a SAM header.
  *

@@ -234,7 +234,7 @@ static int sam_header_update_hashes(SAM_hdr *sh,
  * Returns 0 on success
  *        -1 on failure
  */
-int sam_header_add_lines(SAM_hdr *sh, char *lines, int len) {
+int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len) {
     int i, lno = 1, text_offset;
     HashItem *hi;
     HashData hd;
@@ -744,16 +744,15 @@ int sam_header_rebuild(SAM_hdr *hdr) {
 
 
 /*
- * Tokenises a SAM header into a hash table.
- * Also extracts a few bits on specific data types, such as @RG lines.
- *
+ * Creates an empty SAM header, ready to be populated.
+ * 
  * Returns a SAM_hdr struct on success (free with sam_header_free())
  *         NULL on failure
  */
-SAM_hdr *sam_header_parse(char *hdr, int len) {
+SAM_hdr *sam_header_new() {
     SAM_hdr *sh = calloc(1, sizeof(*sh));
 
-    if (!sh || !hdr)
+    if (!sh)
 	return NULL;
     
     sh->h = HashTableCreate(16, HASH_FUNC_HSIEH |
@@ -798,21 +797,6 @@ SAM_hdr *sam_header_parse(char *hdr, int len) {
     if (!(sh->str_pool = string_pool_create(8192)))
 	goto err;
 
-    /* Parse the header, line by line */
-    if (-1 == sam_header_add_lines(sh, hdr, len))
-	goto err;
-
-    //sam_header_dump(sh);
-    //sam_header_add(sh, "RG", "ID", "foo", "SM", "bar", NULL);
-    //sam_header_rebuild(sh);
-    //printf(">>%s<<", DSTRING_STR(sh->text));
-
-    //parse_references(sh);
-    //parse_read_groups(sh);
-
-    sam_header_link_pg(sh);
-    //sam_header_dump(sh);
-
     return sh;
 
  err:
@@ -831,6 +815,43 @@ SAM_hdr *sam_header_parse(char *hdr, int len) {
     free(sh);
 
     return NULL;
+}
+
+
+/*
+ * Tokenises a SAM header into a hash table.
+ * Also extracts a few bits on specific data types, such as @RG lines.
+ *
+ * Returns a SAM_hdr struct on success (free with sam_header_free())
+ *         NULL on failure
+ */
+SAM_hdr *sam_header_parse(const char *hdr, int len) {
+    /* Make an empty SAM_hdr */
+    SAM_hdr *sh;
+    
+    if (NULL == hdr) return NULL;
+
+    sh = sam_header_new();
+    if (NULL == sh) return NULL;
+
+    /* Parse the header, line by line */
+    if (-1 == sam_header_add_lines(sh, hdr, len)) {
+	sam_header_free(sh);
+	return NULL;
+    }
+
+    //sam_header_dump(sh);
+    //sam_header_add(sh, "RG", "ID", "foo", "SM", "bar", NULL);
+    //sam_header_rebuild(sh);
+    //printf(">>%s<<", DSTRING_STR(sh->text));
+
+    //parse_references(sh);
+    //parse_read_groups(sh);
+
+    sam_header_link_pg(sh);
+    //sam_header_dump(sh);
+
+    return sh;
 }
 
 /*
