@@ -833,7 +833,7 @@ int main(int argc, char **argv) {
     sam_pileup_t *p;
     int mode = 0;
 
-    if (argc != 2) {
+    if (argc < 2) {
 	fprintf(stderr, "Usage: scram_pileup [options] filename.{sam,bam,cram}\n");
 	fprintf(stderr, "Options:\n");
 	fprintf(stderr, " -5          Gap5 pileup format.\n");
