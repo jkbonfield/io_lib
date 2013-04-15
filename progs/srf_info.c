@@ -44,6 +44,7 @@
 #include <io_lib/ztr.h>
 #include <io_lib/srf.h>
 #include <io_lib/hash_table.h>
+#include <io_lib/xalloc.h>
 
 #define LEVEL_READ  (1 << 0)
 #define LEVEL_CHUNK (1 << 1)
