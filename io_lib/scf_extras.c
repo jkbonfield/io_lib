@@ -35,6 +35,7 @@
 #include "io_lib/traceType.h"
 #include "io_lib/open_trace_file.h"
 #include "io_lib/scf_extras.h"
+#include "io_lib/xalloc.h"
 
 /*
  * ---------------------------------------------------------------------------

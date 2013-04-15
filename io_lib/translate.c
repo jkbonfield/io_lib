@@ -36,6 +36,7 @@
 #include "io_lib/traceType.h"
 #include "io_lib/translate.h"
 #include "io_lib/open_trace_file.h"
+#include "io_lib/xalloc.h"
 #ifdef USE_BIOLIMS
 #include "spBiolims.h"
 #endif

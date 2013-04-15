@@ -42,6 +42,7 @@
 
 #include "io_lib/misc.h"
 #include "io_lib/Read.h"
+#include "io_lib/xalloc.h"
 
 /*
  * Allocate a new sequence, with the given sizes.
