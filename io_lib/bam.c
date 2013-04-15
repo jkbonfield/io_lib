@@ -1271,6 +1271,55 @@ char *bam_aux_find(bam_seq_t *b, char *key) {
     return NULL;
 }
 
+int32_t bam_aux2i(const uint8_t *dat) {
+    switch(dat[0]) {
+    case 'i':
+	return (int32_t)(dat[1] + (dat[2]<<8) + (dat[3]<<16) + (dat[4]<<24));
+    case 'I':
+	return (uint32_t)(dat[1] + (dat[2]<<8) + (dat[3]<<16) + (dat[4]<<24));
+	break;
+    case 's':
+	return (int16_t)(dat[1] + (dat[2]<<8));
+    case 'S':
+	return (uint16_t)(dat[1] + (dat[2]<<8));
+    case 'c':
+	return (int8_t)dat[1];
+    case 'C':
+	return (uint8_t)dat[1];
+    }
+
+    abort();
+}
+
+float bam_aux2f(const uint8_t *dat) {
+    assert(dat[0] == 'f');
+    return (float)((int32_t)((dat[1]<<0)+
+			     (dat[2]<<8)+
+			     (dat[3]<<16)+
+			     (dat[4]<<24)));
+}
+
+double bam_aux2d(const uint8_t *dat) { 
+    assert(dat[0] == 'd');
+    return (double)((int64_t)((((uint64_t)dat[1])<<0)+
+			      (((uint64_t)dat[2])<<8)+
+			      (((uint64_t)dat[3])<<16)+
+			      (((uint64_t)dat[4])<<24)+
+			      (((uint64_t)dat[5])<<32)+
+			      (((uint64_t)dat[6])<<40)+
+			      (((uint64_t)dat[7])<<48)+
+			      (((uint64_t)dat[8])<<54)));
+}
+
+char bam_aux2A(const uint8_t *dat) {
+    assert(dat[0] == 'A');
+    return dat[1];
+}
+
+char *bam_aux2Z(const uint8_t *dat) {
+    assert(dat[0] == 'Z' || dat[0] == 'H');
+    return (char *)(dat+1);
+}
 
 /*
  * An iterator on bam aux fields. NB: This code is not reentrant or multi-
