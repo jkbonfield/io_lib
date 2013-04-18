@@ -925,12 +925,12 @@ static mFILE *find_file_dir(char *file, char *dirname) {
 	    path_end += cp-dirname;
 	    if (l) {
 		strncpy(path_end, file, l);
-		file     += MIN(strlen(file), l);
 		path_end += MIN(strlen(file), l);
+		file     += MIN(strlen(file), l);
 	    } else {
 		strcpy(path_end, file);
-		file     += strlen(file);
 		path_end += strlen(file);
+		file     += strlen(file);
 	    }
 	    len -= (endp+1) - dirname;
 	    dirname = endp+1;
