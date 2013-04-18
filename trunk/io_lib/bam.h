@@ -237,7 +237,7 @@ enum cigar_op {
  * Returns a bam_file_t pointer on success;
  *         NULL on failure.
  */
-bam_file_t *bam_open(char *fn, char *mode);
+bam_file_t *bam_open(const char *fn, const char *mode);
 
 /*! Closes a SAM or BAM file.
  * 

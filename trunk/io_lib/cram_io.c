@@ -2561,15 +2561,16 @@ static int minor_version = 0;
  * Returns file handle on success
  *         NULL on failure.
  */
-cram_fd *cram_open(char *filename, char *mode) {
+cram_fd *cram_open(const char *filename, const char *mode) {
     int i;
     char *cp;
+    char fmode[3]= { mode[0], '\0', '\0' };
     cram_fd *fd = calloc(1, sizeof(*fd));
     if (!fd)
 	return NULL;
 
-    if (strlen(mode) > 1 && mode[1] == 'c') {
-	mode[1] = 'b';
+    if (strlen(mode) > 1 && (mode[1] == 'b' || mode[1] == 'c')) {
+	fmode[1] = 'b';
     }
 
     fd->level = 5;
@@ -2579,7 +2580,7 @@ cram_fd *cram_open(char *filename, char *mode) {
     if (strcmp(filename, "-") == 0) {
 	fd->fp = (*mode == 'r') ? stdin : stdout;
     } else {
-	fd->fp = fopen(filename, mode);
+	fd->fp = fopen(filename, fmode);
     }
 
     if (!fd->fp)
