@@ -1269,10 +1269,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    //dstring_nappend(name_ds, name, cr->name_len);
 
 	    cr->mate_ref_id = -1;
-	    cr->tlen = -1;
+	    cr->tlen = INT_MIN;
 	    cr->mate_pos = 0;
 	} else {
-	    cr->tlen = -1;
+	    cr->tlen = INT_MIN;
 	}
 	/*
 	else if (!name[0]) {
@@ -1374,7 +1374,7 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	     * Or do we just admit defeat and output 0 for tlen? It's the
 	     * safe option...
 	     */
-	    if (cr->tlen == -1) {
+	    if (cr->tlen == INT_MIN) {
 		int id1 = rec, id2 = rec;
 		int apos = cr->apos, aend;
 		int tlen;
@@ -1443,6 +1443,9 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	if (!(cr->flags & BAM_FPAIRED))
 	    cr->mate_ref_id = -1;
     }
+
+    if (cr->tlen == INT_MIN)
+	cr->tlen = 0; // Just incase
     
     if (cr->name_len) {
 	name = (char *)BLOCK_DATA(s->name_blk) + cr->name;
