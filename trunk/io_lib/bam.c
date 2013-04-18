@@ -1217,31 +1217,33 @@ int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     return bam_get_seq(b, bsp);
 }
 
+static int8_t aux_type_size[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 1, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 1, 8, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
 /*
  * Looks for aux field 'key' and returns the type + value.
  * The type is the first char and the value is the 2nd character onwards.
  *
  * Returns NULL if not found.
  */
-char *bam_aux_find(bam_seq_t *b, char *key) {
+char *bam_aux_find(bam_seq_t *b, const char *key) {
     char *cp = bam_aux(b);
-    static int type_size[256] = {
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  4,  0,  4,  0,  0,  0,  0,  0,  7,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  4, 11,  0,  7,  0,  0,  7,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0};
 
     while (*cp) {
 	int sz;
@@ -1251,18 +1253,31 @@ char *bam_aux_find(bam_seq_t *b, char *key) {
 	if (cp[0] == key[0] && cp[1] == key[1])
 	    return cp+2;
 	
-	if ((sz = type_size[(unsigned char)cp[2]])) {
+	if ((sz = aux_type_size[(uint8_t) cp[2]])) {
 	    /* Fixed length fields */
-	    cp += sz;
+	    cp += sz + 3;
 	} else {
-	    /* Variable length, null terminated */
-	    if (cp[2] == 'Z' || cp[2] == 'H') {
+	    switch (cp[2]) {
+	    case 'Z':
+	    case 'H': {  /* Variable length, null terminated */
 		cp += 3;
 		while (*cp++)
 		    ;
-	    } else {
-		fprintf(stderr, "Unknown aux type code %c(%d) in seq %s\n",
-			cp[2], cp[2], bam_name(b));
+		break;
+	    }
+	    case 'B': {  /* Array types */
+		uint32_t count;
+		if ((sz = aux_type_size[(uint8_t) cp[3]])) {
+		    count = ((uint32_t)    cp[4]
+			     + ((uint32_t) cp[5] << 8)
+			     + ((uint32_t) cp[6] << 16)
+			     + ((uint32_t) cp[7] << 24));
+		    cp += 8 + count * sz;
+		} else {
+		    return NULL;
+		}
+	    }
+	    default:
 		return NULL;
 	    }
 	}
@@ -1567,7 +1582,6 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
 
     (*b)->ref = rname;
     (*b)->pos = pos-1;
-    bam_set_bin(*b, reg2bin(pos-1,end-1));
     bam_set_map_qual(*b, mapq);
     bam_set_name_len(*b, qname_len+1);
     bam_set_flag(*b, flag);
@@ -1588,6 +1602,18 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
 	ip[i] = cigar[i];
     }
     cp += ncigar*4;
+
+    /* Bin */
+    if (0 == end) { /* Calculate end from pos and cigar */
+	end = pos;
+	for (i = 0; i < ncigar; i++) {
+	    int op = cigar[i] & BAM_CIGAR_MASK;
+	    if (op == BAM_CMATCH || op == BAM_CDEL || op == BAM_CREF_SKIP)
+		end += cigar[i] >> BAM_CIGAR_SHIFT;
+	}
+    }
+
+    bam_set_bin(*b, reg2bin(pos-1,end-1));
 
     /* Seq */
     for (i = 0; i < len-1; i += 2) {
@@ -1612,7 +1638,275 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
     (*b)->blk_size = (int)(cp-(char *)&(*b)->ref);
     return (int)(cp-(char *)(*b));
 }
-		      
+
+int bam_aux_add(bam_seq_t **b, const char tag[2], char type,
+		uint32_t array_len, const void *data) {
+    int tlen;
+    size_t len;
+    size_t used;
+    uint8_t *cp;
+#ifndef SP_LITTLE_ENDIAN
+    uint32_t i;
+#endif
+
+    if (NULL == b || NULL == *b) return -1;
+
+    /* Find size  of data type and how much space is needed */
+    if (0 == (tlen = aux_type_size[(uint8_t) type])) {
+	if (type == 'H' || type == 'Z') { /* Variable length types */
+	    if (array_len != 0) return -1; /* No arrays for these allowed */
+	    tlen = strlen((const char *) data) + 1;
+	} else {
+	    /* unknown type */
+	    return -1;
+	}
+    }
+
+    len = array_len > 0 ? 8 + tlen * array_len : 3 + tlen;
+    
+    /* Find the end of the existing tags and ensure there is enough space */
+    cp = (uint8_t *)&(*b)->ref + (*b)->blk_size;
+    used = cp - (uint8_t *)(*b);
+
+    if ((*b)->alloc < used + len + 1) { /* + 1 for NUL terminator */
+	size_t required = used + len + 1;
+	bam_seq_t *new_bam = realloc((*b), required);
+	if (NULL == new_bam) return -1;
+	*b = new_bam;
+	(*b)->alloc = required;
+	cp = (uint8_t *)new_bam + used;
+    }
+
+    /* Append the data */
+    *cp++ = tag[0];
+    *cp++ = tag[1];
+    if (array_len > 0) {  /* Array type */
+	*cp++ = 'B';
+	*cp++ = type;
+	*cp++ = array_len         & 0xff;
+	*cp++ = (array_len >>  8) & 0xff;
+	*cp++ = (array_len >> 16) & 0xff;
+	*cp++ = (array_len >> 24) & 0xff;
+    } else {
+	*cp++ = type;
+    }
+
+    if (array_len == 0) array_len = 1;
+#ifdef SP_LITTLE_ENDIAN
+    memcpy(cp, data, array_len * tlen);
+    cp += array_len * tlen;
+#else
+    switch (type) {
+    case 'A': case 'c': case 'C':
+	memcpy(cp, data, array_len);
+	cp += array_len;
+	break;
+    case 's':
+    case 'S': {
+	uint16_t *sdata = (uint16_t *) data;
+	for (i = 0; i < array_len; i++) {
+	    *cp++ = sdata[i]        & 0xff;
+	    *cp++ = (sdata[i] >> 8) & 0xff;
+	}
+	break;
+    }
+    case 'i':
+    case 'I':
+    case 'f': {
+	uint32_t *idata = (uint32_t *) data;
+	for (i = 0; i < array_len; i++) {
+	    *cp++ = idata[i]         & 0xff;
+	    *cp++ = (idata[i] >> 8)  & 0xff;
+	    *cp++ = (idata[i] >> 16) & 0xff;
+	    *cp++ = (idata[i] >> 24) & 0xff;
+	}
+	break;
+    }
+    case 'd': {
+	uint64_t *ddata = (uint64_t *) data;
+	for (i = 0; i < array_len; i++) {
+	    *cp++ = ddata[i]         & 0xff;
+	    *cp++ = (ddata[i] >> 8)  & 0xff;
+	    *cp++ = (ddata[i] >> 16) & 0xff;
+	    *cp++ = (ddata[i] >> 24) & 0xff;
+	    *cp++ = (ddata[i] >> 32) & 0xff;
+	    *cp++ = (ddata[i] >> 40) & 0xff;
+	    *cp++ = (ddata[i] >> 48) & 0xff;
+	    *cp++ = (ddata[i] >> 56) & 0xff;
+	}
+	break;
+    }
+    case 'H': case 'Z':
+	memcpy(cp, data, tlen);
+	cp += tlen;
+	break;
+    }
+#endif
+    
+    /* Put a NUL at the end for bam_aux_iter */
+    *cp = 0;
+
+    /* Update block_size */
+    (*b)->blk_size = (uint32_t)(cp - (uint8_t *)&(*b)->ref);
+    
+    return 0;
+}
+
+/* Calculate space needed to store tags */
+
+ssize_t bam_aux_size_vec(uint32_t count, bam_aux_tag_t *tags) {
+    uint32_t i;
+    ssize_t len = 0;
+    int sz;
+
+    if (NULL == tags) return -1;
+    
+    for (i = 0; i < count; i++) {
+	switch (tags[i].type) {
+	case 'C': case 'S': case 'I':
+	    if (tags[i].value.ui < 256) {
+		sz = 1;
+	    } else if (tags[i].value.ui < 65536) {
+		sz = 2;
+	    } else {
+		sz = 4;
+	    }
+	    break;
+	case 'c': case 's': case 'i':
+	    if (tags[i].value.i >= -128 && tags[i].value.i < 128) {
+		sz = 1;
+	    } else if (tags[i].value.i >= -32768 && tags[i].value.i < 32768) {
+		sz = 2;
+	    } else {
+		sz = 4;
+	    }
+	    break;
+	case 'A':
+	    sz = 1;
+	    break;
+	case 'f':
+	    sz = 4;
+	    break;
+	case 'd':
+	    sz = 8;
+	    break;
+	case 'H': case 'Z':
+	    if (tags[i].array_len != 0) return -1;
+	    sz = strlen(tags[i].value.z) + 1;
+	    break;
+	default:
+	    return -1; /* bad data type */
+	}
+	len += tags[i].array_len == 0 ? sz + 3 : sz * tags[i].array_len + 8;
+    }
+
+    return len + 1;  /* + 1 for NUL byte at end */
+}
+
+int bam_aux_add_vec(bam_seq_t **b, uint32_t count, bam_aux_tag_t *tags) {
+    ssize_t required = bam_aux_size_vec(count, tags);
+    uint32_t i;
+    size_t used;
+
+    if (required < 0) return -1;
+    if (NULL == b || NULL == *b) return -1;
+
+    /* Find the end of the existing tags and ensure there is enough space.
+       Do this once for the entire vector so we don't keep reallocing */
+    used = (uint8_t *)&(*b)->ref + (*b)->blk_size - (uint8_t *)(*b);
+
+    if ((*b)->alloc < used + required) {
+	bam_seq_t *new_bam = realloc((*b), used + required);
+	if (NULL == new_bam) return -1;
+	*b = new_bam;
+	(*b)->alloc = used + required;
+    }
+
+    /* Add the tags, storing integers in the most appropriate size */
+    for (i = 0; i < count; i++) {
+	if (tags[i].array_len > 0) {
+	    /* Deal with array tags */
+	    if (bam_aux_add(b, tags[i].tag, tags[i].type,
+			    tags[i].array_len, tags[i].value.array)) return -1;
+	    continue;
+	}
+
+	/* Non-array tags, storing integers as the most appropriate size */
+	switch (tags[i].type) {
+	case 'C': case 'S': case 'I':
+	    if (tags[i].value.ui < 256) {
+		uint8_t byte = tags[i].value.ui;
+		if (bam_aux_add(b, tags[i].tag, 'C', 0, &byte)) return -1;
+	    } else if (tags[i].value.ui < 65536) {
+		uint16_t word = tags[i].value.ui;
+		if (bam_aux_add(b, tags[i].tag, 'S', 0, &word)) return -1;
+	    } else {
+		if (bam_aux_add(b, tags[i].tag, 'I', 0, &tags[i].value.ui)) {
+		    return -1;
+		}
+	    }
+	    break;
+	case 'c': case 's': case 'i':
+	    if (tags[i].value.i >= -128 && tags[i].value.i < 128) {
+		int8_t byte = tags[i].value.i;
+		if (bam_aux_add(b, tags[i].tag, 'c', 0, &byte)) return -1;
+	    } else if (tags[i].value.i >= -32768 && tags[i].value.i < 32768) {
+		int16_t word = tags[i].value.i;
+		if (bam_aux_add(b, tags[i].tag, 's', 0, &word)) return -1;
+	    } else {
+		if (bam_aux_add(b, tags[i].tag, 'i', 0, &tags[i].value.i))
+		    return -1;
+	    }
+	    break;
+	case 'A':
+	    if (bam_aux_add(b, tags[i].tag, 'A', 0, &tags[i].value.a))
+		return -1;
+	    break;
+	case 'f': case 'd':
+	    if (bam_aux_add(b, tags[i].tag, tags[i].type, 0, &tags[i].value.f))
+		return -1;
+	    break;
+	case 'H': case 'Z':
+	    if (bam_aux_add(b, tags[i].tag, tags[i].type, 0, tags[i].value.z))
+		return -1;
+	    break;
+	default:
+	    return -1; /* unknown type */
+	}	    
+    }
+    return 0;
+}
+
+int bam_aux_append(bam_seq_t **b, const char tag[2], char type,
+		   size_t len, const uint8_t *data) {
+    uint8_t *cp;
+    size_t used;
+
+    if (NULL == b || NULL == data) return -1;
+
+    /* Find the end of the existing tags and ensure there is enough space */
+    cp = (uint8_t *)&(*b)->ref + (*b)->blk_size;
+    used = cp - (uint8_t *)(*b);
+
+    if ((*b)->alloc < used + len + 4) {
+	size_t required = used + len + 4;
+	bam_seq_t *new_bam = realloc((*b), required);
+	if (NULL == new_bam) return -1;
+	*b = new_bam;
+	(*b)->alloc = required;
+	cp = (uint8_t *) new_bam + used;
+    }
+
+    *cp++ = tag[0];
+    *cp++ = tag[1];
+    *cp++ = type;
+    memcpy(cp, data, len);
+    *cp = 0;
+
+    (*b)->blk_size = (uint32_t)(cp - (uint8_t *)&(*b)->ref);
+
+    return 0;
+}
 
 static unsigned char *append_int(unsigned char *cp, int32_t i) {
     int32_t j;
