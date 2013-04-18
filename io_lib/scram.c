@@ -24,7 +24,7 @@
  * Returns scram pointer on success
  *         NULL on failure
  */
-scram_fd *scram_open(char *filename, char *mode) {
+scram_fd *scram_open(const char *filename, const char *mode) {
 //    char mode2[10];
     scram_fd *fd = calloc(1, sizeof(*fd));
     if (!fd)
