@@ -646,7 +646,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	int32_t pos;
 	char op;
 
-	if (ncigar+1 >= cigar_alloc) {
+	if (ncigar+2 >= cigar_alloc) {
 	    cigar_alloc = cigar_alloc ? cigar_alloc*2 : 1024;
 	    cigar = realloc(cigar, cigar_alloc * sizeof(*cigar));
 	    if (!cigar)
