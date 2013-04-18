@@ -1502,7 +1502,8 @@ static int cram_add_insertion(cram_container *c, cram_slice *s, cram_record *r,
 static char *cram_encode_aux_1_0(cram_fd *fd, bam_seq_t *b, cram_container *c,
 				 cram_slice *s, cram_record *cr) {
     char *aux, *tmp, *rg = NULL, *tmp_tn;
-    int aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
+    int aux_size = bam_blk_size(b) -
+	((char *)bam_aux(b) - (char *)&bam_ref(b));
 	
     /* Worst case is 1 nul char on every ??:Z: string, so +33% */
     BLOCK_GROW(s->aux_blk, aux_size*1.34+1);
@@ -1655,7 +1656,8 @@ static char *cram_encode_aux_1_0(cram_fd *fd, bam_seq_t *b, cram_container *c,
 static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 				 cram_slice *s, cram_record *cr) {
     char *aux, *tmp, *rg = NULL;
-    int aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
+    int aux_size = bam_blk_size(b) -
+	((char *)bam_aux(b) - (char *)&bam_ref(b));
     cram_block *td_b = c->comp_hdr->TD_blk;
     int TD_blk_size = BLOCK_SIZE(td_b), new;
     HashData hd;
@@ -1814,7 +1816,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 
     /* First occurence */
     if (c->curr_ref == -2)
-	c->curr_ref = b->ref;
+	c->curr_ref = bam_ref(b);
 
     if (c->slice) {
 	s = c->slice;
@@ -1854,7 +1856,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 
     /* Flush container */
     if (c->curr_slice == c->max_slice ||
-	(b->ref != c->curr_ref && !c->multi_seq)) {
+	(bam_ref(b) != c->curr_ref && !c->multi_seq)) {
 	c->ref_seq_span = fd->last_base - c->ref_seq_start + 1;
 	if (fd->verbose)
 	    fprintf(stderr, "Flush container %d/%d..%d\n",
@@ -1882,10 +1884,10 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 	if (!c)
 	    return NULL;
 	c->record_counter = fd->record_counter;
-	c->curr_ref = b->ref;
+	c->curr_ref = bam_ref(b);
     }
 
-    c->last_pos = fd->first_base = fd->last_base = b->pos+1;
+    c->last_pos = fd->first_base = fd->last_base = bam_pos(b)+1;
 
     /* New slice */
     c->slice = c->slices[c->curr_slice] =
@@ -1898,10 +1900,10 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 	c->slice->hdr->ref_seq_start = 0;
 	c->slice->last_apos = 1;
     } else {
-	c->slice->hdr->ref_seq_id = b->ref;
+	c->slice->hdr->ref_seq_id = bam_ref(b);
 	// wrong for unsorted data, will fix during encoding.
-	c->slice->hdr->ref_seq_start = b->pos+1;
-	c->slice->last_apos = b->pos+1;
+	c->slice->hdr->ref_seq_start = bam_pos(b)+1;
+	c->slice->last_apos = bam_pos(b)+1;
     }
 
     c->curr_rec = 0;
@@ -1937,9 +1939,9 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     c = fd->ctr;
 
     if (!c->slice || c->curr_rec == c->max_rec ||
-	(b->ref != c->curr_ref && c->curr_ref >= -1)) {
+	(bam_ref(b) != c->curr_ref && c->curr_ref >= -1)) {
 	int slice_rec, curr_rec, multi_seq = fd->multi_seq == 1;
-	int curr_ref = c->slice ? c->curr_ref : b->ref;
+	int curr_ref = c->slice ? c->curr_ref : bam_ref(b);
 
 
 	/*
@@ -1980,15 +1982,16 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	c->slice_rec = c->curr_rec;
 
 	if (!fd->no_ref) {
-	    if (NULL == (cram_get_ref(fd, b->ref, 1, 0)) && b->ref >= 0) {
-		fprintf(stderr, "Failed to load reference #%d\n", b->ref);
+	    if (NULL == (cram_get_ref(fd, bam_ref(b), 1, 0)) &&
+		bam_ref(b) >= 0) {
+		fprintf(stderr, "Failed to load reference #%d\n", bam_ref(b));
 		return -1;
 	    }
 	}
 
 	// Have we seen this reference before?
-	if (b->ref >= 0 && b->ref != curr_ref && 
-	    fd->refs->ref_id[b->ref]->count++) {
+	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && 
+	    fd->refs->ref_id[bam_ref(b)]->count++) {
 	    //fprintf(stderr, "Currently cram_put_bam_seq() does not support "
 	    //	    "unsorted data. Aborting\n");
 	    //return -1;
@@ -1996,11 +1999,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    fd->multi_seq = 1;
 	}
 
-	c->curr_ref = b->ref;
+	c->curr_ref = bam_ref(b);
     }
 
     ref = fd->ref;
-    if (!ref && b->ref >= 0 && !fd->no_ref) {
+    if (!ref && bam_ref(b) >= 0 && !fd->no_ref) {
 	fprintf(stderr, "No reference found\n");
 	return -1;
     }
@@ -2022,7 +2025,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     else
 	rg = cram_encode_aux(fd, b, c, s, cr);
 
-    //cr->aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&b->ref);
+    //cr->aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&bam_ref(b));
     //cr->aux = DSTRING_LEN(s->aux_ds);
     //dstring_nappend(s->aux_ds, bam_aux(b), cr->aux_size);
 
@@ -2039,7 +2042,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cram_stats_add(c->RG_stats, cr->rg);
 
     
-    cr->ref_id      = b->ref;  cram_stats_add(c->RI_stats, cr->ref_id);
+    cr->ref_id      = bam_ref(b);  cram_stats_add(c->RI_stats, cr->ref_id);
     cr->flags       = bam_flag(b);
     if (bam_cigar_len(b) == 0)
 	cr->flags |= BAM_FUNMAP;
@@ -2053,7 +2056,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     cr->len         = bam_seq_len(b);  cram_stats_add(c->RL_stats, cr->len);
     c->num_bases   += cr->len;
-    cr->apos        = b->pos+1;
+    cr->apos        = bam_pos(b)+1;
     if (c->pos_sorted) {
 	if (cr->apos < s->last_apos) {
 	    c->pos_sorted = 0;
@@ -2306,10 +2309,10 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	    cram_stats_add(c->MF_stats, cr->mate_flags);
 
-	    cr->mate_pos    = MAX(b->mate_pos+1, 0);
+	    cr->mate_pos    = MAX(bam_mate_pos(b)+1, 0);
 	    cram_stats_add(c->NP_stats, cr->mate_pos);
 
-	    cr->tlen        = b->ins_size;
+	    cr->tlen        = bam_ins_size(b);
 	    cram_stats_add(c->TS_stats, cr->tlen);
 
 	    cr->cram_flags |= CRAM_FLAG_DETACHED;
@@ -2318,8 +2321,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     }
 
 
-    cr->mqual       = bam_map_qual(b); cram_stats_add(c->MQ_stats, cr->mqual);
-    cr->mate_ref_id = b->mate_ref;     cram_stats_add(c->NS_stats, b->mate_ref);
+    cr->mqual       = bam_map_qual(b);
+    cram_stats_add(c->MQ_stats, cr->mqual);
+
+    cr->mate_ref_id = bam_mate_ref(b);
+    cram_stats_add(c->NS_stats, cr->mate_ref_id);
 
     fd->record_counter++;
 
