@@ -75,6 +75,23 @@ typedef union {
     } B;
 } bam_aux_t;
 
+/* Struct for making arrays of aux tags */
+
+typedef struct {
+    char     tag[2];
+    char     type;
+    uint32_t array_len;
+    union {
+	char    *z;
+	uint8_t *h;
+	char     a;
+	int32_t  i;
+	uint32_t ui;
+	float    f;
+	double   d;
+	void    *array;
+    } value;
+} bam_aux_tag_t;
 
 /*
  * Our bam stream consists of a zlib gzFile stream and a buffer for it to
@@ -258,7 +275,7 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp);
  * @return
  * Returns the value for key; NULL if not found.
  */
-char *bam_aux_find(bam_seq_t *b, char *key);
+char *bam_aux_find(bam_seq_t *b, const char *key);
 
 //!Converts an encoded integer value return by bam_aux_find to an integer.
 int32_t bam_aux2i(const uint8_t *dat);
@@ -267,8 +284,230 @@ double bam_aux2d(const uint8_t *s);
 char bam_aux2A(const uint8_t *s);
 char *bam_aux2Z(const uint8_t *s);
 int bam_aux_del(bam_seq_t *b, uint8_t *s);
-void bam_aux_append(bam_seq_t *b, const char tag[2],
-		    char type, int len, uint8_t *data);
+
+/*! Add auxiliary tags to a bam_seq_t structure.
+ *
+ * Appends a tag onto the end of a bam_seq_t structure.  The tag name
+ * is supplied in the 'tag' parameter, and the data type code in 'type'.
+ * Valid type codes are [AcCsSiIfdHZ], as described in the SAM specification.
+ *
+ * The array_len parameter is used for B type (i.e. array) tags.  If
+ * array_len is 0, an ordinary non-array tag is added.  If it is greater
+ * than zero, a B type tag of the apropriate data type is made.  Arrays
+ * of types H and Z are not allowed, so array_len must be zero if these types
+ * are specified.
+ *
+ * data should point to the data to be added.  This should be of appropriate
+ * size for the tag type, i.e. (u)int8_t for A, C and c; (u)int16_t for S and s;
+ * (u)int32_t for I and i; a float for f; a double for d; a NUL-terminated
+ * string for H and Z.  If array_len is greater than zero, then data should
+ * point to an array of the given type.  All data should be in the native
+ * format for the machine - it will be converted to little-endian if necessary
+ * by the function.
+ *
+ * @param b         Points to the location of a bam_seq_t *.  If (*b)->alloc
+ *                  is too small, the bam_seq_t struct will be reallocated.
+ *                  Neither b nor *b should be NULL.
+ * @param tag       The tag name (RG, NM, etc.)
+ * @param type      The tag data type.
+ * @param array_len Array length for array tags, zero for ordinary ones.
+ * @param data      Pointer to the tag value.
+ *
+ * @return
+ * Returns  0 on success;
+ *         -1 on error
+ */
+
+int bam_aux_add(bam_seq_t **b, const char tag[2], char type,
+		uint32_t array_len, const void *data);
+
+/*! Add multiple auxiliary tags to a bam_seq_t structure
+ *
+ * bam_aux_add_vec adds one or more tags listed in the bam_aux_tag_t array
+ * to a bam_seq_t structure.  The bam_aux_tag_t struct has four elements,
+ * the tag name (char[2]), the type code (char), the array length for B tags and
+ * the value which is a union.
+ * 
+ * The type code determines both the data type of the tag, and the member
+ * of value used to access the data.  If array_len is zero, data types 'H' and
+ * 'Z' are accessed via member value.h or value.z; 'f' via value.f; 'd' via
+ * value.d; 'A' via value.a.  Signed integers should have type 'i', and are
+ * accessed through value.i.  Unsigned integers should use type 'I' and
+ * value.ui.  The actual type used to store the integer will be the smallest
+ * that it will fit in, so signed and unsigned integers that fit in one byte
+ * will be stored as type 'c' or 'C'.  Similarly, integers that fit in two
+ * bytes will be stored as type 's' or 'S' for unsigned.
+ *
+ * If array_len is non-zero, a B-type (array) tag is stored.  In this case
+ * value.array should point to the data to be stored.  The type of array
+ * is interpreted according to the requested tag type, i.e. char for 'A';
+ * int8_t for 'c'; uint8_t for 'C'; int16_t for 's'; uint16_t for 'S';
+ * int32_t for 'i'; uint32_t for 'I'; float for 'f'; double for 'd'.  No
+ * attempt is made to adjust the size of integers when storing arrays. All
+ * data should be in the native format for the machine - it will be converted
+ * to little-endian if necessary by the function.
+ *
+ * @param b         Points to the location of a bam_seq_t *.  If (*b)->alloc
+ *                  is too small, the bam_seq_t struct will be reallocated.
+ *                  Neither b nor *b should be NULL.
+ * @param count     The number of elements in the tags array
+ * @param tags      Array of bam_aux_tag_t structs, listing the tags to add.
+ * 
+ * @return 
+ * Returns  0 on success;
+ *         -1 on error
+ */
+
+int bam_aux_add_vec(bam_seq_t **b, uint32_t count, bam_aux_tag_t *tags);
+
+/*! Calculate the amount of space needed to store auxiliary tags
+ *
+ * The tags array should be filled out as described in bam_aux_add_vec.
+ * This function iterates through the list of items in the tags array
+ * to work out how much space will be needed to store them.  This value
+ * can be passed to bam_construct_seq in the extra_len parameter to
+ * ensure that enough space is allocated to store the tags.
+ *
+ * @param count     The number of elements in the tags array
+ * @param tags      Array of bam_aux_tag_t structs, listing the tags to add.
+ *
+ * @return
+ * Returns the total space required for the tags on success;
+ *         -1 on failure.
+ */
+
+ssize_t bam_aux_size_vec(uint32_t count, bam_aux_tag_t *tags);
+
+
+/*! Append auxiliary tag data
+ *
+ * This interface is similar to the samtools bam_aux_append command.
+ * It creates a tag with the given name and type, and then appends the
+ * supplied data to it as the value.  It is up to the caller to ensure that
+ * the data has been formatted correctly as given in the SAM specification.
+ * This function makes no checks on the data, but simply copies it.
+ *
+ * For an easier to use interface, you may want to use bam_aux_add instead.
+ *
+ * @param b         Points to the location of a bam_seq_t *.  If (*b)->alloc
+ *                  is too small, the bam_seq_t struct will be reallocated.
+ *                  Neither b nor *b should be NULL.
+ * @param tag       The tag name (RG, NM, etc.)
+ * @param type      The tag data type.
+ * @param len       The number of bytes of data present.
+ * @param data      Pre-formatted data.
+ *
+ * @return
+ * Returns  0 on success;
+ *         -1 on error.
+ */
+
+/*! Helper for filling in the bam_aux_tag_t struct
+ * @param tag   Pointer to bam_aux_tag_t struct
+ * @param name  Tag name
+ * @param val   Tag value
+ */
+static inline void bam_aux_tag_char(bam_aux_tag_t *tag, char *name, char val) {
+    tag->tag[0] = name[0];
+    tag->tag[1] = name[1];
+    tag->type = 'A';
+    tag->array_len = 0;
+    tag->value.a = val;
+}
+/*! Helper for filling in the bam_aux_tag_t struct
+ * @param tag   Pointer to bam_aux_tag_t struct
+ * @param name  Tag name
+ * @param val   Tag value
+ */
+static inline void bam_aux_tag_int(bam_aux_tag_t *tag,
+				   char *name, int32_t val) {
+    tag->tag[0] = name[0];
+    tag->tag[1] = name[1];
+    tag->type = 'i';
+    tag->array_len = 0;
+    tag->value.i = val;
+}
+/*! Helper for filling in the bam_aux_tag_t struct
+ * @param tag   Pointer to bam_aux_tag_t struct
+ * @param name  Tag name
+ * @param val   Tag value
+ */
+static inline void bam_aux_tag_uint(bam_aux_tag_t *tag,
+				    char *name, uint32_t val) {
+    tag->tag[0] = name[0];
+    tag->tag[1] = name[1];
+    tag->type = 'I';
+    tag->array_len = 0;
+    tag->value.ui = val;
+}
+/*! Helper for filling in the bam_aux_tag_t struct
+ * @param tag   Pointer to bam_aux_tag_t struct
+ * @param name  Tag name
+ * @param val   Tag value
+ */
+static inline void bam_aux_tag_float(bam_aux_tag_t *tag,
+				     char *name, float val) {
+    tag->tag[0] = name[0];
+    tag->tag[1] = name[1];
+    tag->type = 'f';
+    tag->array_len = 0;
+    tag->value.f = val;
+}
+/*! Helper for filling in the bam_aux_tag_t struct
+ * @param tag   Pointer to bam_aux_tag_t struct
+ * @param name  Tag name
+ * @param val   Tag value
+ */
+static inline void bam_aux_tag_double(bam_aux_tag_t *tag,
+				      char *name, double val) {
+    tag->tag[0] = name[0];
+    tag->tag[1] = name[1];
+    tag->type = 'd';
+    tag->array_len = 0;
+    tag->value.d = val;
+}
+/*! Helper for filling in the bam_aux_tag_t struct
+ * @param tag   Pointer to bam_aux_tag_t struct
+ * @param name  Tag name
+ * @param val   Tag value
+ */
+static inline void bam_aux_tag_string(bam_aux_tag_t *tag,
+				      char *name, char *str) {
+    tag->tag[0] = name[0];
+    tag->tag[1] = name[1];
+    tag->type = 'Z';
+    tag->array_len = 0;
+    tag->value.z = str;
+}
+/*! Helper for filling in the bam_aux_tag_t struct
+ * @param tag   Pointer to bam_aux_tag_t struct
+ * @param name  Tag name
+ * @param val   Tag value
+ */
+static inline void bam_aux_tag_hexstring(bam_aux_tag_t *tag,
+					 char *name, uint8_t *str) {
+    tag->tag[0] = name[0];
+    tag->tag[1] = name[1];
+    tag->type = 'H';
+    tag->array_len = 0;
+    tag->value.h = str;
+}
+/*! Helper for filling in the bam_aux_tag_t struct
+ * @param tag   Pointer to bam_aux_tag_t struct
+ * @param name  Tag name
+ * @param val   Tag value
+ */
+static inline void bam_aux_tag_array(bam_aux_tag_t *tag, char *name, char type,
+				     uint32_t array_len, void *data) {
+    tag->tag[0] = name[0];
+    tag->tag[1] = name[1];
+    tag->type = type;
+    tag->array_len = array_len;
+    tag->value.array = data;
+}
+
+int bam_aux_append(bam_seq_t **b, const char tag[2],
+		   char type, size_t len, const uint8_t *data);
 
 /*! An iterator on bam_aux_t fields.
  *
