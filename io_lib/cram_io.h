@@ -403,7 +403,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr);
  * Returns file handle on success;
  *         NULL on failure.
  */
-cram_fd *cram_open(char *filename, char *mode);
+cram_fd *cram_open(const char *filename, const char *mode);
 
 /*! Closes a CRAM file.
  *

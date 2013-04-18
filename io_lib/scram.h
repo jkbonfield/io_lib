@@ -55,7 +55,7 @@ typedef struct {
  * Returns scram pointer on success
  *         NULL on failure
  */
-scram_fd *scram_open(char *filename, char *mode);
+scram_fd *scram_open(const char *filename, const char *mode);
 
 
 /*! Closes a scram_fd handle
