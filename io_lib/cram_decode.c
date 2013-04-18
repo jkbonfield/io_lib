@@ -1499,7 +1499,7 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	((char *)*bam)[bam_idx++] = 0;
     }
 
-    (*bam)->blk_size += bam_idx - old_idx;
+    bam_set_blk_size(*bam, bam_blk_size(*bam) + bam_idx - old_idx);
 
     ((char *)*bam)[bam_idx++] = 0;
 

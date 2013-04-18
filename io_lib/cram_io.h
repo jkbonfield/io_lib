@@ -413,6 +413,15 @@ cram_fd *cram_open(char *filename, char *mode);
  */
 int cram_close(cram_fd *fd);
 
+/*
+ * Flushes a CRAM file.
+ * Useful for when writing to stdout without wishing to close the stream.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_flush(cram_fd *fd);
+
 /*! Checks for end of file on a cram_fd stream.
  *
  * @return

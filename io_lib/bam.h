@@ -57,12 +57,6 @@ typedef struct bam_seq_s {
     int32_t  mate_pos;
     int32_t  ins_size;
 
-    // HACK for Samtools semi-compatibility
-    // struct bam_seq_s *core; // assigned to self
-    // still means bam->core.flag has to be edited as (*bam)->core->flag
-    
-    /* Samtools has "int l_aux, data_len, m_data here too" */
-
     /* Followed by arbitrary bytes of packed data */
     unsigned char data; /* unknown size */
 } bam_seq_t;
@@ -133,28 +127,41 @@ typedef struct {
 } bam_file_t;
 
 /* Decoding the above struct */
+#define bam_blk_size(b)       ((b)->blk_size)
+#define bam_set_blk_size(b,v) ((b)->blk_size = (v))
+
+#define bam_ref(b)       ((b)->ref)
+#define bam_pos(b)       ((b)->pos)
+#define bam_mate_ref(b)  ((b)->mate_ref)
+#define bam_mate_pos(b)  ((b)->mate_pos)
+#define bam_ins_size(b)  ((b)->ins_size)
+#define bam_cigar_len(b) ((b)->cigar_len)
+#define bam_name_len(b)  ((b)->name_len)
 #define bam_map_qual(b)  ((b)->map_qual)
 #define bam_bin(b)       ((b)->bin)
-#define bam_name_len(b)  ((b)->name_len)
-#define bam_set_map_qual(b,v) ((b)->map_qual = (v))
-#define bam_set_bin(b,v)      ((b)->bin = (v))
-#define bam_set_name_len(b,v) ((b)->name_len = (v))
-
-#define bam_flag(b)       ((b)->flag)
-#define bam_set_flag(b,v) ((b)->flag = (v));
-
-#define bam_cigar_len(b)        ((b)->cigar_len)
-#define bam_set_cigar_len(b, v) ((b)->cigar_len = (v))
-
+#define bam_flag(b)      ((b)->flag)
+#define bam_seq_len(b)   ((b)->len)
 #define bam_strand(b)    ((bam_flag((b)) & BAM_FREVERSE) != 0)
 #define bam_mstrand(b)   ((bam_flag((b)) & BAM_FMREVERSE) != 0)
+
+#define bam_set_ref(b,v)        ((b)->ref = (v))
+#define bam_set_pos(b,v)        ((b)->pos = (v))
+#define bam_set_mate_ref(b,v)   ((b)->mate_ref = (v))
+#define bam_set_mate_pos(b,v)   ((b)->mate_pos = (v))
+#define bam_set_ins_size(b,v)   ((b)->ins_size = (v))
+#define bam_set_cigar_len(b, v) ((b)->cigar_len = (v))
+#define bam_set_name_len(b,v)   ((b)->name_len = (v))
+#define bam_set_map_qual(b,v)   ((b)->map_qual = (v))
+#define bam_set_bin(b,v)        ((b)->bin = (v));
+#define bam_set_flag(b,v)       ((b)->flag = (v));
+#define bam_set_seq_len(b,v)    ((b)->len = (v));
+
 #define bam_name(b)      ((char *)(&(b)->data))
 #ifdef ALLOW_UAC
 #define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + bam_name_len((b))))
 #else
 #define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + round4(bam_name_len((b)))))
 #endif
-#define bam_seq_len(b)   ((b)->len)
 #define bam_seq(b)       (((char *)bam_cigar((b))) + 4*bam_cigar_len(b))
 #define bam_qual(b)      (bam_seq(b) + (int)(((b)->len+1)/2))
 #define bam_aux(b)       (bam_qual(b) + (b)->len)

@@ -261,8 +261,8 @@ int main(int argc, char **argv) {
 	    if (!in[j])
 		continue;
 
-	    b_ref = b->ref == -1 ? INT_MAX : b->ref;
-	    x = (b_ref<<33) | (b->pos<<2) | (bam_strand(b)<<1) |
+	    b_ref = bam_ref(b) == -1 ? INT_MAX : bam_ref(b);
+	    x = (bam_ref(b)<<33) | (bam_pos(b)<<2) | (bam_strand(b)<<1) |
 		!(bam_flag(b) & BAM_FREAD1);
 	    if (best_val > x) {
 		best_val = x;
