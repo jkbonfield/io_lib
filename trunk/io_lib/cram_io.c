@@ -2670,6 +2670,27 @@ cram_fd *cram_open(char *filename, char *mode) {
 }
 
 /*
+ * Flushes a CRAM file.
+ * Useful for when writing to stdout without wishing to close the stream.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_flush(cram_fd *fd) {
+    if (!fd)
+	return -1;
+
+    if (fd->mode == 'w' && fd->ctr) {
+	if(fd->ctr->slice)
+	    fd->ctr->curr_slice++;
+	if (-1 == cram_flush_container(fd, fd->ctr))
+	    return -1;
+    }
+
+    return 0;
+}
+
+/*
  * Closes a CRAM file.
  * Returns 0 on success
  *        -1 on failure
