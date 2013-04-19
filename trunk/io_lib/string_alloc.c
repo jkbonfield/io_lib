@@ -107,18 +107,7 @@ char *string_alloc(string_alloc_t *a_str, size_t length) {
 /* equivalent to strdup */
 
 char *string_dup(string_alloc_t *a_str, char *instr) {
-    char *str;
-    size_t len = strlen(instr);
-    
-    if (len > a_str->max_length) len = a_str->max_length - 1;
-    
-    str = string_alloc(a_str, len + 1);
-    
-    if (NULL == str) return NULL;
-    
-    strncpy(str, instr, len + 1);
-    
-    return str;
+    return string_ndup(a_str, instr, strlen(instr));
 }
 
 char *string_ndup(string_alloc_t *a_str, char *instr, size_t len) {
