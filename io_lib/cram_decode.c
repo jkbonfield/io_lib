@@ -1376,11 +1376,14 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	     */
 	    if (cr->tlen == INT_MIN) {
 		int id1 = rec, id2 = rec;
-		int apos = cr->apos, aend;
+		int aleft = cr->apos, aright = cr->aend;
 		int tlen;
 
 		do {
-		    aend = s->crecs[id2].aend;
+		    if (aleft > s->crecs[id2].apos)
+			aleft = s->crecs[id2].apos;
+		    if (aright < s->crecs[id2].aend)
+			aright = s->crecs[id2].aend;
 		    if (s->crecs[id2].mate_line == -1) {
 			s->crecs[id2].mate_line = rec;
 			break;
@@ -1389,7 +1392,7 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 		    id2 = s->crecs[id2].mate_line;
 		} while (id2 != id1);
 
-		tlen = aend - apos + 1;
+		tlen = aright - aleft + 1;
 		id1 = id2 = rec;
 
 		// leftmost is +ve, rightmost -ve, all others undefined
