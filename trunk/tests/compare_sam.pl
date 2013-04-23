@@ -7,7 +7,7 @@ use strict;
 use Getopt::Long;
 
 my %opts;
-GetOptions(\%opts, 'noqual', 'noaux', 'notemplate', 'unknownrg', 'nomd');
+GetOptions(\%opts, 'noqual', 'noaux', 'notemplate', 'unknownrg', 'nomd', 'template-1', 'noflag');
 
 my ($fn1, $fn2) = @ARGV;
 open(my $fd1, "<", $fn1) || die $!;
@@ -61,11 +61,16 @@ do {
     my @ln1 = split("\t", $ln1);
     my @ln2 = split("\t", $ln2);
 
+    # Fix BWA bug: unmapped data should have no alignments
+    if ($ln1[1] & 4) { $ln1[4] = 0; $ln1[5] = "*"; }
+    if ($ln2[1] & 4) { $ln2[4] = 0; $ln2[5] = "*"; }
+
     # Rationalise order of auxiliary fields
     if (exists $opts{noaux}) {
 	@ln1 = @ln1[0..10];
 	@ln2 = @ln2[0..10];
     } else {
+	#my @a=@ln1[11..$#ln1];print "<<<@a>>>\n";
 	@ln1[11..$#ln1] = sort @ln1[11..$#ln1];
 	@ln2[11..$#ln2] = sort @ln2[11..$#ln2];
     }
@@ -80,14 +85,23 @@ do {
 	@ln2[6..8] = qw/* 0 0/;
     }
 
+    if (exists $opts{noflag}) {
+	$ln1[1] = 0; $ln2[1] = 0;
+    }
+    
+    if (exists $opts{'template-1'}) {
+	if (abs($ln1[8] - $ln2[8]) == 1) {
+	    $ln1[8] = $ln2[8];
+	}
+    }
+
     # Cram doesn't uppercase the reference
     $ln1[9] = uc($ln1[9]);
     $ln2[9] = uc($ln2[9]);
 
-    #print "1\t@ln1\n2\t@ln2\n\n";
-
     if ("@ln1" ne "@ln2") {
 	print "Diff at lines $fn1:$c1, $fn2:$c2\n";
+	print "1\t@ln1\n2\t@ln2\n\n";
 	exit(1);
     }
 
