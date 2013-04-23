@@ -1353,15 +1353,20 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 
     } else {
 	refs_t *refs;
+	char *fn;
 
     no_M5:
 	/* Failed to find in search path or M5 cache, see if @SQ UR: tag? */
 	if (!(tag = sam_header_find_key(fd->header, ty, "UR", NULL)))
 	    return -1;
 
+	fn = (strncmp(tag->str+3, "file:", 5) == 0)
+	    ? tag->str+8
+	    : tag->str+3;
+
 	if (fd->refs->fp)
 	    fclose(fd->refs->fp);
-	if (!(refs = refs_load_fai(fd->refs, tag->str+3, 0)))
+	if (!(refs = refs_load_fai(fd->refs, fn, 0)))
 	    return -1;
 	fd->refs = refs;
 	fd->refs->fp = NULL;
