@@ -4,7 +4,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <dstring.h>
+#include <io_lib/dstring.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>

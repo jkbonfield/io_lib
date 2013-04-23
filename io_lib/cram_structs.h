@@ -23,7 +23,14 @@ extern "C" {
 #include <stdint.h>
 
 #include "io_lib/hash_table.h"       // From io_lib aka staden-read
-#include "io_lib/bam.h"              // For BAM header parsing
+
+#ifdef SAMTOOLS
+// From within samtools/HTSlib
+#  include "io_lib/string_alloc.h"
+#else
+// From within io_lib
+#  include "io_lib/bam.h"              // For BAM header parsing
+#endif
 
 #define MAX_NAME_LEN 1024
 
