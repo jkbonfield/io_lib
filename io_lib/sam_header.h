@@ -22,8 +22,8 @@
  * - Updating of lines
  */
 
-#ifndef _SAM_HEADER_H_
-#define _SAM_HEADER_H_
+#ifndef _JKB_SAM_HEADER_H_
+#define _JKB_SAM_HEADER_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,6 +38,11 @@ extern "C" {
 #include "io_lib/dstring.h"
 #include "io_lib/hash_table.h"
 #include "io_lib/string_alloc.h"
+
+#ifdef SAMTOOLS
+#  define sam_header_parse _sam_header_parse
+#  define sam_header_free  _sam_header_free
+#endif
 
 /*
  * Proposed new SAM header parsing
@@ -375,8 +380,13 @@ int sam_header_add_PG(SAM_hdr *sh, char *name, ...);
  */
 char *stringify_argv(int argc, char *argv[]);
 
+#ifdef SAMTOOLS
+#  undef sam_header_parse
+#  undef sam_header_free
+#endif
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _SAM_HEADER_H_ */
+#endif /* _JKB_SAM_HEADER_H_ */

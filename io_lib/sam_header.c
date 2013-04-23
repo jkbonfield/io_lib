@@ -9,6 +9,11 @@
 #include <string.h>
 #include <assert.h>
 
+#ifdef SAMTOOLS
+#  define sam_header_parse _sam_header_parse
+#  define sam_header_free  _sam_header_free
+#endif
+
 #include "io_lib/sam_header.h"
 #include "io_lib/string_alloc.h"
 
