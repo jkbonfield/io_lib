@@ -26,6 +26,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
+#ifdef HAVE_LIBBZ2
+#include <bzlib.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <math.h>
@@ -705,6 +708,12 @@ int cram_uncompress_block(cram_block *b) {
     char *uncomp;
     size_t uncomp_size = 0;
 
+    if (b->uncomp_size == 0) {
+	// blank block
+	b->method = RAW;
+	return 0;
+    }
+
     switch (b->method) {
     case RAW:
 	b->uncomp_size = b->comp_size;
@@ -720,14 +729,67 @@ int cram_uncompress_block(cram_block *b) {
 	b->method = RAW;
 	break;
 
+#ifdef HAVE_LIBBZ2
+    case BZIP2: {
+	int usize = b->uncomp_size;
+	int r;
+	if (!(uncomp = malloc(usize)))
+	    return -1;
+	if (BZ_OK != BZ2_bzBuffToBuffDecompress(uncomp, &usize,
+						(char *)b->data, b->comp_size,
+						0, 0)) {
+	    free(uncomp);
+	    return -1;
+	}
+	b->data = (unsigned char *)uncomp;
+	b->method = RAW;
+	b->uncomp_size = usize; // Just incase it differs
+	break;
+    }
+#else
     case BZIP2:
-	fprintf(stderr, "Bzip2 compression not yet implemented\n");
+	fprintf(stderr, "Bzip2 compression is not compiled into this "
+		"version.\nPlease rebuild and try again.\n");
 	abort();
 	break;
+#endif
     }
 
     return 0;
 }
+
+#ifdef HAVE_LIBBZ2
+static int cram_compress_block_bzip2(cram_fd *fd, cram_block *b,
+				     cram_metrics *metrics, int level) {
+    int comp_size = b->uncomp_size*1.01 + 600;
+    char *comp = malloc(comp_size);
+    char *data = b->data;
+
+    if (!comp)
+	return -1;
+
+    if (!data)
+	data = "";
+
+    if (BZ_OK != BZ2_bzBuffToBuffCompress(comp, &comp_size,
+					  data, b->uncomp_size,
+					  level, 0, 30)) {
+	free(comp);
+	return -1;
+    }
+
+    free(b->data);
+    b->data = (unsigned char *)comp;
+    b->method = BZIP2;
+    b->comp_size = comp_size;
+
+    if (fd->verbose)
+	fprintf(stderr, "Compressed block ID %d from %d to %d\n",
+		b->content_id, b->uncomp_size, b->comp_size);
+
+    return 0;
+}
+#endif
 
 /*
  * Compresses a block using one of two different zlib strategies. If we only
@@ -753,6 +815,11 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	fprintf(stderr, "Attempt to compress an already compressed block.\n");
 	return 0;
     }
+
+#ifdef HAVE_LIBBZ2
+    if (fd->use_bz2)
+	return cram_compress_block_bzip2(fd, b, metrics, level);
+#endif
 
     if (strat2 >= 0)
 	if (fd->verbose > 1)
@@ -2648,6 +2715,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->embed_ref = 0;
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
+    fd->use_bz2 = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
 
@@ -2812,6 +2880,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_IGNORE_MD5:
 	fd->ignore_md5 = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_BZIP2:
+	fd->use_bz2 = va_arg(args, int);
 	break;
 
     case CRAM_OPT_RANGE:
