@@ -1833,7 +1833,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 
 	if (fd->version != CRAM_1_VERS && c->curr_slice+1 < c->max_slice) {
 	    // Last slice is finalised in cram_encode_container()
-	    if (s->hdr->ref_seq_id >= 0) {
+	    if (s->hdr->ref_seq_id >= 0 && c->multi_seq == 0 && !fd->no_ref) {
 		MD5_CTX md5;
 		MD5_Init(&md5);
 		MD5_Update(&md5,
