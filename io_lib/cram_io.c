@@ -2457,6 +2457,11 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	cram_free_container(c);
     }
 
+    if (-1 == refs_from_header(fd->refs, fd, fd->header))
+	return -1;
+    if (-1 == refs2id(fd->refs, fd->header))
+	return -1;
+
     fflush(fd->fp);
 
     return 0;

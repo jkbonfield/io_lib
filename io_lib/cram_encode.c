@@ -1991,7 +1991,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	// Have we seen this reference before?
 	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && 
-	    !fd->no_ref && fd->refs->ref_id[bam_ref(b)]->count++) {
+	    fd->refs->ref_id[bam_ref(b)]->count++) {
 	    //fprintf(stderr, "Currently cram_put_bam_seq() does not support "
 	    //	    "unsorted data. Aborting\n");
 	    //return -1;
