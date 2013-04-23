@@ -67,6 +67,9 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -X             [Cram] Embed reference sequence.\n");
     fprintf(fp, "    -x             [Cram] Non-reference based encoding.\n");
     fprintf(fp, "    -m             [Cram] Generate MD and NM tags:\n");
+#ifdef HAVE_LIBBZ2
+    fprintf(fp, "    -j             [Cram] Compress using bzip2.\n");
+#endif
 }
 
 int main(int argc, char **argv) {
@@ -77,12 +80,12 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
-    int start, end, multi_seq = 0, no_ref = 0;
+    int start, end, multi_seq = 0, no_ref = 0, use_bz2 = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXI:O:R:!Mm")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXI:O:R:!Mmj")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -168,6 +171,15 @@ int main(int argc, char **argv) {
 	    multi_seq = 1;
 	    break;
 
+	case 'j':
+#ifdef HAVE_LIBBZ2
+	    use_bz2 = 1;
+#else
+	    fprintf(stderr, "Warning: bzip2 support is not compiled into this"
+		    " version.\nPlease recompile. (Using zlib instead.)\n");
+#endif
+	    break;
+
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
 	    usage(stderr);
@@ -236,6 +248,10 @@ int main(int argc, char **argv) {
 
     if (embed_ref)
 	if (scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref))
+	    return 1;
+
+    if (use_bz2)
+	if (scram_set_option(out, CRAM_OPT_USE_BZIP2, use_bz2))
 	    return 1;
 
     if (no_ref) {

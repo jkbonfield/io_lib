@@ -566,6 +566,7 @@ typedef struct {
     int embed_ref;
     int no_ref;
     int ignore_md5;
+    int use_bz2;
     cram_range range;
 
     // lookup tables, stored here so we can be trivially multi-threaded
@@ -597,6 +598,7 @@ enum cram_option {
     CRAM_OPT_REFERENCE,
     CRAM_OPT_MULTI_SEQ_PER_SLICE,
     CRAM_OPT_NO_REF,
+    CRAM_OPT_USE_BZIP2,
 };
 
 /* BF bitfields */
