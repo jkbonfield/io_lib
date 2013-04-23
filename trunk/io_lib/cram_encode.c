@@ -1655,9 +1655,13 @@ static char *cram_encode_aux_1_0(cram_fd *fd, bam_seq_t *b, cram_container *c,
  */
 static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 				 cram_slice *s, cram_record *cr) {
-    char *aux, *tmp, *rg = NULL;
+    char *aux, *orig, *tmp, *rg = NULL;
+#ifdef SAMTOOLS
+    int aux_size = b->l_aux;
+#else
     int aux_size = bam_blk_size(b) -
 	((char *)bam_aux(b) - (char *)&bam_ref(b));
+#endif
     cram_block *td_b = c->comp_hdr->TD_blk;
     int TD_blk_size = BLOCK_SIZE(td_b), new;
     HashData hd;
@@ -1668,10 +1672,10 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     tmp = (char *)BLOCK_END(s->aux_blk);
 
 
-    aux = bam_aux(b);
+    orig = aux = bam_aux(b);
 
     // Copy aux keys to td_b and aux values to s->aux_blk
-    while (aux[0] != 0) {
+    while (aux[0] != 0 && aux - orig < aux_size) {
 	HashData hd; hd.i = 0;
 
 	if (aux[0] == 'R' && aux[1] == 'G' && aux[2] == 'Z') {
