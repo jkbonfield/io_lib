@@ -39,6 +39,11 @@
 #include "io_lib/md5.h"
 #include "io_lib/open_trace_file.h"
 
+#ifdef SAMTOOLS
+#  define sam_header_parse _sam_header_parse
+#  define sam_header_free  _sam_header_free
+#endif
+
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
  *

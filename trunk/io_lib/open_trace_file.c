@@ -37,10 +37,12 @@
 #include "io_lib/open_trace_file.h"
 #include "io_lib/misc.h"
 #include "io_lib/tar_format.h"
-#include "io_lib/compress.h"
 #include "io_lib/hash_table.h"
-#include "io_lib/sff.h"
-#include "io_lib/srf.h"
+#ifndef SAMTOOLS
+#  include "io_lib/compress.h"
+#  include "io_lib/sff.h"
+#  include "io_lib/srf.h"
+#endif
 
 /*
  * Supported compression extensions. See the magics array in compress.c for
@@ -249,6 +251,7 @@ static mFILE *find_file_hash(char *file, char *hashfile) {
     return mfcreate(data, size);
 }
 
+#ifndef SAMTOOLS
 /*
  * Extracts a single trace from an SRF file.
  *
@@ -282,6 +285,7 @@ static mFILE *find_file_srf(char *tname, char *srffile) {
     srf_destroy(srf, 1);
     return mf;
 }
+#endif
 
 #ifdef TRACE_ARCHIVE
 /*
@@ -515,6 +519,8 @@ mFILE *find_file_url(char *file, char *url) {
 }
 #endif
 
+
+#ifndef SAMTOOLS
 /*
  * Takes an SFF file in 'data' and edits the header to ensure
  * that it has no index listed and only claims to contain a single entry.
@@ -887,6 +893,7 @@ static mFILE *find_file_sff(char *entry, char *sff) {
     /* Convert to an mFILE and return */
     return sff_single(fake_file, chdrlen+rhdrlen+dlen);
 }
+#endif
 
 /*
  * Searches for file in the directory 'dirname'. If it finds it, it opens
@@ -1006,10 +1013,12 @@ static mFILE *find_file_dir(char *file, char *dirname) {
 		return find_file_hash(cp+1, path2);
 	    case TAR:
 		return find_file_tar(cp+1, path2, 0);
+#ifndef SAMTOOLS
 	    case SFF:
 		return find_file_sff(cp+1, path2);
 	    case SRF:
 		return find_file_srf(cp+1, path2);
+#endif
 	    case NONE:
 		break;
 	    }
@@ -1104,6 +1113,7 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 		    return fp;
 		}
 #endif
+#ifndef SAMTOOLS
 	    } else if (0 == strncmp(ele2, "SFF=", 4)) {
 		if (valid && (fp = find_file_sff(file2, ele2+4))) {
 		    free(newsearch);
@@ -1115,7 +1125,7 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 		    free(newsearch);
 		    return fp;
 		}
-
+#endif
 	    } else {
 		if (valid && (fp = find_file_dir(file2, ele2))) {
 		    free(newsearch);
