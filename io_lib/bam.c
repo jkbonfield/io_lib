@@ -162,7 +162,7 @@ static int load_bam_header(bam_file_t *b) {
     if (header_len != bam_read(b, header, header_len))
 	return -1;
 
-    if (!(b->header = sam_header_parse(header, header_len)))
+    if (!(b->header = sam_hdr_parse(header, header_len)))
 	return -1;
     free(header);
 
@@ -208,7 +208,7 @@ static int load_bam_header(bam_file_t *b) {
 	} else {
 	    char len_c[100];
 	    sprintf(len_c, "%d", len);
-	    if (sam_header_add(b->header, "SQ", "SN", name, "LN", len_c, NULL))
+	    if (sam_hdr_add(b->header, "SQ", "SN", name, "LN", len_c, NULL))
 		return -1;
 	}
 
@@ -241,8 +241,8 @@ static int load_sam_header(bam_file_t *b) {
 	return -1;
     b->line = 0; // FIXME
 
-    if (!(b->header = sam_header_parse((char *)dstring_str(header),
-				       dstring_length(header))))
+    if (!(b->header = sam_hdr_parse((char *)dstring_str(header),
+				    dstring_length(header))))
 	return -1;
 
     dstring_destroy(header);
@@ -409,7 +409,7 @@ int bam_close(bam_file_t *b) {
     if (b->bs)
 	free(b->bs);
     if (b->header)
-	sam_header_free(b->header);
+	sam_hdr_free(b->header);
 
     if (b->gzip)
 	inflateEnd(&b->s);
@@ -1286,7 +1286,7 @@ char *bam_aux_find(bam_seq_t *b, const char *key) {
     return NULL;
 }
 
-int32_t bam_aux2i(const uint8_t *dat) {
+int32_t bam_aux_i(const uint8_t *dat) {
     switch(dat[0]) {
     case 'i':
 	return (int32_t)(dat[1] + (dat[2]<<8) + (dat[3]<<16) + (dat[4]<<24));
@@ -1306,7 +1306,7 @@ int32_t bam_aux2i(const uint8_t *dat) {
     abort();
 }
 
-float bam_aux2f(const uint8_t *dat) {
+float bam_aux_f(const uint8_t *dat) {
     assert(dat[0] == 'f');
     return (float)((int32_t)((dat[1]<<0)+
 			     (dat[2]<<8)+
@@ -1314,7 +1314,7 @@ float bam_aux2f(const uint8_t *dat) {
 			     (dat[4]<<24)));
 }
 
-double bam_aux2d(const uint8_t *dat) { 
+double bam_aux_d(const uint8_t *dat) { 
     assert(dat[0] == 'd');
     return (double)((int64_t)((((uint64_t)dat[1])<<0)+
 			      (((uint64_t)dat[2])<<8)+
@@ -1326,12 +1326,12 @@ double bam_aux2d(const uint8_t *dat) {
 			      (((uint64_t)dat[8])<<54)));
 }
 
-char bam_aux2A(const uint8_t *dat) {
+char bam_aux_A(const uint8_t *dat) {
     assert(dat[0] == 'A');
     return dat[1];
 }
 
-char *bam_aux2Z(const uint8_t *dat) {
+char *bam_aux_Z(const uint8_t *dat) {
     assert(dat[0] == 'Z' || dat[0] == 'H');
     return (char *)(dat+1);
 }
@@ -1877,8 +1877,16 @@ int bam_aux_add_vec(bam_seq_t **b, uint32_t count, bam_aux_tag_t *tags) {
     return 0;
 }
 
-int bam_aux_append(bam_seq_t **b, const char tag[2], char type,
-		   size_t len, const uint8_t *data) {
+/*! Add preformated raw aux data to the bam_seq.
+ *
+ * Consider using bam_aux_add instead if you have information in a more
+ * integer or string form.
+ *
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int bam_aux_add_data(bam_seq_t **b, const char tag[2], char type,
+		     size_t len, const uint8_t *data) {
     uint8_t *cp;
     size_t used;
 
@@ -2660,11 +2668,11 @@ int bam_write_header(bam_file_t *out) {
     size_t hdr_size;
     int i, htext_len;
 
-    if (sam_header_rebuild(out->header))
+    if (sam_hdr_rebuild(out->header))
 	return -1;
 
-    htext = sam_header_str(out->header);
-    htext_len = sam_header_length(out->header);
+    htext = sam_hdr_str(out->header);
+    htext_len = sam_hdr_length(out->header);
 
     hdr_size = 12 + htext_len+1;
     for (i = 0; i < out->header->nref; i++) {

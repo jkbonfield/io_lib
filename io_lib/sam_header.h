@@ -22,8 +22,8 @@
  * - Updating of lines
  */
 
-#ifndef _JKB_SAM_HEADER_H_
-#define _JKB_SAM_HEADER_H_
+#ifndef _SAM_HDR_H_
+#define _SAM_HDR_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,11 +38,6 @@ extern "C" {
 #include "io_lib/dstring.h"
 #include "io_lib/hash_table.h"
 #include "io_lib/string_alloc.h"
-
-#ifdef SAMTOOLS
-#  define sam_header_parse _sam_header_parse
-#  define sam_header_free  _sam_header_free
-#endif
 
 /*
  * Proposed new SAM header parsing
@@ -141,8 +136,8 @@ typedef struct {
  * their numeric array indices. Additionally PG has an array to hold
  * the linked list start points (the last in a PP chain).
  *
- * Use the appropriate sam_header_* functions to edit the header, and 
- * call sam_header_rebuild() any time the textual form needs to be
+ * Use the appropriate sam_hdr_* functions to edit the header, and 
+ * call sam_hdr_rebuild() any time the textual form needs to be
  * updated again.
  */
 typedef struct {
@@ -179,44 +174,44 @@ typedef struct {
 /*! Creates an empty SAM header, ready to be populated.
  * 
  * @return
- * Returns a SAM_hdr struct on success (free with sam_header_free())
+ * Returns a SAM_hdr struct on success (free with sam_hdr_free())
  *         NULL on failure
  */
-SAM_hdr *sam_header_new();
+SAM_hdr *sam_hdr_new();
 
 /*! Tokenises a SAM header into a hash table.
  *
  * Also extracts a few bits on specific data types, such as @RG lines.
  *
  * @return
- * Returns a SAM_hdr struct on success (free with sam_header_free());
+ * Returns a SAM_hdr struct on success (free with sam_hdr_free());
  *         NULL on failure
  */
-SAM_hdr *sam_header_parse(const char *hdr, int len);
+SAM_hdr *sam_hdr_parse(const char *hdr, int len);
 
 
 /*! Produces a duplicate copy of hdr and returns it.
  * @return
  * Returns NULL on failure
  */
-SAM_hdr *sam_header_dup(SAM_hdr *hdr);
+SAM_hdr *sam_hdr_dup(SAM_hdr *hdr);
 
 
 /*! Deallocates all storage used by a SAM_hdr struct.
  */
-void sam_header_free(SAM_hdr *hdr);
+void sam_hdr_free(SAM_hdr *hdr);
 
 /*! Returns the current length of the SAM_hdr in text form.
  *
- * Call sam_header_rebuild() first if editing has taken place.
+ * Call sam_hdr_rebuild() first if editing has taken place.
  */
-int sam_header_length(SAM_hdr *hdr);
+int sam_hdr_length(SAM_hdr *hdr);
 
 /*! Returns the string form of the SAM_hdr.
  *
- * Call sam_header_rebuild() first if editing has taken place.
+ * Call sam_hdr_rebuild() first if editing has taken place.
  */
-char *sam_header_str(SAM_hdr *hdr);
+char *sam_hdr_str(SAM_hdr *hdr);
 
 /*! Appends a formatted line to an existing SAM header.
  *
@@ -231,36 +226,36 @@ char *sam_header_str(SAM_hdr *hdr);
  * Returns 0 on success;
  *        -1 on failure
  */
-int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len);
+int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len);
 
 /*! Adds a single line to a SAM header.
  *
  * Specify type and one or more key,value pairs, ending with the NULL key.
- * Eg. sam_header_add(h, "SQ", "ID", "foo", "LN", "100", NULL).
+ * Eg. sam_hdr_add(h, "SQ", "ID", "foo", "LN", "100", NULL).
  *
  * @return
  * Returns 0 on success;
  *        -1 on failure
  */
-int sam_header_add(SAM_hdr *sh, char *type, ...);
+int sam_hdr_add(SAM_hdr *sh, const char *type, ...);
 
 /*! Adds a single line to a SAM header.
  *
- * This is much like sam_header_add() but with the additional va_list
+ * This is much like sam_hdr_add() but with the additional va_list
  * argument. This is followed by specifying type and one or more
  * key,value pairs, ending with the NULL key.
  *
- * Eg. sam_header_vadd(h, "SQ", args, "ID", "foo", "LN", "100", NULL).
+ * Eg. sam_hdr_vadd(h, "SQ", args, "ID", "foo", "LN", "100", NULL).
  *
  * The purpose of the additional va_list parameter is to permit other
  * varargs functions to call this while including their own additional
- * parameters; an example is in sam_header_add_PG().
+ * parameters; an example is in sam_hdr_add_PG().
  *
  * @return
  * Returns 0 on success;
  *        -1 on failure
  */
-int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...);
+int sam_hdr_vadd(SAM_hdr *sh, const char *type, va_list ap, ...);
 
 /*!
  * @return
@@ -269,8 +264,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...);
  *
  * Returns NULL if no type/ID is found
  */
-SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
-			      char *ID_key, char *ID_value);
+SAM_hdr_type *sam_hdr_find(SAM_hdr *hdr, char *type,
+			   char *ID_key, char *ID_value);
 
 /*!
  *
@@ -284,8 +279,8 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
  * @return
  * Returns NULL if no type/ID is found.
  */
-char *sam_header_find_line(SAM_hdr *hdr, char *type,
-			   char *ID_key, char *ID_value);
+char *sam_hdr_find_line(SAM_hdr *hdr, char *type,
+			char *ID_key, char *ID_value);
 
 /*! Looks for a specific key in a single sam header line.
  *
@@ -298,15 +293,15 @@ char *sam_header_find_line(SAM_hdr *hdr, char *type,
  * Returns the tag pointer on success;
  *         NULL on failure
  */
-SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
-				 SAM_hdr_type *type,
-				 char *key,
-				 SAM_hdr_tag **prev);
+SAM_hdr_tag *sam_hdr_find_key(SAM_hdr *sh,
+			      SAM_hdr_type *type,
+			      char *key,
+			      SAM_hdr_tag **prev);
 
 /*! Adds or updates tag key,value pairs in a header line.
  *
  * Eg for adding M5 tags to @SQ lines or updating sort order for the
- * @HD line (although use the sam_header_sort_order() function for
+ * @HD line (although use the sam_hdr_sort_order() function for
  * HD manipulation, which is a wrapper around this funuction).
  *
  * Specify multiple key,value pairs ending in NULL.
@@ -315,20 +310,20 @@ SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
  * Returns 0 on success;
  *        -1 on failure
  */
-int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...);
+int sam_hdr_update(SAM_hdr *hdr, SAM_hdr_type *type, ...);
 
 /*! Reconstructs the dstring from the header hash table.
  * @return
  * Returns 0 on success;
  *        -1 on failure
  */
-int sam_header_rebuild(SAM_hdr *hdr);
+int sam_hdr_rebuild(SAM_hdr *hdr);
 
 /*! Looks up a reference sequence by name and returns the numerical ID.
  * @return
  * Returns -1 if unknown reference.
  */
-int sam_header_name2ref(SAM_hdr *hdr, char *ref);
+int sam_hdr_name2ref(SAM_hdr *hdr, char *ref);
 
 /*! Looks up a read-group by name and returns a pointer to the start of the
  * associated tag list.
@@ -336,7 +331,7 @@ int sam_header_name2ref(SAM_hdr *hdr, char *ref);
  * @return
  * Returns NULL on failure
  */
-SAM_RG *sam_header_find_rg(SAM_hdr *hdr, char *rg);
+SAM_RG *sam_hdr_find_rg(SAM_hdr *hdr, char *rg);
 
 /*! Fixes any PP links in @PG headers.
  *
@@ -348,26 +343,26 @@ SAM_RG *sam_header_find_rg(SAM_hdr *hdr, char *rg);
  * Returns 0 on sucess;
  *        -1 on failure (indicating broken PG/PP records)
  */
-int sam_header_link_pg(SAM_hdr *hdr);
+int sam_hdr_link_pg(SAM_hdr *hdr);
 
 
 /*! Add an @PG line.
  *
- * If we wish complete control over this use sam_header_add() directly. This
+ * If we wish complete control over this use sam_hdr_add() directly. This
  * function uses that, but attempts to do a lot of tedious house work for
  * you too.
  *
  * - It will generate a suitable ID if the supplied one clashes.
  * - It will generate multiple @PG records if we have multiple PG chains.
  *
- * Call it as per sam_header_add() with a series of key,value pairs ending
+ * Call it as per sam_hdr_add() with a series of key,value pairs ending
  * in NULL.
  *
  * @return
  * Returns 0 on success;
  *        -1 on failure
  */
-int sam_header_add_PG(SAM_hdr *sh, char *name, ...);
+int sam_hdr_add_PG(SAM_hdr *sh, const char *name, ...);
 
 /*!
  * A function to help with construction of CL tags in @PG records.
@@ -380,13 +375,8 @@ int sam_header_add_PG(SAM_hdr *sh, char *name, ...);
  */
 char *stringify_argv(int argc, char *argv[]);
 
-#ifdef SAMTOOLS
-#  undef sam_header_parse
-#  undef sam_header_free
-#endif
-
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _JKB_SAM_HEADER_H_ */
+#endif /* _SAM_HDR_H_ */

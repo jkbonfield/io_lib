@@ -50,6 +50,9 @@ static char *parse_format(char *str) {
 
 static char *detect_format(char *fn) {
     char *cp = strrchr(fn, '.');
+    
+    if (!cp)
+	return "";
 
     if (strcmp(cp, ".sam") == 0 || strcmp(cp, ".SAM") == 0)
 	return "";
@@ -62,10 +65,10 @@ static char *detect_format(char *fn) {
 }
 
 static void usage(FILE *fp) {
-    fprintf(fp, "  -=- sCRAMble -=-     version %s\n", PACKAGE_VERSION);
+    fprintf(fp, "  -=- scram_merge -=-     version %s\n", PACKAGE_VERSION);
     fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013\n\n");
 
-    fprintf(fp, "Usage:    scramble [options] [input_file [output_file]]\n");
+    fprintf(fp, "Usage:    scram_merge [options] input_file ...\n");
 
     fprintf(fp, "Options:\n");
     fprintf(fp, "    -I format      Set input format:  \"bam\", \"sam\" or \"cram\".\n");
@@ -206,6 +209,8 @@ int main(int argc, char **argv) {
 		    " in all files.\n");
 	    return 1;
 	}
+	if (i)
+	    scram_set_refs(in[i], scram_get_refs(in[0]));
     }
 
     /* Set any format specific options */
@@ -228,7 +233,7 @@ int main(int argc, char **argv) {
     /* Copy header and refs from in to out, for writing purposes */
     // FIXME: do proper merging of @PG lines
     // FIXME: track mapping of old PG aux name to new PG aux name per seq
-    scram_set_header(out, sam_header_dup(scram_get_header(in[0])));
+    scram_set_header(out, sam_hdr_dup(scram_get_header(in[0])));
 
     // Needs doing after loading the header.
     if (ref_fn)
@@ -280,6 +285,8 @@ int main(int argc, char **argv) {
 	    return 1;
 	
 	if (scram_get_seq(in[best_j], &s[best_j]) < 0) {
+	    if (refs == scram_get_refs(in[best_j]))
+		scram_set_refs(in[best_j], NULL);
 	    if (scram_close(in[best_j]))
 		return 1;
 	    in[best_j] = NULL;
