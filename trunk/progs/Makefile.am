@@ -101,7 +101,7 @@ scramble_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 scram_merge_SOURCES = scram_merge.c
 scram_merge_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
-scram_pileup_SOURCES = scram_pileup.c
+scram_pileup_SOURCES = scram_pileup.c scram_pileup.h
 scram_pileup_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 INCLUDES= -I${top_srcdir}

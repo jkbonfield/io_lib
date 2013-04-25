@@ -151,7 +151,7 @@ int main(int argc, char **argv) {
 
     if (*ref_name != 0) {
 	cram_range r;
-	int refid = sam_header_name2ref(fd->header, ref_name);
+	int refid = sam_hdr_name2ref(fd->header, ref_name);
 
 	if (refid == -1 && *ref_name != '*') {
 	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
@@ -166,9 +166,9 @@ int main(int argc, char **argv) {
     /* SAM Header */
     if (!(arg_list = stringify_argv(argc, argv)))
 	return 1;
-    sam_header_add_PG(bfd->header, "cram_to_sam",
-		      "VN", PACKAGE_VERSION,
-		      "CL", arg_list, NULL);
+    sam_hdr_add_PG(bfd->header, "cram_to_sam",
+		   "VN", PACKAGE_VERSION,
+		   "CL", arg_list, NULL);
     free(arg_list);
 
     bam_write_header(bfd);

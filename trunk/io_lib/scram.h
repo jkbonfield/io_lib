@@ -78,7 +78,7 @@ SAM_hdr *scram_get_header(scram_fd *fd);
 /*! Sets the SAM_hdr struct.
  *
  * Note that this sets the raw pointer and does not take an internal
- * copy of it. If you need to do this call sam_header_dup() first.
+ * copy of it. If you need to do this call sam_hdr_dup() first.
  */
 void scram_set_header(scram_fd *fd, SAM_hdr *sh);
 

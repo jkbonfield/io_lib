@@ -278,12 +278,15 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp);
 char *bam_aux_find(bam_seq_t *b, const char *key);
 
 //!Converts an encoded integer value return by bam_aux_find to an integer.
-int32_t bam_aux2i(const uint8_t *dat);
-float bam_aux2f(const uint8_t *s);
-double bam_aux2d(const uint8_t *s);
-char bam_aux2A(const uint8_t *s);
-char *bam_aux2Z(const uint8_t *s);
-int bam_aux_del(bam_seq_t *b, uint8_t *s);
+//
+//Analogous to the bam_aux2i functions in samtools.
+int32_t bam_aux_i(const uint8_t *dat);
+float bam_aux_f(const uint8_t *s);
+double bam_aux_d(const uint8_t *s);
+char bam_aux_A(const uint8_t *s);
+char *bam_aux_Z(const uint8_t *s);
+
+//int bam_aux_del(bam_seq_t *b, uint8_t *s); // not implemented yet
 
 /*! Add auxiliary tags to a bam_seq_t structure.
  *
@@ -506,8 +509,16 @@ static inline void bam_aux_tag_array(bam_aux_tag_t *tag, char *name, char type,
     tag->value.array = data;
 }
 
-int bam_aux_append(bam_seq_t **b, const char tag[2],
-		   char type, size_t len, const uint8_t *data);
+/*! Add preformated raw aux data to the bam_seq.
+ *
+ * Consider using bam_aux_add instead if you have information in a more
+ * integer or string form.
+ *
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int bam_aux_add_data(bam_seq_t **b, const char tag[2],
+		     char type, size_t len, const uint8_t *data);
 
 /*! An iterator on bam_aux_t fields.
  *

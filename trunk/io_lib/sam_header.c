@@ -9,15 +9,10 @@
 #include <string.h>
 #include <assert.h>
 
-#ifdef SAMTOOLS
-#  define sam_header_parse _sam_header_parse
-#  define sam_header_free  _sam_header_free
-#endif
-
 #include "io_lib/sam_header.h"
 #include "io_lib/string_alloc.h"
 
-static void sam_header_error(char *msg, char *line, int len, int lno) {
+static void sam_hdr_error(char *msg, char *line, int len, int lno) {
     int j;
     
     for (j = 0; j < len && line[j] != '\n'; j++)
@@ -25,7 +20,7 @@ static void sam_header_error(char *msg, char *line, int len, int lno) {
     fprintf(stderr, "%s at line %d: \"%.*s\"\n", msg, lno, j, line);
 }
 
-void sam_header_dump(SAM_hdr *hdr) {
+void sam_hdr_dump(SAM_hdr *hdr) {
     HashIter *iter = HashTableIterCreate();
     HashItem *hi;
     int i;
@@ -72,9 +67,9 @@ void sam_header_dump(SAM_hdr *hdr) {
  * Returns 0 on success;
  *        -1 on failure
  */
-static int sam_header_update_hashes(SAM_hdr *sh,
-				    char *type,
-				    SAM_hdr_type *h_type) {
+static int sam_hdr_update_hashes(SAM_hdr *sh,
+				 const char *type,
+				 SAM_hdr_type *h_type) {
     /* Add to reference hash? */
     if (type[0] == 'S' && type[1] == 'Q') {
 	SAM_hdr_tag *tag;
@@ -239,7 +234,7 @@ static int sam_header_update_hashes(SAM_hdr *sh,
  * Returns 0 on success
  *        -1 on failure
  */
-int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len) {
+int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
     int i, lno = 1, text_offset;
     HashItem *hi;
     HashData hd;
@@ -262,16 +257,16 @@ int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	    int j;
 	    for (j = i; j < len && hdr[j] != '\n'; j++)
 		;
-	    sam_header_error("Header line does not start with '@'",
-			     &hdr[l_start], len - l_start, lno);
+	    sam_hdr_error("Header line does not start with '@'",
+			  &hdr[l_start], len - l_start, lno);
 	    return -1;
 	}
 
 	type = &hdr[i+1];
 	if (type[0] < 'A' || type[0] > 'z' ||
 	    type[1] < 'A' || type[1] > 'z') {
-	    sam_header_error("Header line does not have a two character key",
-			     &hdr[l_start], len - l_start, lno);
+	    sam_hdr_error("Header line does not have a two character key",
+			  &hdr[l_start], len - l_start, lno);
 	    return -1;
 	}
 
@@ -308,8 +303,8 @@ int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	do {
 	    int j;
 	    if (hdr[i] != '\t') {
-		sam_header_error("Missing tab",
-				 &hdr[l_start], len - l_start, lno);
+		sam_hdr_error("Missing tab",
+			      &hdr[l_start], len - l_start, lno);
 		return -1;
 	    }
 
@@ -325,8 +320,8 @@ int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len) {
 		return -1;
 
 	    if (h_tag->len < 3 || h_tag->str[2] != ':') {
-		sam_header_error("Malformed key:value pair",
-				 &hdr[l_start], len - l_start, lno);
+		sam_hdr_error("Malformed key:value pair",
+			      &hdr[l_start], len - l_start, lno);
 		return -1;
 	    }
 	    
@@ -340,7 +335,7 @@ int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	} while (i < len && hdr[i] != '\n');
 
 	/* Update RG/SQ hashes */
-	if (-1 == sam_header_update_hashes(sh, type, h_type))
+	if (-1 == sam_hdr_update_hashes(sh, type, h_type))
 	    return -1;
     }
 
@@ -350,18 +345,18 @@ int sam_header_add_lines(SAM_hdr *sh, const char *lines, int len) {
 /*
  * Adds a single line to a SAM header.
  * Specify type and one or more key,value pairs, ending with the NULL key.
- * Eg. sam_header_add(h, "SQ", "ID", "foo", "LN", "100", NULL).
+ * Eg. sam_hdr_add(h, "SQ", "ID", "foo", "LN", "100", NULL).
  *
  * Returns index for specific entry on success (eg 2nd SQ, 4th RG)
  *        -1 on failure
  */
-int sam_header_add(SAM_hdr *sh, char *type, ...) {
+int sam_hdr_add(SAM_hdr *sh, const char *type, ...) {
     va_list args;
     va_start(args, type);
-    return sam_header_vadd(sh, type, args, NULL);
+    return sam_hdr_vadd(sh, type, args, NULL);
 }
 
-int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
+int sam_hdr_vadd(SAM_hdr *sh, const char *type, va_list ap, ...) {
     va_list args;
     HashItem *hi;
     HashData hd;
@@ -381,7 +376,7 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
     if (!(h_type = pool_alloc(sh->type_pool)))
 	return -1;
     hd.p = h_type;
-    if (!(hi = HashTableAdd(sh->h, type, 2, hd, &new)))
+    if (!(hi = HashTableAdd(sh->h, (char *)type, 2, hd, &new)))
 	return -1;
     
     // Form the ring, either with self or other lines of this type
@@ -492,7 +487,7 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
     if (-1 == dstring_append_char(sh->text, '\n'))
 	return -1;
 
-    if (-1 == sam_header_update_hashes(sh, type, h_type))
+    if (-1 == sam_hdr_update_hashes(sh, type, h_type))
 	return -1;
 
     return h_type->order;
@@ -504,8 +499,8 @@ int sam_header_vadd(SAM_hdr *sh, char *type, va_list ap, ...) {
  *
  * Returns NULL if no type/ID is found
  */
-SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
-			      char *ID_key, char *ID_value) {
+SAM_hdr_type *sam_hdr_find(SAM_hdr *hdr, char *type,
+			   char *ID_key, char *ID_value) {
     HashItem *hi;
     SAM_hdr_type *t1, *t2;
 
@@ -566,9 +561,9 @@ SAM_hdr_type *sam_header_find(SAM_hdr *hdr, char *type,
  *
  * Returns NULL if no type/ID is found.
  */
-char *sam_header_find_line(SAM_hdr *hdr, char *type,
-			   char *ID_key, char *ID_value) {
-    SAM_hdr_type *ty = sam_header_find(hdr, type, ID_key, ID_value);
+char *sam_hdr_find_line(SAM_hdr *hdr, char *type,
+			char *ID_key, char *ID_value) {
+    SAM_hdr_type *ty = sam_hdr_find(hdr, type, ID_key, ID_value);
     dstring_t *ds;
     SAM_hdr_tag *tag;
     char *str = dstring_str(hdr->text);
@@ -612,10 +607,10 @@ char *sam_header_find_line(SAM_hdr *hdr, char *type,
  * Returns the tag pointer on success
  *         NULL on failure
  */
-SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
-				 SAM_hdr_type *type,
-				 char *key,
-				 SAM_hdr_tag **prev) {
+SAM_hdr_tag *sam_hdr_find_key(SAM_hdr *sh,
+			      SAM_hdr_type *type,
+			      char *key,
+			      SAM_hdr_tag **prev) {
     SAM_hdr_tag *tag, *p = NULL;
 
     for (tag = type->tag; tag; p = tag, tag = tag->next) {
@@ -636,7 +631,7 @@ SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
 /*
  * Adds or updates tag key,value pairs in a header line.
  * Eg for adding M5 tags to @SQ lines or updating sort order for the
- * @HD line (although use the sam_header_sort_order() function for
+ * @HD line (although use the sam_hdr_sort_order() function for
  * HD manipulation, which is a wrapper around this funuction).
  *
  * Specify multiple key,value pairs ending in NULL.
@@ -644,7 +639,7 @@ SAM_hdr_tag *sam_header_find_key(SAM_hdr *sh,
  * Returns 0 on success
  *        -1 on failure
  */
-int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
+int sam_hdr_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
     va_list ap;
 
     va_start(ap, type);
@@ -658,7 +653,7 @@ int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
 	    break;
 	v = va_arg(ap, char *);
 
-	tag = sam_header_find_key(hdr, type, k, &prev);
+	tag = sam_hdr_find_key(hdr, type, k, &prev);
 	if (!tag) {
 	    if (!(tag = pool_alloc(hdr->tag_pool)))
 		return -1;
@@ -691,7 +686,7 @@ int sam_header_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
  * Returns 0 on success
  *        -1 on failure
  */
-int sam_header_rebuild(SAM_hdr *hdr) {
+int sam_hdr_rebuild(SAM_hdr *hdr) {
     /* Order: HD then others */
     HashItem *hi;
     HashIter *iter = HashTableIterCreate();
@@ -751,17 +746,17 @@ int sam_header_rebuild(SAM_hdr *hdr) {
 /*
  * Creates an empty SAM header, ready to be populated.
  * 
- * Returns a SAM_hdr struct on success (free with sam_header_free())
+ * Returns a SAM_hdr struct on success (free with sam_hdr_free())
  *         NULL on failure
  */
-SAM_hdr *sam_header_new() {
+SAM_hdr *sam_hdr_new() {
     SAM_hdr *sh = calloc(1, sizeof(*sh));
 
     if (!sh)
 	return NULL;
     
     sh->h = HashTableCreate(16, HASH_FUNC_HSIEH |
-			        HASH_DYNAMIC_SIZE);
+			    HASH_DYNAMIC_SIZE);
     if (!sh->h)
 	goto err;
 
@@ -827,34 +822,34 @@ SAM_hdr *sam_header_new() {
  * Tokenises a SAM header into a hash table.
  * Also extracts a few bits on specific data types, such as @RG lines.
  *
- * Returns a SAM_hdr struct on success (free with sam_header_free())
+ * Returns a SAM_hdr struct on success (free with sam_hdr_free())
  *         NULL on failure
  */
-SAM_hdr *sam_header_parse(const char *hdr, int len) {
+SAM_hdr *sam_hdr_parse(const char *hdr, int len) {
     /* Make an empty SAM_hdr */
     SAM_hdr *sh;
     
     if (NULL == hdr) return NULL;
 
-    sh = sam_header_new();
+    sh = sam_hdr_new();
     if (NULL == sh) return NULL;
 
     /* Parse the header, line by line */
-    if (-1 == sam_header_add_lines(sh, hdr, len)) {
-	sam_header_free(sh);
+    if (-1 == sam_hdr_add_lines(sh, hdr, len)) {
+	sam_hdr_free(sh);
 	return NULL;
     }
 
-    //sam_header_dump(sh);
-    //sam_header_add(sh, "RG", "ID", "foo", "SM", "bar", NULL);
-    //sam_header_rebuild(sh);
+    //sam_hdr_dump(sh);
+    //sam_hdr_add(sh, "RG", "ID", "foo", "SM", "bar", NULL);
+    //sam_hdr_rebuild(sh);
     //printf(">>%s<<", DSTRING_STR(sh->text));
 
     //parse_references(sh);
     //parse_read_groups(sh);
 
-    sam_header_link_pg(sh);
-    //sam_header_dump(sh);
+    sam_hdr_link_pg(sh);
+    //sam_hdr_dump(sh);
 
     return sh;
 }
@@ -863,14 +858,14 @@ SAM_hdr *sam_header_parse(const char *hdr, int len) {
  * Produces a duplicate copy of hdr and returns it.
  * Returns NULL on failure
  */
-SAM_hdr *sam_header_dup(SAM_hdr *hdr) {
-    if (-1 == sam_header_rebuild(hdr))
+SAM_hdr *sam_hdr_dup(SAM_hdr *hdr) {
+    if (-1 == sam_hdr_rebuild(hdr))
 	return NULL;
 
-    return sam_header_parse(sam_header_str(hdr), sam_header_length(hdr));
+    return sam_hdr_parse(sam_hdr_str(hdr), sam_hdr_length(hdr));
 }
 
-void sam_header_free(SAM_hdr *hdr) {
+void sam_hdr_free(SAM_hdr *hdr) {
     if (!hdr)
 	return;
 
@@ -928,11 +923,11 @@ void sam_header_free(SAM_hdr *hdr) {
     free(hdr);
 }
 
-int sam_header_length(SAM_hdr *hdr) {
+int sam_hdr_length(SAM_hdr *hdr) {
     return dstring_length(hdr->text);
 }
 
-char *sam_header_str(SAM_hdr *hdr) {
+char *sam_hdr_str(SAM_hdr *hdr) {
     return dstring_str(hdr->text);
 }
 
@@ -940,7 +935,7 @@ char *sam_header_str(SAM_hdr *hdr) {
  * Looks up a reference sequence by name and returns the numerical ID.
  * Returns -1 if unknown reference.
  */
-int sam_header_name2ref(SAM_hdr *hdr, char *ref) {
+int sam_hdr_name2ref(SAM_hdr *hdr, char *ref) {
     HashItem *hi = HashTableSearch(hdr->ref_hash, ref, strlen(ref));
     return hi ? hi->data.i : -1;
 }
@@ -951,7 +946,7 @@ int sam_header_name2ref(SAM_hdr *hdr, char *ref) {
  *
  * Returns NULL on failure
  */
-SAM_RG *sam_header_find_rg(SAM_hdr *hdr, char *rg) {
+SAM_RG *sam_hdr_find_rg(SAM_hdr *hdr, char *rg) {
     HashItem *hi = HashTableSearch(hdr->rg_hash, rg, 0);
     return hi ? &hdr->rg[hi->data.i] : NULL;
 }
@@ -970,7 +965,7 @@ SAM_RG *sam_header_find_rg(SAM_hdr *hdr, char *rg) {
  * Returns 0 on sucess
  *        -1 on failure (indicating broken PG/PP records)
  */
-int sam_header_link_pg(SAM_hdr *hdr) {
+int sam_hdr_link_pg(SAM_hdr *hdr) {
     int i, j, ret = 0;
 
     hdr->npg_end_alloc = hdr->npg;
@@ -1019,8 +1014,8 @@ int sam_header_link_pg(SAM_hdr *hdr) {
  * The value returned is valid until the next call to
  * this function.
  */
-char *sam_header_PG_ID(SAM_hdr *sh, char *name) {
-    if (!(HashTableSearch(sh->pg_hash, name, 0)))
+const char *sam_hdr_PG_ID(SAM_hdr *sh, const char *name) {
+    if (!(HashTableSearch(sh->pg_hash, (char *)name, 0)))
 	return name;
 
     do {
@@ -1033,20 +1028,20 @@ char *sam_header_PG_ID(SAM_hdr *sh, char *name) {
 /*
  * Add an @PG line.
  *
- * If we wish complete control over this use sam_header_add() directly. This
+ * If we wish complete control over this use sam_hdr_add() directly. This
  * function uses that, but attempts to do a lot of tedious house work for
  * you too.
  *
  * - It will generate a suitable ID if the supplied one clashes.
  * - It will generate multiple @PG records if we have multiple PG chains.
  *
- * Call it as per sam_header_add() with a series of key,value pairs ending
+ * Call it as per sam_hdr_add() with a series of key,value pairs ending
  * in NULL.
  *
  * Returns 0 on success
  *        -1 on failure
  */
-int sam_header_add_PG(SAM_hdr *sh, char *name, ...) {
+int sam_hdr_add_PG(SAM_hdr *sh, const char *name, ...) {
     va_list args;
     va_start(args, name);
 
@@ -1061,24 +1056,24 @@ int sam_header_add_PG(SAM_hdr *sh, char *name, ...) {
 	memcpy(end, sh->pg_end, nends * sizeof(*end));
 
 	for (i = 0; i < nends; i++) {
-	    if (-1 == sam_header_vadd(sh, "PG", args,
-				      "ID", sam_header_PG_ID(sh, name),
-				      "PN", name,
-				      "PP", sh->pg[end[i]].name,
-				      NULL))
+	    if (-1 == sam_hdr_vadd(sh, "PG", args,
+				   "ID", sam_hdr_PG_ID(sh, name),
+				   "PN", name,
+				   "PP", sh->pg[end[i]].name,
+				   NULL))
 		return  -1;
 	}
 
 	free(end);
     } else {
-	if (-1 == sam_header_vadd(sh, "PG", args,
-				  "ID", sam_header_PG_ID(sh, name),
-				  "PN", name,
-				  NULL))
+	if (-1 == sam_hdr_vadd(sh, "PG", args,
+			       "ID", sam_hdr_PG_ID(sh, name),
+			       "PN", name,
+			       NULL))
 	    return -1;
     }
 
-    //sam_header_dump(sh);
+    //sam_hdr_dump(sh);
 
     return 0;
 }

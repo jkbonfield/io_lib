@@ -39,11 +39,6 @@
 #include "io_lib/md5.h"
 #include "io_lib/open_trace_file.h"
 
-#ifdef SAMTOOLS
-#  define sam_header_parse _sam_header_parse
-#  define sam_header_free  _sam_header_free
-#endif
-
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
  *
@@ -1193,8 +1188,8 @@ static int refs_from_header(refs_t *r, cram_fd *fd, SAM_hdr *h) {
 	r->ref_id[i]->length = 0; // marker for not yet loaded
 
 	/* Initialise likely filename if known */
-	if ((ty = sam_header_find(h, "SQ", "SN", h->ref[i].name))) {
-	    if ((tag = sam_header_find_key(h, ty, "M5", NULL))) {
+	if ((ty = sam_hdr_find(h, "SQ", "SN", h->ref[i].name))) {
+	    if ((tag = sam_hdr_find_key(h, ty, "M5", NULL))) {
 		r->ref_id[i]->fn = string_dup(r->pool, tag->str+3);
 		//fprintf(stderr, "Tagging @SQ %s / %s\n", r->ref_id[i]->name, r->ref_id[i]->fn);
 	    }
@@ -1308,10 +1303,10 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     if (!r->name)
 	return -1;
 
-    if (!(ty = sam_header_find(fd->header, "SQ", "SN", r->name)))
+    if (!(ty = sam_hdr_find(fd->header, "SQ", "SN", r->name)))
 	return -1;
 
-    if (!(tag = sam_header_find_key(fd->header, ty, "M5", NULL)))
+    if (!(tag = sam_hdr_find_key(fd->header, ty, "M5", NULL)))
 	goto no_M5;
 
     if (fd->verbose)
@@ -1355,7 +1350,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 
     no_M5:
 	/* Failed to find in search path or M5 cache, see if @SQ UR: tag? */
-	if (!(tag = sam_header_find_key(fd->header, ty, "UR", NULL)))
+	if (!(tag = sam_hdr_find_key(fd->header, ty, "UR", NULL)))
 	    return -1;
 
 	fn = (strncmp(tag->str+3, "file:", 5) == 0)
@@ -2395,7 +2390,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
     }
 
     /* Parse */
-    hdr = sam_header_parse(header, header_len);
+    hdr = sam_hdr_parse(header, header_len);
     free(header);
 
     return hdr;
@@ -2436,9 +2431,9 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 
     /* 1.0 requires and UNKNOWN read-group */
     if (fd->version == CRAM_1_VERS) {
-	if (!sam_header_find_rg(hdr, "UNKNOWN"))
-	    if (sam_header_add(hdr, "RG",
-			       "ID", "UNKNOWN", "SM", "UNKNOWN", NULL))
+	if (!sam_hdr_find_rg(hdr, "UNKNOWN"))
+	    if (sam_hdr_add(hdr, "RG",
+			    "ID", "UNKNOWN", "SM", "UNKNOWN", NULL))
 		return -1;
     }
 
@@ -2448,10 +2443,10 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	for (i = 0; i < hdr->nref; i++) {
 	    SAM_hdr_type *ty;
 
-	    if (!(ty = sam_header_find(hdr, "SQ", "SN", hdr->ref[i].name)))
+	    if (!(ty = sam_hdr_find(hdr, "SQ", "SN", hdr->ref[i].name)))
 		return -1;
 
-	    if (!sam_header_find_key(hdr, ty, "M5", NULL)) {
+	    if (!sam_hdr_find_key(hdr, ty, "M5", NULL)) {
 		char unsigned buf[16], buf2[33];
 		int j, rlen;
 		MD5_CTX md5;
@@ -2467,30 +2462,30 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 		    buf2[j*2+1] = "0123456789abcdef"[buf[j]&15];
 		}
 		buf2[32] = 0;
-		if (sam_header_update(hdr, ty, "M5", buf2, NULL))
+		if (sam_hdr_update(hdr, ty, "M5", buf2, NULL))
 		    return -1;
 	    }
 
 	    if (fd->ref_fn) {
 		char ref_fn[PATH_MAX];
 		full_path(ref_fn, fd->ref_fn);
-		if (sam_header_update(hdr, ty, "UR", ref_fn, NULL))
+		if (sam_hdr_update(hdr, ty, "UR", ref_fn, NULL))
 		    return -1;
 	    }
 	}
     }
     
-    if (sam_header_rebuild(hdr))
+    if (sam_hdr_rebuild(hdr))
 	return -1;
 
     /* Length */
-    header_len = sam_header_length(hdr);
+    header_len = sam_hdr_length(hdr);
     if (fd->version == CRAM_1_VERS) {
 	if (-1 == int32_encode(fd, header_len))
 	    return -1;
 
 	/* Text data */
-	if (header_len != fwrite(sam_header_str(hdr), 1, header_len, fd->fp))
+	if (header_len != fwrite(sam_hdr_str(hdr), 1, header_len, fd->fp))
 	    return -1;
     } else {
 	/* Create a block inside a container */
@@ -2504,7 +2499,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	}
 
 	int32_put(b, header_len);
-	BLOCK_APPEND(b, sam_header_str(hdr), header_len);
+	BLOCK_APPEND(b, sam_hdr_str(hdr), header_len);
 	BLOCK_UPLEN(b);
 
 	// TODO: BLOCK_APPEND a bunch of nuls to allow padding?
@@ -2797,7 +2792,7 @@ int cram_close(cram_fd *fd) {
 	cram_free_file_def(fd->file_def);
 
     if (fd->header)
-	sam_header_free(fd->header);
+	sam_hdr_free(fd->header);
 
     free(fd->prefix);
 

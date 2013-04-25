@@ -296,9 +296,9 @@ int main(int argc, char **argv) {
 
 	if (!arg_list)
 	    return 1;
-	if (sam_header_add_PG(scram_get_header(out), "scramble",
-			      "VN", PACKAGE_VERSION,
-			      "CL", arg_list, NULL))
+	if (sam_hdr_add_PG(scram_get_header(out), "scramble",
+			   "VN", PACKAGE_VERSION,
+			   "CL", arg_list, NULL))
 	    return 1;
 
 	if (scram_write_header(out))
@@ -321,7 +321,7 @@ int main(int argc, char **argv) {
 	    
 	cram_index_load(in->c, argv[optind]);
 
-	refid = sam_header_name2ref(in->c->header, ref_name);
+	refid = sam_hdr_name2ref(in->c->header, ref_name);
 
 	if (refid == -1 && *ref_name != '*') {
 	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
