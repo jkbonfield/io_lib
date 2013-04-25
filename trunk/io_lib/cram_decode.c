@@ -1354,9 +1354,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
  */
 static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 		       cram_record *cr, int rec, bam_seq_t **bam) {
-    int bam_idx, rg_len, old_idx;
+    int bam_idx, rg_len;
     char name_a[1024], *name;
     int name_len;
+    char *aux, *aux_orig;
 
     /* Resolve mate-pair cross-references */
     if (cr->mate_line >= 0) {
@@ -1485,31 +1486,30 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     if (bam_idx == -1)
 	return -1;
 
-    old_idx = bam_idx;
+    aux = aux_orig = bam_aux(*bam);
 
-   /* Auxiliary strings */
+    /* Auxiliary strings */
     if (cr->aux_size != 0) {
-	memcpy(&((char *)*bam)[bam_idx], BLOCK_DATA(s->aux_blk) + cr->aux,
-	       cr->aux_size);
-	bam_idx += cr->aux_size;
+	memcpy(aux, BLOCK_DATA(s->aux_blk) + cr->aux, cr->aux_size);
+	aux += cr->aux_size;
     }
 
     /* RG:Z: */
     if (cr->rg != -1) {
 	int len = bfd->rg[cr->rg].name_len;
-	((char *)*bam)[bam_idx++] = 'R';
-	((char *)*bam)[bam_idx++] = 'G';
-	((char *)*bam)[bam_idx++] = 'Z';
-	memcpy(&((char *)*bam)[bam_idx], bfd->rg[cr->rg].name, len);
-	bam_idx += len;
-	((char *)*bam)[bam_idx++] = 0;
+	*aux++ = 'R'; *aux++ = 'G'; *aux++ = 'Z';
+	memcpy(aux, bfd->rg[cr->rg].name, len);
+	aux += len;
+	*aux++ = 0;
     }
+    
+#ifndef SAMTOOLS
+    bam_set_blk_size(*bam, bam_blk_size(*bam) + (aux - aux_orig));
+#endif
 
-    bam_set_blk_size(*bam, bam_blk_size(*bam) + bam_idx - old_idx);
+    *aux++ = 0;
 
-    ((char *)*bam)[bam_idx++] = 0;
-
-    return bam_idx;
+    return bam_idx + (aux - aux_orig);
 }
 
 

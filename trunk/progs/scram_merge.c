@@ -257,13 +257,15 @@ int main(int argc, char **argv) {
 
 	for (j = 0; j < n_input; j++) {
 	    bam_seq_t *b = s[j];
-	    int64_t b_ref, x;
+	    uint64_t b_ref, x;
 	    if (!in[j])
 		continue;
 
 	    b_ref = bam_ref(b) == -1 ? INT_MAX : bam_ref(b);
-	    x = (bam_ref(b)<<33) | (bam_pos(b)<<2) | (bam_strand(b)<<1) |
-		!(bam_flag(b) & BAM_FREAD1);
+	    x = (((uint64_t)bam_ref(b))<<33)
+		| (bam_pos(b)<<2)
+		| (bam_strand(b)<<1)
+		| !(bam_flag(b) & BAM_FREAD1);
 	    if (best_val > x) {
 		best_val = x;
 		best_j = j;

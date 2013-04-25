@@ -241,18 +241,21 @@ int read_scf_samples31(FILE *fp, Samples1 *s, size_t num_samples) {
 
 int read_scf_base(FILE *fp, Bases *b)
 {
-    uint_1 buf[12];
+    union {
+	uint_1 u1[12];
+	uint_4 u4[3];
+    } buf;
 
-    if (1 != fread(buf, 12, 1, fp)) return -1;
-    b->peak_index = be_int4(((uint_4 *)buf)[0]);
-    b->prob_A = buf[4];
-    b->prob_C = buf[5];
-    b->prob_G = buf[6];
-    b->prob_T = buf[7];
-    b->base   = buf[8];
-    b->spare[0] = buf[9];
-    b->spare[1] = buf[10];
-    b->spare[2] = buf[11];
+    if (1 != fread(buf.u1, 12, 1, fp)) return -1;
+    b->peak_index = be_int4(buf.u4[0]);
+    b->prob_A   = buf.u1[4];
+    b->prob_C   = buf.u1[5];
+    b->prob_G   = buf.u1[6];
+    b->prob_T   = buf.u1[7];
+    b->base     = buf.u1[8];
+    b->spare[0] = buf.u1[9];
+    b->spare[1] = buf.u1[10];
+    b->spare[2] = buf.u1[11];
 
     return 0;
 }

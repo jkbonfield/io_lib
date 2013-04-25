@@ -736,8 +736,7 @@ int cram_uncompress_block(cram_block *b) {
 
 #ifdef HAVE_LIBBZ2
     case BZIP2: {
-	int usize = b->uncomp_size;
-	int r;
+	unsigned int usize = b->uncomp_size;
 	if (!(uncomp = malloc(usize)))
 	    return -1;
 	if (BZ_OK != BZ2_bzBuffToBuffDecompress(uncomp, &usize,
@@ -766,9 +765,9 @@ int cram_uncompress_block(cram_block *b) {
 #ifdef HAVE_LIBBZ2
 static int cram_compress_block_bzip2(cram_fd *fd, cram_block *b,
 				     cram_metrics *metrics, int level) {
-    int comp_size = b->uncomp_size*1.01 + 600;
+    unsigned int comp_size = b->uncomp_size*1.01 + 600;
     char *comp = malloc(comp_size);
-    char *data = b->data;
+    char *data = (char *)b->data;
 
     if (!comp)
 	return -1;
@@ -1294,7 +1293,6 @@ void mkdir_prefix(char *path, int mode) {
  */
 static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     char *ref_path = getenv("REF_PATH");
-    char *md5;
     SAM_hdr_type *ty;
     SAM_hdr_tag *tag;
     char path[PATH_MAX], path_tmp[PATH_MAX];
