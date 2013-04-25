@@ -34,6 +34,7 @@
 #include "io_lib/os.h"
 #include "io_lib/zfio.h"
 
+#if 0
 static void dump_index_(cram_index *e, int level) {
     int i, n;
     n = printf("%*s%d / %d .. %d, ", level*4, "", e->refid, e->start, e->end);
@@ -49,6 +50,7 @@ static void dump_index(cram_fd *fd) {
 	dump_index_(&fd->index[i], 0);
     }
 }
+#endif
 
 /*
  * Loads a CRAM .crai index into memory.

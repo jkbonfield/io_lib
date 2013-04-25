@@ -1399,7 +1399,7 @@ static int cram_add_base(cram_fd *fd, cram_container *c,
 #endif
     cram_stats_add(c->QS_stats, qual);
     BLOCK_APPEND_CHAR(s->qual_blk, qual);
-    cram_add_feature(c, s, r, &f);
+    return cram_add_feature(c, s, r, &f);
 }
 
 static int cram_add_quality(cram_fd *fd, cram_container *c,
@@ -1411,7 +1411,7 @@ static int cram_add_quality(cram_fd *fd, cram_container *c,
     f.Q.qual = qual;
     cram_stats_add(c->QS_stats, qual);
     BLOCK_APPEND_CHAR(s->qual_blk, qual);
-    cram_add_feature(c, s, r, &f);
+    return cram_add_feature(c, s, r, &f);
 }
 
 static int cram_add_deletion(cram_container *c, cram_slice *s, cram_record *r,
@@ -1654,7 +1654,7 @@ static char *cram_encode_aux_1_0(cram_fd *fd, bam_seq_t *b, cram_container *c,
  *         NULL on failure or no rg present (FIXME)
  */
 static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
-				 cram_slice *s, cram_record *cr) {
+			     cram_slice *s, cram_record *cr) {
     char *aux, *orig, *tmp, *rg = NULL;
 #ifdef SAMTOOLS
     int aux_size = b->l_aux;

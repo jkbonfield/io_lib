@@ -461,11 +461,13 @@ mFILE *find_file_url(char *file, char *url) {
 	goto error;
     if (0 != curl_easy_setopt(handle, CURLOPT_TIMEOUT, 10L))
 	goto error;
-    if (0 != curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, mfwrite))
+    if (0 != curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION,
+			      (curl_write_callback)mfwrite))
 	goto error;
     if (0 != curl_easy_setopt(handle, CURLOPT_WRITEDATA, mf))
 	goto error;
-    if (0 != curl_easy_setopt(handle, CURLOPT_HEADERFUNCTION, mfwrite))
+    if (0 != curl_easy_setopt(handle, CURLOPT_HEADERFUNCTION,
+			      (curl_write_callback)mfwrite))
 	goto error;
     if (0 != curl_easy_setopt(handle, CURLOPT_WRITEHEADER, headers))
 	goto error;
@@ -610,7 +612,11 @@ static mFILE *sff_sorted_query(char *sff, char *accno, FILE *fp,
     char *data = NULL;
     static char chdr[1024];
     static int chdrlen = 0, nflows = 0;
-    char rhdr[1024];
+    union {
+	char     c1[1024];
+	uint16_t c2[512];
+	uint32_t c4[256];
+    } rhdr;
     int rhdrlen;
     int nbases, dlen;
     int bytes_per_flow = 2;
@@ -716,13 +722,13 @@ static mFILE *sff_sorted_query(char *sff, char *accno, FILE *fp,
      * header to get data length. Then read this too.
      */
     fseek(fp, offset, SEEK_SET);
-    if (16 != fread(rhdr, 1, 16, fp))
+    if (16 != fread(rhdr.c1, 1, 16, fp))
 	return NULL;
 
-    rhdrlen   = be_int2(*(uint16_t *)rhdr);
-    nbases   = be_int4(*(uint32_t *)(rhdr+4));
+    rhdrlen  = be_int2(rhdr.c2[0]);
+    nbases   = be_int4(rhdr.c4[1]);
     
-    if (rhdrlen-16 != fread(rhdr+16, 1, rhdrlen-16, fp))
+    if (rhdrlen-16 != fread(rhdr.c1+16, 1, rhdrlen-16, fp))
 	return NULL;
     dlen = (nflows * bytes_per_flow + nbases * 3 + 7) & ~7;
 
@@ -731,7 +737,7 @@ static mFILE *sff_sorted_query(char *sff, char *accno, FILE *fp,
 	return NULL;
 
     memcpy(data, chdr, chdrlen);
-    memcpy(data + chdrlen, rhdr, rhdrlen);
+    memcpy(data + chdrlen, rhdr.c1, rhdrlen);
     if (dlen != fread(data + chdrlen + rhdrlen, 1, dlen, fp)) {
 	xfree(data);
 	return NULL;
@@ -758,7 +764,12 @@ static mFILE *sff_sorted_query(char *sff, char *accno, FILE *fp,
 static mFILE *find_file_sff(char *entry, char *sff) {
     static FILE *fp = NULL;
     static char sff_copy[1024];
-    char chdr[65536], rhdr[65536]; /* generous, but worst case */
+    union {
+	char     c1[65536];
+	uint16_t c2[32768];
+	uint32_t c4[16384];
+	uint64_t c8[8192];
+    } chdr, rhdr; /* generous, but worst case */
     uint32_t nkey, nflows, chdrlen, rhdrlen = 0, dlen = 0, magic;
     uint64_t file_pos;
     static uint64_t index_offset = 0;
@@ -778,7 +789,8 @@ static mFILE *find_file_sff(char *entry, char *sff) {
     if (strcmp(sff, sff_copy) == 0) {
 	if (memcmp(index_format, ".hsh1.00", 8) == 0) {
 	    return sff_hash_query(sff, entry, fp);
-	} else if (memcmp(index_format, ".srt1.00", 8) == 0) {
+	} else if (memcmp(index_format, ".srt1.00", 8) == 0 ||
+		   memcmp(index_format, ".mft1.00", 8) == 0) {
 	    return sff_sorted_query(sff, entry, fp, index_length-8);
 	}
     }
@@ -793,19 +805,19 @@ static mFILE *find_file_sff(char *entry, char *sff) {
     /* Read the common header */
     if (NULL == (fp = fopen(sff, "rb")))
 	return NULL;
-    if (31 != fread(chdr, 1, 31, fp))
+    if (31 != fread(chdr.c1, 1, 31, fp))
 	return NULL;
 
     /* Check magic & vers: TODO */
-    magic = be_int4(*(uint32_t *)chdr);
+    magic = be_int4(chdr.c4[0]);
     if (magic != SFF_MAGIC)
 	return NULL;
-    if (memcmp(chdr+4, SFF_VERSION, 4) != 0)
+    if (memcmp(chdr.c1+4, SFF_VERSION, 4) != 0)
 	return NULL;
 
     /* If we have an index, use it, otherwise search linearly */
-    index_offset = be_int8(*(uint64_t *)(chdr+8));
-    index_length = be_int4(*(uint32_t *)(chdr+16));
+    index_offset = be_int8(chdr.c8[1]);
+    index_length = be_int4(chdr.c4[4]);
     if (index_length != 0) {
 	long orig_pos = ftell(fp);
 	fseek(fp, index_offset, SEEK_SET);
@@ -816,7 +828,8 @@ static mFILE *find_file_sff(char *entry, char *sff) {
 	    /* HASH index v1.00 */
 	    return sff_hash_query(sff, entry, fp);
 
-	} else if (memcmp(index_format, ".srt1.00", 8) == 0) {
+	} else if (memcmp(index_format, ".srt1.00", 8) == 0 ||
+		   memcmp(index_format, ".mft1.00", 8) == 0) {
 	    /* 454 sorted v1.00 */
 	    return sff_sorted_query(sff, entry, fp, index_length-8);
 	} else {
@@ -825,13 +838,13 @@ static mFILE *find_file_sff(char *entry, char *sff) {
 	}
     }
 
-    nreads  = be_int4(*(uint32_t *)(chdr+20));
-    chdrlen = be_int2(*(uint16_t *)(chdr+24));
-    nkey    = be_int2(*(uint16_t *)(chdr+26));
-    nflows  = be_int2(*(uint16_t *)(chdr+28));
+    nreads  = be_int4(chdr.c4[5]);
+    chdrlen = be_int2(chdr.c2[12]);
+    nkey    = be_int2(chdr.c2[13]);
+    nflows  = be_int2(chdr.c2[14]);
 
     /* Read the remainder of the header */
-    if (chdrlen-31 != fread(chdr+31, 1, chdrlen-31, fp))
+    if (chdrlen-31 != fread(chdr.c1+31, 1, chdrlen-31, fp))
 	return NULL;
 
     file_pos = chdrlen;
@@ -848,21 +861,21 @@ static mFILE *find_file_sff(char *entry, char *sff) {
 	}
 
 	/* Read 16 bytes to get name length */
-	if (16 != fread(rhdr, 1, 16, fp))
+	if (16 != fread(rhdr.c1, 1, 16, fp))
 	    return NULL;
-	rhdrlen   = be_int2(*(uint16_t *)rhdr);
-	name_len = be_int2(*(uint16_t *)(rhdr+2));
-	nbases   = be_int4(*(uint32_t *)(rhdr+4));
+	rhdrlen  = be_int2(rhdr.c2[0]);
+	name_len = be_int2(rhdr.c2[1]);
+	nbases   = be_int4(rhdr.c4[1]);
 
 	/* Read the rest of the header */
-	if (rhdrlen-16 != fread(rhdr+16, 1, rhdrlen-16, fp))
+	if (rhdrlen-16 != fread(rhdr.c1+16, 1, rhdrlen-16, fp))
 	    return NULL;
 
 	file_pos += rhdrlen;
 
 	dlen = (nflows * bytes_per_flow + nbases * 3 + 7) & ~7;
 
-	if (name_len == entry_len  && 0 == memcmp(rhdr+16, entry, entry_len))
+	if (name_len == entry_len  && 0 == memcmp(rhdr.c1+16, entry, entry_len))
 	    break;
 
 	/* This is not the read you are looking for... */
@@ -883,8 +896,8 @@ static mFILE *find_file_sff(char *entry, char *sff) {
     if (NULL == (fake_file = (char *)xmalloc(chdrlen + rhdrlen + dlen)))
 	return NULL;
 
-    memcpy(fake_file, chdr, chdrlen);
-    memcpy(fake_file+chdrlen, rhdr, rhdrlen);
+    memcpy(fake_file, chdr.c1, chdrlen);
+    memcpy(fake_file+chdrlen, rhdr.c1, rhdrlen);
     if (dlen != fread(fake_file+chdrlen+rhdrlen, 1, dlen, fp)) {
 	xfree(fake_file);
 	return NULL;

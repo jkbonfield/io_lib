@@ -262,19 +262,22 @@ int write_scf_samples32(FILE *fp, Samples2 *s, size_t num_samples) {
 
 int write_scf_base(FILE *fp, Bases *b)
 {
-    uint_1 buf[12];
+    union {
+	uint_1 u1[12];
+	uint_4 u4[3];
+    } buf;
 
-    ((uint_4 *)buf)[0] = be_int4(b->peak_index);
-    buf[4] = b->prob_A;
-    buf[5] = b->prob_C;
-    buf[6] = b->prob_G;
-    buf[7] = b->prob_T;
-    buf[8] = b->base;
-    buf[9] = b->spare[0];
-    buf[10] = b->spare[1];
-    buf[11] = b->spare[2];
+    buf.u4[0]  = be_int4(b->peak_index);
+    buf.u1[4]  = b->prob_A;
+    buf.u1[5]  = b->prob_C;
+    buf.u1[6]  = b->prob_G;
+    buf.u1[7]  = b->prob_T;
+    buf.u1[8]  = b->base;
+    buf.u1[9]  = b->spare[0];
+    buf.u1[10] = b->spare[1];
+    buf.u1[11] = b->spare[2];
 
-    if (12 != fwrite(buf, 1, 12, fp)) return -1;
+    if (12 != fwrite(buf.u1, 1, 12, fp)) return -1;
 
     return 0;
 }

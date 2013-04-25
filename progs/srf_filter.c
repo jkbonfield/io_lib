@@ -46,6 +46,7 @@
 #include <io_lib/ztr.h>
 #include <io_lib/srf.h>
 #include <io_lib/hash_table.h>
+#include <io_lib/xalloc.h>
 
 #define CR 13            /* Decimal code of Carriage Return char */
 #define LF 10            /* Decimal code of Line Feed char */
@@ -594,8 +595,8 @@ static int add_readpair_region(unsigned int rev_cycle, mFILE *mf) {
 
     ztr_mwrite_chunk(mf, &c);
 
-    xfree(data);
-    xfree(mdata);
+    free(data);
+    free(mdata);
     
     return 0;
 }
