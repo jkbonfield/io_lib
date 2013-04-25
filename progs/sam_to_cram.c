@@ -110,18 +110,18 @@ int main(int argc, char **argv) {
     /* SAM Header */
     if (!(arg_list = stringify_argv(argc, argv)))
 	return 1;
-    sam_header_add_PG(in->header, "sam_to_cram",
-		      "VN", PACKAGE_VERSION,
-		      "CL", arg_list, NULL);
+    sam_hdr_add_PG(in->header, "sam_to_cram",
+		   "VN", PACKAGE_VERSION,
+		   "CL", arg_list, NULL);
     free(arg_list);
 
     /* Find and load reference */
     if (!ref_fn) {
-	SAM_hdr_type *ty = sam_header_find(in->header, "SQ", NULL, NULL);
+	SAM_hdr_type *ty = sam_hdr_find(in->header, "SQ", NULL, NULL);
 	if (ty) {
 	    SAM_hdr_tag *tag;
 
-	    if ((tag = sam_header_find_key(in->header, ty, "UR", NULL))) {
+	    if ((tag = sam_hdr_find_key(in->header, ty, "UR", NULL))) {
 		ref_fn  = tag->str + 3;
 		if (strncmp(ref_fn, "file:", 5) == 0)
 		    ref_fn += 5;
