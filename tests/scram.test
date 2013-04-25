@@ -1,6 +1,6 @@
 #!/bin/sh
 
-scramble=$top_builddir/progs/scramble
+scramble="${VALGRIND} $top_builddir/progs/scramble"
 compare_sam=$srcdir/compare_sam.pl
 
 #valgrind="valgrind --leak-check=full"
