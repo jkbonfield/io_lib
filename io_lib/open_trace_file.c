@@ -1032,6 +1032,7 @@ static mFILE *find_file_dir(char *file, char *dirname) {
 	    case SRF:
 		return find_file_srf(cp+1, path2);
 #endif
+	    default:
 	    case NONE:
 		break;
 	    }

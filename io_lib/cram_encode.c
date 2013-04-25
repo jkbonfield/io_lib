@@ -1514,7 +1514,7 @@ static char *cram_encode_aux_1_0(cram_fd *fd, bam_seq_t *b, cram_container *c,
     tmp_tn = (char *)BLOCK_END(s->tn_blk);
 #endif
 
-    aux = bam_aux(b);
+    aux = (char *)bam_aux(b);
 #ifndef TN_external
     cr->TN_idx = s->nTN;
 #endif
@@ -1672,7 +1672,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     tmp = (char *)BLOCK_END(s->aux_blk);
 
 
-    orig = aux = bam_aux(b);
+    orig = aux = (char *)bam_aux(b);
 
     // Copy aux keys to td_b and aux values to s->aux_blk
     while (aux[0] != 0 && aux - orig < aux_size) {
@@ -2097,7 +2097,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     }
     BLOCK_SIZE(s->seqs_blk) += cr->len;
 
-    qual = cp = bam_qual(b);
+    qual = cp = (char *)bam_qual(b);
 
     /* Copy and parse */
     if (!(cr->flags & BAM_FUNMAP)) {
