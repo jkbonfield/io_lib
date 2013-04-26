@@ -25,6 +25,30 @@
 #  define MIN(a,b) ((a)<(b)?(a):(b))
 #endif
 
+/* Macros to store integers of various sizes in little endian byte order.
+ * The value is put in the location pointed to by ucp, which should be 
+ * an unsigned char pointer.  ucp is incremented by the size of the
+ * stored value. */
+
+#define STORE_UINT16(ucp, val) \
+    *(ucp)++ = ((uint16_t) val)      & 0xff; \
+    *(ucp)++ = ((uint16_t) val >> 8) & 0xff;
+
+#define STORE_UINT32(ucp, val) \
+    *(ucp)++ = ((uint32_t) (val))       & 0xff;	\
+    *(ucp)++ = ((uint32_t) (val) >>  8) & 0xff;	\
+    *(ucp)++ = ((uint32_t) (val) >> 16) & 0xff;	\
+    *(ucp)++ = ((uint32_t) (val) >> 24) & 0xff;
+
+#define STORE_UINT64(ucp, val) \
+    *(ucp)++ = ((uint64_t) (val))       & 0xff;	\
+    *(ucp)++ = ((uint64_t) (val) >>  8) & 0xff;	\
+    *(ucp)++ = ((uint64_t) (val) >> 16) & 0xff;	\
+    *(ucp)++ = ((uint64_t) (val) >> 24) & 0xff; \
+    *(ucp)++ = ((uint64_t) (val) >> 32) & 0xff; \
+    *(ucp)++ = ((uint64_t) (val) >> 40) & 0xff; \
+    *(ucp)++ = ((uint64_t) (val) >> 48) & 0xff; \
+    *(ucp)++ = ((uint64_t) (val) >> 56) & 0xff;
 
 static int bam_more_input(bam_file_t *b);
 static int bam_more_output(bam_file_t *b);
@@ -903,14 +927,10 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 		    *cpt++ = n;
 		} else if (n < 65536) {
 		    *cpt++ = 'S';
-		    *cpt++ = n & 0xff;
-		    *cpt++ = (n >> 8) & 0xff;
+		    STORE_UINT16(cpt, n);
 		} else {
 		    *cpt++ = 'I';
-		    *cpt++ = n & 0xff;
-		    *cpt++ = (n >> 8) & 0xff;
-		    *cpt++ = (n >>16) & 0xff;
-		    *cpt++ = (n >>24) & 0xff;
+		    STORE_UINT32(cpt, n);
 		}
 	    } else {
 		if (n >= -128 && n < 128) {
@@ -918,14 +938,10 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 		    *cpt++ = n;
 		} else if (n >= -32768 && n < 32768) {
 		    *cpt++ = 's';
-		    *cpt++ = n & 0xff;
-		    *cpt++ = (n >> 8) & 0xff;
+		    STORE_UINT16(cpt, n);
 		} else {
 		    *cpt++ = 'i';
-		    *cpt++ = n & 0xff;
-		    *cpt++ = (n >> 8) & 0xff;
-		    *cpt++ = (n >>16) & 0xff;
-		    *cpt++ = (n >>24) & 0xff;
+		    STORE_UINT32(cpt, n);
 		}
 	    }
 	    break;
@@ -937,10 +953,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    } u;
 	    u.f = atof((char *)value);
 	    *cpt++ = 'f';
-	    *cpt++ = (u.i) & 0xff;
-	    *cpt++ = (u.i >> 8) & 0xff;
-	    *cpt++ = (u.i >>16) & 0xff;
-	    *cpt++ = (u.i >>24) & 0xff;
+	    STORE_UINT32(cpt, u.i);
 	    break;
 	}
 
@@ -976,16 +989,12 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
 		case 's': case 'S':
 		    n = strtol((char *)value, (char **)&value, 10);
-		    *cpt++ = n & 0xff;
-		    *cpt++ = (n >> 8) & 0xff;
+		    STORE_UINT16(cpt, n);
 		    break;
 		    
 		case 'i': case 'I':
 		    n = strtoll((char *)value, (char **)&value, 10);
-		    *cpt++ = n & 0xff;
-		    *cpt++ = (n >> 8) & 0xff;
-		    *cpt++ = (n >>16) & 0xff;
-		    *cpt++ = (n >>24) & 0xff;
+		    STORE_UINT32(cpt, n);
 		    break;
 		    
 		case 'f': {
@@ -995,10 +1004,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 		    } u;
 
 		    u.f = strtod((char *)value, (char **)&value);
-		    *cpt++ = (u.i) & 0xff;
-		    *cpt++ = ((u.i) >> 8) & 0xff;
-		    *cpt++ = ((u.i) >>16) & 0xff;
-		    *cpt++ = ((u.i) >>24) & 0xff;
+		    STORE_UINT32(cpt, u.i);
 		    break;
 		}
 		}
@@ -1009,10 +1015,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 			key[0], key[1]);
 		value = cpf;
 	    }
-	    *sz++ = count & 0xff;
-	    *sz++ = (count >> 8) & 0xff;
-	    *sz++ = (count >>16) & 0xff;
-	    *sz++ = (count >>24) & 0xff;
+	    STORE_UINT32(sz, count);
 	    break;
 	}
 
@@ -1683,10 +1686,7 @@ int bam_aux_add(bam_seq_t **b, const char tag[2], char type,
     if (array_len > 0) {  /* Array type */
 	*cp++ = 'B';
 	*cp++ = type;
-	*cp++ = array_len         & 0xff;
-	*cp++ = (array_len >>  8) & 0xff;
-	*cp++ = (array_len >> 16) & 0xff;
-	*cp++ = (array_len >> 24) & 0xff;
+	STORE_UINT32(cp, array_len);
     } else {
 	*cp++ = type;
     }
@@ -1705,8 +1705,7 @@ int bam_aux_add(bam_seq_t **b, const char tag[2], char type,
     case 'S': {
 	uint16_t *sdata = (uint16_t *) data;
 	for (i = 0; i < array_len; i++) {
-	    *cp++ = sdata[i]        & 0xff;
-	    *cp++ = (sdata[i] >> 8) & 0xff;
+	    STORE_UINT16(cp, sdata[i]);
 	}
 	break;
     }
@@ -1715,24 +1714,14 @@ int bam_aux_add(bam_seq_t **b, const char tag[2], char type,
     case 'f': {
 	uint32_t *idata = (uint32_t *) data;
 	for (i = 0; i < array_len; i++) {
-	    *cp++ = idata[i]         & 0xff;
-	    *cp++ = (idata[i] >> 8)  & 0xff;
-	    *cp++ = (idata[i] >> 16) & 0xff;
-	    *cp++ = (idata[i] >> 24) & 0xff;
+	    STORE_UINT32(cp, idata[i]);
 	}
 	break;
     }
     case 'd': {
 	uint64_t *ddata = (uint64_t *) data;
 	for (i = 0; i < array_len; i++) {
-	    *cp++ = ddata[i]         & 0xff;
-	    *cp++ = (ddata[i] >> 8)  & 0xff;
-	    *cp++ = (ddata[i] >> 16) & 0xff;
-	    *cp++ = (ddata[i] >> 24) & 0xff;
-	    *cp++ = (ddata[i] >> 32) & 0xff;
-	    *cp++ = (ddata[i] >> 40) & 0xff;
-	    *cp++ = (ddata[i] >> 48) & 0xff;
-	    *cp++ = (ddata[i] >> 56) & 0xff;
+	    STORE_UINT64(cp, ddata[i]);
 	}
 	break;
     }
@@ -1874,6 +1863,181 @@ int bam_aux_add_vec(bam_seq_t **b, uint32_t count, bam_aux_tag_t *tags) {
 	    return -1; /* unknown type */
 	}	    
     }
+    return 0;
+}
+
+/* Add SAM-formatted aux tags to a bam_seq_t struct.
+   This is basically a copy of the code in sam_next_seq.  Unfortunately
+   trying to get them to use a common version slows sam_next_seq down
+   rather a lot, even when inlined.  Hence this extra copy. */
+
+int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam) {
+    unsigned char *cpf = (unsigned char *) sam;
+    unsigned char *cpt = (unsigned char *)&(*bsp)->ref + (*bsp)->blk_size;
+    unsigned char *end = (unsigned char *)(*bsp) + (*bsp)->alloc;
+    int n;
+
+    while (*cpf) {
+	unsigned char *key = cpf, *value;
+	size_t max_len;
+
+	if (!(key[0] && key[1] && key[2] == ':' && key[3] && key[4] == ':'))
+	    return -1;
+	cpf += 5;
+
+	value = cpf;
+	while (*cpf && *cpf != '\t')
+	    cpf++;
+
+	if (aux_type_size[key[3]]) {
+            max_len = aux_type_size[key[3]] + 3;
+        } else if (key[3] != 'B') {
+            max_len = cpf - value + 4;
+        } else {
+	    /* Worst case */
+            max_len = (cpf - value) * 4 + 8;
+        }
+
+	/* ensure we have enough room */
+        if (end - cpt < max_len) {
+            size_t used = cpt - (unsigned char *)(*bsp);
+            bam_seq_t *new_bam = realloc(*bsp, used + max_len);
+            if (NULL == new_bam) return -1;
+            *bsp = new_bam;
+            (*bsp)->alloc += used + max_len;
+            cpt = (unsigned char *)(*bsp) + used;
+            end = (unsigned char *)(*bsp) + (*bsp)->alloc;
+        }
+
+	*cpt++ = key[0];
+	*cpt++ = key[1];
+
+	switch(key[3]) {
+	case 'A':
+	    *cpt++ = 'A';
+	    *cpt++ = *value;
+	    break;
+
+	case 'i':
+	    n = atoi((char *)value);
+	    if (n >= 0) {
+		if (n < 256) {
+		    *cpt++ = 'C';
+		    *cpt++ = n;
+		} else if (n < 65536) {
+		    *cpt++ = 'S';
+		    STORE_UINT16(cpt, n);
+		} else {
+		    *cpt++ = 'I';
+		    STORE_UINT32(cpt, n);
+		}
+	    } else {
+		if (n >= -128 && n < 128) {
+		    *cpt++ = 'c';
+		    *cpt++ = n;
+		} else if (n >= -32768 && n < 32768) {
+		    *cpt++ = 's';
+		    STORE_UINT16(cpt, n);
+		} else {
+		    *cpt++ = 'i';
+		    STORE_UINT32(cpt, n);
+		}
+	    }
+	    break;
+
+	case 'f': {
+	    union {
+		float f;
+		int i;
+	    } u;
+	    u.f = atof((char *)value);
+	    *cpt++ = 'f';
+	    STORE_UINT32(cpt, u.i);
+	    break;
+	}
+
+	case 'Z':
+	    *cpt++ = 'Z';
+	    while (value != cpf)
+		*cpt++=*value++;
+	    *cpt++ = 0;
+	    break;
+
+	case 'H':
+	    *cpt++ = 'H';
+	    while (value != cpf)
+		*cpt++=*value++;
+	    *cpt++ = 0;
+	    break;
+
+	case 'B': {
+	    char subtype = *value++;
+	    unsigned char *sz;
+	    int count = 0;
+
+	    *cpt++ = 'B';
+	    *cpt++ = subtype;
+	    sz = cpt; cpt += 4; /* Fill out later */
+
+	    while (*value == ',') {
+		value++;
+		switch (subtype) {
+		case 'c': case 'C':
+		    *cpt++ = strtol((char *)value, (char **)&value, 10);
+		    break;
+
+		case 's': case 'S':
+		    n = strtol((char *)value, (char **)&value, 10);
+		    STORE_UINT16(cpt, n);
+		    break;
+		    
+		case 'i': case 'I':
+		    n = strtoll((char *)value, (char **)&value, 10);
+		    STORE_UINT32(cpt, n);
+		    break;
+		    
+		case 'f': {
+		    union {
+			float f;
+			int i;
+		    } u;
+
+		    u.f = strtod((char *)value, (char **)&value);
+		    STORE_UINT32(cpt, u.i);
+		    break;
+		}
+		}
+		count++;
+	    }
+	    if (value != cpf) {
+		fprintf(stderr, "Malformed %c%c:B:... auxiliary field\n",
+			key[0], key[1]);
+		value = cpf;
+	    }
+	    STORE_UINT32(sz, count);
+	    break;
+	}
+
+	default:
+	    fprintf(stderr, "Unknown aux format code '%c'\n", key[3]);
+	    break;
+	}
+
+	if (*cpf == '\t')
+	    cpf++;
+    }
+
+    if (cpt == end) { /* Hopefully very unlikely */
+        size_t used = cpt - (unsigned char *)(*bsp);
+        bam_seq_t *new_bam = realloc(*bsp, used + 1);
+        if (NULL == new_bam) return -1;
+        *bsp = new_bam;
+        (*bsp)->alloc += used + 1;
+        cpt = (unsigned char *)(*bsp) + used;
+    }
+
+    *cpt = 0;
+    (*bsp)->blk_size = cpt - (unsigned char *)&(*bsp)->ref;
     return 0;
 }
 
@@ -2590,10 +2754,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	/* Room for fixed size bits + name */
 	if (end - fp->out_p < 4) CF_FLUSH();
 	to_write = b->blk_size;
-	*fp->out_p++ = (to_write >> 0) & 0xff;
-	*fp->out_p++ = (to_write >> 8) & 0xff;
-	*fp->out_p++ = (to_write >>16) & 0xff;
-	*fp->out_p++ = (to_write >>24) & 0xff;
+	STORE_UINT32(fp->out_p, to_write);
 
         ptr = (unsigned char *)&b->ref;
 #else
@@ -2601,10 +2762,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	if (end - fp->out_p < 36+257) CF_FLUSH();
 	to_write = b->blk_size - (round4(name_len) - name_len);
 	//to_write = b->blk_size;
-	*fp->out_p++ = (to_write >> 0) & 0xff;
-	*fp->out_p++ = (to_write >> 8) & 0xff;
-	*fp->out_p++ = (to_write >>16) & 0xff;
-	*fp->out_p++ = (to_write >>24) & 0xff;
+	STORE_UINT32(fp->out_p, to_write);
 
         ptr = (unsigned char *)&b->ref;
 
@@ -2683,10 +2841,7 @@ int bam_write_header(bam_file_t *out) {
 
     if (out->binary) {
 	*hp++ = 'B'; *hp++ = 'A'; *hp++ = 'M'; *hp++ = 1;
-	*hp++ = (htext_len >> 0) & 0xff;
-	*hp++ = (htext_len >> 8) & 0xff;
-	*hp++ = (htext_len >>16) & 0xff;
-	*hp++ = (htext_len >>24) & 0xff;
+	STORE_UINT32(hp, htext_len);
     }
     memcpy(hp, htext, htext_len);
     hp += htext_len;
@@ -2694,26 +2849,17 @@ int bam_write_header(bam_file_t *out) {
     if (out->binary) {
 	int i;
 
-	*hp++ = (out->header->nref >> 0) & 0xff;
-	*hp++ = (out->header->nref >> 8) & 0xff;
-	*hp++ = (out->header->nref >>16) & 0xff;
-	*hp++ = (out->header->nref >>24) & 0xff;
+	STORE_UINT32(hp, out->header->nref);
 
 	for (i = 0; i < out->header->nref; i++) {
 	    size_t l = strlen(out->header->ref[i].name)+1;
-	    *hp++ = (l>> 0) & 0xff;
-	    *hp++ = (l>> 8) & 0xff;
-	    *hp++ = (l>>16) & 0xff;
-	    *hp++ = (l>>24) & 0xff;
+	    STORE_UINT32(hp, l);
 
 	    strcpy(hp, out->header->ref[i].name);
 	    hp += l;
 
 	    l = out->header->ref[i].len;
-	    *hp++ = (l>> 0) & 0xff;
-	    *hp++ = (l>> 8) & 0xff;
-	    *hp++ = (l>>16) & 0xff;
-	    *hp++ = (l>>24) & 0xff;
+	    STORE_UINT32(hp, l);
 	}
     }
 
