@@ -381,30 +381,6 @@ int bam_aux_add_vec(bam_seq_t **b, uint32_t count, bam_aux_tag_t *tags);
 
 ssize_t bam_aux_size_vec(uint32_t count, bam_aux_tag_t *tags);
 
-
-/*! Append auxiliary tag data
- *
- * This interface is similar to the samtools bam_aux_append command.
- * It creates a tag with the given name and type, and then appends the
- * supplied data to it as the value.  It is up to the caller to ensure that
- * the data has been formatted correctly as given in the SAM specification.
- * This function makes no checks on the data, but simply copies it.
- *
- * For an easier to use interface, you may want to use bam_aux_add instead.
- *
- * @param b         Points to the location of a bam_seq_t *.  If (*b)->alloc
- *                  is too small, the bam_seq_t struct will be reallocated.
- *                  Neither b nor *b should be NULL.
- * @param tag       The tag name (RG, NM, etc.)
- * @param type      The tag data type.
- * @param len       The number of bytes of data present.
- * @param data      Pre-formatted data.
- *
- * @return
- * Returns  0 on success;
- *         -1 on error.
- */
-
 /*! Helper for filling in the bam_aux_tag_t struct
  * @param tag   Pointer to bam_aux_tag_t struct
  * @param name  Tag name
@@ -509,11 +485,44 @@ static inline void bam_aux_tag_array(bam_aux_tag_t *tag, char *name, char type,
     tag->value.array = data;
 }
 
+/*! Add SAM formatted aux tags to a bam_seq_t.
+ *
+ * Appends one or more SAM-format tags onto the end of a bam_seq_t structure.
+ * If multiple tags are present, they should be separated by tabs, as in
+ * a SAM file.
+ *
+ * @param bsp       Points to the location of a bam_seq_t *.  If (*bsp)->alloc
+ *                  is too small, the bam_seq_t struct will be reallocated.
+ *                  Neither bsp nor *bsp should be NULL.
+ * @param sam       SAM-foratted tag string.
+ *
+ * @return
+ * Returns  0 on success;
+ *         -1 on error
+ */
+
+int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam);
+
 /*! Add preformated raw aux data to the bam_seq.
+ *
+ * This interface is similar to the samtools bam_aux_append function.
+ * It creates a tag with the given name and type, and then appends the
+ * supplied data to it as the value.  It is up to the caller to ensure that
+ * the data has been formatted correctly as given in the SAM specification.
+ * This function makes no checks on the data, but simply copies it.
  *
  * Consider using bam_aux_add instead if you have information in a more
  * integer or string form.
  *
+ * @param b         Points to the location of a bam_seq_t *.  If (*b)->alloc
+ *                  is too small, the bam_seq_t struct will be reallocated.
+ *                  Neither b nor *b should be NULL.
+ * @param tag       The tag name (RG, NM, etc.)
+ * @param type      The tag data type.
+ * @param len       The number of bytes of data present.
+ * @param data      Pre-formatted data.
+ *
+ * @return
  * Returns 0 on success;
  *        -1 on failure
  */
