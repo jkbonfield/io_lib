@@ -482,7 +482,7 @@ static char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size) {
     int err;
 
     /* Starting point at uncompressed size, 4x compressed */
-    data = malloc(data_alloc = csize*4+10);
+    data = malloc(data_alloc = csize+10);
     if (!data)
 	return NULL;
 
@@ -517,10 +517,10 @@ static char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size) {
 	}
 
 	/* More to come, so realloc */
-	data = realloc(data, data_alloc += s.avail_in*4 + 10);
+	data = realloc(data, data_alloc += s.avail_in + 10);
 	if (!data)
 	    return NULL;
-	s.avail_out += s.avail_in*4+10;
+	s.avail_out += s.avail_in+10;
     }
     inflateEnd(&s);
 
@@ -1435,6 +1435,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	fprintf(stderr, "cram_get_ref on fd %p, id %d, range %d..%d\n",
 		fd, id, start, end);
 
+//    fprintf(stderr, "REF %p/%p w %d/%d..%d\tg %d/%d..%d\n",
+//	    fd,fd->refs, id, start, end,
+//	    fd->ref_id, fd->ref_start, fd->ref_end);
+
     /*
      * Check if asking for same reference. A common issue in sam_to_cram.
      * Similarly if it's a substring of the reference we already have, just
@@ -1556,6 +1560,8 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	free(fd->ref_free);
 	fd->ref_free = NULL;
     }
+
+    //fprintf(stderr, "%p Allocating %d bytes for ref %d\n", fd, len, id);
 
     if (!(fd->ref = malloc(len)))
 	return NULL;

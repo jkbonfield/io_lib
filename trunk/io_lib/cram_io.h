@@ -163,7 +163,7 @@ char *cram_content_type2str(enum cram_content_type t);
 #define BLOCK_RESIZE(b,l)					\
     do {							\
 	while((b)->alloc <= (l)) {				\
-	    (b)->alloc = (b)->alloc ? (b)->alloc*2 : 1024;	\
+	    (b)->alloc = (b)->alloc ? (b)->alloc*1.5 : 1024;	\
 	    (b)->data = realloc((b)->data, (b)->alloc);		\
 	}							\
      } while(0)
