@@ -2137,7 +2137,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		l = 0;
 		if (!fd->no_ref) {
 		    int end = cig_len+apos < fd->ref_end
-			? end : fd->ref_end - apos;
+			? cig_len : fd->ref_end - apos;
 		    for (l = 0; l < end; l++, apos++, spos++) {
 			if (ref[apos] != seq[spos]) {
 			    //fprintf(stderr, "Subst: %d; %c vs %c\n",
