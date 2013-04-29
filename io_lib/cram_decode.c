@@ -1144,10 +1144,24 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	unsigned char digest[16];
 
 	if (fd->ref && s->hdr->ref_seq_id >= 0) {
+	    int start, len;
+
+	    if (s->hdr->ref_seq_start >= fd->ref_start) {
+		start = s->hdr->ref_seq_start - fd->ref_start;
+	    } else {
+		fprintf(stderr, "Slice starts before base 1.\n");
+		start = 0;
+	    }
+
+	    if (s->hdr->ref_seq_span <= fd->ref_end - fd->ref_start + 1) {
+		len = s->hdr->ref_seq_span;
+	    } else {
+		fprintf(stderr, "Slice ends beyond reference end.\n");
+		len = fd->ref_end - fd->ref_start + 1;
+	    }
+
 	    MD5_Init(&md5);
-	    MD5_Update(&md5,
-		       fd->ref + s->hdr->ref_seq_start - fd->ref_start,
-		       s->hdr->ref_seq_span);
+	    MD5_Update(&md5, fd->ref + start, len);
 	    MD5_Final(digest, &md5);
 	}
 
