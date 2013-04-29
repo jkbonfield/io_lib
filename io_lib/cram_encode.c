@@ -2134,8 +2134,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    case BAM_CBASE_MISMATCH:
 		//fprintf(stderr, "\nBAM_CMATCH\nR: %.*s\nS: %.*s\n",
 		//	cig_len, &ref[apos], cig_len, &seq[spos]);
+		l = 0;
 		if (!fd->no_ref) {
-		    for (l = 0; l < cig_len; l++, apos++, spos++) {
+		    int end = cig_len+apos < fd->ref_end
+			? end : fd->ref_end - apos;
+		    for (l = 0; l < end; l++, apos++, spos++) {
 			if (ref[apos] != seq[spos]) {
 			    //fprintf(stderr, "Subst: %d; %c vs %c\n",
 			    //	spos, ref[apos], seq[spos]);
@@ -2145,8 +2148,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 				return -1;
 			}
 		    }
-		} else {
-		    for (l = 0; l < cig_len; l++, spos++) {
+		}
+
+		if (l < cig_len) {
+		    /* off end of sequence or non-ref based output */
+		    for (; l < cig_len; l++, spos++) {
 			if (cram_add_base(fd, c, s, cr, spos,
 					  seq[spos], qual[spos]))
 			    return -1;
@@ -2203,7 +2209,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		break;
 	    }
 	}
-	cr->aend = apos;
+	cr->aend = MIN(apos, fd->ref_end);
 	cram_stats_add(c->FN_stats, cr->nfeature);
     } else {
 	// Unmapped
