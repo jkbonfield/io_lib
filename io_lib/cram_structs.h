@@ -479,7 +479,7 @@ typedef struct {
     int64_t offset;
     int bases_per_line;
     int line_length;
-    int64_t count;
+    int64_t count;	   // for shared references so we know to dealloc seq
     char *seq;
 } ref_entry;
 
@@ -493,6 +493,8 @@ typedef struct {
 
     char *fn;              // current file opened
     FILE *fp;              // and the FILE* to go with it.
+
+    int count;             // how many cram_fd sharing this refs struct
 } refs_t;
 
 /*-----------------------------------------------------------------------------
@@ -574,6 +576,7 @@ typedef struct {
     int no_ref;
     int ignore_md5;
     int use_bz2;
+    int shared_ref;
     cram_range range;
 
     // lookup tables, stored here so we can be trivially multi-threaded
@@ -606,6 +609,7 @@ enum cram_option {
     CRAM_OPT_MULTI_SEQ_PER_SLICE,
     CRAM_OPT_NO_REF,
     CRAM_OPT_USE_BZIP2,
+    CRAM_OPT_SHARED_REF,
 };
 
 /* BF bitfields */
