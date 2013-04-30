@@ -860,24 +860,20 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     /* seq */
     cp = cpf;
-    n = 0;
     //while (*cpf && *cpf != '\t') {
     if (cpf[0] == '*' && cpf[1] == '\t') {
 	cpf++;
 	bs->len = 0;
     } else {
 	while (*cpf > '\t') {
-	    if (n == 0) {
-		*cpt = lookup[*cpf]<<4;
-		n = 1;
-	    } else {
-		n = 0;
-		*cpt++ |= lookup[*cpf];
+	    *cpt = lookup[*cpf]<<4;
+	    if (*++cpf <= '\t') {
+		cpt++;
+		break;
 	    }
+	    *cpt++ |= lookup[*cpf];
 	    cpf++;
 	}
-	if (n == 1)
-	    cpt++;
 	bs->len = cpf-cp;
     }
     if (!*cpf++) return -1;

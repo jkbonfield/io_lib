@@ -945,6 +945,9 @@ int paranoid_fclose(FILE *fp) {
 static void refs_free(refs_t *r) {
     int i;
 
+    if (--r->count > 0)
+	return;
+
     if (!r)
 	return;
 
@@ -984,6 +987,7 @@ static refs_t *refs_create(void) {
 	goto err;
 
     r->ref_id = NULL; // see refs2id() to populate.
+    r->count = 1;
 
     r->h_meta = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
     if (!r->h_meta)
@@ -1435,10 +1439,6 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	fprintf(stderr, "cram_get_ref on fd %p, id %d, range %d..%d\n",
 		fd, id, start, end);
 
-//    fprintf(stderr, "REF %p/%p w %d/%d..%d\tg %d/%d..%d\n",
-//	    fd,fd->refs, id, start, end,
-//	    fd->ref_id, fd->ref_start, fd->ref_end);
-
     /*
      * Check if asking for same reference. A common issue in sam_to_cram.
      * Similarly if it's a substring of the reference we already have, just
@@ -1448,6 +1448,29 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	start >= fd->ref_start &&
 	end <= fd->ref_end) {
 	return fd->ref;
+    }
+
+    if (fd->ref_id != id && !fd->unsorted && fd->shared_ref) {
+	//fprintf(stderr, "%p new ref; was %d (%lld)/%p, now %d (%lld)/%p\n", fd,
+	//	fd->ref_id,
+	//	fd->ref_id >=0 ? fd->refs->ref_id[fd->ref_id]->count : -1,
+	//	fd->ref_id >=0 ? fd->refs->ref_id[fd->ref_id]->seq : NULL,
+	//	id,
+	//	fd->refs->ref_id[id]->count,
+	//	fd->refs->ref_id[id]->seq);
+
+	// Decrement old seq counter and free if now unused.
+	if (fd->ref_id >= 0 && fd->refs->ref_id[fd->ref_id]->seq) {
+	    if (--fd->refs->ref_id[fd->ref_id]->count <= 0) {
+		//fprintf(stderr, "Freeing last use of ref %d\n", fd->ref_id);
+		free(fd->refs->ref_id[fd->ref_id]->seq);
+		fd->refs->ref_id[fd->ref_id]->seq = NULL;
+	    }
+	}
+	
+	// Inc reference counter for new sequence
+	if (fd->refs->ref_id[id]->seq)
+	    fd->refs->ref_id[id]->count++;
     }
 
     //struct timeval tv1, tv2;
@@ -1506,7 +1529,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	end  = r->length; 
     assert(start >= 1);
 
-    if (end - start >= 0.5*r->length) {
+    if (end - start >= 0.5*r->length || fd->shared_ref) {
 	start = 1;
 	end = r->length;
     }
@@ -1561,7 +1584,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	fd->ref_free = NULL;
     }
 
-    //fprintf(stderr, "%p Allocating %d bytes for ref %d\n", fd, len, id);
+    //fprintf(stderr, "%p Allocating %d bytes for ref %d\n", fd, (int)len, id);
 
     if (!(fd->ref = malloc(len)))
 	return NULL;
@@ -1574,6 +1597,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	perror("fread() on reference file");
 	return NULL;
     }
+
+    if (fd->verbose)
+	fprintf(stderr, "Loaded ref %d (%d..%d) = %p\n",
+		id, start, end, fd->ref);
 
     // Strip white-space if required.
     if (len != end-start+1) {
@@ -1601,8 +1628,9 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     //fprintf(stderr, "Done %ld usec\n",
     //	    (tv2.tv_sec - tv1.tv_sec)*1000000 + tv2.tv_usec - tv1.tv_usec);
 
-    if (fd->unsorted && start == 1 && end == r->length) {
+    if ((fd->unsorted && start == 1 && end == r->length) || fd->shared_ref) {
 	r->seq = fd->ref;
+	r->count = 1;
 	fd->ref_free = NULL;
     } else {
 	fd->ref_free = fd->ref;
@@ -2727,6 +2755,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->use_bz2 = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
+    fd->shared_ref = 0;
 
     fd->index = NULL;
 
@@ -2855,6 +2884,8 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, ...) {
  *        -1 on failure
  */
 int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
+    refs_t *refs;
+
     switch (opt) {
     case CRAM_OPT_DECODE_MD:
 	fd->decode_md = va_arg(args, int);
@@ -2893,6 +2924,17 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_USE_BZIP2:
 	fd->use_bz2 = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_SHARED_REF:
+	fd->shared_ref = 1;
+	refs = va_arg(args, refs_t *);
+	if (refs != fd->refs) {
+	    if (fd->refs)
+		refs_free(fd->refs);
+	    fd->refs = refs;
+	    fd->refs->count++;
+	}
 	break;
 
     case CRAM_OPT_RANGE:

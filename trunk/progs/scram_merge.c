@@ -97,7 +97,8 @@ int main(int argc, char **argv) {
     char *ref_fn = NULL;
     int start, end;
     char ref_name[1024] = {0};
-    refs_t *refs;
+    refs_t *refs = NULL;
+    int last_ref = -1;
 
     /* Parse command line arguments */
     while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:")) != -1) {
@@ -209,12 +210,17 @@ int main(int argc, char **argv) {
 		    " in all files.\n");
 	    return 1;
 	}
-	if (i)
-	    scram_set_refs(in[i], scram_get_refs(in[0]));
+
+	if (!refs && scram_get_refs(in[i]))
+	    refs = scram_get_refs(in[i]);
+
+	if (refs && scram_set_option(in[i], CRAM_OPT_SHARED_REF, refs))
+	    return 1;
     }
 
     /* Set any format specific options */
-    scram_set_refs(out, refs = scram_get_refs(in[0]));
+    if (refs)
+	scram_set_option(out, CRAM_OPT_SHARED_REF, refs);
 
     if (scram_set_option(out, CRAM_OPT_VERBOSITY, verbose))
 	return 1;
@@ -247,15 +253,20 @@ int main(int argc, char **argv) {
 
 
     /* Do the actual file format conversion */
+    fprintf(stderr, "Opening and loading initial seqs\n");
     for (i = 0; i < n_input; i++) {
+	bam_seq_t *b;
+
 	if (scram_get_seq(in[i], &s[i]) < 0) {
 	    if (scram_close(in[i]))
 		return 1;
 	    in[i] = NULL;
 	    free(s[i]);
+	    continue;
 	}
     }
 
+    fprintf(stderr, "Merging...\n");
     for (;;) {
 	int64_t best_val = INT64_MAX;
 	int best_j = 0, j;
@@ -285,8 +296,6 @@ int main(int argc, char **argv) {
 	    return 1;
 	
 	if (scram_get_seq(in[best_j], &s[best_j]) < 0) {
-	    if (refs == scram_get_refs(in[best_j]))
-		scram_set_refs(in[best_j], NULL);
 	    if (scram_close(in[best_j]))
 		return 1;
 	    in[best_j] = NULL;
@@ -295,10 +304,6 @@ int main(int argc, char **argv) {
     }
 
     /* Finally tidy up and close files */
-    if (refs == scram_get_refs(out)) {
-	scram_set_refs(out, NULL);
-    }
-
     if (scram_close(out))
 	return 1;
     free(in);
