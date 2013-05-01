@@ -1159,7 +1159,7 @@ int refs2id(refs_t *r, SAM_hdr *h) {
 static int refs_from_header(refs_t *r, cram_fd *fd, SAM_hdr *h) {
     int i;
 
-    if (!h)
+    if (!h || h->nref == 0)
 	return 0;
 
     //fprintf(stderr, "refs_from_header for %p mode %c\n", fd, fd->mode);
