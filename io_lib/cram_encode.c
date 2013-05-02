@@ -102,6 +102,13 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 	    hd.i = c->pos_sorted; // => DELTA
 	    if (!(HashTableAdd(h->preservation_map, "AP", 2, hd, NULL)))
 		return NULL;
+
+	    if (fd->no_ref || fd->embed_ref) {
+		// Reference Required == No
+		hd.i = 0;
+		if (!(HashTableAdd(h->preservation_map, "RR", 2, hd, NULL)))
+		    return NULL;
+	    }
 	}
     }
 
@@ -136,6 +143,10 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 		break;
 
 	    case CRAM_KEY('R','N'):
+		BLOCK_APPEND_CHAR(map, hi->data.i);
+		break;
+
+	    case CRAM_KEY('R','R'):
 		BLOCK_APPEND_CHAR(map, hi->data.i);
 		break;
 
