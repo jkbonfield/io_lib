@@ -194,6 +194,15 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    hdr->AP_delta = hd.i;
 	    break;
 
+	case CRAM_KEY('R','R'):
+	    hd.i = *cp++;
+	    if (!HashTableAdd(hdr->preservation_map, "RR", 2, hd, NULL)) {
+		cram_free_compression_header(hdr);
+		return NULL;
+	    }
+	    fd->no_ref = !hd.i;
+	    break;
+
 	case CRAM_KEY('S','M'):
 	    hdr->substitution_matrix[0][(cp[0]>>6)&3] = 'C';
 	    hdr->substitution_matrix[0][(cp[0]>>4)&3] = 'G';
@@ -1203,6 +1212,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	return -1;
 
     ref_id = s->hdr->ref_seq_id;
+    fd->embed_ref = s->hdr->ref_base_id >= 0 ? 1 : 0;
 
     if (ref_id >= 0) {
 	if (fd->embed_ref) {
@@ -1263,9 +1273,17 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    MD5_Init(&md5);
 	    MD5_Update(&md5, fd->ref + start, len);
 	    MD5_Final(digest, &md5);
+	} else if (!fd->ref && s->hdr->ref_base_id >= 0) {
+	    cram_block *b;
+	    if (s->block_by_id && (b = s->block_by_id[s->hdr->ref_base_id])) {
+		MD5_Init(&md5);
+		MD5_Update(&md5, b->data, b->uncomp_size);
+		MD5_Final(digest, &md5);
+	    }
 	}
 
-	if (!fd->ref || memcmp(digest, s->hdr->md5, 16) != 0) {
+	if ((!fd->ref && s->hdr->ref_base_id < 0)
+	    || memcmp(digest, s->hdr->md5, 16) != 0) {
 	    fprintf(stderr, "ERROR: md5sum reference mismatch\n");
 	    return -1;
 	}
