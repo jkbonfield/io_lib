@@ -13,6 +13,15 @@
  * 4: offset of container start (relative to end of SAM header, so 1st
  *    container is offset 0).
  * 5: slice number within container (ie which landmark).
+ *
+ * In memory, we hold this in a nested containment list. Each list element is
+ * a cram_index struct. Each element in turn can contain its own list of
+ * cram_index structs.
+ *
+ * Any start..end range which is entirely contained within another (and
+ * earlier as it is sorted) range will be held within it. This ensures that
+ * the outer list will never have containments and we can safely do a
+ * binary search to find the first range which overlaps any given coordinate.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -54,6 +63,7 @@ static void dump_index(cram_fd *fd) {
 
 /*
  * Loads a CRAM .crai index into memory.
+ *
  * Returns 0 for success
  *        -1 for failure
  */
@@ -186,13 +196,13 @@ cram_index *cram_index_query(cram_fd *fd, int refid, int pos,
     int i, j, k;
     cram_index *e;
 
-    i = 0, j = fd->index->nslice-1;
+    if (refid+1 < 0 || refid+1 >= fd->index_sz)
+	return NULL;
 
-    if (!from) {
-	if (refid+1 < 0 || refid+1 >= fd->index_sz)
-	    return NULL;
+    i = 0, j = fd->index[refid+1].nslice-1;
+
+    if (!from)
 	from = &fd->index[refid+1];
-    }
 
     for (k = j/2; k != i; k = (j-i)/2 + i) {
 	if (from->e[k].refid > refid) {
@@ -215,6 +225,10 @@ cram_index *cram_index_query(cram_fd *fd, int refid, int pos,
 	    continue;
 	}
     }
+
+    /* The above found *a* bin overlapping, but not necessarily the first */
+    while (i > 0 && from->e[i-1].end >= pos)
+	i--;
 
     /* Special case for matching a start pos */
     if (i+1 < from->nslice &&
@@ -278,6 +292,11 @@ int cram_seek_to_refpos(cram_fd *fd, cram_range *r) {
     } else {
 	fprintf(stderr, "Unknown reference ID. Missing from index?\n");
 	return -1;
+    }
+
+    if (fd->ctr) {
+	cram_free_container(fd->ctr);
+	fd->ctr = NULL;
     }
 
     return 0;
