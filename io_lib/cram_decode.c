@@ -1073,6 +1073,106 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
     return r;
 }
 
+/* Resolve mate pair cross-references between recs within this slice */
+static void cram_decode_slice_xref(cram_slice *s) {
+    int rec;
+
+    for (rec = 0; rec < s->hdr->num_records; rec++) {
+	cram_record *cr = &s->crecs[rec];
+
+	if (cr->mate_line >= 0) {
+	    if (cr->mate_line < s->hdr->num_records) {
+		/*
+		 * On the first read, loop through computing lengths.
+		 * It's not perfect as we have one slice per reference so we
+		 * cannot detect when TLEN should be zero due to seqs that
+		 * map to multiple references.
+		 *
+		 * We also cannot set tlen correct when it spans a slice for
+		 * other reasons. This may make tlen too small. Should we
+		 * fix this by forcing TLEN to be stored verbatim in such cases?
+		 *
+		 * Or do we just admit defeat and output 0 for tlen? It's the
+		 * safe option...
+		 */
+		if (cr->tlen == INT_MIN) {
+		    int id1 = rec, id2 = rec;
+		    int aleft = cr->apos, aright = cr->aend;
+		    int tlen;
+
+		    do {
+			if (aleft > s->crecs[id2].apos)
+			    aleft = s->crecs[id2].apos;
+			if (aright < s->crecs[id2].aend)
+			    aright = s->crecs[id2].aend;
+			if (s->crecs[id2].mate_line == -1) {
+			    s->crecs[id2].mate_line = rec;
+			    break;
+			}
+			assert(s->crecs[id2].mate_line > id2);
+			id2 = s->crecs[id2].mate_line;
+		    } while (id2 != id1);
+
+		    tlen = aright - aleft + 1;
+		    id1 = id2 = rec;
+
+		    // leftmost is +ve, rightmost -ve, all others undefined
+		    s->crecs[id2].tlen = tlen;
+		    tlen *= -1;
+		    id2 = s->crecs[id2].mate_line;
+		    while (id2 != id1) {
+			s->crecs[id2].tlen = tlen;
+			id2 = s->crecs[id2].mate_line;
+		    }
+		}
+
+		cr->mate_pos = s->crecs[cr->mate_line].apos;
+		//if (s->crecs[cr->mate_line].mate_line == -1)
+		//	s->crecs[cr->mate_line].mate_line = rec;
+		cr->mate_ref_id = cr->ref_id;
+
+		// paired
+		cr->flags |= BAM_FPAIRED;
+		s->crecs[cr->mate_line].flags |= BAM_FPAIRED;
+
+		// set mate unmapped if needed
+		if (s->crecs[cr->mate_line].flags & BAM_FUNMAP) {
+		    cr->flags |= BAM_FMUNMAP;
+		    cr->tlen = s->crecs[cr->mate_line].tlen = 0;
+		}
+		if (cr->flags & BAM_FUNMAP) {
+		    s->crecs[cr->mate_line].flags |= BAM_FMUNMAP;
+		    cr->tlen = s->crecs[cr->mate_line].tlen = 0;
+		}
+
+		// set mate reversed if needed
+		if (s->crecs[cr->mate_line].flags & BAM_FREVERSE)
+		    cr->flags |= BAM_FMREVERSE;
+		if (cr->flags & BAM_FREVERSE) 
+		    s->crecs[cr->mate_line].flags |= BAM_FMREVERSE;
+	    } else {
+		fprintf(stderr, "Mate line out of bounds: %d vs [0, %d]\n",
+			cr->mate_line, s->hdr->num_records-1);
+	    }
+
+	    /* FIXME: construct read names here too if needed */
+	} else {
+	    if (cr->mate_flags & CRAM_M_REVERSE) {
+		cr->flags |= BAM_FPAIRED | BAM_FMREVERSE;
+	    }
+	    if (cr->mate_flags & CRAM_M_UNMAP) {
+		cr->flags |= BAM_FMUNMAP;
+		//cr->mate_ref_id = -1;
+	    }
+	    if (!(cr->flags & BAM_FPAIRED))
+		cr->mate_ref_id = -1;
+	}
+
+	if (cr->tlen == INT_MIN)
+	    cr->tlen = 0; // Just incase
+    }    
+}
+
 /*
  * Decode an entire slice from container blocks. Fills out s->crecs[] array.
  * Returns 0 on success
@@ -1286,6 +1386,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    cr->tlen = INT_MIN;
 	    cr->mate_pos = 0;
 	} else {
+	    cr->mate_flags = 0;
 	    cr->tlen = INT_MIN;
 	}
 	/*
@@ -1330,7 +1431,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    //puts("Unmapped");
 	    cr->cigar = 0;
 	    cr->ncigar = 0;
-	    cr->aend = -1;
+	    cr->aend = cr->apos;
 	    cr->mqual = 0;
 
 	    r |= c->comp_hdr->BA_codec->decode(s, c->comp_hdr->BA_codec, blk,
@@ -1345,6 +1446,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    }
 	}
     }
+
+    /* Resolve mate pair cross-references between recs within this slice */
+    cram_decode_slice_xref(s);
 
     return r;
 }
@@ -1373,98 +1477,7 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     int name_len;
     char *aux, *aux_orig;
 
-    /* Resolve mate-pair cross-references */
-    if (cr->mate_line >= 0) {
-	if (cr->mate_line < s->hdr->num_records) {
-	    /*
-	     * On the first read, loop through computing lengths.
-	     * It's not perfect as we have one slice per reference so we
-	     * cannot detect when TLEN should be zero due to seqs that
-	     * map to multiple references.
-	     *
-	     * We also cannot set tlen correct when it spans a slice for
-	     * other reasons. This may make tlen too small. Should we
-	     * fix this by forcing TLEN to be stored verbatim in such cases?
-	     *
-	     * Or do we just admit defeat and output 0 for tlen? It's the
-	     * safe option...
-	     */
-	    if (cr->tlen == INT_MIN) {
-		int id1 = rec, id2 = rec;
-		int aleft = cr->apos, aright = cr->aend;
-		int tlen;
-
-		do {
-		    if (aleft > s->crecs[id2].apos)
-			aleft = s->crecs[id2].apos;
-		    if (aright < s->crecs[id2].aend)
-			aright = s->crecs[id2].aend;
-		    if (s->crecs[id2].mate_line == -1) {
-			s->crecs[id2].mate_line = rec;
-			break;
-		    }
-		    assert(s->crecs[id2].mate_line > id2);
-		    id2 = s->crecs[id2].mate_line;
-		} while (id2 != id1);
-
-		tlen = aright - aleft + 1;
-		id1 = id2 = rec;
-
-		// leftmost is +ve, rightmost -ve, all others undefined
-		s->crecs[id2].tlen = tlen;
-		tlen *= -1;
-		id2 = s->crecs[id2].mate_line;
-		while (id2 != id1) {
-		    s->crecs[id2].tlen = tlen;
-		    id2 = s->crecs[id2].mate_line;
-		}
-	    }
-
-	    cr->mate_pos = s->crecs[cr->mate_line].apos;
-	    //if (s->crecs[cr->mate_line].mate_line == -1)
-	    //	s->crecs[cr->mate_line].mate_line = rec;
-	    cr->mate_ref_id = cr->ref_id;
-
-	    // paired
-	    cr->flags |= BAM_FPAIRED;
-	    s->crecs[cr->mate_line].flags |= BAM_FPAIRED;
-
-	    // set mate unmapped if needed
-	    if (s->crecs[cr->mate_line].flags & BAM_FUNMAP) {
-		cr->flags |= BAM_FMUNMAP;
-		cr->tlen = s->crecs[cr->mate_line].tlen = 0;
-	    }
-	    if (cr->flags & BAM_FUNMAP) {
-		s->crecs[cr->mate_line].flags |= BAM_FMUNMAP;
-		cr->tlen = s->crecs[cr->mate_line].tlen = 0;
-	    }
-
-	    // set mate reversed if needed
-	    if (s->crecs[cr->mate_line].flags & BAM_FREVERSE)
-		cr->flags |= BAM_FMREVERSE;
-	    if (cr->flags & BAM_FREVERSE) 
-		s->crecs[cr->mate_line].flags |= BAM_FMREVERSE;
-	} else {
-	    fprintf(stderr, "Mate line out of bounds: %d vs [0, %d]\n",
-		    cr->mate_line, s->hdr->num_records-1);
-	}
-
-	/* FIXME: construct read names here too if needed */
-    } else {
-	if (cr->mate_flags & CRAM_M_REVERSE) {
-	    cr->flags |= BAM_FPAIRED | BAM_FMREVERSE;
-	}
-	if (cr->mate_flags & CRAM_M_UNMAP) {
-	    cr->flags |= BAM_FMUNMAP;
-	    //cr->mate_ref_id = -1;
-	}
-	if (!(cr->flags & BAM_FPAIRED))
-	    cr->mate_ref_id = -1;
-    }
-
-    if (cr->tlen == INT_MIN)
-	cr->tlen = 0; // Just incase
-    
+    /* Assign names if not explicitly set */
     if (cr->name_len) {
 	name = (char *)BLOCK_DATA(s->name_blk) + cr->name;
 	name_len = cr->name_len;
@@ -1682,12 +1695,14 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	if (s->crecs[c->curr_rec].ref_id != fd->range.refid) {
 	    fd->eof = 1;
 	    cram_free_slice(s);
+	    c->slice = NULL;
 	    return NULL;
 	}
 
 	if (s->crecs[c->curr_rec].apos > fd->range.end) {
 	    fd->eof = 1;
 	    cram_free_slice(s);
+	    c->slice = NULL;
 	    return NULL;
 	}
 
