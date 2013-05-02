@@ -1108,6 +1108,7 @@ static void cram_decode_slice_xref(cram_slice *s) {
 		    int id1 = rec, id2 = rec;
 		    int aleft = cr->apos, aright = cr->aend;
 		    int tlen;
+		    int ref = cr->ref_id;
 
 		    do {
 			if (aleft > s->crecs[id2].apos)
@@ -1120,23 +1121,40 @@ static void cram_decode_slice_xref(cram_slice *s) {
 			}
 			assert(s->crecs[id2].mate_line > id2);
 			id2 = s->crecs[id2].mate_line;
+
+			if (s->crecs[id2].ref_id != ref)
+			    ref = -1;
 		    } while (id2 != id1);
 
-		    tlen = aright - aleft + 1;
-		    id1 = id2 = rec;
+		    if (ref != -1) {
+			tlen = aright - aleft + 1;
+			id1 = id2 = rec;
 
-		    // leftmost is +ve, rightmost -ve, all others undefined
-		    s->crecs[id2].tlen = tlen;
-		    tlen *= -1;
-		    id2 = s->crecs[id2].mate_line;
-		    while (id2 != id1) {
-			s->crecs[id2].tlen = tlen;
+			// leftmost is +ve, rightmost -ve, all others undefined
+			s->crecs[id2].tlen = (s->crecs[id2].apos == aleft)
+			    ? tlen : -tlen;
+
 			id2 = s->crecs[id2].mate_line;
+			while (id2 != id1) {
+			    s->crecs[id2].tlen = (s->crecs[id2].apos == aleft)
+				? tlen : -tlen;
+			    id2 = s->crecs[id2].mate_line;
+			}
+		    } else {
+			tlen = 0;
+			id1 = id2 = rec;
+
+			s->crecs[id2].tlen = 0;
+			id2 = s->crecs[id2].mate_line;
+			while (id2 != id1) {
+			    s->crecs[id2].tlen = 0;
+			    id2 = s->crecs[id2].mate_line;
+			}
 		    }
 		}
 
 		cr->mate_pos = s->crecs[cr->mate_line].apos;
-		cr->mate_ref_id = cr->ref_id;
+		cr->mate_ref_id = s->crecs[cr->mate_line].ref_id;
 
 		// paired
 		cr->flags |= BAM_FPAIRED;
