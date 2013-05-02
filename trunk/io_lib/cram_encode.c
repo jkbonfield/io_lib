@@ -578,7 +578,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     cram_block *core;
     int nblk, embed_ref;
 
-    embed_ref = fd->embed_ref && s->hdr->ref_seq_id >= 0 ? 1 : 0;
+    embed_ref = fd->embed_ref && s->hdr->ref_seq_id != -1 ? 1 : 0;
 
     /*
      * Slice external blocks:
@@ -2006,7 +2006,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	// Have we seen this reference before?
 	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && 
-	    fd->refs->ref_id[bam_ref(b)]->count++) {
+	    fd->refs->ref_id[bam_ref(b)]->count++ &&
+	    !fd->embed_ref) {
 	    //fprintf(stderr, "Currently cram_put_bam_seq() does not support "
 	    //	    "unsorted data. Aborting\n");
 	    //return -1;
@@ -2350,11 +2351,13 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     fd->record_counter++;
 
-    if (fd->first_base > cr->apos)
-	fd->first_base = cr->apos;
+    if (!(bam_flag(b) & BAM_FUNMAP)) {
+	if (fd->first_base > cr->apos)
+	    fd->first_base = cr->apos;
 
-    if (fd->last_base < cr->aend)
-	fd->last_base = cr->aend;
+	if (fd->last_base < cr->aend)
+	    fd->last_base = cr->aend;
+    }
 
     return 0;
 }
