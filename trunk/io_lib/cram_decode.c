@@ -1136,29 +1136,23 @@ static void cram_decode_slice_xref(cram_slice *s) {
 		}
 
 		cr->mate_pos = s->crecs[cr->mate_line].apos;
-		//if (s->crecs[cr->mate_line].mate_line == -1)
-		//	s->crecs[cr->mate_line].mate_line = rec;
 		cr->mate_ref_id = cr->ref_id;
 
 		// paired
 		cr->flags |= BAM_FPAIRED;
-		s->crecs[cr->mate_line].flags |= BAM_FPAIRED;
 
 		// set mate unmapped if needed
 		if (s->crecs[cr->mate_line].flags & BAM_FUNMAP) {
 		    cr->flags |= BAM_FMUNMAP;
-		    cr->tlen = s->crecs[cr->mate_line].tlen = 0;
+		    cr->tlen = 0;
 		}
 		if (cr->flags & BAM_FUNMAP) {
-		    s->crecs[cr->mate_line].flags |= BAM_FMUNMAP;
-		    cr->tlen = s->crecs[cr->mate_line].tlen = 0;
+		    cr->tlen = 0;
 		}
 
 		// set mate reversed if needed
 		if (s->crecs[cr->mate_line].flags & BAM_FREVERSE)
 		    cr->flags |= BAM_FMREVERSE;
-		if (cr->flags & BAM_FREVERSE) 
-		    s->crecs[cr->mate_line].flags |= BAM_FMREVERSE;
 	    } else {
 		fprintf(stderr, "Mate line out of bounds: %d vs [0, %d]\n",
 			cr->mate_line, s->hdr->num_records-1);
