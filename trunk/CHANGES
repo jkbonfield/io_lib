@@ -1,3 +1,60 @@
+Version 1.13.1 (3rd May 2013)
+--------------
+
+* CRAM now has support for storing unsorted data and for using
+  non-reference based encoding (although this isn't very efficient).
+
+* CRAM can now use the EBI MD5 server: http://www.ebi.ac.uk/ena/cram/md5/%s
+  The library will use a colon separated REF_PATH environ (see
+  TRACE_PATH for analogous examples) to find references, and if set
+  will write a local MD5 cache to REF_CACHE environ.
+
+* Added a rudimentary scram_pileup command, mainly as a test of the
+  library.
+
+* CRAM now supports bzip2 encoding, specified using scramble -j.
+
+* Various speed increases.
+
+* Improved BAM support for non-intel hardware.
+
+* Bug fixes to CRAM mate flags in various scenarios.
+
+* Fixes to generation of NM and MD strings.
+
+* Can now code with BAM files containing no text headers; only binary
+  @SQ records.
+
+* Can also cope with SAM/BAM files containing no @SQ records at all
+  (entirely unmapped).
+
+* More rigorous error checking in BAM/SAM/CRAM code.
+
+* The code is more compatible with linking into samtools (a pilot
+  project is ongoing).
+
+* CRAM encoding is more robust to broken CIGAR strings.
+
+* Various bug fixes to cram indexing.
+
+* [API] Various function renaming, to allow this and samtools
+  libraries to be linked into the same applications and also for
+  tidyness.
+    *_next_seq() becomes *_get_seq()
+    refs type is now refs_t.
+    cram_fd->SAM_hdr is now cram_fd->header
+    sam_header_*() becomes sam_hdr_*()
+
+* [API] bam_construct_seq now has a different calling syntax, to make
+  it easier for memory allocation.
+
+* [API] Added various auxiliary field construction functions to BAM.
+
+* [API] Setting cram options is now done via a varargs syntax.
+
+* [API] Added extern "C" around headers to permit use by C++.
+
+
 Version 1.13.0 (21st Mar 2013)
 --------------
 
