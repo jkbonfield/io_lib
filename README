@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.13.0
+			IO_LIB VERSION 1.13.1
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -24,6 +24,22 @@ These link together to form a single "libstaden-read" library supporting
 all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
+
+What's new in 1.13.1
+====================
+
+This is primarily a bug fix release over 1.13.0 with all changes being
+in the SAM/BAM/CRAM support.
+
+The main new feature is the ability to store unsorted data and to
+permit non-reference based encoding (albeit not very efficiently).
+There is also now support for finding references by a colon separated
+search path (REF_PATH environment variable), which may contain URLs in
+the same manner that TRACE_PATH does.  We can also locally cache files
+accessed by the MD5 sum to the REF_CACHE environment variable. 
+
+See the CHANGES file for full details.
+
 
 What's new in 1.13.0
 ====================
