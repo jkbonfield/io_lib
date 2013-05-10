@@ -529,6 +529,24 @@ int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam);
 int bam_aux_add_data(bam_seq_t **b, const char tag[2],
 		     char type, size_t len, const uint8_t *data);
 
+/*! Add raw data to a bam structure.
+ *
+ * This could be useful if you wish to manually construct your own bam
+ * entries or if you need to append an entire block of preformatting
+ * aux data.
+ *
+ * @param b         Points to the location of a bam_seq_t *.  If (*b)->alloc
+ *                  is too small, the bam_seq_t struct will be reallocated.
+ *                  Neither b nor *b should be NULL.
+ * @param len       The number of bytes of data present.
+ * @param data      Pre-formatted data.
+ *
+ * @retrun
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int bam_add_raw(bam_seq_t **b, size_t len, const uint8_t *data);
+
 /*! An iterator on bam_aux_t fields.
  *
  * NB: This code is not reentrant or multi-thread capable. The values
