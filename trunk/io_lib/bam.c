@@ -2069,6 +2069,44 @@ int bam_aux_add_data(bam_seq_t **b, const char tag[2], char type,
     *cp++ = tag[1];
     *cp++ = type;
     memcpy(cp, data, len);
+    cp += len;
+    *cp = 0;
+
+    (*b)->blk_size = (uint32_t)(cp - (uint8_t *)&(*b)->ref);
+
+    return 0;
+}
+
+/*! Add raw data to a bam structure.
+ *
+ * This could be useful if you wish to manually construct your own bam
+ * entries or if you need to append an entire block of preformatting
+ * aux data.
+ *
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int bam_add_raw(bam_seq_t **b, size_t len, const uint8_t *data) {
+    uint8_t *cp;
+    size_t used;
+
+    if (NULL == b || NULL == data) return -1;
+
+    /* Find the end of the existing tags and ensure there is enough space */
+    cp = (uint8_t *)&(*b)->ref + (*b)->blk_size;
+    used = cp - (uint8_t *)(*b);
+
+    if ((*b)->alloc < used + len + 1) {
+	size_t required = used + len + 1;
+	bam_seq_t *new_bam = realloc((*b), required);
+	if (NULL == new_bam) return -1;
+	*b = new_bam;
+	(*b)->alloc = required;
+	cp = (uint8_t *) new_bam + used;
+    }
+
+    memcpy(cp, data, len);
+    cp += len;
     *cp = 0;
 
     (*b)->blk_size = (uint32_t)(cp - (uint8_t *)&(*b)->ref);
