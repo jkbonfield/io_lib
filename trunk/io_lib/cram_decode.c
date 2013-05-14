@@ -1130,14 +1130,34 @@ static void cram_decode_slice_xref(cram_slice *s) {
 			tlen = aright - aleft + 1;
 			id1 = id2 = rec;
 
-			// leftmost is +ve, rightmost -ve, all others undefined
-			s->crecs[id2].tlen = (s->crecs[id2].apos == aleft)
-			    ? tlen : -tlen;
+			/*
+			 * When we have two seqs with identical start and
+			 * end coordinates, set +/- tlen based on 1st/last
+			 * bit flags instead, as a tie breaker.
+			 */
+			if (s->crecs[id2].apos == aleft) {
+			    if (s->crecs[id2].aend != aright)
+				s->crecs[id2].tlen = tlen;
+			    else if (s->crecs[id2].flags & BAM_FREAD1)
+				s->crecs[id2].tlen = tlen;
+			    else
+				s->crecs[id2].tlen = -tlen;
+			} else {
+			    s->crecs[id2].tlen = -tlen;
+			}
 
 			id2 = s->crecs[id2].mate_line;
 			while (id2 != id1) {
-			    s->crecs[id2].tlen = (s->crecs[id2].apos == aleft)
-				? tlen : -tlen;
+			    if (s->crecs[id2].apos == aleft) {
+				if (s->crecs[id2].aend != aright)
+				    s->crecs[id2].tlen = tlen;
+				else if (s->crecs[id2].flags & BAM_FREAD1)
+				    s->crecs[id2].tlen = tlen;
+				else
+				    s->crecs[id2].tlen = -tlen;
+			    } else {
+				s->crecs[id2].tlen = -tlen;
+			    }
 			    id2 = s->crecs[id2].mate_line;
 			}
 		    } else {
