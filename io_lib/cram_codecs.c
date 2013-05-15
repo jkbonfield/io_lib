@@ -857,9 +857,11 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
     int32_t val, last_len, max_len = 0;
     
     cp += itf8_get(cp, &ncodes);
-    h = malloc(sizeof(*h));
+    h = calloc(1, sizeof(*h));
     if (!h)
 	return NULL;
+
+    h->free   = cram_huffman_decode_free;
 
     codes = h->huffman.codes = malloc(ncodes * sizeof(*codes));
     if (!codes)
@@ -875,6 +877,11 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 	fprintf(stderr, "Malformed huffman header stream\n");
 	free(h);
 	return NULL;
+    }
+
+    if (ncodes == 0) {
+	/* NULL huffman stream */
+	return h;
     }
 
     for (i = 0; i < ncodes; i++) {
@@ -947,7 +954,6 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 	else
 	    h->decode = cram_huffman_decode_int;
     }
-    h->free   = cram_huffman_decode_free;
 
     return (cram_codec *)h;
 }
