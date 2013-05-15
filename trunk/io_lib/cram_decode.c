@@ -1303,7 +1303,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    }
 
 	    MD5_Init(&md5);
-	    MD5_Update(&md5, fd->ref + start, len);
+	    if (start + len > fd->ref_end - fd->ref_start + 1)
+		len = fd->ref_end - fd->ref_start + 1 - start;
+	    if (len >= 0)
+		MD5_Update(&md5, fd->ref + start, len);
 	    MD5_Final(digest, &md5);
 	} else if (!fd->ref && s->hdr->ref_base_id >= 0) {
 	    cram_block *b;
