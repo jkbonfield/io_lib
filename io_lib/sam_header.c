@@ -300,7 +300,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 
 	// Parse the tags on this line
 	last = NULL;
-	do {
+	if (type[0] == 'C' && type[1] == 'O') {
 	    int j;
 	    if (hdr[i] != '\t') {
 		sam_hdr_error("Missing tab",
@@ -308,10 +308,10 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 		return -1;
 	    }
 
-	    for (j = ++i; j < len && hdr[j] != '\n' && hdr[j] != '\t'; j++)
+	    for (j = ++i; j < len && hdr[j] != '\n'; j++)
 		;
-	    
-	    if (!(h_tag = pool_alloc(sh->tag_pool)))
+
+	    if (!(h_type->tag = h_tag = pool_alloc(sh->tag_pool)))
 		return -1;
 	    h_tag->str = string_ndup(sh->str_pool, &hdr[i], j-i);
 	    h_tag->len = j-i;
@@ -319,20 +319,43 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	    if (!h_tag->str)
 		return -1;
 
-	    if (h_tag->len < 3 || h_tag->str[2] != ':') {
-		sam_hdr_error("Malformed key:value pair",
-			      &hdr[l_start], len - l_start, lno);
-		return -1;
-	    }
-	    
-	    if (last)
-		last->next = h_tag;
-	    else
-		h_type->tag = h_tag;
-
-	    last = h_tag;
 	    i = j;
-	} while (i < len && hdr[i] != '\n');
+
+	} else {
+	    do {
+		int j;
+		if (hdr[i] != '\t') {
+		    sam_hdr_error("Missing tab",
+				  &hdr[l_start], len - l_start, lno);
+		    return -1;
+		}
+
+		for (j = ++i; j < len && hdr[j] != '\n' && hdr[j] != '\t'; j++)
+		    ;
+	    
+		if (!(h_tag = pool_alloc(sh->tag_pool)))
+		    return -1;
+		h_tag->str = string_ndup(sh->str_pool, &hdr[i], j-i);
+		h_tag->len = j-i;
+		h_tag->next = NULL;
+		if (!h_tag->str)
+		    return -1;
+
+		if (h_tag->len < 3 || h_tag->str[2] != ':') {
+		    sam_hdr_error("Malformed key:value pair",
+				  &hdr[l_start], len - l_start, lno);
+		    return -1;
+		}
+	    
+		if (last)
+		    last->next = h_tag;
+		else
+		    h_type->tag = h_tag;
+
+		last = h_tag;
+		i = j;
+	    } while (i < len && hdr[i] != '\n');
+	}
 
 	/* Update RG/SQ hashes */
 	if (-1 == sam_hdr_update_hashes(sh, type, h_type))
