@@ -469,7 +469,7 @@ cram_codec *cram_external_encode_init(cram_stats *st,
     c->encode = cram_external_encode;
     c->store = cram_external_encode_store;
 
-    c->e_external.content_id = (int)dat;
+    c->e_external.content_id = (size_t)dat;
 
     return c;
 }
@@ -525,7 +525,6 @@ cram_codec *cram_beta_decode_init(char *data, int size,
 
 int cram_beta_encode_store(cram_codec *c, cram_block *b,
 			   char *prefix, int version) {
-    char tmp[99];
     int len = 0;
 
     if (prefix) {
@@ -535,8 +534,8 @@ int cram_beta_encode_store(cram_codec *c, cram_block *b,
     }
 
     len += itf8_put_blk(b, c->codec);
-    len += itf8_put_blk(b, itf8_put(tmp, c->e_beta.offset)
-			+ itf8_put(tmp, c->e_beta.nbits)); // codec length
+    len += itf8_put_blk(b, itf8_size(c->e_beta.offset)
+			+ itf8_size(c->e_beta.nbits)); // codec length
     len += itf8_put_blk(b, c->e_beta.offset);
     len += itf8_put_blk(b, c->e_beta.nbits);
 
@@ -1134,7 +1133,7 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 		if (!vals || !freqs)
 		    return NULL;
 	    }
-	    vals[nvals]=(int)hi->key;
+	    vals[nvals]=(size_t)hi->key;
 	    freqs[nvals] = hi->data.i;
 	    assert(hi->data.i > 0);
 	    ntot += freqs[nvals];
@@ -1553,8 +1552,7 @@ int cram_byte_array_stop_encode_store(cram_codec *c, cram_block *b,
 	*cp++ = (c->e_byte_array_stop.content_id >> 16) & 0xff;
 	*cp++ = (c->e_byte_array_stop.content_id >> 24) & 0xff;
     } else {
-	char tmp[5];
-	cp += itf8_put(cp, 1 + itf8_put(tmp, c->e_byte_array_stop.content_id));
+	cp += itf8_put(cp, 1 + itf8_size(c->e_byte_array_stop.content_id));
 	*cp++ = c->e_byte_array_stop.stop;
 	cp += itf8_put(cp, c->e_byte_array_stop.content_id);
     }

@@ -70,6 +70,8 @@ int itf8_put(char *cp, int32_t val);
 
 #define itf8_put(c,v) ((!((v)&~0x7f))?((c)[0]=(v),1):(!((v)&~0x3fff))?((c)[0]=((v)>>8)|0x80,(c)[1]=(v)&0xff,2):(!((v)&~0x1fffff))?((c)[0]=((v)>>16)|0xc0,(c)[1]=((v)>>8)&0xff,(c)[2]=(v)&0xff,3):(!((v)&~0xfffffff))?((c)[0]=((v)>>24)|0xe0,(c)[1]=((v)>>16)&0xff,(c)[2]=((v)>>8)&0xff,(c)[3]=(v)&0xff,4):((c)[0]=0xf0|(((v)>>28)&0xff),(c)[1]=((v)>>20)&0xff,(c)[2]=((v)>>12)&0xff,(c)[3]=((v)>>4)&0xff,(c)[4]=(v)&0xf,5))
 
+#define itf8_size(v) ((!((v)&~0x7f))?1:(!((v)&~0x3fff))?2:(!((v)&~0x1fffff))?3:(!((v)&~0xfffffff))?4:5)
+
 #endif
 
 /*! Pushes a value in ITF8 format onto the end of a block.

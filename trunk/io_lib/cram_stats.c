@@ -38,12 +38,12 @@ void cram_stats_add(cram_stats *st, int32_t val) {
 	    st->h = HashTableCreate(2048, HASH_DYNAMIC_SIZE|HASH_NONVOLATILE_KEYS|HASH_INT_KEYS);
 	}
 
-	if ((hi = HashTableSearch(st->h, (char *)val, 4))) {
+	if ((hi = HashTableSearch(st->h, (char *)(size_t)val, 4))) {
 	    hi->data.i++;
 	} else {
 	    HashData hd;
 	    hd.i = 1;
-	    HashTableAdd(st->h, (char *)val, 4, hd, NULL);
+	    HashTableAdd(st->h, (char *)(size_t)val, 4, hd, NULL);
 	}
     }
 }
@@ -58,7 +58,7 @@ void cram_stats_del(cram_stats *st, int32_t val) {
     } else if (st->h) {
 	HashItem *hi;
 
-	if ((hi = HashTableSearch(st->h, (char *)val, 4))) {
+	if ((hi = HashTableSearch(st->h, (char *)(size_t)val, 4))) {
 	    if (--hi->data.i == 0)
 		HashTableDel(st->h, hi, 0);
 	} else {
@@ -84,7 +84,8 @@ void cram_stats_dump(cram_stats *st) {
 	HashItem *hi;
 
 	while ((hi = HashTableIterNext(st->h, iter))) {
-	    fprintf(stderr, "\t%d\t%d\n", (int)hi->key, (int)hi->data.i);
+	    fprintf(stderr, "\t%d\t%d\n", (int)(size_t)hi->key,
+		    (int)hi->data.i);
 	}
 	HashTableIterDestroy(iter);
     }
@@ -138,7 +139,7 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 		if (!vals || !freqs)
 		    return E_HUFFMAN; // Cannot do much else atm
 	    }
-	    i = (int)hi->key;
+	    i = (size_t)hi->key;
 	    vals[nvals]=i;
 	    freqs[nvals] = hi->data.i;
 	    ntot += freqs[nvals];

@@ -98,7 +98,6 @@ int main(int argc, char **argv) {
     int start, end;
     char ref_name[1024] = {0};
     refs_t *refs = NULL;
-    int last_ref = -1;
 
     /* Parse command line arguments */
     while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:")) != -1) {
@@ -255,8 +254,6 @@ int main(int argc, char **argv) {
     /* Do the actual file format conversion */
     fprintf(stderr, "Opening and loading initial seqs\n");
     for (i = 0; i < n_input; i++) {
-	bam_seq_t *b;
-
 	if (scram_get_seq(in[i], &s[i]) < 0) {
 	    if (scram_close(in[i]))
 		return 1;

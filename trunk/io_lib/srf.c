@@ -1381,7 +1381,7 @@ int pack_trace_suffix(unsigned char *suffix, char *fmt, ...) {
 
 	/* A format specifier */
 	case '%': {
-	    int width = 0;
+	    int width;
 	    int bits = 0;
 	    signed int val;
 

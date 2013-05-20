@@ -513,7 +513,6 @@ huffman_codes_t *calc_bit_lengths(unsigned char *data, int len,
     int i, ncodes;
     node_t nodes[258+257], *head, *new = &nodes[258];
     node_t *n2[258+257];
-    int map[258];
     huffman_codes_t *c;
     int hist[256];
 
@@ -541,7 +540,6 @@ huffman_codes_t *calc_bit_lengths(unsigned char *data, int len,
 	nodes[ncodes].count = eof;
 	nodes[ncodes].parent = NULL;
 	n2[ncodes] = &nodes[ncodes];
-	map[SYM_EOF] = ncodes++;
     }
 
     /* All 256 chars existing at a minimal level */
@@ -551,7 +549,6 @@ huffman_codes_t *calc_bit_lengths(unsigned char *data, int len,
 	    nodes[ncodes].count = hist[i];
 	    nodes[ncodes].parent = NULL;
 	    n2[ncodes] = &nodes[ncodes];
-	    map[i] = ncodes++;
 	}
     } else {
 	/* Only include non-zero symbols */
@@ -562,7 +559,6 @@ huffman_codes_t *calc_bit_lengths(unsigned char *data, int len,
 	    nodes[ncodes].count = hist[i];
 	    nodes[ncodes].parent = NULL;
 	    n2[ncodes] = &nodes[ncodes];
-	    map[i] = ncodes++;
 	}
     }
 
@@ -1756,15 +1752,11 @@ block_t *huffman_multi_decode(block_t *in, huffman_codeset_t *cs) {
     int i, j;
     int node_num;
     unsigned char *cp;
-    huffman_codes_t **c;
-    int nc;
     h_jump4_t (*J4)[16];
     htree_t *t;
 
     if (!cs)
 	return NULL;
-    c = cs->codes;
-    nc = cs->ncodes;
 
     /* Ensure precomputed lookup tables exist */
     if (!cs->decode_t || !cs->decode_J4)

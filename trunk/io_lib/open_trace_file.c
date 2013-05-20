@@ -543,7 +543,6 @@ static mFILE *sff_single(char *data, size_t size) {
 static mFILE *sff_hash_query(char *sff, char *entry, FILE *fp) {
     static HashFile *hf = NULL;
     static char sff_copy[1024];
-    static FILE *fp_copy = NULL;
     char *data;
     size_t size;
 
@@ -558,7 +557,6 @@ static mFILE *sff_hash_query(char *sff, char *entry, FILE *fp) {
 	    return NULL;
 
 	strcpy(sff_copy, sff);
-	fp_copy = fp;
     }
 
     data = HashFileExtract(hf, entry, &size);
@@ -770,7 +768,7 @@ static mFILE *find_file_sff(char *entry, char *sff) {
 	uint32_t c4[16384];
 	uint64_t c8[8192];
     } chdr, rhdr; /* generous, but worst case */
-    uint32_t nkey, nflows, chdrlen, rhdrlen = 0, dlen = 0, magic;
+    uint32_t nflows, chdrlen, rhdrlen = 0, dlen = 0, magic;
     uint64_t file_pos;
     static uint64_t index_offset = 0;
     static uint32_t index_length = 0;
@@ -840,7 +838,7 @@ static mFILE *find_file_sff(char *entry, char *sff) {
 
     nreads  = be_int4(chdr.c4[5]);
     chdrlen = be_int2(chdr.c2[12]);
-    nkey    = be_int2(chdr.c2[13]);
+    //nkey    = be_int2(chdr.c2[13]);
     nflows  = be_int2(chdr.c2[14]);
 
     /* Read the remainder of the header */
