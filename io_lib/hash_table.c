@@ -509,7 +509,7 @@ HashItem *HashTableAdd(HashTable *h, char *key, int key_len, HashData data,
     if (!(h->options & HASH_ALLOW_DUP_KEYS)) {
 	for (hi = h->bucket[hv]; hi; hi = hi->next) {
 	    if (h->options & HASH_INT_KEYS) {
-		if ((int)hi->key == (int)key) {
+		if ((int)(size_t)hi->key == (int)(size_t)key) {
 		    if (new) *new = 0;
 		    return hi;
 		}
@@ -627,7 +627,7 @@ int HashTableRemove(HashTable *h, char *key, int key_len,
     while (next) {
 	hi = next;
 	if (((h->options & HASH_INT_KEYS)
-	     ? ((int)key == (int)hi->key)
+	     ? ((int)(size_t)key == (int)(size_t)hi->key)
 	     : (key_len == hi->key_len && memcmp(key, hi->key, key_len) == 0))) {
 	    /* An item to remove, adjust links and destroy */
 	    if (last)
@@ -672,7 +672,7 @@ HashItem *HashTableSearch(HashTable *h, char *key, int key_len) {
 	hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, key_len)& h->mask;
 
 	for (hi = h->bucket[hv]; hi; hi = hi->next) {
-	    if ((int)key == (int)hi->key)
+	    if ((int)(size_t)key == (int)(size_t)hi->key)
 		return hi;
 	}
     } else {
@@ -721,7 +721,7 @@ void HashTableDump(HashTable *h, FILE *fp, char *prefix) {
 	    if (h->options & HASH_INT_KEYS) {
 		fprintf(fp, "%s%d => %"PRId64" (0x%"PRIx64")\n",
 			prefix ? prefix : "",
-			(int)hi->key,
+			(int)(size_t)hi->key,
 			hi->data.i, hi->data.i);
 	    } else {
 		fprintf(fp, "%s%.*s => %"PRId64" (0x%"PRIx64")\n",
