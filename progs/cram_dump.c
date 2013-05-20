@@ -233,7 +233,7 @@ int main(int argc, char **argv) {
 		    unsigned char ntags;
 
 		    printf("Rec %d/%d at %d,%d\n", rec+1, s->hdr->num_records,
-			   b->byte, b->bit);
+			   (int)b->byte, b->bit);
 
 		    out_sz = 1; /* decode 1 item */
 		    r = c->comp_hdr->BF_codec->decode(s,c->comp_hdr->BF_codec, b, (char *)&bf, &out_sz);

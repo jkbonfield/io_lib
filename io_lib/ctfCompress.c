@@ -471,7 +471,7 @@ static void ctfCompress3Init (Array *aap, int **lp, int **mp, int *maxCodep)
   lng [i] = 4 ; j += 4 ;
   i++ ; mark[i] = j ; *sp++ = 1 ; *sp++ = 1 ; *sp++ = 1 ; *sp++ = -1 ;
   lng [i] = 4 ; j += 4 ;
-  i++ ; mark[i] = j ; *sp++ = 1 ; *sp++ = 1 ; *sp++ = -1 ; *sp++ =- 1 ;
+  i++ ; mark[i] = j ; *sp++ = 1 ; *sp++ = 1 ; *sp++ = -1 ; *sp++ = -1 ;
   lng [i] = 4 ; j += 4 ;
   i++ ; mark[i] = j ; *sp++ = 1 ; *sp++ = -1 ; *sp++ = 0 ; *sp++ = -1 ;
   lng [i] = 4 ; j += 4 ;
