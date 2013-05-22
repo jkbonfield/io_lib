@@ -32,8 +32,6 @@ extern "C" {
 #  include "io_lib/bam.h"              // For BAM header parsing
 #endif
 
-#define MAX_NAME_LEN 1024
-
 #define SEQS_PER_SLICE 10000
 #define SLICE_PER_CNT  1
 
