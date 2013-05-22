@@ -184,3 +184,15 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
     return r;
 }
 
+/*! Returns the line number when processing a SAM file
+ *
+ * @return
+ * Returns line number if input is SAM;
+ *         0 for CRAM / BAM input.
+ */
+int scram_line(scram_fd *fd) {
+    if (fd->is_bam)
+	return fd->b->line;
+    else
+	return 0;
+}
