@@ -2067,7 +2067,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	cr->cram_flags = 0;
     //cram_stats_add(c->CF_stats, cr->cram_flags);
 
-    cr->len         = bam_seq_len(b);  cram_stats_add(c->RL_stats, cr->len);
+    cr->len         = bam_seq_len(b); cram_stats_add(c->RL_stats, cr->len);
     c->num_bases   += cr->len;
     cr->apos        = bam_pos(b)+1;
     if (c->pos_sorted) {
@@ -2096,10 +2096,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
      */
     cr->seq         = BLOCK_SIZE(s->seqs_blk);
     cr->qual        = BLOCK_SIZE(s->qual_blk);
-    BLOCK_GROW(s->seqs_blk, cr->len);
+    BLOCK_GROW(s->seqs_blk, cr->len+1);
     BLOCK_GROW(s->qual_blk, cr->len);
     seq = cp = (char *)BLOCK_END(s->seqs_blk);
 
+    *seq = 0;
     for (i = 0; i < cr->len; i++) {
 	// FIXME: do 2 char at a time for efficiency
 	cp[i] = bam_nt16_rev_table[bam_seqi(bam_seq(b), i)];
@@ -2147,7 +2148,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		if (!fd->no_ref) {
 		    int end = cig_len+apos < fd->ref_end
 			? cig_len : fd->ref_end - apos;
-		    for (l = 0; l < end; l++, apos++, spos++) {
+		    for (l = 0; l < end && seq[spos]; l++, apos++, spos++) {
 			if (ref[apos] != seq[spos]) {
 			    //fprintf(stderr, "Subst: %d; %c vs %c\n",
 			    //	spos, ref[apos], seq[spos]);
@@ -2161,7 +2162,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 		if (l < cig_len) {
 		    /* off end of sequence or non-ref based output */
-		    for (; l < cig_len; l++, spos++) {
+		    for (; l < cig_len && seq[spos]; l++, spos++) {
 			if (cram_add_base(fd, c, s, cr, spos,
 					  seq[spos], qual[spos]))
 			    return -1;
@@ -2243,10 +2244,20 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     if (cr->cram_flags & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
 	BLOCK_GROW(s->qual_blk, cr->len);
 	qual = cp = (char *)BLOCK_END(s->qual_blk);
-	for (i = 0; i < cr->len; i++) {
-	    cp[i] = bam_qual(b)[i];
+	/* Special case of seq "*" */
+	if (cr->len == 0) {
+	    cram_stats_add(c->RL_stats, cr->len = cr->aend - cr->apos + 1);
+	    memset(cp, 255, cr->len);
+	} else {
+	    for (i = 0; i < cr->len; i++) {
+		cp[i] = bam_qual(b)[i];
+	    }
 	}
 	BLOCK_SIZE(s->qual_blk) += cr->len;
+    } else {
+	if (cr->len == 0) {
+	    cram_stats_add(c->RL_stats, cr->len = cr->aend - cr->apos + 1);
+	}
     }
 
     /* Now we know apos and aend both, update mate-pair information */
