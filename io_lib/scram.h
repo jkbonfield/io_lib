@@ -162,6 +162,13 @@ int scram_put_seq(scram_fd *fd, bam_seq_t *s);
  */
 int scram_set_option(scram_fd *fd, enum cram_option opt, ...);
 
+/*! Returns the line number when processing a SAM file
+ *
+ * @return
+ * Returns line number if input is SAM;
+ *         0 for CRAM / BAM input.
+ */
+int scram_line(scram_fd *fd);
 #ifdef __cplusplus
 }
 #endif
