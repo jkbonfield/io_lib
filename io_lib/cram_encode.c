@@ -2242,13 +2242,15 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
      * be in the qual block before we append the rest of the data.
      */
     if (cr->cram_flags & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
-	BLOCK_GROW(s->qual_blk, cr->len);
-	qual = cp = (char *)BLOCK_END(s->qual_blk);
 	/* Special case of seq "*" */
 	if (cr->len == 0) {
 	    cram_stats_add(c->RL_stats, cr->len = cr->aend - cr->apos + 1);
+	    BLOCK_GROW(s->qual_blk, cr->len);
+	    qual = cp = (char *)BLOCK_END(s->qual_blk);
 	    memset(cp, 255, cr->len);
 	} else {
+	    BLOCK_GROW(s->qual_blk, cr->len);
+	    qual = cp = (char *)BLOCK_END(s->qual_blk);
 	    for (i = 0; i < cr->len; i++) {
 		cp[i] = bam_qual(b)[i];
 	    }
