@@ -2312,7 +2312,6 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
     }
 
     if (memcmp(def->magic, "CRAM", 4) != 0) {
-	fprintf(stderr, "CRAM magic number failed\n");
 	free(def);
 	return NULL;
     }
