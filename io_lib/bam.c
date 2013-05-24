@@ -53,7 +53,7 @@
 static int bam_more_input(bam_file_t *b);
 static int bam_more_output(bam_file_t *b);
 static int reg2bin(int start, int end);
-static int bgzf_write(int fd, int level, const void *buf, size_t count);
+static int bgzf_write(FILE *fp, int level, const void *buf, size_t count);
 
 /*
  * Reads len bytes from fp into data.
@@ -331,12 +331,13 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 	    b->level = mode[2] - '0';
 
 	if (strcmp(fn, "-") == 0) {
-	    b->fd = 1; /* Stdout */
+	    b->fp = stdout; /* Stdout */
 	} else {
-	    if (-1 == (b->fd = open(fn, b->mode, 0666)))
+	    if (NULL == (b->fp = fopen(fn, "wb")))
 		goto error;
 	}
 
+	setvbuf(b->fp, b->vbuf, _IOFBF, 4*Z_BUFF_SIZE);
 	return b;
     }
 
@@ -349,11 +350,13 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 	b->mode = O_RDONLY;
     }
     if (strcmp(fn, "-") == 0) {
-	b->fd = 0; /* Stdin */
+	b->fp = stdin;
     } else {
-	if (-1 == (b->fd = open(fn, b->mode, 0)))
+	if (NULL == (b->fp = fopen(fn, "rb")))
 	    goto error;
     }
+
+    setvbuf(b->fp, b->vbuf, _IOFBF, 4*Z_BUFF_SIZE);
 
     /* Load first block so we can check */
     bam_more_input(b);
@@ -414,17 +417,18 @@ int bam_close(bam_file_t *b) {
 
     if (b->mode & O_WRONLY) {
 	if (b->binary) {
-	    if (bgzf_write(b->fd, b->level, b->out, b->out_p - b->out)) {
+	    if (bgzf_write(b->fp, b->level, b->out, b->out_p - b->out)) {
 		fprintf(stderr, "Write failed in bam_close()\n");
 	    }
 
 	    /* Output a blank BGZF block too to mark EOF */
-	    if (28 != write(b->fd, "\037\213\010\4\0\0\0\0\0\377\6\0\102\103"
-			    "\2\0\033\0\3\0\0\0\0\0\0\0\0\0", 28)) {
+	    if (28 != fwrite("\037\213\010\4\0\0\0\0\0\377\6\0\102\103\2\0"
+			     "\033\0\3\0\0\0\0\0\0\0\0\0", 1, 28, b->fp)) {
 		fprintf(stderr, "Write failed in bam_close()\n");
 	    }
 	} else {
-	    if (b->out_p - b->out != write(b->fd, b->out, b->out_p - b->out)) {
+	    if (b->out_p - b->out !=
+		fwrite(b->out, 1, b->out_p - b->out, b->fp)) {
 		fprintf(stderr, "Write failed in bam_close()\n");
 	    }
 	}
@@ -441,7 +445,7 @@ int bam_close(bam_file_t *b) {
     if (b->sam_str)
 	free(b->sam_str);
 
-    r = close(b->fd);
+    r = fclose(b->fp);
 
     free(b);
 
@@ -462,7 +466,7 @@ static int bam_more_input(bam_file_t *b) {
 	b->in_p = b->in;
     }
 
-    l = read(b->fd, &b->in[b->in_sz], Z_BUFF_SIZE - b->in_sz);
+    l = fread(&b->in[b->in_sz], 1, Z_BUFF_SIZE - b->in_sz, b->fp);
     if (l <= 0)
 	return -1;
     
@@ -2221,7 +2225,7 @@ static unsigned char *append_uint(unsigned char *cp, uint32_t i) {
  * Returns 0 on success;
  *        -1 on error
  */
-static int bgzf_write(int fd, int level, const void *buf, size_t count) {
+static int bgzf_write(FILE *fp, int level, const void *buf, size_t count) {
     unsigned char blk[Z_BUFF_SIZE];
     z_stream s;
     int cdata_pos;
@@ -2310,7 +2314,7 @@ static int bgzf_write(int fd, int level, const void *buf, size_t count) {
     blk[18+cdata_size+7] = (count >>24) & 0xff;
 
     //printf("count=%d/%x, cdata_size=%d/%x\n", count, count, cdata_size, cdata_size);
-    if (18+cdata_size+8 != write(fd, blk, 18+cdata_size+8))
+    if (18+cdata_size+8 != fwrite(blk, 1, 18+cdata_size+8, fp))
 	return -1;
 
     return 0;
@@ -2388,12 +2392,12 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	unsigned char *end = fp->out + BGZF_BUFF_SIZE, *dat;
 	int sz, i, n;
 
-#define BF_FLUSH() \
-	do {			  \
-	    if (fp->out_p - fp->out != \
-		write(fp->fd, fp->out, fp->out_p - fp->out)) \
-		return -1;				     \
-	    fp->out_p=fp->out;				\
+#define BF_FLUSH()							\
+	do {								\
+	    if (fp->out_p - fp->out !=					\
+		fwrite(fp->out, 1, fp->out_p - fp->out, fp->fp))	\
+		return -1;						\
+	    fp->out_p=fp->out;						\
 	} while(0)
 
 	/* QNAME */
@@ -2758,11 +2762,11 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	int i, n = bam_cigar_len(b);
 #endif
 
-#define CF_FLUSH() \
-	do {			  \
-	    if (bgzf_write(fp->fd, fp->level, fp->out, fp->out_p - fp->out)) \
-		return -1;				     \
-	    fp->out_p=fp->out;				\
+#define CF_FLUSH()							\
+	do {								\
+	    if (bgzf_write(fp->fp, fp->level, fp->out, fp->out_p - fp->out)) \
+		return -1;						\
+	    fp->out_p=fp->out;						\
 	} while(0)
 
 	/* If big endian, byte swap inline, write it out, and byte swap back */
@@ -2903,13 +2907,13 @@ int bam_write_header(bam_file_t *out) {
 
 	while (len) {
 	    int sz = BGZF_BUFF_SIZE < len ? BGZF_BUFF_SIZE : len;
-	    if (bgzf_write(out->fd, out->level, cp, sz))
+	    if (bgzf_write(out->fp, out->level, cp, sz))
 		return -1;
 	    cp  += sz;
 	    len -= sz;
 	}
     } else {
-	if (hp-header != write(out->fd, header, hp-header))
+	if (hp-header != fwrite(header, 1, hp-header, out->fp))
 	    return -1;
     }
 
