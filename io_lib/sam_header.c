@@ -852,10 +852,10 @@ SAM_hdr *sam_hdr_parse(const char *hdr, int len) {
     /* Make an empty SAM_hdr */
     SAM_hdr *sh;
     
-    if (NULL == hdr) return NULL;
-
     sh = sam_hdr_new();
     if (NULL == sh) return NULL;
+
+    if (NULL == hdr) return sh; // empty header is permitted
 
     /* Parse the header, line by line */
     if (-1 == sam_hdr_add_lines(sh, hdr, len)) {

@@ -17,7 +17,7 @@
 
 static char *parse_format(char *str) {
     if (strcmp(str, "sam") == 0 || strcmp(str, "SAM") == 0)
-	return "";
+	return "s";
 
     if (strcmp(str, "bam") == 0 || strcmp(str, "BAM") == 0)
 	return "b";
@@ -36,7 +36,7 @@ static char *detect_format(char *fn) {
 	return "";
 
     if (strcmp(cp, ".sam") == 0 || strcmp(cp, ".SAM") == 0)
-	return "";
+	return "s";
     if (strcmp(cp, ".bam") == 0 || strcmp(cp, ".BAM") == 0)
 	return "b";
     if (strcmp(cp, ".cram") == 0 || strcmp(cp, ".CRAM") == 0)
