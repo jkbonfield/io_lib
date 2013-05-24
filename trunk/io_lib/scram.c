@@ -14,10 +14,12 @@
 
 /*
  * Opens filename.
- * If reading we initially try bam and then cram if that fails.
+ * If reading we initially try cram first and then bam/sam if that fails.
+ * The exception is when reading from stdin, where bam/sam is first.
  *
  * If writing we look at the mode parameter:
  *     w  => SAM
+ *     ws => SAM
  *     wb => BAM
  *     wc => CRAM
  *
@@ -25,34 +27,34 @@
  *         NULL on failure
  */
 scram_fd *scram_open(const char *filename, const char *mode) {
-//    char mode2[10];
+    char mode2[10];
     scram_fd *fd = calloc(1, sizeof(*fd));
     if (!fd)
 	return NULL;
 
     fd->eof = 0;
 
-#if 0
-    // Non functioning at present as bam IO is read() while cram is fread().
-    if (strcmp(filename, "-") == 0 &&
-	mode[0] == 'r' && mode[1] != 'b' && mode[1] != 'c') { 
+    if (strcmp(filename, "-") == 0 && mode[0] == 'r'
+	&& mode[1] != 'b' && mode[1] != 'c' && mode[1] != 's') { 
 	int c;
 	/*
 	 * Crude auto-detection.
 	 * First char @ = sam, 0x1f = bam (gzip), C = cram
+	 * Headerless SAM will need explicit mode setting.
 	 */
 	c = fgetc(stdin);
 	ungetc(c, stdin);
 
-	if (c == 0x1f)
+	if (c == '@')
+	    sprintf(mode2, "rs%.7s", mode+1), mode = mode2;
+	else if (c == 0x1f)
 	    sprintf(mode2, "rb%.7s", mode+1), mode = mode2;
 	else if (c == 'C')
 	    sprintf(mode2, "rc%.7s", mode+1), mode = mode2;
     }
-#endif
 
     if (*mode == 'r') {
-	if (mode[1] == 'c') {
+	if (mode[1] != 'b' && mode[1] != 's') {
 	    if ((fd->c = cram_open(filename, mode))) {
 		cram_load_reference(fd->c, NULL);
 		fd->is_bam = 0;
@@ -65,12 +67,6 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	    return fd;
 	}
 	
-	if ((fd->c = cram_open(filename, mode))){ 
-	    cram_load_reference(fd->c, NULL);
-	    fd->is_bam = 0;
-	    return fd;
-	}
-
 	free(fd);
 	return NULL;
     }
@@ -87,7 +83,7 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	return fd;
     }
 
-    /* Otherwise assume bam */
+    /* Otherwise assume bam/sam */
     if (!(fd->b = bam_open(filename, mode))) {
 	free(fd);
 	return NULL;
