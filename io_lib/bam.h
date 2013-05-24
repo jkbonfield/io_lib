@@ -102,8 +102,10 @@ typedef struct {
 #define Z_BUFF_SIZE 65536    /* Max size of a zlib block */
 #define BGZF_BUFF_SIZE 65400 /* Max size of a BGZF block, 65477 actual */
 typedef struct {
-    int fd, mode, binary, level;
+    FILE *fp;
+    int mode, binary, level;
     z_stream s;
+    char vbuf[Z_BUFF_SIZE*4];
 
     unsigned char in[Z_BUFF_SIZE];
     unsigned char *in_p;
