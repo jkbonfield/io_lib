@@ -99,6 +99,9 @@ do {
     $ln1[9] = uc($ln1[9]);
     $ln2[9] = uc($ln2[9]);
 
+    # Cram will populate a sequence string that starts as "*"
+    $ln2[9] = "*" if ($ln1[9] eq "*");
+
     if ("@ln1" ne "@ln2") {
 	print "Diff at lines $fn1:$c1, $fn2:$c2\n";
 	print "1\t@ln1\n2\t@ln2\n\n";
