@@ -1444,7 +1444,13 @@ static int cram_add_softclip(cram_container *c, cram_slice *s, cram_record *r,
 	BLOCK_APPEND_CHAR(s->base_blk, '\0');
     } else {
 	f.S.seq_idx = BLOCK_SIZE(s->soft_blk);
-	BLOCK_APPEND(s->soft_blk, base, len);
+	if (base) {
+	    BLOCK_APPEND(s->soft_blk, base, len);
+	} else {
+	    int i;
+	    for (i = 0; i < len; i++)
+		BLOCK_APPEND_CHAR(s->soft_blk, 'N');
+	}
 	BLOCK_APPEND_CHAR(s->soft_blk, '\0');
     }
     return cram_add_feature(c, s, r, &f);
@@ -1485,18 +1491,25 @@ static int cram_add_insertion(cram_container *c, cram_slice *s, cram_record *r,
     cram_feature f;
     f.I.pos = pos+1;
     if (len == 1) {
+	char b = base ? *base : 'N';
 	f.i.code = 'i';
-	f.i.base = *base;
+	f.i.base = b;
 #ifdef BA_external
 	s->BA_len++;
 #else
-	cram_stats_add(c->BA_stats, *base);
+	cram_stats_add(c->BA_stats, b);
 #endif
     } else {
 	f.I.code = 'I';
 	f.I.len = len;
 	f.S.seq_idx = BLOCK_SIZE(s->base_blk);
-	BLOCK_APPEND(s->base_blk, base, len);
+	if (base) {
+	    BLOCK_APPEND(s->base_blk, base, len);
+	} else {
+	    int i;
+	    for (i = 0; i < len; i++)
+		BLOCK_APPEND_CHAR(s->base_blk, 'N');
+	}
 	BLOCK_APPEND_CHAR(s->base_blk, '\0');
     }
     return cram_add_feature(c, s, r, &f);
@@ -1937,7 +1950,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cram_container *c;
     cram_record *cr;
     cram_slice *s;
-    int i;
+    int i, fake_qual = 0;
     char *cp, *rg;
     char *ref, *seq, *qual;
 
@@ -2145,7 +2158,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		//fprintf(stderr, "\nBAM_CMATCH\nR: %.*s\nS: %.*s\n",
 		//	cig_len, &ref[apos], cig_len, &seq[spos]);
 		l = 0;
-		if (!fd->no_ref) {
+		if (!fd->no_ref && cr->len) {
 		    int end = cig_len+apos < fd->ref_end
 			? cig_len : fd->ref_end - apos;
 		    for (l = 0; l < end && seq[spos]; l++, apos++, spos++) {
@@ -2160,7 +2173,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		    }
 		}
 
-		if (l < cig_len) {
+		if (l < cig_len && cr->len) {
 		    /* off end of sequence or non-ref based output */
 		    for (; l < cig_len && seq[spos]; l++, spos++) {
 			if (cram_add_base(fd, c, s, cr, spos,
@@ -2168,6 +2181,10 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 			    return -1;
 		    }
 		    apos += cig_len;
+		} else if (!cr->len) {
+		    /* Seq "*" */
+		    apos += cig_len;
+		    spos += cig_len;
 		}
 		break;
 		
@@ -2184,9 +2201,10 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		break;
 
 	    case BAM_CINS:
-		if (cram_add_insertion(c, s, cr, spos, cig_len, &seq[spos]))
+		if (cram_add_insertion(c, s, cr, spos, cig_len,
+				       cr->len ? &seq[spos] : NULL))
 		    return -1;
-		if (fd->no_ref) {
+		if (fd->no_ref && cr->len) {
 		    for (l = 0; l < cig_len; l++, spos++) {
 			cram_add_quality(fd, c, s, cr, spos, qual[spos]);
 		    }
@@ -2196,12 +2214,19 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		break;
 
 	    case BAM_CSOFT_CLIP:
-		if (cram_add_softclip(c, s, cr, spos, cig_len, &seq[spos],
+		if (cram_add_softclip(c, s, cr, spos, cig_len,
+				      cr->len ? &seq[spos] : NULL,
 				      fd->version))
 		    return -1;
 		if (fd->no_ref) {
-		    for (l = 0; l < cig_len; l++, spos++) {
-			cram_add_quality(fd, c, s, cr, spos, qual[spos]);
+		    if (cr->len) {
+			for (l = 0; l < cig_len; l++, spos++) {
+			    cram_add_quality(fd, c, s, cr, spos, qual[spos]);
+			}
+		    } else {
+			for (l = 0; l < cig_len; l++, spos++) {
+			    cram_add_quality(fd, c, s, cr, spos, -1);
+			}
 		    }
 		} else {
 		    spos += cig_len;
@@ -2219,6 +2244,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		break;
 	    }
 	}
+	fake_qual = spos;
 	cr->aend = MIN(apos, fd->ref_end);
 	cram_stats_add(c->FN_stats, cr->nfeature);
     } else {
@@ -2244,7 +2270,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     if (cr->cram_flags & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
 	/* Special case of seq "*" */
 	if (cr->len == 0) {
-	    cram_stats_add(c->RL_stats, cr->len = cr->aend - cr->apos + 1);
+	    cram_stats_add(c->RL_stats, cr->len = fake_qual);
 	    BLOCK_GROW(s->qual_blk, cr->len);
 	    qual = cp = (char *)BLOCK_END(s->qual_blk);
 	    memset(cp, 255, cr->len);
