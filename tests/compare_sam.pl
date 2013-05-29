@@ -104,7 +104,17 @@ do {
 
     if ("@ln1" ne "@ln2") {
 	print "Diff at lines $fn1:$c1, $fn2:$c2\n";
-	print "1\t@ln1\n2\t@ln2\n\n";
+	my @s1 = split("","@ln1");
+	my @s2 = split("","@ln2");
+	my $ptr = "";
+	for (my $i=0; $i < $#s1; $i++) {
+	    if ($s1[$i] eq $s2[$i]) {
+		$ptr .= "-";
+	    } else {
+		last;
+	    }
+	}
+	print "1\t@ln1\n2\t@ln2\n\t$ptr^\n\n";
 	exit(1);
     }
 
