@@ -3,7 +3,7 @@
 @RG	ID:x1	SM:x1
 @RG	ID:x2	SM:x2	LB:x	PG:foo:bar	PI:1111
 @PG	ID:emacs	PN:emacs	VN:23.1.1
-@CO also test
+@CO	also test
 @CO	other	headers
 a1	16	xx	1	1	10M	*	0	0	AAAAAAAAAA	**********	RG:Z:x1
 b1	16	xx	1	1	10M	*	0	0	AAAAAAAAAA	**********	RG:Z:x2
