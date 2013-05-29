@@ -300,6 +300,14 @@ int main(int argc, char **argv) {
 	}
     }
 
+    for (i = 0; i < n_input; i++) {
+	if (!in[i])
+	    continue;
+	scram_close(in[i]);
+	if (s[i])
+	    free(s[i]);
+    }
+
     /* Finally tidy up and close files */
     if (scram_close(out))
 	return 1;
