@@ -117,7 +117,11 @@ refs_t *scram_get_refs(scram_fd *fd) {
 void scram_set_refs(scram_fd *fd, refs_t *refs) {
     if (fd->is_bam)
 	return;
+    if (fd->c->refs)
+	refs_free(fd->c->refs);
     fd->c->refs = refs;
+    if (refs)
+	refs->count++;
 }
 
 void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
