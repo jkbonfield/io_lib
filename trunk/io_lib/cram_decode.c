@@ -1714,19 +1714,26 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	s->last_apos = s->hdr->ref_seq_start;
 	    
 	for (id = 0; id < s->hdr->num_blocks; id++) {
-	    if (cram_uncompress_block(s->block[id]))
+	    if (cram_uncompress_block(s->block[id])) {
+		cram_free_slice(s);
+		c->slice = NULL;
 		return NULL;
+	    }
 	}
 
 	/* Skip slices not yet spanning our range */
 	if (fd->range.refid != -2) {
 	    if (s->hdr->ref_seq_id != fd->range.refid) {
 		fd->eof = 1;
+		cram_free_slice(s);
+		c->slice = NULL;
 		return NULL;
 	    }
 
 	    if (s->hdr->ref_seq_start > fd->range.end) {
 		fd->eof = 1;
+		cram_free_slice(s);
+		c->slice = NULL;
 		return NULL;
 	    }
 
@@ -1740,6 +1747,8 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	/* Test decoding of 1st seq */
 	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
+	    cram_free_slice(s);
+	    c->slice = NULL;
 	    return NULL;
 	}
     }

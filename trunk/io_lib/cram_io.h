@@ -229,6 +229,8 @@ int cram_load_reference(cram_fd *fd, char *fn);
  */
 int refs2id(refs_t *r, SAM_hdr *bfd);
 
+void refs_free(refs_t *r);
+
 /*! Returns a portion of a reference sequence from start to end inclusive.
  *
  * The returned pointer is owned by the cram_file fd and should not be freed

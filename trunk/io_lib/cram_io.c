@@ -942,7 +942,7 @@ int paranoid_fclose(FILE *fp) {
  * Reference sequence handling
  */
 
-static void refs_free(refs_t *r) {
+void refs_free(refs_t *r) {
     int i;
 
     if (--r->count > 0)
@@ -954,23 +954,25 @@ static void refs_free(refs_t *r) {
     if (r->pool)
 	string_pool_destroy(r->pool);
 
-    if (r->h_meta)
-	HashTableDestroy(r->h_meta, 0);
-    
-    if (r->ref_id) {
-	for (i = 0; i < r->nref; i++) {
-	    if (!r->ref_id[i])
-		continue;
+    if (r->h_meta) {
+	HashIter *iter = HashTableIterCreate();
+	HashItem *hi;
 
-	    if (r->ref_id[i]->seq) {
-		//fprintf(stderr, "Free ref id %d in refs 0x%p\n", i, r);
-		free(r->ref_id[i]->seq);
-	    }
-	    free(r->ref_id[i]);
+        while ((hi = HashTableIterNext(r->h_meta, iter))) {
+	    ref_entry *e = (ref_entry *)hi->data.p;
+	    if (!e)
+		continue;
+	    if (e->seq)
+		free(e->seq);
+	    free(e);
 	}
 
-	free(r->ref_id);
+	HashTableIterDestroy(iter);
+	HashTableDestroy(r->h_meta, 0);
     }
+    
+    if (r->ref_id)
+	free(r->ref_id);
 
     if (r->fp)
 	fclose(r->fp);
@@ -2218,38 +2220,30 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     cram_slice *s = calloc(1, sizeof(*s));
     int i, n, max_id;
 
-    if (!b || !s) {
-	if (b) cram_free_block(b);
-	if (s) free(s);
-	return NULL;
-    }
+    if (!b || !s)
+	goto err;
 
     s->hdr_block = b;
     switch (b->content_type) {
     case MAPPED_SLICE:
     case UNMAPPED_SLICE:
 	if (!(s->hdr = cram_decode_slice_header(fd, b)))
-	    return NULL;
+	    goto err;
 	break;
 
     default:
 	fprintf(stderr, "Unexpected block of type %s\n",
 		cram_content_type2str(b->content_type));
-	cram_free_block(b);
-	cram_free_slice(s);
-	return NULL;
+	goto err;
     }
 
     s->block = calloc(n = s->hdr->num_blocks, sizeof(*s->block));
-    if (!s->block) {
-	cram_free_block(b);
-	cram_free_slice(s);
-	return NULL;
-    }
+    if (!s->block)
+	goto err;
 
     for (max_id = i = 0; i < n; i++) {
 	if (!(s->block[i] = cram_read_block(fd)))
-	    return NULL;
+	    goto err;
 
 	if (s->block[i]->content_type == EXTERNAL &&
 	    max_id < s->block[i]->content_id)
@@ -2257,7 +2251,7 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     }
     if (max_id < 1024) {
 	if (!(s->block_by_id = calloc(max_id+1, sizeof(s->block[0]))))
-	    return NULL;
+	    goto err;
 
 	for (i = 0; i < n; i++) {
 	    if (s->block[i]->content_type != EXTERNAL)
@@ -2271,14 +2265,14 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->cigar_alloc = 0;
     s->ncigar = 0;
 
-    if (!(s->seqs_blk = cram_new_block(EXTERNAL, 0)))             return NULL;
-    if (!(s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL))) return NULL;
-    if (!(s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME))) return NULL;
-    if (!(s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG)))  return NULL;
-    if (!(s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN)))   return NULL;
-    if (!(s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC)))   return NULL;
+    if (!(s->seqs_blk = cram_new_block(EXTERNAL, 0)))             goto err;
+    if (!(s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL))) goto err;
+    if (!(s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME))) goto err;
+    if (!(s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG)))  goto err;
+    if (!(s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN)))   goto err;
+    if (!(s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC)))   goto err;
 #ifdef TN_external
-    if (!(s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN)))   return NULL;
+    if (!(s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN)))   goto err;
 #endif
 
 
@@ -2289,6 +2283,13 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->id = fd->slice_num++;
 
     return s;
+
+ err:
+    if (b)
+	cram_free_block(b);
+    if (s)
+	cram_free_slice(s);
+    return NULL;
 }
 
 
