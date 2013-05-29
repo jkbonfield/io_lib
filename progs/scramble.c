@@ -66,6 +66,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -V version     [Cram] Specify the file format version to write (eg 1.1, 2.0)\n");
     fprintf(fp, "    -X             [Cram] Embed reference sequence.\n");
     fprintf(fp, "    -x             [Cram] Non-reference based encoding.\n");
+    fprintf(fp, "    -M             [Cram] Use multiple references per slice.\n");
     fprintf(fp, "    -m             [Cram] Generate MD and NM tags.\n");
 #ifdef HAVE_LIBBZ2
     fprintf(fp, "    -j             [Cram] Compress using bzip2.\n");
