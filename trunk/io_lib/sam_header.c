@@ -185,7 +185,7 @@ static int sam_hdr_update_hashes(SAM_hdr *sh,
 			for (i = 0; i < sh->npg_end; i++) {
 			    if (sh->pg_end[i] == hi->data.i) {
 				memmove(&sh->pg_end[i], &sh->pg_end[i+1],
-					(sh->npg_end - i)*sizeof(*sh->pg_end));
+					(sh->npg_end-i-1)*sizeof(*sh->pg_end));
 				sh->npg_end--;
 			    }
 			}
