@@ -91,6 +91,25 @@ void cram_stats_dump(cram_stats *st) {
     }
 }
 
+#if 0
+/* Returns the number of bits set in val; it the highest bit used */
+static int nbits(int v) {
+    static const int MultiplyDeBruijnBitPosition[32] = {
+	1, 10, 2, 11, 14, 22, 3, 30, 12, 15, 17, 19, 23, 26, 4, 31,
+	9, 13, 21, 29, 16, 18, 25, 8, 20, 28, 24, 7, 27, 6, 5, 32
+    };
+
+    v |= v >> 1; // first up to set all bits 1 after the first 1 */
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+
+    // DeBruijn magic to find top bit
+    return MultiplyDeBruijnBitPosition[(uint32_t)(v * 0x07C4ACDDU) >> 27];
+}
+#endif
+
 /*
  * Computes entropy from integer frequencies for various encoding methods and
  * picks the best encoding.
@@ -159,8 +178,15 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 	return E_HUFFMAN;
     }
 
+    /*
+     * Avoid complex stats for now, just do heuristic of HUFFMAN for small
+     * alphabets and BETA for anything large.
+     */
+    free(vals); free(freqs);
+    return nvals < 200 ? E_HUFFMAN : E_BETA;
+
     /* We only support huffman now anyway... */
-    free(vals); free(freqs); return E_HUFFMAN;
+    //free(vals); free(freqs); return E_HUFFMAN;
 
     if (fd->verbose > 1)
 	fprintf(stderr, "Range = %d..%d, nvals=%d, ntot=%d\n",
@@ -177,6 +203,13 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 	    fprintf(stderr, "Entropy = %f\n", dbits);
     }
 
+    /* Beta */
+    bits = nbits(max_val - min_val) * ntot;
+    if (fd->verbose > 1)
+	fprintf(stderr, "BETA    = %d\n", bits);
+    if (best_size > bits)
+	best_size = bits, best_encoding = E_BETA;
+
 #if 0
     /* Unary */
     if (min_val >= 0) {
@@ -187,13 +220,6 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 	if (best_size > bits)
 	    best_size = bits, best_encoding = E_NULL; //E_UNARY;
     }
-
-    /* Beta */
-    bits = nbits(max_val - min_val) * ntot;
-    if (fd->verbose > 1)
-	fprintf(stderr, "BETA    = %d\n", bits);
-    if (best_size > bits)
-	best_size = bits, best_encoding = E_BETA;
 
     /* Gamma */
     for (bits = i = 0; i < nvals; i++)

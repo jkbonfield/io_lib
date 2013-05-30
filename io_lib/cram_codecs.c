@@ -478,7 +478,7 @@ cram_codec *cram_external_encode_init(cram_stats *st,
  * ---------------------------------------------------------------------------
  * BETA
  */
-int cram_beta_decode(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+int cram_beta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
     int32_t *out_i = (int32_t *)out;
     int i, n;
 
@@ -488,6 +488,20 @@ int cram_beta_decode(cram_slice *slice, cram_codec *c, cram_block *in, char *out
     } else {
 	for (i = 0, n = *out_size; i < n; i++)
 	    out_i[i] = 0;
+    }
+
+    return 0;
+}
+
+int cram_beta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+    int i, n;
+
+    if (c->beta.nbits) {
+	for (i = 0, n = *out_size; i < n; i++)
+	    out[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
+    } else {
+	for (i = 0, n = *out_size; i < n; i++)
+	    out[i] = 0;
     }
 
     return 0;
@@ -508,7 +522,12 @@ cram_codec *cram_beta_decode_init(char *data, int size,
 	return NULL;
 
     c->codec  = E_BETA;
-    c->decode = cram_beta_decode;
+    if (option == E_INT || option == E_LONG)
+	c->decode = cram_beta_decode_int;
+    else if (option == E_BYTE_ARRAY || option == E_BYTE)
+	c->decode = cram_beta_decode_char;
+    else
+	abort();
     c->free   = cram_beta_decode_free;
     
     cp += itf8_get(cp, &c->beta.offset);
@@ -586,8 +605,33 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
 	c->encode = cram_beta_encode_char;
     c->store  = cram_beta_encode_store;
 
-    min_val = ((int *)dat)[0];
-    max_val = ((int *)dat)[1];
+    if (dat) {
+	min_val = ((int *)dat)[0];
+	max_val = ((int *)dat)[1];
+    } else {
+	min_val = INT_MAX;
+	max_val = INT_MIN;
+	int i;
+	for (i = 0; i < MAX_STAT_VAL; i++) {
+	    if (!st->freqs[i])
+		continue;
+	    if (min_val > i)
+		min_val = i;
+	    max_val = i;
+	}
+	if (st->h) {
+	    HashItem *hi;
+	    HashIter *iter = HashTableIterCreate();
+	    while ((hi = HashTableIterNext(st->h, iter))) {
+		i = (int)(size_t)hi->key;
+		if (min_val > i)
+		    min_val = i;
+		if (max_val < i)
+		    max_val = i;
+	    }
+	    HashTableIterDestroy(iter);
+	}
+    }
 
     assert(max_val >= min_val);
     c->e_beta.offset = -min_val;
