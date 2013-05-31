@@ -91,7 +91,7 @@ void cram_stats_dump(cram_stats *st) {
     }
 }
 
-#if 0
+#if 1
 /* Returns the number of bits set in val; it the highest bit used */
 static int nbits(int v) {
     static const int MultiplyDeBruijnBitPosition[32] = {
