@@ -21,6 +21,9 @@
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
 
+#define Z_CRAM_STRAT Z_FILTERED
+//#define Z_CRAM_STRAT Z_DEFAULT_STRATEGY
+
 /*
  * Returns index of val into key.
  * Basically strchr(key, val)-key;
@@ -934,43 +937,53 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 
     /* Compress the CORE Block too, with minimal zlib level */
     if (fd->level > 5)
-	cram_compress_block(fd, s->block[0], NULL, 1, Z_FILTERED, -1, -1);
+	cram_compress_block(fd, s->block[0], NULL, 1, Z_CRAM_STRAT, -1, -1);
+
+#define USE_METRICS
+
+#ifdef USE_METRICS
+#  define LEVEL2 1
+#  define STRAT2 Z_RLE
+#else
+#  define LEVEL2 -1
+#  define STRAT2 -1
+#endif
 
     /* Compress the other blocks */
-    if (cram_compress_block(fd, s->block[1], fd->m[0],
-			    fd->level, Z_FILTERED,
+    if (cram_compress_block(fd, s->block[1], NULL,
+			    fd->level, Z_CRAM_STRAT,
 			    -1, -1))
 	return -1;
     if (cram_compress_block(fd, s->block[2], fd->m[1],
-			    fd->level, Z_FILTERED, 
-			    1, Z_RLE))
+			    fd->level, Z_CRAM_STRAT, 
+			    LEVEL2, STRAT2))
 	return -1;
-    if (cram_compress_block(fd, s->block[3], fd->m[2],
-			    fd->level, Z_FILTERED,
+    if (cram_compress_block(fd, s->block[3], NULL,
+			    fd->level, Z_CRAM_STRAT,
 			    -1, -1))
 	return -1;
-    if (cram_compress_block(fd, s->block[4], fd->m[3],
-			    fd->level, Z_FILTERED,
+    if (cram_compress_block(fd, s->block[4], NULL,
+			    fd->level, Z_CRAM_STRAT,
 			    -1, -1))
 	return -1;
     if (cram_compress_block(fd, s->block[5], fd->m[4],
-			    fd->level, Z_FILTERED,
-			    1, Z_RLE))
+			    fd->level, Z_CRAM_STRAT,
+	                    LEVEL2, STRAT2))
 	return -1;
     if (fd->version != CRAM_1_VERS) {
-	if (cram_compress_block(fd, s->block[6], fd->m[0],
-				fd->level, Z_FILTERED,
+	if (cram_compress_block(fd, s->block[6], NULL,
+				fd->level, Z_CRAM_STRAT,
 				-1, -1))
 	    return -1;
     }
 #ifdef BA_external
-    if (cram_compress_block(fd, s->block[s->ba_id], fd->m[5],
-			    fd->level, Z_FILTERED, -1, -1))
+    if (cram_compress_block(fd, s->block[s->ba_id], NULL,
+			    fd->level, Z_CRAM_STRAT, -1, -1))
 	return -1;
 #endif
 #ifdef TN_external
     if (fd->version == CRAM_1_VERS) {
-	if (cram_compress_block(fd, s->block[s->tn_id], fd->m[6],
+	if (cram_compress_block(fd, s->block[s->tn_id], NULL,
 				fd->level, Z_DEFAULT_STRATEGY, -1, -1))
 	    return -1;
     }
@@ -1017,8 +1030,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    s->hdr->ref_seq_start = 0;
 	    s->hdr->ref_seq_span  = 0;
 	} else {
-	    s->hdr->ref_seq_start = fd->first_base;
-	    s->hdr->ref_seq_span  = fd->last_base - fd->first_base + 1;
+	    s->hdr->ref_seq_start = c->first_base;
+	    s->hdr->ref_seq_span  = c->last_base - c->first_base + 1;
 	}
 	s->hdr->num_records   = c->curr_rec;
 
@@ -1027,8 +1040,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 		MD5_CTX md5;
 		MD5_Init(&md5);
 		MD5_Update(&md5,
-			   fd->ref + fd->first_base - fd->ref_start,
-			   fd->last_base - fd->first_base + 1);
+			   c->ref + c->first_base - c->ref_start,
+			   c->last_base - c->first_base + 1);
 		MD5_Final(s->hdr->md5, &md5);
 	    } else {
 		memset(s->hdr->md5, 0, 16);
@@ -1889,21 +1902,26 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 		    c->ref_seq_start + c->ref_seq_span -1);
 
 	/* Encode slices */
-	if (-1 == cram_flush_container(fd, c))
-	    return NULL;
+	if (fd->pool) {
+	    cram_flush_container_mt(fd, c);
+	} else {
+	    if (-1 == cram_flush_container(fd, c))
+		return NULL;
 
-	// Move to sep func, as we need cram_flush_container for
-	// the closing phase to flush the partial container.
-	for (i = 0; i < c->max_slice; i++) {
-	    cram_free_slice(c->slices[i]);
-	    c->slices[i] = NULL;
+	    // Move to sep func, as we need cram_flush_container for
+	    // the closing phase to flush the partial container.
+	    for (i = 0; i < c->max_slice; i++) {
+		cram_free_slice(c->slices[i]);
+		c->slices[i] = NULL;
+	    }
+
+	    c->slice = NULL;
+	    c->curr_slice = 0;
+
+	    /* Easy approach for purposes of freeing stats */
+	    cram_free_container(c);
 	}
 
-	c->slice = NULL;
-	c->curr_slice = 0;
-
-	/* Easy approach for purposes of freeing stats */
-	cram_free_container(c);
 	c = fd->ctr = cram_new_container(fd->seqs_per_slice,
 					 fd->slices_per_container);
 	if (!c)

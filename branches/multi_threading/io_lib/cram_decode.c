@@ -587,6 +587,25 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 
 
 #if 0
+/* Returns the number of bits set in val; it the highest bit used */
+static int nbits(int v) {
+    static const int MultiplyDeBruijnBitPosition[32] = {
+	1, 10, 2, 11, 14, 22, 3, 30, 12, 15, 17, 19, 23, 26, 4, 31,
+	9, 13, 21, 29, 16, 18, 25, 8, 20, 28, 24, 7, 27, 6, 5, 32
+    };
+
+    v |= v >> 1; // first up to set all bits 1 after the first 1 */
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+
+    // DeBruijn magic to find top bit
+    return MultiplyDeBruijnBitPosition[(uint32_t)(v * 0x07C4ACDDU) >> 27];
+}
+#endif
+
+#if 0
 static int sort_freqs(const void *vp1, const void *vp2) {
     const int i1 = *(const int *)vp1;
     const int i2 = *(const int *)vp2;
@@ -1209,6 +1228,12 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     int rec;
     char *seq, *qual;
     int unknown_rg = -1;
+    int id;
+
+    for (id = 0; id < s->hdr->num_blocks; id++) {
+	if (cram_uncompress_block(s->block[id]))
+	    return -1;
+    }
 
     blk->bit = 7; // MSB first
 
@@ -1487,6 +1512,60 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     return r;
 }
 
+typedef struct {
+    cram_fd *fd;
+    cram_container *c;
+    cram_slice *s;
+    SAM_hdr *h;
+    int exit_code;
+} cram_decode_job;
+
+void *cram_decode_slice_thread(void *arg) {
+    cram_decode_job *j = (cram_decode_job *)arg;
+
+    j->exit_code = cram_decode_slice(j->fd, j->c, j->s, j->h);
+
+    return j;
+}
+
+/*
+ * Spawn a multi-threaded version of cram_decode_slice().
+ */
+int cram_decode_slice_mt(cram_fd *fd, cram_container *c, cram_slice *s,
+			 SAM_hdr *bfd) {
+    cram_decode_job *j;
+
+    if (!fd->pool)
+	return cram_decode_slice(fd, c, s, bfd);
+
+    if (!(j = malloc(sizeof(*j))))
+	return -1;
+
+    j->fd = fd;
+    j->c  = c;
+    j->s  = s;
+    j->h  = bfd;
+
+    t_pool_dispatch(fd->pool, fd->rqueue, cram_decode_slice_thread, j);
+
+    // flush too
+    return 0;
+}
+
+/*
+ * A thread to keep the queue of decoded chunks fully occupied.
+ * Runs until no more input is available. (We may wish to allocate
+ * Nthreads+1 for this as it uses no real CPU of its own?)
+ */
+void *cram_decoder_thread(void *arg) {
+    cram_fd *fd = (cram_fd *)arg;
+    cram_container *c;
+    cram_slice *s;
+
+    return NULL;
+}
+
+
 /* ----------------------------------------------------------------------
  * CRAM sequence iterators.
  */
@@ -1573,20 +1652,11 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     return bam_idx + (aux - aux_orig);
 }
 
-
-/*
- * Read the next cram record and return it.
- * Note that to decode cram_record the caller will need to look up some data
- * in the current slice, pointed to by fd->ctr->slice. This is valid until
- * the next call to cram_get_seq (which may invalidate it).
- *
- * Returns record pointer on success (do not free)
- *        NULL on failure
- */
-cram_record *cram_get_seq(cram_fd *fd) {
+static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
     cram_container *c;
     cram_slice *s;
 
+#if 1
  try_again:
     if (!(c = fd->ctr)) {
 	cram_record *cr;
@@ -1623,22 +1693,10 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	    return NULL;
 	if (!c->comp_hdr->AP_delta)
 	    fd->unsorted = 1;
-
-	if (fd->range.refid != -2) {
-	    // In the correct container, now find the first seq.
-	    // FIXME: optimise by skipping slices?
-	    while ((cr = cram_get_seq(fd))) {
-		if (cr->aend >= fd->range.start)
-		    break;
-	    }
-	    return cr;
-	}
     }
 
     s = c->slice;
     if (!s || c->curr_rec == c->max_rec) {
-	int id;
-
 	// new slice
 	if (s)
 	    cram_free_slice(s);
@@ -1694,14 +1752,6 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	// Java CRAM implementation?
 	s->last_apos = s->hdr->ref_seq_start;
 	    
-	for (id = 0; id < s->hdr->num_blocks; id++) {
-	    if (cram_uncompress_block(s->block[id])) {
-		cram_free_slice(s);
-		c->slice = NULL;
-		return NULL;
-	    }
-	}
-
 	/* Skip slices not yet spanning our range */
 	if (fd->range.refid != -2) {
 	    if (s->hdr->ref_seq_id != fd->range.refid) {
@@ -1726,33 +1776,58 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	}
 
 	/* Test decoding of 1st seq */
-	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
+	if (cram_decode_slice_mt(fd, c, s, fd->header) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
 	    cram_free_slice(s);
 	    c->slice = NULL;
 	    return NULL;
 	}
     }
+#endif
 
-    if (fd->range.refid != -2) {
-	if (s->crecs[c->curr_rec].ref_id != fd->range.refid) {
-	    fd->eof = 1;
-	    cram_free_slice(s);
-	    c->slice = NULL;
+    *cp = c;
+    return s;
+}
+
+/*
+ * Read the next cram record and return it.
+ * Note that to decode cram_record the caller will need to look up some data
+ * in the current slice, pointed to by fd->ctr->slice. This is valid until
+ * the next call to cram_get_seq (which may invalidate it).
+ *
+ * Returns record pointer on success (do not free)
+ *        NULL on failure
+ */
+cram_record *cram_get_seq(cram_fd *fd) {
+    cram_container *c;
+    cram_slice *s;
+
+    for (;;) {
+	if (!(s = cram_next_slice(fd, &c)))
 	    return NULL;
+
+	if (fd->range.refid != -2) {
+	    if (s->crecs[c->curr_rec].ref_id != fd->range.refid) {
+		fd->eof = 1;
+		cram_free_slice(s);
+		c->slice = NULL;
+		return NULL;
+	    }
+
+	    if (s->crecs[c->curr_rec].apos > fd->range.end) {
+		fd->eof = 1;
+		cram_free_slice(s);
+		c->slice = NULL;
+		return NULL;
+	    }
+
+	    if (s->crecs[c->curr_rec].aend < fd->range.start) {
+		c->curr_rec++;
+		continue;
+	    }
 	}
 
-	if (s->crecs[c->curr_rec].apos > fd->range.end) {
-	    fd->eof = 1;
-	    cram_free_slice(s);
-	    c->slice = NULL;
-	    return NULL;
-	}
-
-	if (s->crecs[c->curr_rec].aend < fd->range.start) {
-	    c->curr_rec++;
-	    goto try_again; // yes, yess, I know it needs restructuring!
-	}
+	break;
     }
 
     return &s->crecs[c->curr_rec++];
