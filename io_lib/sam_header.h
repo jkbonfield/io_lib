@@ -168,6 +168,7 @@ typedef struct {
     // @cond internal
     char ID_buf[1024];  // temporary buffer
     int ID_cnt;
+    int ref_count;      // number of uses of this SAM_hdr
     // @endcond
 } SAM_hdr;
 
@@ -197,7 +198,32 @@ SAM_hdr *sam_hdr_parse(const char *hdr, int len);
 SAM_hdr *sam_hdr_dup(SAM_hdr *hdr);
 
 
+/*! Increments a reference count on hdr.
+ *
+ * This permits multiple files to share the same header, all calling
+ * sam_hdr_free when done, without causing errors for other open  files.
+ */
+void sam_hdr_incr_ref(SAM_hdr *hdr);
+
+
+/*! Increments a reference count on hdr.
+ *
+ * This permits multiple files to share the same header, all calling
+ * sam_hdr_free when done, without causing errors for other open  files.
+ *
+ * If the reference count hits zero then the header is automatically
+ * freed. This makes it a synonym for sam_hdr_free().
+ */
+void sam_hdr_decr_ref(SAM_hdr *hdr);
+
+
 /*! Deallocates all storage used by a SAM_hdr struct.
+ *
+ * This also decrements the header reference count. If after decrementing 
+ * it is still non-zero then the header is assumed to be in use by another
+ * caller and the free is not done.
+ *
+ * This is a synonym for sam_hdr_dec_ref().
  */
 void sam_hdr_free(SAM_hdr *hdr);
 
