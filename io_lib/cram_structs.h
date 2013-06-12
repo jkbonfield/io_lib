@@ -23,6 +23,7 @@ extern "C" {
 #include <stdint.h>
 
 #include "io_lib/hash_table.h"       // From io_lib aka staden-read
+#include "io_lib/thread_pool.h"
 
 #ifdef SAMTOOLS
 // From within samtools/HTSlib
@@ -259,6 +260,10 @@ typedef struct {
     int max_apos;                // maximum position, used if pos_sorted==0
     int last_slice;              // number of reads in last slice (0 for 1st)
     int multi_seq;               // true if packing multi seqs per cont/slice
+
+    /* Copied from fd before encoding, to allow multi-threading */
+    int ref_start, first_base, last_base, ref_id;
+    char *ref;
 
     /* Statistics for encoding */
     cram_stats *TS_stats;
@@ -591,6 +596,16 @@ typedef struct {
     int last_slice;                     // number of recs encoded in last slice
     int multi_seq;
     int unsorted;
+    
+    // thread pool
+    t_pool *pool;
+    t_results_queue *rqueue;
+    pthread_mutex_t metrics_lock;
+    pthread_mutex_t ref_lock;
+
+    // queue of decoded blocks
+    int qsize;
+    cram_container **decoded;
 } cram_fd;
 
 enum cram_option {
@@ -608,6 +623,8 @@ enum cram_option {
     CRAM_OPT_NO_REF,
     CRAM_OPT_USE_BZIP2,
     CRAM_OPT_SHARED_REF,
+    CRAM_OPT_NTHREADS,
+    CRAM_OPT_THREAD_POOL,
 };
 
 /* BF bitfields */

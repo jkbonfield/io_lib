@@ -817,9 +817,11 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
 #ifdef HAVE_LIBBZ2
     if (fd->use_bz2)
+	// metrics ignored for bzip2
 	return cram_compress_block_bzip2(fd, b, metrics, level);
 #endif
 
+    pthread_mutex_lock(&fd->metrics_lock);
     if (strat2 >= 0)
 	if (fd->verbose > 1)
 	    fprintf(stderr, "metrics trial %d, next_trial %d, m1 %d, m2 %d\n",
@@ -832,11 +834,10 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
 	if (metrics->next_trial == 0) {
 	    metrics->next_trial = 100;
-	    metrics->trial = 2;
+	    metrics->trial = 3;
 	    metrics->m1 = metrics->m2 = 0;
-	} else {
-	    metrics->trial--;
 	}
+	pthread_mutex_unlock(&fd->metrics_lock);
 
 	c1 = zlib_mem_deflate((char *)b->data, b->uncomp_size,
 			      &s1, level, strat);
@@ -847,24 +848,30 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	
 	//fprintf(stderr, "1: %6d   2: %6d   %5.1f\n", s1, s2, 100.0*s1/s2);
 
+	pthread_mutex_lock(&fd->metrics_lock);
 	if (s1 < 0.98 * s2) { // 2nd one should be faster alternative
 	    if (fd->verbose > 1)
-		fprintf(stderr, "M1 wins\n");
+		fprintf(stderr, "M1 wins %d vs %d\n", (int)s1, (int)s2);
 	    comp = c1; comp_size = s1;
 	    free(c2);
 	    metrics->m1++;
 	} else {
 	    if (fd->verbose > 1)
-		fprintf(stderr, "M2 wins\n");
+		fprintf(stderr, "M2 wins %d vs %d\n", (int)s1, (int)s2);
 	    comp = c2; comp_size = s2;
 	    free(c1);
 	    metrics->m2++;
 	}
+	metrics->trial--;
+	pthread_mutex_unlock(&fd->metrics_lock);
     } else if (strat2 >= 0) {
+	int xlevel = metrics->m1 > metrics->m2 ? level : level2;
+	int xstrat = metrics->m1 > metrics->m2 ? strat : strat2;
+	pthread_mutex_unlock(&fd->metrics_lock);
 	comp = zlib_mem_deflate((char *)b->data, b->uncomp_size, &comp_size,
-				metrics->m1 > metrics->m2 ? level : level2,
-				metrics->m1 > metrics->m2 ? strat : strat2);
+				xlevel, xstrat);
     } else {
+	pthread_mutex_unlock(&fd->metrics_lock);
 	comp = zlib_mem_deflate((char *)b->data, b->uncomp_size, &comp_size,
 				level, strat);
     }
@@ -1462,6 +1469,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	//	fd->refs->ref_id[id]->seq);
 
 	// Decrement old seq counter and free if now unused.
+	pthread_mutex_lock(&fd->ref_lock);
 	if (fd->ref_id >= 0 && fd->refs->ref_id[fd->ref_id]->seq) {
 	    if (--fd->refs->ref_id[fd->ref_id]->count <= 0) {
 		//fprintf(stderr, "Freeing last use of ref %d\n", fd->ref_id);
@@ -1471,8 +1479,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	}
 	
 	// Inc reference counter for new sequence
-	if (fd->refs->ref_id[id]->seq)
+	if (id >= 0 && fd->refs->ref_id[id]->seq)
 	    fd->refs->ref_id[id]->count++;
+
+	pthread_mutex_unlock(&fd->ref_lock);
     }
 
     //struct timeval tv1, tv2;
@@ -1632,7 +1642,9 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     if ((fd->unsorted && start == 1 && end == r->length) || fd->shared_ref) {
 	r->seq = fd->ref;
+	pthread_mutex_lock(&fd->ref_lock);
 	r->count = 1;
+	pthread_mutex_unlock(&fd->ref_lock);
 	fd->ref_free = NULL;
     } else {
 	fd->ref_free = fd->ref;
@@ -1933,20 +1945,11 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
     return 0;
 }
 
-/*
- * Flushes a completely or partially full container to disk, writing
- * container structure, header and blocks. This also calls the encoder
- * functions.
- *
- * Returns 0 on success
- *        -1 on failure
- */
-int cram_flush_container(cram_fd *fd, cram_container *c) {
+// common component shared by cram_flush_container{,_mt}
+static int cram_flush_container2(cram_fd *fd, cram_container *c) {
     int i, j;
 
-    /* Encode the container blocks and generate compression header */
-    if (0 != cram_encode_container(fd, c))
-	return -1;
+    //fprintf(stderr, "Writing container %d, sum %u\n", c->record_counter, sum);
 
     /* Write the container struct itself */
     if (0 != cram_write_container(fd, c))
@@ -1972,6 +1975,113 @@ int cram_flush_container(cram_fd *fd, cram_container *c) {
     return fflush(fd->fp) == 0 ? 0 : -1;
 }
 
+/*
+ * Flushes a completely or partially full container to disk, writing
+ * container structure, header and blocks. This also calls the encoder
+ * functions.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_flush_container(cram_fd *fd, cram_container *c) {
+    /* Copy fd globals to container, to allow multi-threading */
+    c->ref_start = fd->ref_start;
+    c->first_base = fd->first_base;
+    c->last_base = fd->last_base;
+    c->ref_id = fd->ref_id;
+    c->ref = fd->ref;
+
+    /* Encode the container blocks and generate compression header */
+    if (0 != cram_encode_container(fd, c))
+	return -1;
+
+    return cram_flush_container2(fd, c);
+}
+
+typedef struct {
+    cram_fd *fd;
+    cram_container *c;
+} cram_job;
+
+void *cram_flush_thread(void *arg) {
+    cram_job *j = (cram_job *)arg;
+
+    /* Encode the container blocks and generate compression header */
+    if (0 != cram_encode_container(j->fd, j->c)) {
+	fprintf(stderr, "cram_encode_container failed\n");
+	return NULL;
+    }
+
+    if (j->c->ref_seq_id >= 0) {
+	pthread_mutex_lock(&j->fd->ref_lock);
+	j->fd->refs->ref_id[j->c->ref_seq_id]->count--;
+	pthread_mutex_unlock(&j->fd->ref_lock);
+    }
+    
+    return arg;
+}
+
+static int cram_flush_result(cram_fd *fd) {
+    int i, ret = 0;
+    t_pool_result *r;
+
+    while ((r = t_pool_next_result(fd->rqueue))) {
+	cram_job *j = (cram_job *)r->data;
+	cram_container *c;
+
+	fd = j->fd;
+	c = j->c;
+
+	if (0 != cram_flush_container2(fd, c))
+	    return -1;
+
+	/* Free the container */
+	for (i = 0; i < c->max_slice; i++) {
+	    cram_free_slice(c->slices[i]);
+	    c->slices[i] = NULL;
+	}
+
+	c->slice = NULL;
+	c->curr_slice = 0;
+
+	cram_free_container(c);
+
+	ret |= fflush(fd->fp) == 0 ? 0 : -1;
+    }
+
+    return ret;
+}
+
+int cram_flush_container_mt(cram_fd *fd, cram_container *c) {
+    int i;
+    cram_job *j;
+
+    if (!fd->pool)
+	return cram_flush_container(fd, c);
+
+    //usleep(5000);
+
+    /* Copy fd globals to container, to allow multi-threading */
+    c->ref_start = fd->ref_start;
+    c->first_base = fd->first_base;
+    c->last_base = fd->last_base;
+    c->ref_id = fd->ref_id;
+    c->ref = fd->ref;
+
+    if (!(j = malloc(sizeof(*j))))
+	return -1;
+    j->fd = fd;
+    j->c = c;
+    if (c->ref_seq_id >= 0) {
+	pthread_mutex_lock(&fd->ref_lock);
+	fd->refs->ref_id[c->ref_seq_id]->count++;
+	pthread_mutex_unlock(&fd->ref_lock);
+    }
+    
+    t_pool_dispatch(fd->pool, fd->rqueue, cram_flush_thread, j);
+
+    return cram_flush_result(fd);
+}
 
 /* ----------------------------------------------------------------------
  * Compression headers; the first part of the container
@@ -2838,7 +2948,9 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->unsorted   = 0;
     fd->shared_ref = 0;
 
-    fd->index = NULL;
+    fd->index  = NULL;
+    fd->pool   = NULL;
+    fd->rqueue = NULL;
 
     for (i = 0; i < 7; i++)
 	fd->m[i] = cram_new_metrics();
@@ -2876,7 +2988,7 @@ int cram_flush(cram_fd *fd) {
     if (fd->mode == 'w' && fd->ctr) {
 	if(fd->ctr->slice)
 	    fd->ctr->curr_slice++;
-	if (-1 == cram_flush_container(fd, fd->ctr))
+	if (-1 == cram_flush_container_mt(fd, fd->ctr))
 	    return -1;
     }
 
@@ -2897,8 +3009,23 @@ int cram_close(cram_fd *fd) {
     if (fd->mode == 'w' && fd->ctr) {
 	if(fd->ctr->slice)
 	    fd->ctr->curr_slice++;
-	if (-1 == cram_flush_container(fd, fd->ctr))
+	if (-1 == cram_flush_container_mt(fd, fd->ctr))
 	    return -1;
+    }
+
+    if (fd->pool) {
+	t_pool_flush(fd->pool);
+
+	if (0 != cram_flush_result(fd))
+	    return -1;
+
+	t_pool_destroy(fd->pool, 0);
+	pthread_mutex_destroy(&fd->metrics_lock);
+	pthread_mutex_destroy(&fd->ref_lock);
+
+	fd->ctr = NULL; // prevent double freeing
+
+	t_results_queue_destroy(fd->rqueue);
     }
 
     if (paranoid_fclose(fd->fp) != 0)
@@ -3037,6 +3164,20 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_MULTI_SEQ_PER_SLICE:
 	fd->multi_seq = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_THREAD_POOL:
+	fd->pool = va_arg(args, t_pool *);
+	if (fd->pool) {
+	    fd->rqueue = t_results_queue_init();
+	    pthread_mutex_init(&fd->metrics_lock, NULL);
+	    pthread_mutex_init(&fd->ref_lock, NULL);
+	}
+	fd->shared_ref = 1; // Needed to avoid clobbering ref between threads
+
+	//fd->qsize = 1;
+	//fd->decoded = calloc(fd->qsize, sizeof(cram_container *));
+	//t_pool_dispatch(fd->pool, cram_decoder_thread, fd);
 	break;
 
     default:

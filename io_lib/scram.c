@@ -1,4 +1,34 @@
 /*
+ * Multi-threading.
+
+Trying to multi-thread BAM input is problematic as the BGZF boundaries
+share no common ground with the sequence boundaries. Header and
+sequences may be larger than a BGZF block, and the header may also be
+in the same block as the sequence data.
+
+Therefore the granularity of multi-threading needs to be the
+compression and uncompression code.
+
+Threadable sections:
+
+1) zlib portion bgzf_more_output?
+2) decode (may merge with 1)
+3) bgzf_write
+
+
+Similary for cram writing:
+1) Building crecs
+2) Encode + basic huff
+3) Block compression (may merge with 2)
+
+
+Ie input is hard to multi-thread
+Output can be distributed to multiple threads and aggregated together
+before sending on to FILE *fp.
+ */
+
+
+/*
  * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
  *
  * A wrapper around SAM, BAM and CRAM I/O to give a unified interface.
@@ -9,8 +39,119 @@
 #endif
 
 #include <string.h>
+#include <assert.h>
 
 #include "io_lib/scram.h"
+
+#define SCRAM_BUF_SIZE (1024*1024)
+
+/*
+ * Takes a SAM/BAM file opened for read and steals the input buffer / fp for
+ * its own purposes. The BAM file will have already decoded the header for
+ * us.
+ */
+static int scram_usurp_buffer(scram_fd *fd) {
+    if (!fd)
+	return -1;
+
+    if (!(fd->buf = realloc(fd->buf, fd->alloc = SCRAM_BUF_SIZE)))
+	return -1;
+
+    /* Transfer buffer */
+    memcpy(fd->buf, fd->b->comp_p, fd->b->comp_sz);
+    fd->used = fd->b->comp_sz;
+    fd->b->comp_p = NULL;
+    fd->b->comp_sz = 0;
+    fd->b->uncomp_sz = 0;
+
+    /* Transfer fp */
+    fd->fp = fd->b->fp;
+    fd->b->fp = NULL;
+
+    return 0;
+}
+
+/*
+ * Expands the input buffer.
+ * Returns 0 on sucess
+ *        -1 on failure
+ */
+static int scram_more_input(scram_fd *fd) {
+    size_t avail = fd->alloc - fd->used;
+    size_t l;
+
+    l = fread(&fd->buf[fd->used], 1, avail, fd->fp);
+    if (l <= 0)
+	return -1;
+    
+    fd->used += l;
+    return 0;
+}
+
+/*
+ * Consumes a block of data from the input stream and returns a malloced
+ * copy of it. The input buffer is then copied down (FIXME: inefficient).
+ */
+static unsigned char *scram_input_next_block(scram_fd *fd, size_t max_size,
+					     size_t *out_size) {
+    ssize_t l = MIN(max_size, fd->used);
+    ssize_t i;
+    unsigned char *r = NULL;
+
+    if (max_size > fd->used) {
+	scram_more_input(fd);
+	if (fd->used == 0)
+	    return NULL;
+    }
+
+    if (fd->b->binary) {
+	uint32_t bsize;
+
+	if (l < 19)
+	    return NULL;
+	bsize = fd->buf[16] + 256*fd->buf[17] + 1;
+	fprintf(stderr, "block_size=%d\n", bsize);
+	
+	l = MIN(bsize, l);
+    } else {
+	for (i = l-1; i >= 0; i--) {
+	    while (fd->buf[i] != '\n')
+		i--;
+	}
+	assert(i >= 0);
+
+	l = i;
+    }
+
+    if (!(r = malloc(l)))
+	return NULL;
+    memcpy(r, fd->buf, l);
+    memcpy(fd->buf, &fd->buf[l], fd->used - l);
+    fd->used -= l;
+
+    if (out_size)
+	*out_size = l;
+
+    return r;
+}
+
+int scram_input_bam_block(scram_fd *fd) {
+    size_t sz;
+    unsigned char *r;
+
+    if (!fd->is_bam)
+	return -1;
+    r = scram_input_next_block(fd, Z_BUFF_SIZE, &sz);
+    if (!r)
+	return -1;
+
+//    if (fd->b->comp_p && fd->b->comp_p != fd->b->comp)
+//	free(fd->b->comp_p);
+    fd->b->comp_p = r;
+    fd->b->comp_sz = sz;
+    
+    return 0;
+}
 
 /*
  * Opens filename.
@@ -33,6 +174,11 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	return NULL;
 
     fd->eof = 0;
+
+    /* I/O buffer */
+    fd->fp = NULL;
+    fd->buf = NULL;
+    fd->alloc = fd->used = 0;
 
     if (strcmp(filename, "-") == 0 && mode[0] == 'r'
 	&& mode[1] != 'b' && mode[1] != 'c' && mode[1] != 's') { 
@@ -64,6 +210,10 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 
 	if ((fd->b = bam_open(filename, mode))) {
 	    fd->is_bam = 1;
+//	    if (-1 == scram_usurp_buffer(fd)) {
+//		free(fd);
+//		return NULL;
+//	    }
 	    return fd;
 	}
 	
@@ -160,6 +310,7 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
     return 0;
 }
 
+
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
     return scram_get_seq(fd, bsp);
 }
@@ -171,14 +322,37 @@ int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
 }
 
 int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
-    int r;
+    int r = 0;
     va_list args;
 
-    if (fd->is_bam)
-	return 0;
-
     va_start(args, opt);
-    r = cram_set_voption(fd->c, opt, args);
+
+    if (opt == CRAM_OPT_THREAD_POOL) {
+	fd->pool = va_arg(args, t_pool *);
+	if (fd->is_bam)
+	    return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, fd->pool);
+	else
+	    return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, fd->pool);
+    } else if (opt == CRAM_OPT_NTHREADS) {
+	int nthreads = va_arg(args, int);
+	if (nthreads > 1) {
+	    if (!(fd->pool = t_pool_init(nthreads*2, nthreads)))
+		return -1;
+
+	    if (fd->is_bam)
+		return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, fd->pool);
+	    else
+		return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, fd->pool);
+	} else {
+	    fd->pool = NULL;
+	    return 0;
+	}
+    }
+
+    if (!fd->is_bam) {
+	r = cram_set_voption(fd->c, opt, args);
+    }
+
     va_end(args);
 
     return r;
