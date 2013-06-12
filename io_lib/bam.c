@@ -18,8 +18,19 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#include <pthread.h>
+
 #include "io_lib/bam.h"
 #include "io_lib/os.h"
+#include "io_lib/thread_pool.h"
+
+#if 1
+#  define BGZF_WRITE bgzf_write_mt
+#  define BGZF_FLUSH bgzf_flush_mt
+#else
+#  define BGZF_WRITE bgzf_write
+#  define BGZF_FLUSH bgzf_flush
+#endif
 
 #ifndef MIN
 #  define MIN(a,b) ((a)<(b)?(a):(b))
@@ -30,17 +41,17 @@
  * an unsigned char pointer.  ucp is incremented by the size of the
  * stored value. */
 
-#define STORE_UINT16(ucp, val) \
-    *(ucp)++ = ((uint16_t) val)      & 0xff; \
+#define STORE_UINT16(ucp, val)			\
+    *(ucp)++ = ((uint16_t) val)      & 0xff;	\
     *(ucp)++ = ((uint16_t) val >> 8) & 0xff;
 
-#define STORE_UINT32(ucp, val) \
+#define STORE_UINT32(ucp, val)			\
     *(ucp)++ = ((uint32_t) (val))       & 0xff;	\
     *(ucp)++ = ((uint32_t) (val) >>  8) & 0xff;	\
     *(ucp)++ = ((uint32_t) (val) >> 16) & 0xff;	\
     *(ucp)++ = ((uint32_t) (val) >> 24) & 0xff;
 
-#define STORE_UINT64(ucp, val) \
+#define STORE_UINT64(ucp, val)			\
     *(ucp)++ = ((uint64_t) (val))       & 0xff;	\
     *(ucp)++ = ((uint64_t) (val) >>  8) & 0xff;	\
     *(ucp)++ = ((uint64_t) (val) >> 16) & 0xff;	\
@@ -51,9 +62,12 @@
     *(ucp)++ = ((uint64_t) (val) >> 56) & 0xff;
 
 static int bam_more_input(bam_file_t *b);
-static int bam_more_output(bam_file_t *b);
+static int bam_uncompress_input(bam_file_t *b);
 static int reg2bin(int start, int end);
-static int bgzf_write(FILE *fp, int level, const void *buf, size_t count);
+static int bgzf_write(bam_file_t *bf, int level, const void *buf, size_t count);
+static int bgzf_write_mt(bam_file_t *bf, int level, const void *buf, size_t count);
+static int bgzf_flush(bam_file_t *bf);
+static int bgzf_flush_mt(bam_file_t *bf);
 
 /*
  * Reads len bytes from fp into data.
@@ -68,11 +82,11 @@ static int bam_read(bam_file_t *b, void *data, size_t len) {
 
     while (len) {
 	/* Consume any available uncompressed output */
-	if (b->out_sz) {
-	    size_t l = MIN(b->out_sz, len);
-	    memcpy(cdata, b->out_p, l);
-	    b->out_p += l;
-	    b->out_sz -= l;
+	if (b->uncomp_sz) {
+	    size_t l = MIN(b->uncomp_sz, len);
+	    memcpy(cdata, b->uncomp_p, l);
+	    b->uncomp_p += l;
+	    b->uncomp_sz -= l;
 	    cdata += l;
 	    len -= l;
 	    nb += l;
@@ -83,17 +97,18 @@ static int bam_read(bam_file_t *b, void *data, size_t len) {
 
 	if (!b->gzip) {
 	    /* Already uncompressed, so easy to deal with */
-	    if (!b->in_sz)
+	    if (!b->comp_sz)
 		if (-1 == bam_more_input(b))
 		    return nb ? nb : 0;
 		    
-	    b->out_p  = b->in_p;
-	    b->out_sz = b->in_sz;
-	    b->in_sz  = 0;
+	    b->uncomp_p  = b->comp_p;
+	    b->uncomp_sz = b->comp_sz;
+	    b->comp_sz  = 0;
 	    continue;
 	}
 
-	n = bam_more_output(b);
+	/* in=compressed out=uncompressed, but used as input (sorry!) */
+	n = bam_uncompress_input(b);
 	if (n == -1)
 	    return -1;
 	if (n == 0)
@@ -123,9 +138,9 @@ int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
     size_t alloc_l = *len;
     int next_condition, r = 0;
 
-    while (b->out_sz || (r=bam_more_output(b)) > 0) {
+    while (b->uncomp_sz || (r=bam_uncompress_input(b)) > 0) {
 	int tmp;
-	unsigned char *from = b->out_p;
+	unsigned char *from = b->uncomp_p;
 	unsigned char *to   = &buf[used_l];
 
 	/*
@@ -135,26 +150,26 @@ int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 	 * have just one check per loop instead of two. Once out of the loop
 	 * we can then afford to determine which case is and deal with it.
 	 */
-	tmp = next_condition = MIN(b->out_sz, alloc_l-used_l);
+	tmp = next_condition = MIN(b->uncomp_sz, alloc_l-used_l);
 
 	while (next_condition-- > 0) { /* these 3 lines are 50% of SAM cpu */
 	    if (*from != '\n') {
 		*to++ = *from++;
 	    } else {
-		b->out_p = from;
+		b->uncomp_p = from;
 		used_l = to-buf;
-		b->out_p++;
+		b->uncomp_p++;
 		buf[used_l] = 0;
 		*str = buf;
 		*len = alloc_l;
-		b->out_sz -= (tmp - next_condition);
+		b->uncomp_sz -= (tmp - next_condition);
 		return used_l;
 	    }
 	}
 
 	used_l = to-buf;
-	b->out_p = from;
-	b->out_sz -= tmp;
+	b->uncomp_p = from;
+	b->uncomp_sz -= tmp;
 
 	if (used_l >= alloc_l) {
 	    alloc_l = alloc_l ? alloc_l * 2 : 1024;
@@ -165,7 +180,7 @@ int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 
     if (r == -1)
 	return -1;
-    return b->out_sz ? -1 : 0;
+    return b->uncomp_sz ? -1 : 0;
 }
 
 static int load_bam_header(bam_file_t *b) {
@@ -251,7 +266,7 @@ static int load_sam_header(bam_file_t *b) {
     dstring_t *header = dstring_create(NULL);;
     int r = 0;
 
-    while ((b->out_sz > 0 || (r=bam_more_output(b)) > 0) && *b->out_p == '@') {
+    while ((b->uncomp_sz > 0 || (r=bam_uncompress_input(b)) > 0) && *b->uncomp_p == '@') {
 	b->line++;
 	if ((len = bam_get_line(b, &str, &alloc)) == -1)
 	    return -1;
@@ -305,10 +320,10 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
     if (!b)
 	return NULL;
 
-    b->in_p     = b->in;
-    b->in_sz    = 0;
-    b->out_p    = b->out;
-    b->out_sz   = 0;
+    b->comp_p     = b->comp;
+    b->comp_sz    = 0;
+    b->uncomp_p    = b->uncomp;
+    b->uncomp_sz   = 0;
     b->next_len = -1;
     b->bs       = NULL;
     b->bs_size  = 0;
@@ -319,6 +334,13 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
     b->binary   = 0;
     b->level    = Z_DEFAULT_COMPRESSION;
     b->sam_str  = NULL;
+    b->pool     = NULL;
+    b->equeue   = NULL;
+    b->dqueue   = NULL;
+    b->job_pending = NULL;
+    b->eof      = 0;
+    b->nd_jobs    = 0;
+    b->ne_jobs    = 0;
 
     /* Creation */
     if (*mode == 'w') {
@@ -360,9 +382,9 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 
     /* Load first block so we can check */
     bam_more_input(b);
-    if (b->in_sz < 2)
+    if (b->comp_sz < 2)
 	return NULL;
-    if (b->in_p[0] == 31 && b->in_p[1] == 139)
+    if (b->comp_p[0] == 31 && b->comp_p[1] == 139)
 	b->gzip = 1;
     else
 	b->gzip = 0;
@@ -375,14 +397,15 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 	inflateInit2(&b->s, -15);
     }
 
-    if (-1 == bam_more_output(b))
+    if (-1 == bam_uncompress_input(b))
 	return NULL;
     /* Auto-correct open file type if we detect a BAM */
-    if (b->out_sz >= 3 && strncmp("BAM", (char *)b->out_p, 3) != 0) {
+    if (b->uncomp_sz >= 3 && strncmp("BAM", (char *)b->uncomp_p, 3) != 0) {
 	b->mode &= ~O_BINARY;
 	mode = "r";
-    } else if (b->out_sz >= 3 && strncmp("BAM", (char *)b->out_p, 3) == 0) {
+    } else if (b->uncomp_sz >= 3 && strncmp("BAM", (char *)b->uncomp_p, 3) == 0) {
 	b->mode |= O_BINARY;
+	b->binary = 1;
 	mode = "rb";
     }
 
@@ -410,16 +433,18 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 }
 
 int bam_close(bam_file_t *b) {
-    int r;
+    int r = 0;
 
     if (!b)
 	return 0;
 
     if (b->mode & O_WRONLY) {
 	if (b->binary) {
-	    if (bgzf_write(b->fp, b->level, b->out, b->out_p - b->out)) {
+	    if (BGZF_WRITE(b, b->level, b->uncomp, b->uncomp_p - b->uncomp)) {
 		fprintf(stderr, "Write failed in bam_close()\n");
 	    }
+
+	    BGZF_FLUSH(b);
 
 	    /* Output a blank BGZF block too to mark EOF */
 	    if (28 != fwrite("\037\213\010\4\0\0\0\0\0\377\6\0\102\103\2\0"
@@ -427,8 +452,10 @@ int bam_close(bam_file_t *b) {
 		fprintf(stderr, "Write failed in bam_close()\n");
 	    }
 	} else {
-	    if (b->out_p - b->out !=
-		fwrite(b->out, 1, b->out_p - b->out, b->fp)) {
+	    BGZF_FLUSH(b);
+
+	    if (b->uncomp_p - b->uncomp !=
+		fwrite(b->uncomp, 1, b->uncomp_p - b->uncomp, b->fp)) {
 		fprintf(stderr, "Write failed in bam_close()\n");
 	    }
 	}
@@ -445,7 +472,13 @@ int bam_close(bam_file_t *b) {
     if (b->sam_str)
 	free(b->sam_str);
 
-    r = fclose(b->fp);
+    if (b->fp)
+	r = fclose(b->fp);
+
+    if (b->equeue)
+	t_results_queue_destroy(b->equeue);
+    if (b->dqueue)
+	t_results_queue_destroy(b->dqueue);
 
     free(b);
 
@@ -461,17 +494,57 @@ int bam_close(bam_file_t *b) {
 static int bam_more_input(bam_file_t *b) {
     size_t l;
 
-    if (b->in != b->in_p) {
-	memmove(b->in, b->in_p, b->in_sz);
-	b->in_p = b->in;
+    if (!b->fp)
+	return -1;
+
+    if (b->comp != b->comp_p) {
+	memmove(b->comp, b->comp_p, b->comp_sz);
+	b->comp_p = b->comp;
     }
 
-    l = fread(&b->in[b->in_sz], 1, Z_BUFF_SIZE - b->in_sz, b->fp);
+    l = fread(&b->comp[b->comp_sz], 1, Z_BUFF_SIZE - b->comp_sz, b->fp);
     if (l <= 0)
 	return -1;
     
-    b->in_sz += l;
+    b->comp_sz += l;
     return 0;
+}
+
+typedef struct {
+    unsigned char comp[Z_BUFF_SIZE];
+    unsigned char uncomp[Z_BUFF_SIZE];
+    size_t comp_sz, uncomp_sz;
+} bgzf_decode_job;
+
+/*
+ * Uncompresses a single zlib buffer.
+ */
+void *bgzf_decode_thread(void *arg) {
+    bgzf_decode_job *j = (bgzf_decode_job *)arg;
+    int err;
+    z_stream s;
+
+    s.avail_in  = j->comp_sz;
+    s.next_in   = j->comp; 
+    s.avail_out = Z_BUFF_SIZE;
+    s.next_out  = j->uncomp;
+    s.total_out = 0;
+    s.zalloc    = NULL;
+    s.zfree     = NULL;
+    s.opaque    = NULL;
+
+    inflateInit2(&s, -15);
+    err = inflate(&s, Z_FINISH);
+    inflateEnd(&s);
+
+    if (err != Z_STREAM_END) {
+	fprintf(stderr, "Inflate returned error code %d\n", err);
+	return NULL;
+    }
+
+    j->uncomp_sz  = s.total_out;
+
+    return j;
 }
 
 /*
@@ -481,148 +554,286 @@ static int bam_more_input(bam_file_t *b) {
  *         0 on eof
  *        -1 on failure.
  */
-static int bam_more_output(bam_file_t *b) {
+static int bam_uncompress_input(bam_file_t *b) {
     int err = Z_OK;
     unsigned char *bgzf;
     int xlen, bsize;
+    bgzf_decode_job *j;
 
-    assert(b->out_sz == 0);
+    assert(b->uncomp_sz == 0);
 
     if (!b->gzip) {
 	/* Already uncompressed, so easy to deal with */
-	if (!b->in_sz)
+	if (!b->comp_sz)
 	    if (-1 == bam_more_input(b))
 		return 0;
 		    
-	b->out_p  = b->in_p;
-	b->out_sz = b->in_sz;
-	b->in_sz  = 0;
-	return b->out_sz;
+	b->uncomp_p  = b->comp_p;
+	b->uncomp_sz = b->comp_sz;
+	b->comp_sz  = 0;
+	return b->uncomp_sz;
     }
 
-    /* Uncompress another BGZF block */
-    /* BGZF header */
-    if (b->in_sz < 18) {
-	if (-1 == bam_more_input(b))
+    if (b->pool) {
+	t_pool_result *res;
+
+	/* Multi-threaded decoding. Assume BGZF for now */
+	while (t_pool_results_queue_len(b->dqueue) < b->pool->qsize) {
+	    bgzf_decode_job *j;
+	    int len, nonblock;
+	    unsigned char *blk;
+
+	    if (b->job_pending) {
+		j = b->job_pending;
+	    } else {
+		if (!(j = malloc(sizeof(*j))))
+		    return -1;
+
+		if (b->comp_sz < 18 && !b->eof) {
+		    if (-1 == bam_more_input(b)) {
+			b->eof = 1;
+			if (b->comp_sz < 18) {
+			    b->eof = 2;
+			    free(j);
+			    break;
+			}
+		    }
+		} else if (b->comp_sz == 0 && b->eof) {
+		    b->eof = 2;
+		    free(j);
+		    break;
+		}
+
+		blk = bgzf = b->comp_p;
+		b->comp_p += 10; b->comp_sz -= 10;
+
+		if (bgzf[0] != 31 || bgzf[1] != 139) {
+		    fprintf(stderr, "Zlib magic number failure\n");
+		    free(j);
+		    return -1; /* magic number failure */
+		}
+
+		if ((bgzf[3] & 4) == 4) {
+		    /* has extra fields, eg BGZF */
+		    xlen = bgzf[10] + bgzf[11]*256;
+		    b->comp_p += 2; b->comp_sz -= 2;
+		} else {
+		    fprintf(stderr, "Not BGZF\n");
+		    free(j);
+		    return -1;
+		}
+
+		if (xlen != 6) {
+		    fprintf(stderr, "XLEN != 6\n");
+		    free(j);
+		    return -1;
+		}
+
+		b->comp_p += 6;
+		b->comp_sz -= 6;
+
+		if (bgzf[12] != 'B' || bgzf[13] != 'C' ||
+		    bgzf[14] !=  2  || bgzf[15] !=  0) {
+		    fprintf(stderr, "BGZF XLEN block incorrect\n");
+		    free(j);
+		    return -1;
+		}
+		bsize = bgzf[16] + bgzf[17]*256;
+		bsize -= 6+19;
+
+		if (b->comp_sz < bsize + 8) {
+		    do {
+			if (bam_more_input(b) == -1) {
+			    fprintf(stderr, "EOF - truncated block\n");
+			    free(j);
+			    return -1; /* Truncated */
+			}
+		    } while (b->comp_sz < bsize + 8);
+		}
+
+		memcpy(j->comp, b->comp_p, bsize);
+		j->comp_sz = bsize+1;
+
+		b->comp_p  += bsize + 8; // crc & isize
+		b->comp_sz -= bsize + 8; // crc & isize
+	    }
+
+	    nonblock = t_pool_results_queue_len(b->dqueue) ? 0 : 1;
+	    //	    nonblock = (t_pool_results_queue_len(b->dqueue) == 0 &&
+	    //			b->nd_jobs >= b->pool->qsize) ? 0 : -1;
+	    //nonblock = -1;
+	    //nonblock = 0;
+	    //nonblock = b->nd_jobs >= b->pool->qsize ? -1 : 0;
+
+	    if (-1 == t_pool_dispatch2(b->pool, b->dqueue,
+				       bgzf_decode_thread, j, nonblock)) {
+		/* Would block */
+		b->job_pending = j;
+		break;
+	    } else {
+		b->job_pending = NULL;
+		b->nd_jobs++;
+	    }
+	}
+
+	if (b->eof == 2 && t_pool_results_queue_len(b->dqueue) == 0)
 	    return 0;
-	if (b->in_sz < 18)
-	    return -1;
-	if (b->in_sz == 0)
-	    return 0; /* eof */
-    }
-	
-    if (b->z_finish) {
-	/*
-	 * BGZF header is gzip + extra fields.
-	 */
-	bgzf = b->in_p;
-	b->in_p += 10; b->in_sz -= 10;
 
-	if (bgzf[0] != 31 || bgzf[1] != 139)
-	    return -1; /* magic number failure */
-	if ((bgzf[3] & 4) == 4) {
-	    /* has extra fields, eg BGZF */
-	    xlen = bgzf[10] + bgzf[11]*256;
-	    b->in_p += 2; b->in_sz -= 2;
+	//fprintf(stderr, "Waiting on result with len %d\n", t_pool_results_queue_len(b->dqueue));
+	res = t_pool_next_result_wait(b->dqueue);
+	if (!res || !res->data)
+	    return -1;
+
+	b->nd_jobs--;
+
+	/* make a start on the next job as we know there is room now */
+	if (b->job_pending) {
+	    if (0 == t_pool_dispatch2(b->pool, b->dqueue,
+				      bgzf_decode_thread,
+				      b->job_pending, 1)) {
+		b->job_pending = NULL;
+		b->nd_jobs++;
+	    }
+	}
+
+	j = (bgzf_decode_job *)res->data;
+
+	memcpy(b->uncomp, j->uncomp, j->uncomp_sz);
+	b->uncomp_p = b->uncomp;
+	b->uncomp_sz = j->uncomp_sz;
+	t_pool_delete_result(res, 1);
+
+    } else {
+	/* Single threaded version, or non-bgzf format data */
+
+	/* Uncompress another BGZF block */
+	/* BGZF header */
+	if (b->comp_sz < 18) {
+	    if (-1 == bam_more_input(b))
+		return 0;
+	    if (b->comp_sz < 18)
+		return -1;
+	}
+
+	if (b->z_finish) {
+	    /*
+	     * BGZF header is gzip + extra fields.
+	     */
+	    bgzf = b->comp_p;
+	    b->comp_p += 10; b->comp_sz -= 10;
+
+	    if (bgzf[0] != 31 || bgzf[1] != 139)
+		return -1; /* magic number failure */
+	    if ((bgzf[3] & 4) == 4) {
+		/* has extra fields, eg BGZF */
+		xlen = bgzf[10] + bgzf[11]*256;
+		b->comp_p += 2; b->comp_sz -= 2;
+	    } else {
+		xlen = 0;
+	    }
 	} else {
+	    /* Continuing with an existing data stream */
 	    xlen = 0;
 	}
-    } else {
-	/* Continuing with an existing data stream */
-	xlen = 0;
-    }
 
-    /* BGZF */
-    if (xlen == 6) {
-	b->bgzf = 1;
-	b->in_p += 6; b->in_sz -= 6;
 
-	if (bgzf[12] != 'B' || bgzf[13] != 'C' ||
-	    bgzf[14] !=  2  || bgzf[15] !=  0)
-	    return -1;
-	bsize = bgzf[16] + bgzf[17]*256;
-	bsize -= 6+19;
+	/* BGZF */
+	if (xlen == 6) {
+	    b->bgzf = 1;
+	    b->comp_p += 6; b->comp_sz -= 6;
 
-	/* Inflate */
-	if (b->in_sz < bsize + 8) {
-	    do {
-		if (bam_more_input(b) == -1)
-		    return -1; /* Truncated */
-	    } while (b->in_sz < bsize + 8);
-	}
-	b->s.avail_in  = bsize;
-	b->s.next_in   = b->in_p;
-	b->s.avail_out = Z_BUFF_SIZE;
-	b->s.next_out  = b->out;
-	b->s.total_out = 0;
+	    if (bgzf[12] != 'B' || bgzf[13] != 'C' ||
+		bgzf[14] !=  2  || bgzf[15] !=  0)
+		return -1;
+	    bsize = bgzf[16] + bgzf[17]*256;
+	    bsize -= 6+19;
+
+	    /* Inflate */
+	    if (b->comp_sz < bsize + 8) {
+		do {
+		    if (bam_more_input(b) == -1) {
+			fprintf(stderr, "EOF - truncated block\n");
+			return -1; /* Truncated */
+		    }
+		} while (b->comp_sz < bsize + 8);
+	    }
 	    
-	inflateReset(&b->s);
-	err = inflate(&b->s, Z_FINISH);
-	if (err != Z_STREAM_END) {
-	    fprintf(stderr, "Inflate returned error code %d\n", err);
-	    return -1;
-	}
-	b->z_finish = 1;
-
-	b->in_p   += bsize + 8; /* crc & isize */
-	b->in_sz  -= bsize + 8;
-	b->out_sz  = b->s.total_out;
-	b->out_p   = b->out;
-    } else {
-	/* Some other gzip variant, but possibly still having xlen */
-	while (xlen) {
-	    int d = MIN(b->in_sz, xlen);
-	    xlen     -= d;
-	    b->in_p  += d;
-	    b->in_sz -= d;
-	    if (b->in_sz == 0)
-		bam_more_input(b);
-	    if (b->in_sz == 0)
-		return -1; /* truncated file */
-	}
+	    b->s.avail_in  = bsize;
+	    b->s.next_in   = b->comp_p;
+	    b->s.avail_out = Z_BUFF_SIZE;
+	    b->s.next_out  = b->uncomp;
+	    b->s.total_out = 0;
 	    
-	b->s.avail_in  = b->in_sz;
-	b->s.next_in   = b->in_p;
-	b->s.avail_out = Z_BUFF_SIZE;
-	b->s.next_out  = b->out;
-	b->s.total_out = 0;
-	if (b->z_finish)
 	    inflateReset(&b->s);
-	    
-	do {
-	    err = inflate(&b->s, Z_BLOCK);
-	    //printf("err=%d\n", err);
+	    err = inflate(&b->s, Z_FINISH);
 
-	    if (err == Z_OK || err == Z_STREAM_END) {
-		b->in_p  += b->in_sz - b->s.avail_in;
-		b->in_sz  = b->s.avail_in;
-		b->out_sz = b->s.total_out;
-		b->out_p  = b->out;
+	    if (err != Z_STREAM_END) {
+		fprintf(stderr, "Inflate returned error code %d\n", err);
+		return -1;
 	    }
+	    b->z_finish = 1;
 
-	    if (err == Z_STREAM_END) {
-		b->z_finish = 1;
-		/* Consume (ignore) CRC & ISIZE */
-		if (b->in_sz < 8)
+	    b->comp_p   += bsize + 8; /* crc & isize */
+	    b->comp_sz  -= bsize + 8;
+	    b->uncomp_sz  = b->s.total_out;
+	    b->uncomp_p   = b->uncomp;
+	} else {
+	    /* Some other gzip variant, but possibly still having xlen */
+	    while (xlen) {
+		int d = MIN(b->comp_sz, xlen);
+		xlen     -= d;
+		b->comp_p  += d;
+		b->comp_sz -= d;
+		if (b->comp_sz == 0)
 		    bam_more_input(b);
-
-		if (b->in_sz < 8)
+		if (b->comp_sz == 0)
 		    return -1; /* truncated file */
-
-		b->in_sz -= 8;
-		b->in_p  += 8;
-	    } else {
-		b->z_finish = 0;
 	    }
-	} while (err != Z_OK && err != Z_STREAM_END);
+	    
+	    b->s.avail_in  = b->comp_sz;
+	    b->s.next_in   = b->comp_p;
+	    b->s.avail_out = Z_BUFF_SIZE;
+	    b->s.next_out  = b->uncomp;
+	    b->s.total_out = 0;
+	    if (b->z_finish)
+		inflateReset(&b->s);
+	    
+	    do {
+		err = inflate(&b->s, Z_BLOCK);
+		//printf("err=%d\n", err);
+
+		if (err == Z_OK || err == Z_STREAM_END) {
+		    b->comp_p  += b->comp_sz - b->s.avail_in;
+		    b->comp_sz  = b->s.avail_in;
+		    b->uncomp_sz = b->s.total_out;
+		    b->uncomp_p  = b->uncomp;
+		}
+
+		if (err == Z_STREAM_END) {
+		    b->z_finish = 1;
+		    /* Consume (ignore) CRC & ISIZE */
+		    if (b->comp_sz < 8)
+			bam_more_input(b);
+
+		    if (b->comp_sz < 8)
+			return -1; /* truncated file */
+
+		    b->comp_sz -= 8;
+		    b->comp_p  += 8;
+		} else {
+		    b->z_finish = 0;
+		}
+	    } while (err != Z_OK && err != Z_STREAM_END);
+	}
     }
 
     /*
      * Zero length blocks may not actually be EOF, just bizarre. We return
-     * 0 elsewhere for the EOF case, so if we got here and b->out_sz is 0
+     * 0 elsewhere for the EOF case, so if we got here and b->uncomp_sz is 0
      * then go around again.
      */
-    return b->out_sz ? b->out_sz : bam_more_output(b);
+    return b->uncomp_sz ? b->uncomp_sz : bam_uncompress_input(b);
+
 }
 
 /*
@@ -2145,16 +2356,16 @@ static unsigned char *append_int(unsigned char *cp, int32_t i) {
     //if (i < 10000000)   goto b6;
     if (i < 100000000)  goto b7;
 
-     if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
-     if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
+    if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
+    if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
  b7: if ((j = i / 10000000))   {*cp++ = j + '0'; i -= j*10000000;   goto x6;}
-     if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
+    if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
  b5: if ((j = i / 100000))     {*cp++ = j + '0', i -= j*100000;     goto x4;}
-     if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
+    if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
  b3: if ((j = i / 1000))       {*cp++ = j + '0', i -= j*1000;       goto x2;}
-     if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
+    if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
  b1: if ((j = i / 10))         {*cp++ = j + '0', i -= j*10;         goto x0;}
-     if (i)                     *cp++ = i + '0';
+    if (i)                     *cp++ = i + '0';
     return cp;
 
  x8: *cp++ = i / 100000000 + '0', i %= 100000000;
@@ -2191,16 +2402,16 @@ static unsigned char *append_uint(unsigned char *cp, uint32_t i) {
     //if (i < 10000000)   goto b6;
     if (i < 100000000)  goto b7;
 
-     if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
-     if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
+    if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
+    if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
  b7: if ((j = i / 10000000))   {*cp++ = j + '0'; i -= j*10000000;   goto x6;}
-     if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
+    if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
  b5: if ((j = i / 100000))     {*cp++ = j + '0', i -= j*100000;     goto x4;}
-     if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
+    if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
  b3: if ((j = i / 1000))       {*cp++ = j + '0', i -= j*1000;       goto x2;}
-     if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
+    if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
  b1: if ((j = i / 10))         {*cp++ = j + '0', i -= j*10;         goto x0;}
-     if (i)                     *cp++ = i + '0';
+    if (i)                     *cp++ = i + '0';
     return cp;
 
  x8: *cp++ = i / 100000000 + '0', i %= 100000000;
@@ -2225,8 +2436,10 @@ static unsigned char *append_uint(unsigned char *cp, uint32_t i) {
  * Returns 0 on success;
  *        -1 on error
  */
-static int bgzf_write(FILE *fp, int level, const void *buf, size_t count) {
-    unsigned char blk[Z_BUFF_SIZE];
+static int bgzf_encode(int level,
+		       const void *buf, uint32_t in_sz,
+		       void *out, uint32_t *out_sz) {
+    unsigned char *blk = out;
     z_stream s;
     int cdata_pos;
     int cdata_size;
@@ -2241,7 +2454,7 @@ static int bgzf_write(FILE *fp, int level, const void *buf, size_t count) {
     s.zfree  = Z_NULL;
     s.opaque = Z_NULL;
     s.next_in  = (unsigned char *)buf;
-    s.avail_in = count;
+    s.avail_in = in_sz;
     s.total_in = 0;
     s.next_out  = blk + cdata_pos;
     s.avail_out = cdata_alloc;
@@ -2249,8 +2462,8 @@ static int bgzf_write(FILE *fp, int level, const void *buf, size_t count) {
     s.data_type = Z_BINARY;
 
     /* Compress it */
-    //err = deflateInit2(&s, level, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY);
-    err = deflateInit2(&s, level, Z_DEFLATED, -15, 8, Z_FILTERED);
+    err = deflateInit2(&s, level, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY);
+    //err = deflateInit2(&s, level, Z_DEFLATED, -15, 8, Z_FILTERED);
 
     if (err != Z_OK) {
 	fprintf(stderr, "zlib deflateInit2 error: %s\n", s.msg);
@@ -2303,19 +2516,93 @@ static int bgzf_write(FILE *fp, int level, const void *buf, size_t count) {
     blk[17] = ((cdata_size + 25) >> 8) & 0xff;
 
     crc = crc32(0L, NULL, 0L);
-    crc = crc32(crc, (unsigned char *)buf, count);
+    crc = crc32(crc, (unsigned char *)buf, in_sz);
     blk[18+cdata_size+0] = (crc >> 0) & 0xff;
     blk[18+cdata_size+1] = (crc >> 8) & 0xff;
     blk[18+cdata_size+2] = (crc >>16) & 0xff;
     blk[18+cdata_size+3] = (crc >>24) & 0xff;
-    blk[18+cdata_size+4] = (count >> 0) & 0xff;
-    blk[18+cdata_size+5] = (count >> 8) & 0xff;
-    blk[18+cdata_size+6] = (count >>16) & 0xff;
-    blk[18+cdata_size+7] = (count >>24) & 0xff;
+    blk[18+cdata_size+4] = (in_sz >> 0) & 0xff;
+    blk[18+cdata_size+5] = (in_sz >> 8) & 0xff;
+    blk[18+cdata_size+6] = (in_sz >>16) & 0xff;
+    blk[18+cdata_size+7] = (in_sz >>24) & 0xff;
 
-    //printf("count=%d/%x, cdata_size=%d/%x\n", count, count, cdata_size, cdata_size);
-    if (18+cdata_size+8 != fwrite(blk, 1, 18+cdata_size+8, fp))
+    *out_sz = 18+cdata_size+8;
+
+    return 0;
+}
+
+static int bgzf_write(bam_file_t *bf, int level, const void *buf, size_t count) {
+    unsigned char blk[Z_BUFF_SIZE+4], *out;
+    uint32_t len;
+
+    if (0 != bgzf_encode(level, buf, count, blk, &len)) 
 	return -1;
+
+    if (len != fwrite(blk, 1, len, bf->fp))
+	return -1;
+
+    return 0;
+}
+
+typedef struct {
+    int level;
+    unsigned char in[Z_BUFF_SIZE];
+    unsigned char out[Z_BUFF_SIZE];
+    uint32_t in_sz, out_sz;
+} bgzf_encode_job;
+
+void *bgzf_encode_thread(void *arg) {
+    bgzf_encode_job *j = (bgzf_encode_job *)arg;
+
+    bgzf_encode(j->level, j->in, j->in_sz, j->out, &j->out_sz);
+    return arg;
+}
+
+static int bgzf_write_mt(bam_file_t *bf, int level, const void *buf,
+			 size_t count) {
+    bgzf_encode_job *j;
+    t_pool_result *r;
+
+    if (!bf->pool)
+	return bgzf_write(bf, level, buf, count);
+
+    j = malloc(sizeof(*j));
+    j->level = level;
+    memcpy(j->in, buf, count);
+    j->in_sz = count;
+    t_pool_dispatch(bf->pool, bf->equeue, bgzf_encode_thread, j);
+
+    while ((r = t_pool_next_result(bf->equeue))) {
+	j = (bgzf_encode_job *)r->data;
+	if (j->out_sz != fwrite(j->out, 1, j->out_sz, bf->fp))
+	    return -1;
+	t_pool_delete_result(r, 1);
+    }
+
+    return 0;
+}
+
+static int bgzf_flush(bam_file_t *bf) {
+    return 0;
+}
+
+static int bgzf_flush_mt(bam_file_t *bf) {
+    t_pool_result *r;
+    bgzf_encode_job *j;
+
+    if (!bf->pool)
+	return 0;
+
+    t_pool_flush(bf->pool);
+
+    while ((r = t_pool_next_result(bf->equeue))) {
+	j = (bgzf_encode_job *)r->data;
+	if (j->out_sz != fwrite(j->out, 1, j->out_sz, bf->fp))
+	    return -1;
+	t_pool_delete_result(r, 1);
+    }
+
+    t_pool_destroy(bf->pool, 0);
 
     return 0;
 }
@@ -2389,26 +2676,26 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
     if (!fp->binary) {
 	/* SAM */
-	unsigned char *end = fp->out + BGZF_BUFF_SIZE, *dat;
+	unsigned char *end = fp->uncomp + BGZF_BUFF_SIZE, *dat;
 	int sz, i, n;
 
 #define BF_FLUSH()							\
 	do {								\
-	    if (fp->out_p - fp->out !=					\
-		fwrite(fp->out, 1, fp->out_p - fp->out, fp->fp))	\
+	    if (fp->uncomp_p - fp->uncomp !=				\
+		fwrite(fp->uncomp, 1, fp->uncomp_p - fp->uncomp, fp->fp)) \
 		return -1;						\
-	    fp->out_p=fp->out;						\
+	    fp->uncomp_p=fp->uncomp;					\
 	} while(0)
 
 	/* QNAME */
-	if (end - fp->out_p < (sz = bam_name_len(b))) BF_FLUSH();
-	memcpy(fp->out_p, bam_name(b), sz-1); fp->out_p += sz-1;
-	*fp->out_p++ = '\t';
+	if (end - fp->uncomp_p < (sz = bam_name_len(b))) BF_FLUSH();
+	memcpy(fp->uncomp_p, bam_name(b), sz-1); fp->uncomp_p += sz-1;
+	*fp->uncomp_p++ = '\t';
 
 	/* FLAG */
-	if (end-fp->out_p < 5) BF_FLUSH();
-	fp->out_p = append_int(fp->out_p, bam_flag(b));
-	*fp->out_p++ = '\t';
+	if (end-fp->uncomp_p < 5) BF_FLUSH();
+	fp->uncomp_p = append_int(fp->uncomp_p, bam_flag(b));
+	*fp->uncomp_p++ = '\t';
 
 	/* RNAME */
 	if (b->ref < -1 || b->ref >= fp->header->nref)
@@ -2416,23 +2703,23 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	if (b->ref != -1) {
 	    size_t l = strlen(fp->header->ref[b->ref].name);
-	    if (end-fp->out_p < l+1) BF_FLUSH();
-	    memcpy(fp->out_p, fp->header->ref[b->ref].name, l);
-	    fp->out_p += l;
+	    if (end-fp->uncomp_p < l+1) BF_FLUSH();
+	    memcpy(fp->uncomp_p, fp->header->ref[b->ref].name, l);
+	    fp->uncomp_p += l;
 	} else {
-	    if (end-fp->out_p < 2) BF_FLUSH();
-	    *fp->out_p++ = '*';
+	    if (end-fp->uncomp_p < 2) BF_FLUSH();
+	    *fp->uncomp_p++ = '*';
 	}
-	*fp->out_p++ = '\t';
+	*fp->uncomp_p++ = '\t';
 
 	/* POS */
 	if (b->pos < -1) return -1;
-	if (end-fp->out_p < 12) BF_FLUSH();
-	fp->out_p = append_int(fp->out_p, b->pos+1); *fp->out_p++ = '\t';
+	if (end-fp->uncomp_p < 12) BF_FLUSH();
+	fp->uncomp_p = append_int(fp->uncomp_p, b->pos+1); *fp->uncomp_p++ = '\t';
 
 	/* MAPQ */
-	if (end-fp->out_p < 5) BF_FLUSH();
-	fp->out_p = append_int(fp->out_p, bam_map_qual(b)); *fp->out_p++ = '\t';
+	if (end-fp->uncomp_p < 5) BF_FLUSH();
+	fp->uncomp_p = append_int(fp->uncomp_p, bam_map_qual(b)); *fp->uncomp_p++ = '\t';
 
 	/* CIGAR */
 	n = bam_cigar_len(b);dat = (uc *)bam_cigar(b);
@@ -2441,15 +2728,15 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    return -1;
 	for (i = 0; i < n; i++, dat+=4) {
 	    uint32_t c = *(uint32_t *)dat;
-	    if (end-fp->out_p < 13) BF_FLUSH();
-	    fp->out_p = append_int(fp->out_p, c>>4);
-	    *fp->out_p++="MIDNSHP=X"[c&15];
+	    if (end-fp->uncomp_p < 13) BF_FLUSH();
+	    fp->uncomp_p = append_int(fp->uncomp_p, c>>4);
+	    *fp->uncomp_p++="MIDNSHP=X"[c&15];
 	}
 	if (n==0) {
-	    if (end-fp->out_p < 2) BF_FLUSH();
-	    *fp->out_p++='*';
+	    if (end-fp->uncomp_p < 2) BF_FLUSH();
+	    *fp->uncomp_p++='*';
 	}
-	*fp->out_p++='\t';
+	*fp->uncomp_p++='\t';
 
 	/* NRNM */
 	if (b->mate_ref < -1 || b->mate_ref >= fp->header->nref)
@@ -2457,54 +2744,54 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	if (b->mate_ref != -1) {
 	    if (b->mate_ref == b->ref) {
-		if (end-fp->out_p < 2) BF_FLUSH();
-		*fp->out_p++ = '=';
+		if (end-fp->uncomp_p < 2) BF_FLUSH();
+		*fp->uncomp_p++ = '=';
 	    } else {
 		size_t l = strlen(fp->header->ref[b->mate_ref].name);
-		if (end-fp->out_p < l+1) BF_FLUSH();
-		memcpy(fp->out_p, fp->header->ref[b->mate_ref].name, l);
-		fp->out_p += l;
+		if (end-fp->uncomp_p < l+1) BF_FLUSH();
+		memcpy(fp->uncomp_p, fp->header->ref[b->mate_ref].name, l);
+		fp->uncomp_p += l;
 	    }
 	} else {
-	    if (end-fp->out_p < 2) BF_FLUSH();
-	    *fp->out_p++ = '*';
+	    if (end-fp->uncomp_p < 2) BF_FLUSH();
+	    *fp->uncomp_p++ = '*';
 	}
-	*fp->out_p++ = '\t';
+	*fp->uncomp_p++ = '\t';
 
 	/* MPOS */
-	if (end-fp->out_p < 12) BF_FLUSH();
-	fp->out_p = append_int(fp->out_p, b->mate_pos+1); *fp->out_p++ = '\t';
+	if (end-fp->uncomp_p < 12) BF_FLUSH();
+	fp->uncomp_p = append_int(fp->uncomp_p, b->mate_pos+1); *fp->uncomp_p++ = '\t';
 
 	/* ISIZE */
-	if (end-fp->out_p < 12) BF_FLUSH();
-	fp->out_p = append_int(fp->out_p, b->ins_size); *fp->out_p++ = '\t';
+	if (end-fp->uncomp_p < 12) BF_FLUSH();
+	fp->uncomp_p = append_int(fp->uncomp_p, b->ins_size); *fp->uncomp_p++ = '\t';
 
 	/* SEQ */
 	n = (b->len+1)/2;
 	dat = (uc *)bam_seq(b);
 
 	/* BAM encoding */
-//	while (n) {
-//	    int l = end-fp->out_p < n ? end-fp->out_p : n;
-//	    memcpy(fp->out_p, dat, l); fp->out_p += l;
-//	    n -= l; dat += l;
-//	    if (end == fp->out_p) BF_FLUSH();
-//	}
+	//	while (n) {
+	//	    int l = end-fp->uncomp_p < n ? end-fp->uncomp_p : n;
+	//	    memcpy(fp->uncomp_p, dat, l); fp->uncomp_p += l;
+	//	    n -= l; dat += l;
+	//	    if (end == fp->uncomp_p) BF_FLUSH();
+	//	}
 	if (b->len != 0) {
-	    if (end - fp->out_p < b->len + 3) BF_FLUSH();
-	    if (end - fp->out_p < b->len + 3) {
+	    if (end - fp->uncomp_p < b->len + 3) BF_FLUSH();
+	    if (end - fp->uncomp_p < b->len + 3) {
 		/* Extra long seqs need more regular checks */
 		for (i = 0; i < b->len-1; i+=2) {
-		    if (end - fp->out_p < 3) BF_FLUSH();
-		    *fp->out_p++ = "=ACMGRSVTWYHKDBN"[*dat >> 4];
-		    *fp->out_p++ = "=ACMGRSVTWYHKDBN"[*dat++ & 15];
+		    if (end - fp->uncomp_p < 3) BF_FLUSH();
+		    *fp->uncomp_p++ = "=ACMGRSVTWYHKDBN"[*dat >> 4];
+		    *fp->uncomp_p++ = "=ACMGRSVTWYHKDBN"[*dat++ & 15];
 		}
 		if (i < b->len) {
-		    if (end - fp->out_p < 3) BF_FLUSH();
-		    *fp->out_p++ = "=ACMGRSVTWYHKDBN"[*dat >> 4];
+		    if (end - fp->uncomp_p < 3) BF_FLUSH();
+		    *fp->uncomp_p++ = "=ACMGRSVTWYHKDBN"[*dat >> 4];
 		}
 	    } else {
-		unsigned char *cp = fp->out_p;
+		unsigned char *cp = fp->uncomp_p;
 		int n = b->len & ~1;
 		for (i = 0; i < n; i+=2) {
 #ifdef ALLOW_UAC
@@ -2519,13 +2806,13 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		if (i < b->len) {
 		    *cp++ = "=ACMGRSVTWYHKDBN"[*dat >> 4];
 		}
-		fp->out_p = cp;
+		fp->uncomp_p = cp;
 	    }
 	} else {
-	    if (end - fp->out_p < 2) BF_FLUSH();
-	    *fp->out_p++ = '*';
+	    if (end - fp->uncomp_p < 2) BF_FLUSH();
+	    *fp->uncomp_p++ = '*';
 	}
-	*fp->out_p++ = '\t';
+	*fp->uncomp_p++ = '\t';
 
 	/* QUAL */
 	n = b->len;
@@ -2534,27 +2821,27 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	if (dat - (uc *)b + b->len > b->blk_size + offsetof(bam_seq_t, ref))
 	    return -1;
 	/* BAM encoding */
-//	while (n) {
-//	    int l = end-fp->out_p < n ? end-fp->out_p : n;
-//	    memcpy(fp->out_p, dat, l); fp->out_p += l;
-//	    n -= l; dat += l;
-//	    if (end == fp->out_p) BF_FLUSH();
-//	}
+	//	while (n) {
+	//	    int l = end-fp->uncomp_p < n ? end-fp->uncomp_p : n;
+	//	    memcpy(fp->uncomp_p, dat, l); fp->uncomp_p += l;
+	//	    n -= l; dat += l;
+	//	    if (end == fp->uncomp_p) BF_FLUSH();
+	//	}
 	if (b->len != 0) {
 	    if (*dat == 0xff) {
-		if (end - fp->out_p < 2) BF_FLUSH();
-		*fp->out_p++ = '*';
+		if (end - fp->uncomp_p < 2) BF_FLUSH();
+		*fp->uncomp_p++ = '*';
 		dat += b->len;
 	    } else {
-		if (end - fp->out_p < b->len + 3) BF_FLUSH();
-		if (end - fp->out_p < b->len + 3) {
+		if (end - fp->uncomp_p < b->len + 3) BF_FLUSH();
+		if (end - fp->uncomp_p < b->len + 3) {
 		    /* Long seqs */
 		    for (i = 0; i < b->len; i++) {
-			if (end - fp->out_p < 3) BF_FLUSH();
-			*fp->out_p++ = *dat++ + '!';
+			if (end - fp->uncomp_p < 3) BF_FLUSH();
+			*fp->uncomp_p++ = *dat++ + '!';
 		    }
 		} else {
-		    unsigned char *cp = fp->out_p;
+		    unsigned char *cp = fp->uncomp_p;
 		    i = 0;
 #ifdef ALLOW_UAC
 		    int n = b->len & ~3;
@@ -2568,59 +2855,59 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		    for (; i < b->len; i++) {
 			*cp++ = *dat++ + '!';
 		    }
-		    fp->out_p = cp;
+		    fp->uncomp_p = cp;
 		}
 	    }
 	} else {
-	    if (end - fp->out_p < 2) BF_FLUSH();
-	    *fp->out_p++ = '*';
+	    if (end - fp->uncomp_p < 2) BF_FLUSH();
+	    *fp->uncomp_p++ = '*';
 	}
 
 	/* Auxiliary tags */
 	auxh = NULL;
 	while (0 == bam_aux_iter(b, &auxh, aux_key, &type, &val)) {
-	    if (end - fp->out_p < 20) BF_FLUSH();
-	    *fp->out_p++ = '\t';
-	    *fp->out_p++ = aux_key[0];
-	    *fp->out_p++ = aux_key[1];
-	    *fp->out_p++ = ':';
-	    *fp->out_p++ = type;
-	    *fp->out_p++ = ':';
+	    if (end - fp->uncomp_p < 20) BF_FLUSH();
+	    *fp->uncomp_p++ = '\t';
+	    *fp->uncomp_p++ = aux_key[0];
+	    *fp->uncomp_p++ = aux_key[1];
+	    *fp->uncomp_p++ = ':';
+	    *fp->uncomp_p++ = type;
+	    *fp->uncomp_p++ = ':';
 	    switch(type) {
 	    case 'A':
-		*fp->out_p++ = val.i;
+		*fp->uncomp_p++ = val.i;
 		break;
 
 	    case 'C':
-		fp->out_p = append_int(fp->out_p, (uint8_t)val.i);
+		fp->uncomp_p = append_int(fp->uncomp_p, (uint8_t)val.i);
 		break;
 
 	    case 'c':
-		fp->out_p = append_int(fp->out_p, (int8_t)val.i);
+		fp->uncomp_p = append_int(fp->uncomp_p, (int8_t)val.i);
 		break;
 
 	    case 'S':
-		fp->out_p = append_int(fp->out_p, (uint16_t)val.i);
+		fp->uncomp_p = append_int(fp->uncomp_p, (uint16_t)val.i);
 		break;
 
 	    case 's':
-		fp->out_p = append_int(fp->out_p, (int16_t)val.i);
+		fp->uncomp_p = append_int(fp->uncomp_p, (int16_t)val.i);
 		break;
 
 	    case 'I':
-		fp->out_p = append_int(fp->out_p, (uint32_t)val.i);
+		fp->uncomp_p = append_int(fp->uncomp_p, (uint32_t)val.i);
 		break;
 
 	    case 'i':
-		fp->out_p = append_int(fp->out_p, (int32_t)val.i);
+		fp->uncomp_p = append_int(fp->uncomp_p, (int32_t)val.i);
 		break;
 
 	    case 'f':
-		fp->out_p += sprintf((char *)fp->out_p, "%g", val.f);
+		fp->uncomp_p += sprintf((char *)fp->uncomp_p, "%g", val.f);
 		break;
 
 	    case 'd':
-		fp->out_p += sprintf((char *)fp->out_p, "%g", val.d);
+		fp->uncomp_p += sprintf((char *)fp->uncomp_p, "%g", val.d);
 		break;
 
 	    case 'Z':
@@ -2628,10 +2915,10 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		size_t l = strlen(val.s), l2;
 		char *dat = val.s;
 		do {
-		    if (end - fp->out_p < l+2) BF_FLUSH();
-		    l2 = MIN(l, end-fp->out_p);
-		    memcpy(fp->out_p, dat, l2);
-		    fp->out_p += l2;
+		    if (end - fp->uncomp_p < l+2) BF_FLUSH();
+		    l2 = MIN(l, end-fp->uncomp_p);
+		    memcpy(fp->uncomp_p, dat, l2);
+		    fp->uncomp_p += l2;
 		    l   -= l2;
 		    dat += l2;
 		} while (l);
@@ -2641,7 +2928,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    case 'B': {
 		uint32_t count = val.B.n, sz, j;
 		unsigned char *s = val.B.s;
-		*fp->out_p++ = val.B.t;
+		*fp->uncomp_p++ = val.B.t;
 
 		/*
 		 * Chew through count items 4000 at a time.
@@ -2658,61 +2945,61 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		    int i_start = j;
 		    int i_end = j + 4000 < count ? j + 4000 : count;
 
-		    if (end - fp->out_p < 5+(i_end-i_start)*sz) BF_FLUSH();
+		    if (end - fp->uncomp_p < 5+(i_end-i_start)*sz) BF_FLUSH();
 
 		    switch (val.B.t) {
 			int i;
 		    case 'C':
 			for (i = i_start; i < i_end; i++, s++) {
-			    *fp->out_p++ = ',';
-			    fp->out_p = append_int(fp->out_p, (uint8_t)s[0]);
+			    *fp->uncomp_p++ = ',';
+			    fp->uncomp_p = append_int(fp->uncomp_p, (uint8_t)s[0]);
 			}
 			break;
 
 		    case 'c':
 			for (i = i_start; i < i_end; i++, s++) {
-			    *fp->out_p++ = ',';
-			    fp->out_p = append_int(fp->out_p, (int8_t)s[0]);
+			    *fp->uncomp_p++ = ',';
+			    fp->uncomp_p = append_int(fp->uncomp_p, (int8_t)s[0]);
 			}
 			break;
 
 		    case 'S':
 			for (i = i_start; i < i_end; i++, s+=2) {
-			    *fp->out_p++ = ',';
-			    fp->out_p = append_int(fp->out_p,
-						   (uint16_t)((s[0] << 0) +
-							      (s[1] << 8)));
+			    *fp->uncomp_p++ = ',';
+			    fp->uncomp_p = append_int(fp->uncomp_p,
+						      (uint16_t)((s[0] << 0) +
+								 (s[1] << 8)));
 			}
 			break;
 
 		    case 's':
 			for (i = i_start; i < i_end; i++, s+=2) {
-			    *fp->out_p++ = ',';
-			    fp->out_p = append_int(fp->out_p,
-						   (int16_t)((s[0] << 0) +
-							     (s[1] << 8)));
+			    *fp->uncomp_p++ = ',';
+			    fp->uncomp_p = append_int(fp->uncomp_p,
+						      (int16_t)((s[0] << 0) +
+								(s[1] << 8)));
 			}
 			break;
 
 		    case 'I':
 			for (i = i_start; i < i_end; i++, s+=4) {
-			    *fp->out_p++ = ',';
-			    fp->out_p = append_uint(fp->out_p,
-						    (uint32_t)((s[0] << 0) +
-							       (s[1] << 8) +
-							       (s[2] <<16) +
-							       (s[3] <<24)));
+			    *fp->uncomp_p++ = ',';
+			    fp->uncomp_p = append_uint(fp->uncomp_p,
+						       (uint32_t)((s[0] << 0) +
+								  (s[1] << 8) +
+								  (s[2] <<16) +
+								  (s[3] <<24)));
 			}
 			break;
 
 		    case 'i':
 			for (i = i_start; i < i_end; i++, s+=4) {
-			    *fp->out_p++ = ',';
-			    fp->out_p = append_int(fp->out_p,
-						   (int32_t)((s[0] << 0) +
-							     (s[1] << 8) +
-							     (s[2] <<16) +
-							     (s[3] <<24)));
+			    *fp->uncomp_p++ = ',';
+			    fp->uncomp_p = append_int(fp->uncomp_p,
+						      (int32_t)((s[0] << 0) +
+								(s[1] << 8) +
+								(s[2] <<16) +
+								(s[3] <<24)));
 			}
 			break;
 
@@ -2722,12 +3009,12 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 			    unsigned char c[4];
 			} u;
 			for (i = i_start; i < i_end; i++, s+=4) {
-			    *fp->out_p++ = ',';
+			    *fp->uncomp_p++ = ',';
 			    u.c[0] = s[0];
 			    u.c[1] = s[1];
 			    u.c[2] = s[2];
 			    u.c[3] = s[3];
-			    fp->out_p += sprintf((char *)fp->out_p, "%g", u.f);
+			    fp->uncomp_p += sprintf((char *)fp->uncomp_p, "%g", u.f);
 			}
 			break;
 		    }
@@ -2745,11 +3032,11 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    }
 	}
 
-	*fp->out_p++ = '\n';
+	*fp->uncomp_p++ = '\n';
 
     } else {
 	/* BAM */
-	unsigned char *end = fp->out + BGZF_BUFF_SIZE, *ptr;
+	unsigned char *end = fp->uncomp + BGZF_BUFF_SIZE, *ptr;
 	size_t to_write;
 	uint32_t i32;
 #ifndef ALLOW_UAC
@@ -2762,11 +3049,12 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	int i, n = bam_cigar_len(b);
 #endif
 
-#define CF_FLUSH()							\
-	do {								\
-	    if (bgzf_write(fp->fp, fp->level, fp->out, fp->out_p - fp->out)) \
-		return -1;						\
-	    fp->out_p=fp->out;						\
+#define CF_FLUSH()					\
+	do {						\
+	    if (BGZF_WRITE(fp, fp->level, fp->uncomp,	\
+			   fp->uncomp_p - fp->uncomp))	\
+		return -1;				\
+	    fp->uncomp_p=fp->uncomp;			\
 	} while(0)
 
 	/* If big endian, byte swap inline, write it out, and byte swap back */
@@ -2790,38 +3078,38 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 #ifdef ALLOW_UAC
 	/* Room for fixed size bits + name */
-	if (end - fp->out_p < 4) CF_FLUSH();
+	if (end - fp->uncomp_p < 4) CF_FLUSH();
 	to_write = b->blk_size;
-	STORE_UINT32(fp->out_p, to_write);
+	STORE_UINT32(fp->uncomp_p, to_write);
 
         ptr = (unsigned char *)&b->ref;
 #else
 	/* Room for fixed size bits + name */
-	if (end - fp->out_p < 36+257) CF_FLUSH();
+	if (end - fp->uncomp_p < 36+257) CF_FLUSH();
 	to_write = b->blk_size - (round4(name_len) - name_len);
 	//to_write = b->blk_size;
-	STORE_UINT32(fp->out_p, to_write);
+	STORE_UINT32(fp->uncomp_p, to_write);
 
         ptr = (unsigned char *)&b->ref;
 
 	/* Do fixed size bits + name first */
-	memcpy(fp->out_p, ptr, 32 + name_len);
-	fp->out_p += 32 + name_len;
+	memcpy(fp->uncomp_p, ptr, 32 + name_len);
+	fp->uncomp_p += 32 + name_len;
 	to_write  -= 32 + name_len;
 	ptr        = (unsigned char *)cigar;
 #endif
 
         do {
-            size_t blk_len = MIN(to_write, end - fp->out_p);
-            memcpy(fp->out_p, ptr, blk_len);
-            fp->out_p += blk_len;
+            size_t blk_len = MIN(to_write, end - fp->uncomp_p);
+            memcpy(fp->uncomp_p, ptr, blk_len);
+            fp->uncomp_p += blk_len;
             to_write  -= blk_len;
             ptr       += blk_len;
 
             if (to_write) {
                 //printf("flushing %d+%d\n",
                 //       (int)(ptr-(unsigned char *)&b->ref),
-                //       (int)(fp->out_p-fp->out));
+                //       (int)(fp->uncomp_p-fp->uncomp));
                 CF_FLUSH();
             }
         } while(to_write > 0);
@@ -2907,7 +3195,7 @@ int bam_write_header(bam_file_t *out) {
 
 	while (len) {
 	    int sz = BGZF_BUFF_SIZE < len ? BGZF_BUFF_SIZE : len;
-	    if (bgzf_write(out->fp, out->level, cp, sz))
+	    if (BGZF_WRITE(out, out->level, cp, sz))
 		return -1;
 	    cp  += sz;
 	    len -= sz;
@@ -2923,3 +3211,39 @@ int bam_write_header(bam_file_t *out) {
 }
 
 
+/* 
+ * Sets options on the bam_file_t. See BAM_OPT_* definitions in bam.h.
+ * Use this immediately after opening.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int bam_set_option(bam_file_t *fd, enum bam_option opt, ...) {
+    int r;
+    va_list args;
+
+    va_start(args, opt);
+    r = bam_set_voption(fd, opt, args);
+    va_end(args);
+
+    return r;
+}
+
+/*
+ * Sets options on the bam_file_t. See BAM_OPT_* definitions in bam.h.
+ * Use this immediately after opening.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args) {
+    switch (opt) {
+    case BAM_OPT_THREAD_POOL:
+	fd->pool = va_arg(args, t_pool *);
+	fd->equeue = t_results_queue_init();
+	fd->dqueue = t_results_queue_init();
+	break;
+    }
+
+    return 0;
+}
