@@ -24,6 +24,10 @@
 #define Z_CRAM_STRAT Z_FILTERED
 //#define Z_CRAM_STRAT Z_DEFAULT_STRATEGY
 
+static int process_one_read(cram_fd *fd, cram_container *c,
+			    cram_slice *s, cram_record *cr,
+			    bam_seq_t *b, int rnum);
+
 /*
  * Returns index of val into key.
  * Basically strchr(key, val)-key;
@@ -659,8 +663,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	if (!(s->block[s->ref_id] = cram_new_block(EXTERNAL, CRAM_EXT_REF)))
 	    return -1;
 	BLOCK_APPEND(s->block[s->ref_id],
-		     fd->ref + fd->first_base - fd->ref_start,
-		     fd->last_base - fd->first_base + 1);
+		     c->ref + c->first_base - c->ref_start,
+		     c->last_base - c->first_base + 1);
     }
 
     core = s->block[0];
@@ -1008,6 +1012,42 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     cram_block_compression_hdr *h = c->comp_hdr;
     cram_block *c_hdr;
     int multi_ref = 0;
+
+    /* Turn bams into cram_records and gather basic stats */
+    if (c->bams) {
+	int rec;
+
+	if (!fd->no_ref) {
+	    bam_seq_t *b = c->bams[0];
+
+	    pthread_mutex_lock(&fd->metrics_lock); // sorry!
+	    //fprintf(stderr, "Getting ref %d\n", bam_ref(b));
+	    if (NULL == (cram_get_ref(fd, bam_ref(b), 1, 0)) &&
+		bam_ref(b) >= 0) {
+		fprintf(stderr, "Failed to load reference #%d\n", bam_ref(b));
+		return -1;
+	    }
+	    c->ref_start = fd->ref_start;
+	    c->ref_id = fd->ref_id;
+	    c->ref = fd->ref;
+	    c->ref_end = fd->ref_end;
+	    //fprintf(stderr, "%p(c)->ref=%p\n", c, c->ref);
+	    pthread_mutex_unlock(&fd->metrics_lock);
+
+	    if (!c->ref && bam_ref(b) >= 0) {
+		fprintf(stderr, "No reference found\n");
+		return -1;
+	    }
+	}
+
+	for (rec = 0; rec < c->curr_rec; rec++) {
+	    cram_slice *s = c->slice;
+	    process_one_read(fd, c, s, &s->crecs[rec], c->bams[rec], rec);
+	    free(c->bams[rec]);
+	}
+	free(c->bams);
+	c->bams = NULL;
+    }
 
     /* Detect if a multi-seq container */
     cram_stats_encoding(fd, c->RI_stats);
@@ -1838,6 +1878,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     return rg;
 }
 
+
 /*
  * Handles creation of a new container, flushing any existing slices as
  * appropriate.
@@ -1864,8 +1905,8 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 	    s->hdr->ref_seq_span  = 0;
 	} else {
 	    s->hdr->ref_seq_id    = c->curr_ref;
-	    s->hdr->ref_seq_start = fd->first_base;
-	    s->hdr->ref_seq_span  = fd->last_base - fd->first_base + 1;
+	    s->hdr->ref_seq_start = c->first_base;
+	    s->hdr->ref_seq_span  = c->last_base - c->first_base + 1;
 	}
 	s->hdr->num_records   = c->curr_rec;
 
@@ -1875,8 +1916,8 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 		MD5_CTX md5;
 		MD5_Init(&md5);
 		MD5_Update(&md5,
-			   fd->ref + fd->first_base - fd->ref_start,
-			   fd->last_base - fd->first_base + 1);
+			   c->ref + c->first_base - c->ref_start,
+			   c->last_base - c->first_base + 1);
 		MD5_Final(s->hdr->md5, &md5);
 	    } else {
 		memset(s->hdr->md5, 0, 16);
@@ -1886,7 +1927,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 	if (c->curr_slice == 0) {
 	    if (c->ref_seq_id != s->hdr->ref_seq_id)
 		c->ref_seq_id  = s->hdr->ref_seq_id;
-	    c->ref_seq_start = fd->first_base;
+	    c->ref_seq_start = c->first_base;
 	}
 
 	c->curr_slice++;
@@ -1930,7 +1971,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 	c->curr_ref = bam_ref(b);
     }
 
-    c->last_pos = fd->first_base = fd->last_base = bam_pos(b)+1;
+    c->last_pos = c->first_base = c->last_base = bam_pos(b)+1;
 
     /* New slice */
     c->slice = c->slices[c->curr_slice] =
@@ -1953,109 +1994,22 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 
     return c;
 }
-					      
 
 /*
- * Write iterator: put BAM format sequences into a CRAM file.
- * We buffer up a containers worth of data at a time.
+ * Converts a single bam record into a cram record.
+ * Possibly used within a thread.
  *
- * FIXME: break this into smaller pieces.
- *
- * Returns 0 on success
+ * Returns 0 on success;
  *        -1 on failure
  */
-int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
-    cram_container *c;
-    cram_record *cr;
-    cram_slice *s;
+static int process_one_read(cram_fd *fd, cram_container *c,
+			    cram_slice *s, cram_record *cr,
+			    bam_seq_t *b, int rnum) {
     int i, fake_qual = 0;
     char *cp, *rg;
     char *ref, *seq, *qual;
 
-    if (!fd->ctr) {
-	fd->ctr = cram_new_container(fd->seqs_per_slice,
-				     fd->slices_per_container);
-	if (!fd->ctr)
-	    return -1;
-	fd->ctr->record_counter = fd->record_counter;
-    }
-    c = fd->ctr;
-
-    if (!c->slice || c->curr_rec == c->max_rec ||
-	(bam_ref(b) != c->curr_ref && c->curr_ref >= -1)) {
-	int slice_rec, curr_rec, multi_seq = fd->multi_seq == 1;
-	int curr_ref = c->slice ? c->curr_ref : bam_ref(b);
-
-
-	/*
-	 * Start packing slices when we routinely have under 1/4tr full.
-	 *
-	 * This option isn't available if we choose to embed references
-	 * since we can only have one per slice.
-	 */
-	if (fd->multi_seq == -1 && c->curr_rec < c->max_rec/4+10 &&
-	    fd->last_slice && fd->last_slice < c->max_rec/4+10 &&
-	    !fd->embed_ref) {
-	    if (fd->verbose && !c->multi_seq)
-		fprintf(stderr, "Multi-ref enabled for this container\n");
-	    multi_seq = 1;
-	}
-
-	slice_rec = c->slice_rec;
-	curr_rec  = c->curr_rec;
-
-	if (fd->version == CRAM_1_VERS ||
-	    c->curr_rec == c->max_rec || fd->multi_seq != 1 || !c->slice)
-	    if (NULL == (c = cram_next_container(fd, b)))
-		return -1;
-
-	/*
-	 * Due to our processing order, some things we've already done we
-	 * cannot easily undo. So when we first notice we should be packing
-	 * multiple sequences per container we emit the small partial
-	 * container as-is and then start a fresh one in a different mode.
-	 */
-	if (multi_seq) {
-	    fd->multi_seq = 1;
-	    c->multi_seq = 1;
-	    c->pos_sorted = 0; // required atm for multi_seq slices
-	}
-
-	fd->last_slice = curr_rec - slice_rec;
-	c->slice_rec = c->curr_rec;
-
-	if (!fd->no_ref) {
-	    if (NULL == (cram_get_ref(fd, bam_ref(b), 1, 0)) &&
-		bam_ref(b) >= 0) {
-		fprintf(stderr, "Failed to load reference #%d\n", bam_ref(b));
-		return -1;
-	    }
-	}
-
-	// Have we seen this reference before?
-	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && 
-	    fd->refs->ref_id[bam_ref(b)]->count++ &&
-	    !fd->embed_ref) {
-	    //fprintf(stderr, "Currently cram_put_bam_seq() does not support "
-	    //	    "unsorted data. Aborting\n");
-	    //return -1;
-	    fd->unsorted = 1;
-	    fd->multi_seq = 1;
-	}
-
-	c->curr_ref = bam_ref(b);
-    }
-
-    ref = fd->ref;
-    if (!ref && bam_ref(b) >= 0 && !fd->no_ref) {
-	fprintf(stderr, "No reference found\n");
-	return -1;
-    }
-
-    // Create a cram_record
-    s = c->slice;
-    cr = &s->crecs[c->curr_rec++]; // cache c->slice->crecs as c->rec?
-
+    ref = c->ref;
 
     //fprintf(stderr, "%s => %d\n", rg ? rg : "\"\"", cr->rg);
 
@@ -2169,7 +2123,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    switch (cig_op) {
 		int l;
 
-	    // Don't trust = and X ops to be correct.
+		// Don't trust = and X ops to be correct.
 	    case BAM_CMATCH:
 	    case BAM_CBASE_MATCH:
 	    case BAM_CBASE_MISMATCH:
@@ -2177,8 +2131,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 		//	cig_len, &ref[apos], cig_len, &seq[spos]);
 		l = 0;
 		if (!fd->no_ref && cr->len) {
-		    int end = cig_len+apos < fd->ref_end
-			? cig_len : fd->ref_end - apos;
+		    int end = cig_len+apos < c->ref_end
+			? cig_len : c->ref_end - apos;
 		    for (l = 0; l < end && seq[spos]; l++, apos++, spos++) {
 			if (ref[apos] != seq[spos]) {
 			    //fprintf(stderr, "Subst: %d; %c vs %c\n",
@@ -2263,7 +2217,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    }
 	}
 	fake_qual = spos;
-	cr->aend = MIN(apos, fd->ref_end);
+	cr->aend = MIN(apos, c->ref_end);
 	cram_stats_add(c->FN_stats, cr->nfeature);
     } else {
 	// Unmapped
@@ -2312,7 +2266,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	HashData hd;
 	HashItem *hi;
 
-	hd.i = c->curr_rec-1;
+	hd.i = rnum;
 	//fprintf(stderr, "Checking %"PRId64"/%.*s\t", hd.i,
 	//	cr->name_len, DSTRING_STR(s->name_ds)+cr->name);
 	if (cr->flags & BAM_FPAIRED) {
@@ -2330,7 +2284,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    
 	    //fprintf(stderr, "paired %"PRId64"\n", hi->data.i);
 
- 	    // copy from p to cr
+	    // copy from p to cr
 	    cr->mate_pos = p->apos;
 	    cram_stats_add(c->NP_stats, cr->mate_pos);
 
@@ -2371,7 +2325,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    p->mate_line = hd.i - (hi->data.i + 1);
 	    cram_stats_add(c->NF_stats, p->mate_line);
 
-	    hi->data.i = c->curr_rec-1;
+	    hi->data.i = rnum;
 	    //HashTableDel(s->pair, hi, 0);
 	} else {
 	    //fprintf(stderr, "unpaired\n");
@@ -2396,22 +2350,114 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	}
     }
 
-
     cr->mqual       = bam_map_qual(b);
     cram_stats_add(c->MQ_stats, cr->mqual);
 
     cr->mate_ref_id = bam_mate_ref(b);
     cram_stats_add(c->NS_stats, cr->mate_ref_id);
 
-    fd->record_counter++;
-
     if (!(bam_flag(b) & BAM_FUNMAP)) {
-	if (fd->first_base > cr->apos)
-	    fd->first_base = cr->apos;
+	if (c->first_base > cr->apos)
+	    c->first_base = cr->apos;
 
-	if (fd->last_base < cr->aend)
-	    fd->last_base = cr->aend;
+	if (c->last_base < cr->aend)
+	    c->last_base = cr->aend;
     }
+
+    return 0;
+}
+
+/*
+ * Write iterator: put BAM format sequences into a CRAM file.
+ * We buffer up a containers worth of data at a time.
+ *
+ * FIXME: break this into smaller pieces.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
+    cram_container *c;
+    cram_record *cr;
+    cram_slice *s;
+    int i, fake_qual = 0;
+    char *cp, *rg;
+    char *ref, *seq, *qual;
+
+    if (!fd->ctr) {
+	fd->ctr = cram_new_container(fd->seqs_per_slice,
+				     fd->slices_per_container);
+	if (!fd->ctr)
+	    return -1;
+	fd->ctr->record_counter = fd->record_counter;
+    }
+    c = fd->ctr;
+
+    if (!c->slice || c->curr_rec == c->max_rec ||
+	(bam_ref(b) != c->curr_ref && c->curr_ref >= -1)) {
+	int slice_rec, curr_rec, multi_seq = fd->multi_seq == 1;
+	int curr_ref = c->slice ? c->curr_ref : bam_ref(b);
+
+
+	/*
+	 * Start packing slices when we routinely have under 1/4tr full.
+	 *
+	 * This option isn't available if we choose to embed references
+	 * since we can only have one per slice.
+	 */
+	if (fd->multi_seq == -1 && c->curr_rec < c->max_rec/4+10 &&
+	    fd->last_slice && fd->last_slice < c->max_rec/4+10 &&
+	    !fd->embed_ref) {
+	    if (fd->verbose && !c->multi_seq)
+		fprintf(stderr, "Multi-ref enabled for this container\n");
+	    multi_seq = 1;
+	}
+
+	slice_rec = c->slice_rec;
+	curr_rec  = c->curr_rec;
+
+	if (fd->version == CRAM_1_VERS ||
+	    c->curr_rec == c->max_rec || fd->multi_seq != 1 || !c->slice)
+	    if (NULL == (c = cram_next_container(fd, b)))
+		return -1;
+
+	/*
+	 * Due to our processing order, some things we've already done we
+	 * cannot easily undo. So when we first notice we should be packing
+	 * multiple sequences per container we emit the small partial
+	 * container as-is and then start a fresh one in a different mode.
+	 */
+	if (multi_seq) {
+	    fd->multi_seq = 1;
+	    c->multi_seq = 1;
+	    c->pos_sorted = 0; // required atm for multi_seq slices
+	}
+
+	fd->last_slice = curr_rec - slice_rec;
+	c->slice_rec = c->curr_rec;
+
+	// Have we seen this reference before?
+	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && 
+	    fd->refs->ref_id[bam_ref(b)]->count++ &&
+	    !fd->embed_ref) {
+	    //fprintf(stderr, "Currently cram_put_bam_seq() does not support "
+	    //	    "unsorted data. Aborting\n");
+	    //return -1;
+	    fd->unsorted = 1;
+	    fd->multi_seq = 1;
+	}
+
+	c->curr_ref = bam_ref(b);
+    }
+
+    if (!c->bams) {
+	c->bams = malloc(c->max_rec * sizeof(bam_seq_t *));
+	if (!c->bams)
+	    return -1;
+    }
+    c->bams[c->curr_rec++] = bam_dup(b);
+
+    fd->record_counter++;
 
     return 0;
 }

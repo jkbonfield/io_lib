@@ -1335,6 +1335,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 	if (0 == stat(path, &sb) && (fp = fopen(path, "r"))) {
 	    r->length = sb.st_size;
 	    r->offset = r->line_length = r->bases_per_line = 0;
+
 	    r->fn = string_dup(fd->refs->pool, path);
 
 	    if (fd->refs->fp)
@@ -1379,9 +1380,9 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 
 	if (!fd->refs->fn)
 	    return -1;
+
 	if (-1 == refs2id(fd->refs, fd->header))
 	    return -1;
-
 	if (!fd->refs->ref_id || !fd->refs->ref_id[id])
 	    return -1;
 
@@ -1428,6 +1429,27 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     return 0;
 }
 
+void cram_ref_incr(refs_t *r, int id) {
+    if (id < 0 || !r->ref_id[id]->seq)
+	return;
+
+    /* FIXME: add mutex */
+    ++r->ref_id[id]->count;
+}
+
+void cram_ref_decr(refs_t *r, int id) {
+    if (id < 0 || !r->ref_id[id]->seq)
+	return;
+
+    /* FIXME: add mutex */
+    if (--r->ref_id[id]->count <= 0) {
+	if (r->ref_id[id]->seq) {
+	    free(r->ref_id[id]->seq);
+	    r->ref_id[id]->seq = NULL;
+	}
+    }
+}
+
 /*
  * Returns a portion of a reference sequence from start to end inclusive.
  * The returned pointer is owned by the cram_file fd and should not be freed
@@ -1444,6 +1466,8 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     ref_entry *r;
     off_t offset, len;
 
+    pthread_mutex_lock(&fd->ref_lock);
+
     if (fd->verbose)
 	fprintf(stderr, "cram_get_ref on fd %p, id %d, range %d..%d\n",
 		fd, id, start, end);
@@ -1456,6 +1480,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     if (id == fd->ref_id &&
 	start >= fd->ref_start &&
 	end <= fd->ref_end) {
+	pthread_mutex_unlock(&fd->ref_lock);
 	return fd->ref;
     }
 
@@ -1469,20 +1494,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	//	fd->refs->ref_id[id]->seq);
 
 	// Decrement old seq counter and free if now unused.
-	pthread_mutex_lock(&fd->ref_lock);
-	if (fd->ref_id >= 0 && fd->refs->ref_id[fd->ref_id]->seq) {
-	    if (--fd->refs->ref_id[fd->ref_id]->count <= 0) {
-		//fprintf(stderr, "Freeing last use of ref %d\n", fd->ref_id);
-		free(fd->refs->ref_id[fd->ref_id]->seq);
-		fd->refs->ref_id[fd->ref_id]->seq = NULL;
-	    }
-	}
+	cram_ref_decr(fd->refs, fd->ref_id);
 	
 	// Inc reference counter for new sequence
-	if (id >= 0 && fd->refs->ref_id[id]->seq)
-	    fd->refs->ref_id[id]->count++;
-
-	pthread_mutex_unlock(&fd->ref_lock);
+	cram_ref_incr(fd->refs, id);
     }
 
     //struct timeval tv1, tv2;
@@ -1491,27 +1506,32 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     /* Unmapped ref ID */
     if (id < 0) {
 	if (fd->ref_free) {
+	    fprintf(stderr, "Freeing ref %d, %p\n", fd->ref_id, fd->ref_free);
 	    free(fd->ref_free);
 	    fd->ref_free = NULL;
 	}
 	fd->ref = NULL;
 	fd->ref_id = id;
+	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
     }
 
     /* Does this ID exist? */
     if (id >= fd->refs->nref) {
 	fprintf(stderr, "No reference found for id %d\n", id);
+	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
     }
 
     if (!fd->refs || !fd->refs->ref_id[id]) {
 	fprintf(stderr, "No reference found for id %d\n", id);
+	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
     }
 
     if (!(r = fd->refs->ref_id[id])) {
 	fprintf(stderr, "No reference found for id %d\n", id);
+	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
     }
 
@@ -1525,6 +1545,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     if (r->length == 0) {
 	if (cram_populate_ref(fd, id, r) == -1) {
 	    fprintf(stderr, "Failed to populate reference for id %d\n", id);
+	    pthread_mutex_unlock(&fd->ref_lock);
 	    return NULL;
 	}
 	r = fd->refs->ref_id[id];
@@ -1556,6 +1577,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	fd->ref       = r->seq;
 	fd->ref_start = 1;
 	fd->ref_end   = r->length;
+	pthread_mutex_unlock(&fd->ref_lock);
 	return fd->ref;
     }
 
@@ -1581,25 +1603,30 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	fd->refs->fn = r->fn;
 	if (!(fd->refs->fp = fopen(fd->refs->fn, "r"))) {
 	    perror(fd->refs->fn);
+	    pthread_mutex_unlock(&fd->ref_lock);
 	    return NULL;
 	}
     }
 
     if (0 != fseeko(fd->refs->fp, offset, SEEK_SET)) {
 	perror("fseeko() on reference file");
+	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
     }
 
     // Load the data enmasse and then strip whitespace as we go 
     if (fd->ref_free) {
+	fprintf(stderr, "Freeing ref %d, %p\n", fd->ref_id, fd->ref_free);
 	free(fd->ref_free);
 	fd->ref_free = NULL;
     }
 
     //fprintf(stderr, "%p Allocating %d bytes for ref %d\n", fd, (int)len, id);
 
-    if (!(fd->ref = malloc(len)))
+    if (!(fd->ref = malloc(len))) {
+	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
+    }
 
     if (fd->verbose)
 	fprintf(stderr, "Load ref %d (%d..%d) = %p\n",
@@ -1607,6 +1634,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     if (len != fread(fd->ref, 1, len, fd->refs->fp)) {
 	perror("fread() on reference file");
+	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
     }
 
@@ -1628,6 +1656,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
 	if (cp_to - fd->ref != end-start+1) {
 	    fprintf(stderr, "Malformed reference file?\n");
+	    pthread_mutex_unlock(&fd->ref_lock);
 	    return NULL;
 	}
     }
@@ -1642,13 +1671,13 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     if ((fd->unsorted && start == 1 && end == r->length) || fd->shared_ref) {
 	r->seq = fd->ref;
-	pthread_mutex_lock(&fd->ref_lock);
 	r->count = 1;
-	pthread_mutex_unlock(&fd->ref_lock);
 	fd->ref_free = NULL;
     } else {
 	fd->ref_free = fd->ref;
     }
+
+    pthread_mutex_unlock(&fd->ref_lock);
 
     return fd->ref;
 }
@@ -1707,6 +1736,8 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->pos_sorted = 1;
     c->max_apos   = 0;
     c->multi_seq  = 0;
+
+    c->bams = NULL;
 
     if (!(c->slices = (cram_slice **)calloc(nslice, sizeof(cram_slice *))))
 	return NULL;
@@ -1985,11 +2016,11 @@ static int cram_flush_container2(cram_fd *fd, cram_container *c) {
  */
 int cram_flush_container(cram_fd *fd, cram_container *c) {
     /* Copy fd globals to container, to allow multi-threading */
-    c->ref_start = fd->ref_start;
-    c->first_base = fd->first_base;
-    c->last_base = fd->last_base;
-    c->ref_id = fd->ref_id;
-    c->ref = fd->ref;
+    //c->ref_start = fd->ref_start;
+    //c->first_base = fd->first_base;
+    //c->last_base = fd->last_base;
+    //c->ref_id = fd->ref_id;
+    //c->ref = fd->ref;
 
     /* Encode the container blocks and generate compression header */
     if (0 != cram_encode_container(fd, c))
@@ -2012,12 +2043,6 @@ void *cram_flush_thread(void *arg) {
 	return NULL;
     }
 
-    if (j->c->ref_seq_id >= 0) {
-	pthread_mutex_lock(&j->fd->ref_lock);
-	j->fd->refs->ref_id[j->c->ref_seq_id]->count--;
-	pthread_mutex_unlock(&j->fd->ref_lock);
-    }
-    
     return arg;
 }
 
@@ -2044,6 +2069,12 @@ static int cram_flush_result(cram_fd *fd) {
 	c->slice = NULL;
 	c->curr_slice = 0;
 
+	if (c->ref_seq_id >= 0) {
+	    pthread_mutex_lock(&fd->ref_lock);
+	    cram_ref_decr(fd->refs, c->ref_seq_id);
+	    pthread_mutex_unlock(&fd->ref_lock);
+	}
+
 	cram_free_container(c);
 
 	ret |= fflush(fd->fp) == 0 ? 0 : -1;
@@ -2062,11 +2093,11 @@ int cram_flush_container_mt(cram_fd *fd, cram_container *c) {
     //usleep(5000);
 
     /* Copy fd globals to container, to allow multi-threading */
-    c->ref_start = fd->ref_start;
-    c->first_base = fd->first_base;
-    c->last_base = fd->last_base;
-    c->ref_id = fd->ref_id;
-    c->ref = fd->ref;
+    //c->ref_start = fd->ref_start;
+    //c->first_base = fd->first_base;
+    //c->last_base = fd->last_base;
+    //c->ref_id = fd->ref_id;
+    //c->ref = fd->ref;
 
     if (!(j = malloc(sizeof(*j))))
 	return -1;
@@ -2074,7 +2105,7 @@ int cram_flush_container_mt(cram_fd *fd, cram_container *c) {
     j->c = c;
     if (c->ref_seq_id >= 0) {
 	pthread_mutex_lock(&fd->ref_lock);
-	fd->refs->ref_id[c->ref_seq_id]->count++;
+	cram_ref_incr(fd->refs, c->ref_seq_id);
 	pthread_mutex_unlock(&fd->ref_lock);
     }
     
@@ -3019,11 +3050,12 @@ int cram_close(cram_fd *fd) {
 	if (0 != cram_flush_result(fd))
 	    return -1;
 
-	t_pool_destroy(fd->pool, 0);
 	pthread_mutex_destroy(&fd->metrics_lock);
 	pthread_mutex_destroy(&fd->ref_lock);
 
 	fd->ctr = NULL; // prevent double freeing
+
+	//fprintf(stderr, "CRAM: destroy queue %p\n", fd->rqueue);
 
 	t_results_queue_destroy(fd->rqueue);
     }

@@ -475,6 +475,22 @@ int bam_close(bam_file_t *b) {
     if (b->fp)
 	r = fclose(b->fp);
 
+    if (b->pool) {
+	/* Should be no BAM jobs left in the pool, but if we abort on
+	 * and error and close early then we need to drain the pool of
+	 * jobs before destroying the results queue they are about to
+	 * append to.
+	 *
+	 * Consider adding a t_pool_terminate function or similar to
+	 * abort in-flight jobs connected to this specific results queue.
+	 */
+	//fprintf(stderr, "BAM: Draining pool\n");
+	t_pool_flush(b->pool);
+    }
+
+    //fprintf(stderr, "BAM: destroying equeue %p, dqueue %p\n",
+    //	    b->equeue, b->dqueue);
+
     if (b->equeue)
 	t_results_queue_destroy(b->equeue);
     if (b->dqueue)
@@ -603,7 +619,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 		    free(j);
 		    break;
 		}
-
+	    
 		blk = bgzf = b->comp_p;
 		b->comp_p += 10; b->comp_sz -= 10;
 
@@ -612,7 +628,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 		    free(j);
 		    return -1; /* magic number failure */
 		}
-
+	    
 		if ((bgzf[3] & 4) == 4) {
 		    /* has extra fields, eg BGZF */
 		    xlen = bgzf[10] + bgzf[11]*256;
@@ -676,13 +692,15 @@ static int bam_uncompress_input(bam_file_t *b) {
 	    }
 	}
 
-	if (b->eof == 2 && t_pool_results_queue_len(b->dqueue) == 0)
+	if (b->eof == 2 && t_pool_results_queue_empty(b->dqueue))
 	    return 0;
 
 	//fprintf(stderr, "Waiting on result with len %d\n", t_pool_results_queue_len(b->dqueue));
 	res = t_pool_next_result_wait(b->dqueue);
-	if (!res || !res->data)
+	if (!res || !res->data) {
+	    fprintf(stderr, "t_pool_next_result failure\n");
 	    return -1;
+	}
 
 	b->nd_jobs--;
 
@@ -2329,6 +2347,27 @@ int bam_add_raw(bam_seq_t **b, size_t len, const uint8_t *data) {
     return 0;
 }
 
+
+/*! Duplicates a bam_seq_t structure.
+ *
+ * @return
+ * Returns the new bam_seq_t pointer on success;
+ *         NULL on failure.
+ */
+bam_seq_t *bam_dup(bam_seq_t *b) {
+    bam_seq_t *d;
+
+    if (!b)
+	return NULL;
+
+    if (!(d = malloc(b->alloc)))
+	return NULL;
+
+    memcpy(d, b, b->alloc);
+    return d;
+}
+
+
 static unsigned char *append_int(unsigned char *cp, int32_t i) {
     int32_t j;
 
@@ -2601,8 +2640,6 @@ static int bgzf_flush_mt(bam_file_t *bf) {
 	    return -1;
 	t_pool_delete_result(r, 1);
     }
-
-    t_pool_destroy(bf->pool, 0);
 
     return 0;
 }
