@@ -86,6 +86,7 @@ int main(int argc, char **argv) {
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
+    t_pool *p = NULL;
 
     /* Parse command line arguments */
     while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXI:O:R:!Mmjt:")) != -1) {
@@ -286,11 +287,12 @@ int main(int argc, char **argv) {
     }
 
     if (nthreads > 1) {
-	t_pool *p = t_pool_init(nthreads*2, nthreads);
-
-	if (scram_set_option(out, CRAM_OPT_THREAD_POOL, p))
+	if (NULL == (p = t_pool_init(nthreads*2, nthreads)))
 	    return 1;
+
 	if (scram_set_option(in,  CRAM_OPT_THREAD_POOL, p))
+	    return 1;
+	if (scram_set_option(out, CRAM_OPT_THREAD_POOL, p))
 	    return 1;
     }
 
@@ -377,8 +379,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Decoded %d reads\n", X);
 
     /* Finally tidy up and close files */
-    scram_set_header(out, NULL);
-
     if (refs == scram_get_refs(out)) {
 	scram_set_refs(out, NULL);
     }
@@ -389,6 +389,9 @@ int main(int argc, char **argv) {
 	return 1;
     if (scram_close(out))
 	return 1;
+
+    if (p)
+	t_pool_destroy(p, 0);
 
     if (s)
 	free(s);

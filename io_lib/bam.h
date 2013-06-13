@@ -642,6 +642,14 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
 		      const char *seq,
 		      const char *qual);
 
+/*! Duplicates a bam_seq_t structure.
+ *
+ * @return
+ * Returns the new bam_seq_t pointer on success;
+ *         NULL on failure.
+ */
+bam_seq_t *bam_dup(bam_seq_t *b);
+
 /*! Writes a SAM header block.
  *
  * @return

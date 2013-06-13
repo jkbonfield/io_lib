@@ -245,8 +245,8 @@ void refs_free(refs_t *r);
  *         NULL on failure
  */
 char *cram_get_ref(cram_fd *fd, int id, int start, int end);
-
-
+void cram_ref_incr(refs_t *r, int id);
+void cram_ref_decr(refs_t *r, int id);
 /**@}*/
 /**@{ ----------------------------------------------------------------------
  * Containers
@@ -289,6 +289,7 @@ int cram_write_container(cram_fd *fd, cram_container *h);
  *        -1 on failure
  */
 int cram_flush_container(cram_fd *fd, cram_container *c);
+int cram_flush_container_mt(cram_fd *fd, cram_container *c);
 
 
 /**@}*/
