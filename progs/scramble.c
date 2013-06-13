@@ -365,7 +365,6 @@ int main(int argc, char **argv) {
 	while (scram_get_seq(in, &s) >= 0) {
 	    X++;
 	}
-	fprintf(stderr, "Decoded %d reads\n", X);
     }
 
     while (scram_get_seq(in, &s) >= 0) {
