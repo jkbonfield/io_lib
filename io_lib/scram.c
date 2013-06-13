@@ -179,6 +179,7 @@ scram_fd *scram_open(const char *filename, const char *mode) {
     fd->fp = NULL;
     fd->buf = NULL;
     fd->alloc = fd->used = 0;
+    fd->pool = NULL;
 
     if (strcmp(filename, "-") == 0 && mode[0] == 'r'
 	&& mode[1] != 'b' && mode[1] != 'c' && mode[1] != 's') { 
@@ -247,11 +248,14 @@ int scram_close(scram_fd *fd) {
 
     if (fd->is_bam) {
 	r = bam_close(fd->b);
-	free(fd);
-	return r;
+    } else {
+	r = cram_close(fd->c);
     }
 
-    r = cram_close(fd->c);
+    if (fd->pool)
+	t_pool_destroy(fd->pool, 0);
+
+
     free(fd);
     return r;
 }
@@ -280,6 +284,8 @@ void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
     } else {
 	fd->c->header = sh;
     }
+
+    sam_hdr_incr_ref(sh);
 }
 
 int scram_write_header(scram_fd *fd) {
@@ -328,11 +334,11 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
     va_start(args, opt);
 
     if (opt == CRAM_OPT_THREAD_POOL) {
-	fd->pool = va_arg(args, t_pool *);
+	t_pool *p = va_arg(args, t_pool *);
 	if (fd->is_bam)
-	    return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, fd->pool);
+	    return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, p);
 	else
-	    return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, fd->pool);
+	    return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, p);
     } else if (opt == CRAM_OPT_NTHREADS) {
 	int nthreads = va_arg(args, int);
 	if (nthreads > 1) {

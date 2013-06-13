@@ -262,8 +262,11 @@ typedef struct {
     int multi_seq;               // true if packing multi seqs per cont/slice
 
     /* Copied from fd before encoding, to allow multi-threading */
-    int ref_start, first_base, last_base, ref_id;
+    int ref_start, first_base, last_base, ref_id, ref_end;
     char *ref;
+
+    /* For multi-threading */
+    bam_seq_t **bams;
 
     /* Statistics for encoding */
     cram_stats *TS_stats;
@@ -602,10 +605,6 @@ typedef struct {
     t_results_queue *rqueue;
     pthread_mutex_t metrics_lock;
     pthread_mutex_t ref_lock;
-
-    // queue of decoded blocks
-    int qsize;
-    cram_container **decoded;
 } cram_fd;
 
 enum cram_option {
