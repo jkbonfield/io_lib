@@ -1506,7 +1506,6 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     /* Unmapped ref ID */
     if (id < 0) {
 	if (fd->ref_free) {
-	    fprintf(stderr, "Freeing ref %d, %p\n", fd->ref_id, fd->ref_free);
 	    free(fd->ref_free);
 	    fd->ref_free = NULL;
 	}
@@ -1616,7 +1615,6 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     // Load the data enmasse and then strip whitespace as we go 
     if (fd->ref_free) {
-	fprintf(stderr, "Freeing ref %d, %p\n", fd->ref_id, fd->ref_free);
 	free(fd->ref_free);
 	fd->ref_free = NULL;
     }
