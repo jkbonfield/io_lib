@@ -21,6 +21,21 @@
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
 
+void bam_copy(bam_seq_t **bt, bam_seq_t *bf) {
+    size_t a;
+
+    if (bf->alloc > (*bt)->alloc) {
+	a = ((int)((bf->alloc+15)/16))*16;
+	*bt = realloc(*bt, a);
+	memcpy(*bt, bf, bf->alloc);
+    } else {
+	a = (*bt)->alloc;
+	memcpy(*bt, bf, bf->alloc);
+    }
+
+    (*bt)->alloc = a;
+}
+
 #define Z_CRAM_STRAT Z_FILTERED
 //#define Z_CRAM_STRAT Z_DEFAULT_STRATEGY
 
@@ -1043,9 +1058,17 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	for (rec = 0; rec < c->curr_rec; rec++) {
 	    cram_slice *s = c->slice;
 	    process_one_read(fd, c, s, &s->crecs[rec], c->bams[rec], rec);
-	    free(c->bams[rec]);
 	}
-	free(c->bams);
+
+	/* Link our bams[] array onto the spare bam list for reuse */
+	{
+	    spare_bams *x = malloc(sizeof(*x));
+	    pthread_mutex_lock(&fd->bam_list_lock);
+	    x->bams = c->bams;
+	    x->next = fd->bl;
+	    fd->bl = x;
+	    pthread_mutex_unlock(&fd->bam_list_lock);
+	}
 	c->bams = NULL;
     }
 
@@ -2450,12 +2473,27 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	c->curr_ref = bam_ref(b);
     }
 
+
     if (!c->bams) {
-	c->bams = malloc(c->max_rec * sizeof(bam_seq_t *));
-	if (!c->bams)
-	    return -1;
+	pthread_mutex_lock(&fd->bam_list_lock);
+	if (fd->bl) {
+	    spare_bams *spare = fd->bl;
+	    c->bams = spare->bams;
+	    fd->bl = spare->next;
+	    free(spare);
+	} else {
+	    c->bams = calloc(c->max_rec, sizeof(bam_seq_t *));
+	    if (!c->bams)
+		return -1;
+	}
+	pthread_mutex_unlock(&fd->bam_list_lock);
     }
-    c->bams[c->curr_rec++] = bam_dup(b);
+    if (c->bams[c->curr_rec])
+	bam_copy(&c->bams[c->curr_rec], b);
+    else
+	c->bams[c->curr_rec] = bam_dup(b);
+
+    c->curr_rec++;
 
     fd->record_counter++;
 

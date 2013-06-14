@@ -3043,6 +3043,8 @@ int cram_close(cram_fd *fd) {
     }
 
     if (fd->pool) {
+	spare_bams *bl, *next;
+
 	t_pool_flush(fd->pool);
 
 	if (0 != cram_flush_result(fd))
@@ -3050,6 +3052,18 @@ int cram_close(cram_fd *fd) {
 
 	pthread_mutex_destroy(&fd->metrics_lock);
 	pthread_mutex_destroy(&fd->ref_lock);
+	pthread_mutex_destroy(&fd->bam_list_lock);
+
+	for (bl = fd->bl; bl; bl = next) {
+	    int i, max_rec = fd->seqs_per_slice * fd->slices_per_container;
+
+	    next = bl->next;
+	    for (i = 0; i < max_rec; i++) {
+		if (bl->bams[i])
+		    free(bl->bams[i]);
+	    }
+	    free(bl);
+	}
 
 	fd->ctr = NULL; // prevent double freeing
 
@@ -3202,6 +3216,7 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	    fd->rqueue = t_results_queue_init();
 	    pthread_mutex_init(&fd->metrics_lock, NULL);
 	    pthread_mutex_init(&fd->ref_lock, NULL);
+	    pthread_mutex_init(&fd->bam_list_lock, NULL);
 	}
 	fd->shared_ref = 1; // Needed to avoid clobbering ref between threads
 

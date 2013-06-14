@@ -594,7 +594,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 	t_pool_result *res;
 
 	/* Multi-threaded decoding. Assume BGZF for now */
-	while (t_pool_results_queue_len(b->dqueue) < b->pool->qsize) {
+	while (t_pool_results_queue_sz(b->dqueue) < b->pool->qsize) {
 	    bgzf_decode_job *j;
 	    int len, nonblock;
 	    unsigned char *blk;
@@ -2356,14 +2356,16 @@ int bam_add_raw(bam_seq_t **b, size_t len, const uint8_t *data) {
  */
 bam_seq_t *bam_dup(bam_seq_t *b) {
     bam_seq_t *d;
+    int a = ((int)((b->alloc+15)/16))*16;
 
     if (!b)
 	return NULL;
 
-    if (!(d = malloc(b->alloc)))
+    if (!(d = malloc(a)))
 	return NULL;
 
     memcpy(d, b, b->alloc);
+    d->alloc = a;
     return d;
 }
 
