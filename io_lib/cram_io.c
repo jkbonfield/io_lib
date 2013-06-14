@@ -39,6 +39,14 @@
 #include "io_lib/md5.h"
 #include "io_lib/open_trace_file.h"
 
+#define REF_DEBUG
+
+#ifdef REF_DEBUG
+#define RP(...) fprintf (stderr, __VA_ARGS__)
+#else
+#define RP(...) 
+#endif
+
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
  *
@@ -947,6 +955,25 @@ int paranoid_fclose(FILE *fp) {
 
 /* ----------------------------------------------------------------------
  * Reference sequence handling
+ *
+ * These revolve around the refs_t structure, which may potentially be
+ * shared between multiple cram_fd.
+ *
+ * We start with refs_create() to allocate an empty refs_t and then
+ * populate it with @SQ line data using refs_from_header(). This is done on
+ * cram_open().  Also at start up we can call cram_load_reference() which
+ * is used with "scramble -r foo.fa". This replaces the fd->refs with the
+ * new one specified. In either case refs2id() is then called which
+ * maps ref_entry names to @SQ ids (refs_t->ref_id[]).
+ *
+ * Later, possibly within a thread, we will want to know the actual ref
+ * seq itself, obtained by calling cram_get_ref().  This may use the
+ * UR: or M5: fields or the filename specified in the original
+ * cram_load_reference() call.
+ *
+ * Given the potential for multi-threaded reference usage, we have
+ * reference counting (sorry for the confusing double use of "ref") to
+ * track the number of callers interested in any specific reference.
  */
 
 void refs_free(refs_t *r) {
@@ -984,6 +1011,8 @@ void refs_free(refs_t *r) {
     if (r->fp)
 	fclose(r->fp);
 
+    pthread_mutex_destroy(&r->lock);
+
     free(r);
 }
 
@@ -997,10 +1026,13 @@ static refs_t *refs_create(void) {
 
     r->ref_id = NULL; // see refs2id() to populate.
     r->count = 1;
+    r->last = NULL;
 
     r->h_meta = HashTableCreate(16, HASH_DYNAMIC_SIZE | HASH_NONVOLATILE_KEYS);
     if (!r->h_meta)
 	goto err;
+
+    pthread_mutex_init(&r->lock, NULL);
 
     return r;
 
@@ -1371,12 +1403,17 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 	    ? tag->str+8
 	    : tag->str+3;
 
-	if (fd->refs->fp)
+	if (fd->refs->fp) {
 	    fclose(fd->refs->fp);
+	    fd->refs->fp = NULL;
+	}
 	if (!(refs = refs_load_fai(fd->refs, fn, 0)))
 	    return -1;
 	fd->refs = refs;
-	fd->refs->fp = NULL;
+	if (fd->refs->fp) {
+	    fclose(fd->refs->fp);
+	    fd->refs->fp = NULL;
+	}
 
 	if (!fd->refs->fn)
 	    return -1;
@@ -1430,34 +1467,186 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 }
 
 void cram_ref_incr(refs_t *r, int id) {
-    if (id < 0 || !r->ref_id[id]->seq)
-	return;
+    pthread_mutex_lock(&r->lock);
 
-    /* FIXME: add mutex */
+    RP("INC REF %d, %d\n", id, (int)(id>=0?r->ref_id[id]->count+1:-1));
+
+    if (id < 0 || !r->ref_id[id]->seq) {
+	pthread_mutex_unlock(&r->lock);
+	return;
+    }
+
     ++r->ref_id[id]->count;
+
+    pthread_mutex_unlock(&r->lock);
 }
 
 void cram_ref_decr(refs_t *r, int id) {
-    if (id < 0 || !r->ref_id[id]->seq)
-	return;
+    pthread_mutex_lock(&r->lock);
 
-    /* FIXME: add mutex */
+    RP("DEC REF %d, %d\n", id, (int)(id>=0?r->ref_id[id]->count-1:-1));
+
+    if (id < 0 || !r->ref_id[id]->seq) {
+	pthread_mutex_unlock(&r->lock);
+	return;
+    }
+
     if (--r->ref_id[id]->count <= 0) {
+	RP("FREE REF %d (%p)\n", id, r->ref_id[id]->seq);
 	if (r->ref_id[id]->seq) {
 	    free(r->ref_id[id]->seq);
 	    r->ref_id[id]->seq = NULL;
 	}
     }
+
+    pthread_mutex_unlock(&r->lock);
+}
+
+/*
+ * Used by cram_ref_load and cram_ref_get. The file handle will have
+ * already been opened, so we can catch it. The ref_entry *e informs us
+ * of whether this is a multi-line fasta file or a raw MD5 style file.
+ * Either way we create a single contiguous sequence.
+ *
+ * Returns all or part of a reference sequence on success (malloced);
+ *         NULL on failure.
+ */
+static char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
+    int offset, len;
+    char *seq;
+
+    /*
+     * Compute locations in file. This is trivial for the MD5 files, but
+     * is still necessary for the fasta variants.
+     */
+    offset = e->line_length
+	? e->offset + (start-1)/e->bases_per_line * e->line_length +
+	  (start-1) % e->bases_per_line
+	: start-1;
+
+    len = (e->line_length
+	   ? e->offset + (end-1)/e->bases_per_line * e->line_length + 
+	     (end-1) % e->bases_per_line
+	   : end-1) - offset + 1;
+
+    if (0 != fseeko(fp, offset, SEEK_SET)) {
+	perror("fseeko() on reference file");
+	return NULL;
+    }
+
+    if (!(seq = malloc(len))) {
+	return NULL;
+    }
+
+    if (len != fread(seq, 1, len, fp)) {
+	perror("fread() on reference file");
+	return NULL;
+    }
+
+    /* Strip white-space if required. */
+    if (len != end-start+1) {
+	int i, j;
+	char *cp = seq;
+	char *cp_to;
+
+	for (i = j = 0; i < len; i++) {
+	    if (cp[i] >= '!' && cp[i] <= '~')
+		cp[j++] = cp[i] & ~0x20;
+	}
+	cp_to = cp+j;
+
+	if (cp_to - seq != end-start+1) {
+	    fprintf(stderr, "Malformed reference file?\n");
+	    return NULL;
+	}
+    }
+
+    return seq;
+}
+
+/*
+ * Load the entire reference 'id'.
+ * This also increments the reference count by 1.
+ *
+ * Returns ref_entry on success;
+ *         NULL on failure
+ */
+ref_entry *cram_ref_load(refs_t *r, int id) {
+    ref_entry *e = r->ref_id[id];
+    int start = 1, end = e->length;
+    int offset, len;
+    char *seq;
+
+    if (e->seq)
+	return e;
+
+    pthread_mutex_lock(&r->lock);
+
+    if (r->last) {
+	if (--r->last->count <= 0) {
+	    RP("FREE REF %d (%p)\n", id, r->ref_id[id]->seq);
+	    if (r->ref_id[id]->seq) {
+		free(r->ref_id[id]->seq);
+		r->ref_id[id]->seq = NULL;
+	    }
+	}
+    }
+
+    /* Open file if it's not already the current open reference */
+    if (strcmp(r->fn, e->fn) || r->fp == NULL) {
+	if (r->fp)
+	    fclose(r->fp);
+	r->fn = e->fn;
+	if (!(r->fp = fopen(r->fn, "r"))) {
+	    perror(r->fn);
+	    pthread_mutex_unlock(&r->lock);
+	    return NULL;
+	}
+    }
+
+    RP("Loading ref %d (%d..%d)\n", id, start, end);
+
+    if (!(seq = load_ref_portion(r->fp, e, start, end))) {
+	pthread_mutex_unlock(&r->lock);
+	return NULL;
+    }
+
+    RP("Loaded ref %d (%d..%d) = %p\n", id, start, end, seq);
+
+    RP("INC REF %d, %d\n", id, (int)(e->count+1));
+    e->seq = seq;
+    e->count++;
+
+    /*
+     * Also keep track of last used ref so incr/decr loops on the same
+     * sequence don't cause load/free loops.
+     */
+    r->last = e;
+    e->count++; 
+
+    pthread_mutex_unlock(&r->lock);
+
+    return e;
 }
 
 /*
  * Returns a portion of a reference sequence from start to end inclusive.
- * The returned pointer is owned by the cram_file fd and should not be freed
- * by the caller. It is valid only until the next cram_get_ref is called
- * with the same fd parameter (so is thread-safe if given multiple files).
+ * The returned pointer is owned by either the cram_file fd or by the
+ * internal refs_t structure and should not be freed  by the caller.
+ *
+ * The difference is whether or not this refs_t is in use by just the one
+ * cram_fd or by multiples, or whether we have multiple threads accessing
+ * references. In either case fd->shared will be true and we start using
+ * reference counting to track the number of users of a specific reference
+ * sequence.
+ *
+ * Otherwise the ref seq returned is allocated as part of cram_fd itself
+ * and will be freed up on the next call to cram_get_ref or cram_close.
  *
  * To return the entire reference sequence, specify start as 1 and end
  * as 0.
+ *
+ * To cease using a reference, call cram_ref_decr().
  *
  * Returns reference on success
  *         NULL on failure
@@ -1465,57 +1654,24 @@ void cram_ref_decr(refs_t *r, int id) {
 char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     ref_entry *r;
     off_t offset, len;
+    char *seq;
+
+    fd->shared_ref = 1; // hard code for now to simplify things
 
     pthread_mutex_lock(&fd->ref_lock);
 
-    if (fd->verbose)
-	fprintf(stderr, "cram_get_ref on fd %p, id %d, range %d..%d\n",
-		fd, id, start, end);
+    RP("cram_get_ref on fd %p, id %d, range %d..%d\n", fd, id, start, end);
 
     /*
-     * Check if asking for same reference. A common issue in sam_to_cram.
-     * Similarly if it's a substring of the reference we already have, just
-     * keep that too.
+     * Unsorted data implies we want to fetch an entire reference at a time.
+     * We just deal with this at the moment by claiming we're sharing
+     * references instead, which has the same requirement.
      */
-    if (id == fd->ref_id &&
-	start >= fd->ref_start &&
-	end <= fd->ref_end) {
-	pthread_mutex_unlock(&fd->ref_lock);
-	return fd->ref;
-    }
+    if (fd->unsorted)
+	fd->shared_ref = 1;
 
-    if (fd->ref_id != id && !fd->unsorted && fd->shared_ref) {
-	//fprintf(stderr, "%p new ref; was %d (%lld)/%p, now %d (%lld)/%p\n", fd,
-	//	fd->ref_id,
-	//	fd->ref_id >=0 ? fd->refs->ref_id[fd->ref_id]->count : -1,
-	//	fd->ref_id >=0 ? fd->refs->ref_id[fd->ref_id]->seq : NULL,
-	//	id,
-	//	fd->refs->ref_id[id]->count,
-	//	fd->refs->ref_id[id]->seq);
 
-	// Decrement old seq counter and free if now unused.
-	cram_ref_decr(fd->refs, fd->ref_id);
-	
-	// Inc reference counter for new sequence
-	cram_ref_incr(fd->refs, id);
-    }
-
-    //struct timeval tv1, tv2;
-    //gettimeofday(&tv1, NULL);
-
-    /* Unmapped ref ID */
-    if (id < 0) {
-	if (fd->ref_free) {
-	    free(fd->ref_free);
-	    fd->ref_free = NULL;
-	}
-	fd->ref = NULL;
-	fd->ref_id = id;
-	pthread_mutex_unlock(&fd->ref_lock);
-	return NULL;
-    }
-
-    /* Does this ID exist? */
+    /* Sanity checking: does this ID exist? */
     if (id >= fd->refs->nref) {
 	fprintf(stderr, "No reference found for id %d\n", id);
 	pthread_mutex_unlock(&fd->ref_lock);
@@ -1534,6 +1690,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	return NULL;
     }
 
+
     /*
      * It has an entry, but may not have been populated yet.
      * Any manually loaded .fai files have their lengths known.
@@ -1549,6 +1706,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	}
 	r = fd->refs->ref_id[id];
     }
+
 
     /*
      * We now know that we the filename containing the reference, so check
@@ -1566,34 +1724,57 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	end = r->length;
     }
     
-
     /*
-     * Maybe we have it cached already? This only happens if we're
-     * attempting to do reference based compression of unsorted data.
+     * Maybe we have it cached already? If so use it.
+     *
+     * Alternatively if we don't have the sequence but we're sharing
+     * references and/or are asking for the entire length of it, then
+     * load the full reference into the refs structure and return
+     * a pointer to that one instead.
      */
-    if (r->seq) {
-	fd->ref_id    = id;
-	fd->ref       = r->seq;
-	fd->ref_start = 1;
-	fd->ref_end   = r->length;
+    if (fd->shared_ref || r->seq || (start == 1 && end == r->length)) {
+	if (id >= 0) {
+	    if (r->seq) {
+		cram_ref_incr(fd->refs, id);
+	    } else {
+		ref_entry *e;
+		if (!(e = cram_ref_load(fd->refs, id))) {
+		    pthread_mutex_unlock(&fd->ref_lock);
+		    return NULL;
+		}
+	    
+		fd->ref       = e->seq;
+		fd->ref_start = 1;
+		fd->ref_end   = r->length;
+		fd->ref_id    = id;
+	    }	    
+	} else {
+	    fd->ref = NULL;
+	}
+
 	pthread_mutex_unlock(&fd->ref_lock);
 	return fd->ref;
     }
 
-
     /*
-     * Compute locations in file. This is trivial for the MD5 files, but
-     * is still necessary for the fasta variants.
+     * Otherwise we're not sharing, we don't have a copy of it already and
+     * we're only asking for a small portion of it.
+     *
+     * In this case load up just that segment ourselves, freeing any old
+     * small segments in the process.
      */
-    offset = r->line_length
-	? r->offset + (start-1)/r->bases_per_line * r->line_length +
-	  (start-1)%r->bases_per_line
-	: start-1;
 
-    len = (r->line_length
-	   ? r->offset + (end-1)/r->bases_per_line * r->line_length + 
-	     (end-1)%r->bases_per_line
-	   : end-1) - offset + 1;
+    /* Unmapped ref ID */
+    if (id < 0) {
+	if (fd->ref_free) {
+	    free(fd->ref_free);
+	    fd->ref_free = NULL;
+	}
+	fd->ref = NULL;
+	fd->ref_id = id;
+	pthread_mutex_unlock(&fd->ref_lock);
+	return NULL;
+    }
 
     /* Open file if it's not already the current open reference */
     if (strcmp(fd->refs->fn, r->fn) || fd->refs->fp == NULL) {
@@ -1607,77 +1788,20 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	}
     }
 
-    if (0 != fseeko(fd->refs->fp, offset, SEEK_SET)) {
-	perror("fseeko() on reference file");
+    if (!(fd->ref = load_ref_portion(fd->refs->fp, r, start, end))) {
 	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
-    }
-
-    // Load the data enmasse and then strip whitespace as we go 
-    if (fd->ref_free) {
-	free(fd->ref_free);
-	fd->ref_free = NULL;
-    }
-
-    //fprintf(stderr, "%p Allocating %d bytes for ref %d\n", fd, (int)len, id);
-
-    if (!(fd->ref = malloc(len))) {
-	pthread_mutex_unlock(&fd->ref_lock);
-	return NULL;
-    }
-
-    if (fd->verbose)
-	fprintf(stderr, "Load ref %d (%d..%d) = %p\n",
-		id, start, end, fd->ref);
-
-    if (len != fread(fd->ref, 1, len, fd->refs->fp)) {
-	perror("fread() on reference file");
-	pthread_mutex_unlock(&fd->ref_lock);
-	return NULL;
-    }
-
-    if (fd->verbose)
-	fprintf(stderr, "Loaded ref %d (%d..%d) = %p\n",
-		id, start, end, fd->ref);
-
-    // Strip white-space if required.
-    if (len != end-start+1) {
-	int i, j;
-	char *cp = fd->ref;
-	char *cp_to;
-
-	for (i = j = 0; i < len; i++) {
-	    if (cp[i] >= '!' && cp[i] <= '~')
-		cp[j++] = cp[i] & ~0x20;
-	}
-	cp_to = cp+j;
-
-	if (cp_to - fd->ref != end-start+1) {
-	    fprintf(stderr, "Malformed reference file?\n");
-	    pthread_mutex_unlock(&fd->ref_lock);
-	    return NULL;
-	}
     }
 
     fd->ref_id    = id;
     fd->ref_start = start;
     fd->ref_end   = end;
-
-    //gettimeofday(&tv2, NULL);
-    //fprintf(stderr, "Done %ld usec\n",
-    //	    (tv2.tv_sec - tv1.tv_sec)*1000000 + tv2.tv_usec - tv1.tv_usec);
-
-    if ((fd->unsorted && start == 1 && end == r->length) || fd->shared_ref) {
-	r->seq = fd->ref;
-	r->count = 1;
-	fd->ref_free = NULL;
-    } else {
-	fd->ref_free = fd->ref;
-    }
+    fd->ref_free = fd->ref;
+    seq = fd->ref;
 
     pthread_mutex_unlock(&fd->ref_lock);
 
-    return fd->ref;
+    return seq;
 }
 
 /*
@@ -2013,13 +2137,6 @@ static int cram_flush_container2(cram_fd *fd, cram_container *c) {
  *        -1 on failure
  */
 int cram_flush_container(cram_fd *fd, cram_container *c) {
-    /* Copy fd globals to container, to allow multi-threading */
-    //c->ref_start = fd->ref_start;
-    //c->first_base = fd->first_base;
-    //c->last_base = fd->last_base;
-    //c->ref_id = fd->ref_id;
-    //c->ref = fd->ref;
-
     /* Encode the container blocks and generate compression header */
     if (0 != cram_encode_container(fd, c))
 	return -1;
@@ -2067,15 +2184,11 @@ static int cram_flush_result(cram_fd *fd) {
 	c->slice = NULL;
 	c->curr_slice = 0;
 
-	if (c->ref_seq_id >= 0) {
-	    pthread_mutex_lock(&fd->ref_lock);
-	    cram_ref_decr(fd->refs, c->ref_seq_id);
-	    pthread_mutex_unlock(&fd->ref_lock);
-	}
-
 	cram_free_container(c);
 
 	ret |= fflush(fd->fp) == 0 ? 0 : -1;
+
+	t_pool_delete_result(r, 1);
     }
 
     return ret;
@@ -2090,22 +2203,10 @@ int cram_flush_container_mt(cram_fd *fd, cram_container *c) {
 
     //usleep(5000);
 
-    /* Copy fd globals to container, to allow multi-threading */
-    //c->ref_start = fd->ref_start;
-    //c->first_base = fd->first_base;
-    //c->last_base = fd->last_base;
-    //c->ref_id = fd->ref_id;
-    //c->ref = fd->ref;
-
     if (!(j = malloc(sizeof(*j))))
 	return -1;
     j->fd = fd;
     j->c = c;
-    if (c->ref_seq_id >= 0) {
-	pthread_mutex_lock(&fd->ref_lock);
-	cram_ref_incr(fd->refs, c->ref_seq_id);
-	pthread_mutex_unlock(&fd->ref_lock);
-    }
     
     t_pool_dispatch(fd->pool, fd->rqueue, cram_flush_thread, j);
 
@@ -3062,6 +3163,7 @@ int cram_close(cram_fd *fd) {
 		if (bl->bams[i])
 		    free(bl->bams[i]);
 	    }
+	    free(bl->bams);
 	    free(bl);
 	}
 
