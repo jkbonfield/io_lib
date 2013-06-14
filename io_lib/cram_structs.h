@@ -221,6 +221,8 @@ typedef struct {
     unsigned char md5[16];
 } cram_block_slice_hdr;
 
+struct ref_entry;
+
 /*
  * Container.
  *
@@ -264,6 +266,7 @@ typedef struct {
     /* Copied from fd before encoding, to allow multi-threading */
     int ref_start, first_base, last_base, ref_id, ref_end;
     char *ref;
+    //struct ref_entry *ref;
 
     /* For multi-threading */
     bam_seq_t **bams;
@@ -478,7 +481,7 @@ typedef struct cram_slice {
  * Consider moving reference handling to cram_refs.[ch]
  */
 // from fa.fai / samtools faidx files
-typedef struct {
+typedef struct ref_entry {
     char *name;
     char *fn;
     int64_t length;
@@ -501,6 +504,9 @@ typedef struct {
     FILE *fp;              // and the FILE* to go with it.
 
     int count;             // how many cram_fd sharing this refs struct
+
+    pthread_mutex_t lock;  // Mutex for multi-threaded updating
+    ref_entry *last;       // Last queried sequence
 } refs_t;
 
 /*-----------------------------------------------------------------------------
