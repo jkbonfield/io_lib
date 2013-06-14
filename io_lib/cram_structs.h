@@ -539,6 +539,12 @@ typedef struct {
 /*-----------------------------------------------------------------------------
  */
 /* CRAM File handle */
+
+typedef struct spare_bams {
+    bam_seq_t **bams;
+    struct spare_bams *next;
+} spare_bams;
+
 typedef struct {
     FILE          *fp;
     int            mode;     // 'r' or 'w'
@@ -605,6 +611,8 @@ typedef struct {
     t_results_queue *rqueue;
     pthread_mutex_t metrics_lock;
     pthread_mutex_t ref_lock;
+    spare_bams *bl;
+    pthread_mutex_t bam_list_lock;
 } cram_fd;
 
 enum cram_option {
