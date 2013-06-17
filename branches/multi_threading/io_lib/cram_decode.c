@@ -1274,7 +1274,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	       cram_get_ref(fd, s->hdr->ref_seq_id,
 	                    s->hdr->ref_seq_start,
 	    		      s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
-	    s->ref_start = fd->ref_start;
+	    s->ref_start = s->hdr->ref_seq_start;
 	}
     }
 

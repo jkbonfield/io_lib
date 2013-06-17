@@ -1655,11 +1655,12 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     ref_entry *r;
     off_t offset, len;
     char *seq;
+    int ostart = start;
 
     if (id == -1)
 	return NULL;
 
-    fd->shared_ref = 1; // hard code for now to simplify things
+    //fd->shared_ref = 1; // hard code for now to simplify things
 
     pthread_mutex_lock(&fd->ref_lock);
 
@@ -1756,7 +1757,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	}
 
 	pthread_mutex_unlock(&fd->ref_lock);
-	return fd->ref;
+	return fd->ref + ostart-1;
     }
 
     /*
@@ -1804,7 +1805,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     pthread_mutex_unlock(&fd->ref_lock);
 
-    return seq;
+    return seq + ostart - start;
 }
 
 /*
