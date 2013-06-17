@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
-    int start, end, multi_seq = 0, no_ref = 0, use_bz2 = 0;
+    int start, end, multi_seq = -1, no_ref = 0, use_bz2 = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;

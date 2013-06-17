@@ -1776,7 +1776,8 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	}
 
 	/* Test decoding of 1st seq */
-	if (cram_decode_slice_mt(fd, c, s, fd->header) != 0) {
+//	if (cram_decode_slice_mt(fd, c, s, fd->header) != 0) {
+	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
 	    cram_free_slice(s);
 	    c->slice = NULL;
