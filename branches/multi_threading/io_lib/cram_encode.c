@@ -1067,6 +1067,9 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    /* If multi-ref we need to cope with changing reference per seq */
 	    if (c->multi_seq && !fd->no_ref) {
 		if (bam_ref(b) != c->ref_seq_id && bam_ref(b) >= 0) {
+		    if (c->ref_seq_id >= 0)
+			cram_ref_decr(fd->refs, c->ref_seq_id);
+
 		    if (!cram_get_ref(fd, bam_ref(b), 1, 0)) {
 			fprintf(stderr, "Failed to load reference #%d\n",
 				bam_ref(b));
@@ -2471,14 +2474,12 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	fd->last_slice = curr_rec - slice_rec;
 	c->slice_rec = c->curr_rec;
 
-	// Have we seen this reference before?
-	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && 
-	    fd->refs->ref_id[bam_ref(b)]->count++ &&
-	    !fd->embed_ref) {
-	    fprintf(stderr, "Multi_seq mode enabled\n");
-	    fd->unsorted = 1;
-	    fd->multi_seq = 1;
-	}
+//	// Have we seen this reference before?
+//	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref) {
+//	    fprintf(stderr, "Multi_seq mode enabled\n");
+//	    fd->unsorted = 1;
+//	    fd->multi_seq = 1;
+//	}
 
 	c->curr_ref = bam_ref(b);
     }

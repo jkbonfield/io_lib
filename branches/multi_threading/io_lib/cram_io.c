@@ -2777,6 +2777,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 		buf2[32] = 0;
 		if (sam_hdr_update(hdr, ty, "M5", buf2, NULL))
 		    return -1;
+		cram_ref_decr(fd->refs, i);
 	    }
 
 	    if (fd->ref_fn) {
@@ -2787,7 +2788,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    }
 	}
     }
-    
+
     if (sam_hdr_rebuild(hdr))
 	return -1;
 
