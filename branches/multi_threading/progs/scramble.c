@@ -360,22 +360,12 @@ int main(int argc, char **argv) {
     /* Do the actual file format conversion */
     s = NULL;
 
-    int X = 0;
-    if (0) {
-	while (scram_get_seq(in, &s) >= 0) {
-	    X++;
-	}
-    }
-
     while (scram_get_seq(in, &s) >= 0) {
-	X++;
 	if (-1 == scram_put_seq(out, s))
 	    return 1;
     }
     if (!scram_eof(in))
 	return 1;
-
-    fprintf(stderr, "Decoded %d reads\n", X);
 
     /* Finally tidy up and close files */
     if (refs == scram_get_refs(out)) {
