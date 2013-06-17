@@ -146,6 +146,7 @@ AC_SYS_LARGEFILE
 AC_FUNC_FSEEKO
 
 dnl Checks for library functions.
+AC_SEARCH_LIBS([pthread_join], [pthread])
 AC_SEARCH_LIBS(cos, m)
 dnl AC_FUNC_MEMCMP
 dnl AC_FUNC_STRFTIME
