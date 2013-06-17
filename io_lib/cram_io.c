@@ -39,7 +39,7 @@
 #include "io_lib/md5.h"
 #include "io_lib/open_trace_file.h"
 
-#define REF_DEBUG
+//#define REF_DEBUG
 
 #ifdef REF_DEBUG
 #define RP(...) fprintf (stderr, __VA_ARGS__)
@@ -1512,7 +1512,7 @@ void cram_ref_decr(refs_t *r, int id) {
  *         NULL on failure.
  */
 static char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
-    int offset, len;
+    off_t offset, len;
     char *seq;
 
     /*
@@ -1655,6 +1655,9 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     ref_entry *r;
     off_t offset, len;
     char *seq;
+
+    if (id == -1)
+	return NULL;
 
     fd->shared_ref = 1; // hard code for now to simplify things
 
@@ -1847,6 +1850,9 @@ cram_container *cram_new_container(int nrec, int nslice) {
 	return NULL;
 
     c->curr_ref = -2;
+
+    c->max_c_rec = nrec * nslice;
+    c->curr_c_rec = 0;
 
     c->max_rec = nrec;
     c->record_counter = 0;
@@ -2168,6 +2174,11 @@ static int cram_flush_result(cram_fd *fd) {
     while ((r = t_pool_next_result(fd->rqueue))) {
 	cram_job *j = (cram_job *)r->data;
 	cram_container *c;
+
+	if (!j) {
+	    t_pool_delete_result(r, 0);
+	    return -1;
+	}
 
 	fd = j->fd;
 	c = j->c;
@@ -3089,6 +3100,8 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->eof = 0;
     fd->ref_fn = NULL;
 
+    fd->bl = NULL;
+
     /* Initialise dummy refs from the @SQ headers */
     if (-1 == refs_from_header(fd->refs, fd, fd->header))
 	goto err;
@@ -3131,7 +3144,9 @@ int cram_flush(cram_fd *fd) {
  *        -1 on failure
  */
 int cram_close(cram_fd *fd) {
+    spare_bams *bl, *next;
     int i;
+	
 
     if (!fd)
 	return -1;
@@ -3144,8 +3159,6 @@ int cram_close(cram_fd *fd) {
     }
 
     if (fd->pool) {
-	spare_bams *bl, *next;
-
 	t_pool_flush(fd->pool);
 
 	if (0 != cram_flush_result(fd))
@@ -3155,23 +3168,23 @@ int cram_close(cram_fd *fd) {
 	pthread_mutex_destroy(&fd->ref_lock);
 	pthread_mutex_destroy(&fd->bam_list_lock);
 
-	for (bl = fd->bl; bl; bl = next) {
-	    int i, max_rec = fd->seqs_per_slice * fd->slices_per_container;
-
-	    next = bl->next;
-	    for (i = 0; i < max_rec; i++) {
-		if (bl->bams[i])
-		    free(bl->bams[i]);
-	    }
-	    free(bl->bams);
-	    free(bl);
-	}
-
 	fd->ctr = NULL; // prevent double freeing
 
 	//fprintf(stderr, "CRAM: destroy queue %p\n", fd->rqueue);
 
 	t_results_queue_destroy(fd->rqueue);
+    }
+
+    for (bl = fd->bl; bl; bl = next) {
+	int i, max_rec = fd->seqs_per_slice * fd->slices_per_container;
+
+	next = bl->next;
+	for (i = 0; i < max_rec; i++) {
+	    if (bl->bams[i])
+		free(bl->bams[i]);
+	}
+	free(bl->bams);
+	free(bl);
     }
 
     if (paranoid_fclose(fd->fp) != 0)

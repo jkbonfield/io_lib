@@ -1027,15 +1027,14 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     cram_block_compression_hdr *h = c->comp_hdr;
     cram_block *c_hdr;
     int multi_ref = 0;
-    int rec;
+    int r1, r2, sn;
     spare_bams *spares;
 
-    /* Turn bams into cram_records and gather basic stats */
+    /* Fetch reference sequence */
     if (!fd->no_ref) {
 	bam_seq_t *b = c->bams[0];
 	char *ref;
 
-	//pthread_mutex_lock(&fd->metrics_lock); // sorry!
 	ref = cram_get_ref(fd, bam_ref(b), 1, 0);
 	if (!ref && bam_ref(b) >= 0) {
 	    fprintf(stderr, "Failed to load reference #%d\n", bam_ref(b));
@@ -1043,17 +1042,63 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	}
 	if ((c->ref_id = bam_ref(b)) >= 0) {
 	    c->ref_seq_id = c->ref_id;
-	    c->ref       = fd->refs->ref_id[c->ref_id]->seq;
+	    c->ref       = fd->refs->ref_id[c->ref_seq_id]->seq;
 	    c->ref_start = 1;
-	    c->ref_end   = fd->refs->ref_id[c->ref_id]->length;
+	    c->ref_end   = fd->refs->ref_id[c->ref_seq_id]->length;
 	}
-	//fprintf(stderr, "%p(c)->ref=%p\n", c, c->ref);
-	//pthread_mutex_unlock(&fd->metrics_lock);
     }
 
-    for (rec = 0; rec < c->curr_rec; rec++) {
-	cram_slice *s = c->slice;
-	process_one_read(fd, c, s, &s->crecs[rec], c->bams[rec], rec);
+    /* Turn bams into cram_records and gather basic stats */
+    for (r1 = sn = 0; r1 < c->curr_c_rec; sn++) {
+	cram_slice *s = c->slices[sn];
+	int first_base = INT_MAX, last_base = INT_MIN;
+
+	assert(sn < c->curr_slice);
+
+	/* FIXME: we could create our slice objects here too instead of
+	 * in cram_put_bam_seq. It's more natural here and also this is
+	 * bit is threaded so it's less work in the main thread.
+	 */
+
+	for (r2 = 0; r1 < c->curr_c_rec && r2 < c->max_rec; r1++, r2++) {
+	    cram_record *cr = &s->crecs[r2];
+	    bam_seq_t *b = c->bams[r1];
+
+	    /* If multi-ref we need to cope with changing reference per seq */
+	    if (c->multi_seq && !fd->no_ref) {
+		if (bam_ref(b) != c->ref_seq_id && bam_ref(b) >= 0) {
+		    if (!cram_get_ref(fd, bam_ref(b), 1, 0)) {
+			fprintf(stderr, "Failed to load reference #%d\n",
+				bam_ref(b));
+			return -1;
+		    }
+
+		    c->ref_seq_id = bam_ref(b); // overwritten later by -2
+		    c->ref       = fd->refs->ref_id[c->ref_seq_id]->seq;
+		    c->ref_start = 1;
+		    c->ref_end   = fd->refs->ref_id[c->ref_seq_id]->length;
+		}
+	    }
+
+	    process_one_read(fd, c, s, cr, b, r2);
+
+	    if (first_base > cr->apos)
+		first_base = cr->apos;
+
+	    if (last_base < cr->aend)
+		last_base = cr->aend;
+	}
+
+	if (c->multi_seq) {
+	    s->hdr->ref_seq_id    = -2;
+	    s->hdr->ref_seq_start = 0;
+	    s->hdr->ref_seq_span  = 0;
+	} else {
+	    s->hdr->ref_seq_id    = c->ref_id;
+	    s->hdr->ref_seq_start = first_base;
+	    s->hdr->ref_seq_span  = last_base - first_base + 1;
+	}
+	s->hdr->num_records = r2;
     }
 
     /* Link our bams[] array onto the spare bam list for reuse */
@@ -1077,20 +1122,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	c->ref_seq_span = 0;
     }
 
-    /* Complete partial slice header */
-    if (c->slice) {
-	cram_slice *s = c->slice;
-	//s->hdr->ref_seq_id    = c->curr_ref;
-	if (c->multi_seq) {
-	    s->hdr->ref_seq_id    = -2;
-	    s->hdr->ref_seq_start = 0;
-	    s->hdr->ref_seq_span  = 0;
-	} else {
-	    s->hdr->ref_seq_start = c->first_base;
-	    s->hdr->ref_seq_span  = c->last_base - c->first_base + 1;
-	}
-	s->hdr->num_records   = c->curr_rec;
-    }
 
     /* Compute MD5s */
     for (i = 0; i < c->curr_slice; i++) {
@@ -1895,8 +1926,8 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 
 
 /*
- * Handles creation of a new container, flushing any existing slices as
- * appropriate.
+ * Handles creation of a new container or new slice, flushing any
+ * existing containers when appropriate. 
  *
  * Really this is next slice, which may or may not lead to a new container.
  *
@@ -1945,7 +1976,8 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 
 	/* Encode slices */
 	if (fd->pool) {
-	    cram_flush_container_mt(fd, c);
+	    if (-1 == cram_flush_container_mt(fd, c))
+		return NULL;
 	} else {
 	    if (-1 == cram_flush_container(fd, c))
 		return NULL;
@@ -2460,7 +2492,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    fd->bl = spare->next;
 	    free(spare);
 	} else {
-	    c->bams = calloc(c->max_rec, sizeof(bam_seq_t *));
+	    c->bams = calloc(c->max_c_rec, sizeof(bam_seq_t *));
 	    if (!c->bams)
 		return -1;
 	}
@@ -2468,12 +2500,13 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     }
 
     /* Copy or alloc+copy the bam record, for later encoding */
-    if (c->bams[c->curr_rec])
-	bam_copy(&c->bams[c->curr_rec], b);
+    if (c->bams[c->curr_c_rec])
+	bam_copy(&c->bams[c->curr_c_rec], b);
     else
-	c->bams[c->curr_rec] = bam_dup(b);
+	c->bams[c->curr_c_rec] = bam_dup(b);
 
     c->curr_rec++;
+    c->curr_c_rec++;
     fd->record_counter++;
 
     return 0;
