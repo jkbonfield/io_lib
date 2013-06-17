@@ -254,6 +254,7 @@ typedef struct {
     /* For construction purposes */
     int max_slice, curr_slice;   // maximum number of slices
     int max_rec, curr_rec;       // current and max recs per slice
+    int max_c_rec, curr_c_rec;   // current and max recs per container
     int slice_rec;               // rec no. for start of this slice
     int curr_ref;                // current ref ID. -2 for no previous
     int last_pos;                // last record position
