@@ -1228,7 +1228,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     int rec;
     char *seq, *qual;
     int unknown_rg = -1;
-    int id;
+    int id, embed_ref;
 
     for (id = 0; id < s->hdr->num_blocks; id++) {
 	if (cram_uncompress_block(s->block[id]))
@@ -1250,10 +1250,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	return -1;
 
     ref_id = s->hdr->ref_seq_id;
-    fd->embed_ref = s->hdr->ref_base_id >= 0 ? 1 : 0;
+    embed_ref = s->hdr->ref_base_id >= 0 ? 1 : 0;
 
     if (ref_id >= 0) {
-	if (fd->embed_ref) {
+	if (embed_ref) {
 	    cram_block *b;
 	    if (s->hdr->ref_base_id < 0) {
 		fprintf(stderr, "No reference specified and "
@@ -1534,6 +1534,7 @@ void *cram_decode_slice_thread(void *arg) {
 int cram_decode_slice_mt(cram_fd *fd, cram_container *c, cram_slice *s,
 			 SAM_hdr *bfd) {
     cram_decode_job *j;
+    int nonblock;
 
     if (!fd->pool)
 	return cram_decode_slice(fd, c, s, bfd);
@@ -1545,8 +1546,16 @@ int cram_decode_slice_mt(cram_fd *fd, cram_container *c, cram_slice *s,
     j->c  = c;
     j->s  = s;
     j->h  = bfd;
+    
+    nonblock = t_pool_results_queue_len(fd->rqueue) ? 0 : 1;
 
-    t_pool_dispatch(fd->pool, fd->rqueue, cram_decode_slice_thread, j);
+    if (-1 == t_pool_dispatch2(fd->pool, fd->rqueue, cram_decode_slice_thread,
+			       j, nonblock)) {
+	/* Would block */
+	fd->job_pending = j;
+    } else {
+	fd->job_pending = NULL;
+    }
 
     // flush too
     return 0;
@@ -1652,12 +1661,13 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     return bam_idx + (aux - aux_orig);
 }
 
+/*
+ * Here be dragons! The multi-threading code in this is crufty beyond belief.
+ */
 static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
     cram_container *c;
-    cram_slice *s;
+    cram_slice *s = NULL;
 
-#if 1
- try_again:
     if (!(c = fd->ctr)) {
 	cram_record *cr;
 
@@ -1695,96 +1705,148 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	    fd->unsorted = 1;
     }
 
-    s = c->slice;
-    if (!s || c->curr_rec == c->max_rec) {
-	// new slice
-	if (s)
-	    cram_free_slice(s);
+    if ((s = c->slice))
+	cram_free_slice(s);
 
-	if (c->curr_slice == c->max_slice) {
-	    // new container
-	    cram_free_container(c);
+    if (c->curr_slice == c->max_slice) {
+	cram_free_container(c);
+	c = NULL;
+    }
 
-	    if (!(c = fd->ctr = cram_read_container(fd)))
-		return NULL;
+    /* Sorry this is so contorted! */
+    for (;;) {
+	if (fd->job_pending) {
+	    cram_decode_job *j = (cram_decode_job *)fd->job_pending;
+	    c = j->c;
+	    s = j->s;
+	    free(fd->job_pending);
+	    fd->job_pending = NULL;
+	} else if (!fd->ooc) {
+	    if (!c || c->curr_slice == c->max_slice) {
+		// new container
+		if (!(c = fd->ctr = cram_read_container(fd))) {
+		    if (fd->pool) {
+			fd->ooc = 1;
+			break;
+		    }
 
-	    /* Skip containers not yet spanning our range */
-	    if (fd->range.refid != -2) {
-		if (c->ref_seq_id != fd->range.refid) {
-		    fd->eof = 1;
 		    return NULL;
 		}
 
-		if (c->ref_seq_start > fd->range.end) {
-		    fd->eof = 1;
-		    return NULL;
+		/* Skip containers not yet spanning our range */
+		if (fd->range.refid != -2) {
+		    if (c->ref_seq_id != fd->range.refid) {
+			fd->eof = 1;
+			return NULL;
+		    }
+
+		    if (c->ref_seq_start > fd->range.end) {
+			fd->eof = 1;
+			return NULL;
+		    }
+
+		    if (c->ref_seq_start + c->ref_seq_span-1 <
+			fd->range.start) {
+			c->curr_rec = c->max_rec;
+			c->curr_slice = c->max_slice;
+			cram_seek(fd, c->length, SEEK_CUR);
+			cram_free_container(c);
+			c = NULL;
+			continue;
+		    }
 		}
 
-		if (c->ref_seq_start + c->ref_seq_span-1 <
-		    fd->range.start) {
-		    c->curr_rec = c->max_rec;
-		    c->curr_slice = c->max_slice;
-		    cram_seek(fd, c->length, SEEK_CUR);
-		    goto try_again;
-		}
+		if (!(c->comp_hdr_block = cram_read_block(fd)))
+		    return NULL;
+		assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
+
+		c->comp_hdr = cram_decode_compression_header(fd,
+							     c->comp_hdr_block);
+		if (!c->comp_hdr)
+		    return NULL;
+
+		if (!c->comp_hdr->AP_delta)
+		    fd->unsorted = 1;
 	    }
 
-	    if (!(c->comp_hdr_block = cram_read_block(fd)))
+	    if (!(s = c->slice = cram_read_slice(fd)))
 		return NULL;
-	    assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
+	    c->curr_slice++;
+	    c->curr_rec = 0;
+	    c->max_rec = s->hdr->num_records;
 
-	    c->comp_hdr = cram_decode_compression_header(fd,
-							 c->comp_hdr_block);
-	    if (!c->comp_hdr)
-		return NULL;
-
-	    if (!c->comp_hdr->AP_delta)
-		fd->unsorted = 1;
-	}
-
-	if (!(s = c->slice = cram_read_slice(fd)))
-	    return NULL;
-	c->curr_slice++;
-	c->curr_rec = 0;
-	c->max_rec = s->hdr->num_records;
-
-	// FIXME: this should be correct, but we have a bug in the
-	// Java CRAM implementation?
-	s->last_apos = s->hdr->ref_seq_start;
+	    s->last_apos = s->hdr->ref_seq_start;
 	    
-	/* Skip slices not yet spanning our range */
-	if (fd->range.refid != -2) {
-	    if (s->hdr->ref_seq_id != fd->range.refid) {
-		fd->eof = 1;
-		cram_free_slice(s);
-		c->slice = NULL;
-		return NULL;
-	    }
+	    /* Skip slices not yet spanning our range */
+	    if (fd->range.refid != -2) {
+		if (s->hdr->ref_seq_id != fd->range.refid) {
+		    fd->eof = 1;
+		    cram_free_slice(s);
+		    c->slice = NULL;
+		    return NULL;
+		}
 
-	    if (s->hdr->ref_seq_start > fd->range.end) {
-		fd->eof = 1;
-		cram_free_slice(s);
-		c->slice = NULL;
-		return NULL;
-	    }
+		if (s->hdr->ref_seq_start > fd->range.end) {
+		    fd->eof = 1;
+		    cram_free_slice(s);
+		    c->slice = NULL;
+		    return NULL;
+		}
 
-	    if (s->hdr->ref_seq_start + s->hdr->ref_seq_span-1 <
-		fd->range.start) {
-		c->curr_rec = c->max_rec;
-		goto try_again;
+		if (s->hdr->ref_seq_start + s->hdr->ref_seq_span-1 <
+		    fd->range.start) {
+		    cram_free_slice(s);
+		    c->slice = NULL;
+		    cram_free_container(c);
+		    c = NULL;
+		    continue;
+		}
 	    }
 	}
 
 	/* Test decoding of 1st seq */
-//	if (cram_decode_slice_mt(fd, c, s, fd->header) != 0) {
-	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
+	if (!c || !s)
+	    break;
+
+	if (cram_decode_slice_mt(fd, c, s, fd->header) != 0) {
+	    //	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
 	    cram_free_slice(s);
 	    c->slice = NULL;
 	    return NULL;
 	}
+
+	if (!fd->pool || fd->job_pending)
+	    break;
+
+	if (t_pool_results_queue_sz(fd->rqueue) > fd->pool->qsize)
+	    break;
     }
-#endif
+
+    if (fd->pool) {
+	t_pool_result *res;
+	cram_decode_job *j;
+	
+//	fprintf(stderr, "Thread pool len = %d, %d\n",
+//		t_pool_results_queue_len(fd->rqueue),
+//		t_pool_results_queue_sz(fd->rqueue));
+
+	if (fd->ooc && t_pool_results_queue_empty(fd->rqueue))
+	    return NULL;
+
+	res = t_pool_next_result_wait(fd->rqueue);
+
+	if (!res || !res->data) {
+	    fprintf(stderr, "t_pool_next_result failure\n");
+	    return NULL;
+	}
+
+	j = (cram_decode_job *)res->data;
+	c = j->c;
+	s = j->s;
+
+	t_pool_delete_result(res, 1);
+    }
 
     *cp = c;
     return s;
@@ -1804,8 +1866,13 @@ cram_record *cram_get_seq(cram_fd *fd) {
     cram_slice *s;
 
     for (;;) {
-	if (!(s = cram_next_slice(fd, &c)))
-	    return NULL;
+	c = fd->ctr;
+	if (c && c->slice && c->curr_rec < c->max_rec) {
+	    s = c->slice;
+	} else {
+	    if (!(s = cram_next_slice(fd, &c)))
+		return NULL;
+	}
 
 	if (fd->range.refid != -2) {
 	    if (s->crecs[c->curr_rec].ref_id != fd->range.refid) {
@@ -1831,6 +1898,8 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	break;
     }
 
+    fd->ctr = c;
+    c->slice = s;
     return &s->crecs[c->curr_rec++];
 }
 
