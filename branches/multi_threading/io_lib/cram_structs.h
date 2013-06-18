@@ -620,6 +620,8 @@ typedef struct {
     pthread_mutex_t ref_lock;
     spare_bams *bl;
     pthread_mutex_t bam_list_lock;
+    void *job_pending;
+    int ooc;                            // out of containers.
 } cram_fd;
 
 enum cram_option {

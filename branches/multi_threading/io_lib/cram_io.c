@@ -1797,6 +1797,9 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	return NULL;
     }
 
+    if (fd->ref_free)
+	free(fd->ref_free);
+
     fd->ref_id    = id;
     fd->ref_start = start;
     fd->ref_end   = end;
@@ -3091,9 +3094,11 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->unsorted   = 0;
     fd->shared_ref = 0;
 
-    fd->index  = NULL;
-    fd->pool   = NULL;
-    fd->rqueue = NULL;
+    fd->index       = NULL;
+    fd->pool        = NULL;
+    fd->rqueue      = NULL;
+    fd->job_pending = NULL;
+    fd->ooc         = 0;
 
     for (i = 0; i < 7; i++)
 	fd->m[i] = cram_new_metrics();
