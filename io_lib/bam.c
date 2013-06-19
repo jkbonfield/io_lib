@@ -132,7 +132,7 @@ static int bam_read(bam_file_t *b, void *data, size_t len) {
  * Returns actual line length used (note note the same as *len) on success
  *        -1 on failure
  */
-int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
+static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
     unsigned char *buf = *str;
     int used_l = 0;
     size_t alloc_l = *len;
@@ -151,6 +151,46 @@ int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 	 * we can then afford to determine which case is and deal with it.
 	 */
 	tmp = next_condition = MIN(b->uncomp_sz, alloc_l-used_l);
+
+	/*
+	 * Consume 32 or 64 bits at a time, looking for \n in any byte.
+	 * On 64-bit OS this function becomes 3x faster.
+	 */
+#ifdef ALLOW_UAC
+#if SIZEOF_LONG == 8
+#define hasless(x,n) (((x)-0x0101010101010101UL*(n))&~(x)&0x8080808080808080UL)
+#define haszero(x) (((x)-0x0101010101010101UL)&~(x)&0x8080808080808080UL)
+	{
+	    uint64_t *fromi     = (uint64_t *)from;
+	    uint64_t *toi       = (uint64_t *)to;
+	    while (next_condition >= 8) {
+		uint64_t w = *fromi ^ 0x0a0a0a0a0a0a0a0aUL;
+		if (haszero(w))
+		    break;
+
+		*toi++ = *fromi++;
+		next_condition -= 8;
+	    }
+	}
+#else
+#define hasless(x,n) (((x)-0x01010101UL*(n))&~(x)&0x80808080UL)
+#define haszero(x) (((x)-0x01010101UL)&~(x)&0x80808080UL)
+	{
+	    uint32_t *fromi     = (uint32_t *)from;
+	    uint32_t *toi       = (uint32_t *)to;
+	    while (next_condition >= 4) {
+		uint32_t w = *fromi ^ 0x0a0a0a0aUL;
+		if (haszero(w))
+		    break;
+
+		*toi++ = *fromi++;
+		next_condition -= 4;
+	    }
+	}
+#endif
+	from += tmp-next_condition;
+	to   += tmp-next_condition;
+#endif
 
 	while (next_condition-- > 0) { /* these 3 lines are 50% of SAM cpu */
 	    if (*from != '\n') {
@@ -854,6 +894,109 @@ static int bam_uncompress_input(bam_file_t *b) {
 
 }
 
+#ifdef ALLOW_UAC
+#if SIZEOF_LONG == 8
+#define COPY_CPF_TO_CPTM(n)				\
+    do {					        \
+	uint64_t *cpfi = (uint64_t *)cpf;		\
+	uint64_t *cpti = (uint64_t *)cpt;		\
+	uint64_t *orig = cpfi;				\
+	while (!hasless(*cpfi,10)) {				\
+	    *cpti++ = *cpfi++ - (n)*0x0101010101010101UL;	\
+	}						\
+	cpf += (cpfi-orig)*8; cpt += (cpfi-orig)*8;	\
+	while (*cpf > '\t')				\
+	    *cpt++ = *cpf++ - (n);			\
+    } while (0)
+
+#define CPF_SKIP()					\
+    do {						\
+	uint64_t *cpfi = (uint64_t *)cpf;		\
+	uint64_t *orig = cpfi;				\
+	while(!hasless(*cpfi,10))			\
+	    cpfi++;					\
+	cpf += (cpfi-orig)*8;				\
+	while (*cpf > '\t')				\
+	    cpf++;					\
+    } while (0)
+
+#else
+#define COPY_CPF_TO_CPTM(n)				\
+    do {					        \
+	uint32_t *cpfi = (uint32_t *)cpf;		\
+	uint32_t *cpti = (uint32_t *)cpt;		\
+	uint32_t *orig = cpfi;				\
+	while (!haszero(*cpfi ^ 0x09090909)) {		\
+	    *cpti++ = *cpfi++ - (n)*0x01010101;		\
+	}						\
+	cpf += (cpfi-orig)*4; cpt += (cpfi-orig)*4;	\
+	while (*cpf > '\t')				\
+	    *cpt++ = *cpf++ - (n);			\
+    } while (0)
+
+#define CPF_SKIP()					\
+    do {						\
+	uint32_t *cpfi = (uint32_t *)cpf;		\
+	uint32_t *orig = cpfi;				\
+	while(!haszero(*cpfi ^ 0x09090909))		\
+	    cpfi++;					\
+	cpf += (cpfi-orig)*4;				\
+	while (*cpf > '\t')				\
+	    cpf++;					\
+    } while (0)
+#endif
+
+#else /* !ALLOW_UAC */
+#define COPY_CPF_TO_CPTM(n)			        \
+    do {						\
+	while (*cpf > '\t')				\
+	    *cpt++ = *cpf++ - (n);			\
+    } while (0);
+
+#define CPF_SKIP()					\
+    do {						\
+	while (*cpf > '\t')				\
+	    cpf++;					\
+    } while (0)
+#endif
+
+
+#define STRTOL(v,rv,b) ({			\
+	    int n = 0;				\
+	    while (*v > '\t')			\
+		n=n*10+*v++-'0';		\
+	    *rv=v;				\
+	    n;					\
+	})
+
+#undef STRTOL
+
+/* Custom strtol for aux tags, always base 10 */
+static long inline STRTOL(const char *v, const char **rv, int b) {
+    long n = 0;
+    int neg = 1;
+    switch(*v) {
+    case '-':
+	neg=-1;
+	break;
+    case '+':
+	break;
+    case '0': case '1': case '2': case '3': case '4':
+    case '5': case '6': case '7': case '8': case '9':
+	n = *v - '0';
+	break;
+    default:
+	*rv = v;
+	return 0;
+    }
+    v++;
+
+    while (isdigit(*v))
+	n = n*10 + *v++ - '0';
+    *rv = v;
+    return neg*n;
+}
+
 /*
  * Decodes the next line of SAM into a bam_seq_t struct.
  *
@@ -869,7 +1012,8 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     HashItem *hi;
     int start, end;
     SAM_hdr *sh = b->header;
-    static const int lookup[256] = {
+
+    static const char lookup[256] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 00 */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 10 */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 20 */
@@ -892,7 +1036,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	return used_l;
     }
 
-    used_l *= 4; // FIXME
+    used_l *= 4; // FIXME, what is the correct max size?
 
     /* Over sized memory, for worst case? FIXME: cigar can break this! */
     if (!*bsp || used_l + sizeof(*bs) > (*bsp)->alloc) {
@@ -913,8 +1057,9 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     /* Name */
     cp = cpf;
     //while (*cpf && *cpf != '\t')
-    while (*cpf > '\t')
-	*cpt++ = *cpf++;
+    COPY_CPF_TO_CPTM(0);
+//    while (*cpf > '\t')
+//	*cpt++ = *cpf++;
     *cpt++ = 0;
     if (!*cpf++) return -1;
     if (cpf-cp > 255) {
@@ -934,6 +1079,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     /* ref */
     cp = cpf;
     //while (*cpf && *cpf != '\t')
+    //    CPF_SKIP();
     while (*cpf > '\t')
 	cpf++;
     if (*cp == '*') {
@@ -1036,6 +1182,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     /* mate ref name */
     cp = cpf;
     //while (*cpf && *cpf != '\t')
+    //    CPF_SKIP();
     while (*cpf > '\t')
 	cpf++;
     if (*cp == '*' && cp[1] == '\t') {
@@ -1098,15 +1245,24 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	cpf++;
 	bs->len = 0;
     } else {
-	while (*cpf > '\t') {
-	    *cpt = lookup[*cpf]<<4;
-	    if (*++cpf <= '\t') {
-		cpt++;
-		break;
-	    }
-	    *cpt++ |= lookup[*cpf];
-	    cpf++;
+	while (cpf[0] > '\t' && cpf[1] > '\t') {
+	    /* 9% of cpu time is here */
+	    *cpt++ = (lookup[cpf[0]]<<4) | lookup[cpf[1]];
+	    cpf+=2;
 	}
+
+	if (*cpf > '\t')
+	    *cpt++ = lookup[*cpf++]<<4;
+
+//	while (*cpf > '\t') {
+//	    *cpt = lookup[*cpf]<<4;
+//	    if (*++cpf <= '\t') {
+//		cpt++;
+//		break;
+//	    }
+//	    *cpt++ |= lookup[*cpf];
+//	    cpf++;
+//	}
 	bs->len = cpf-cp;
     }
     if (!*cpf++) return -1;
@@ -1120,8 +1276,9 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	cpt += bs->len;
 	cpf++;
     } else {
-	while (*cpf > '\t')
-	    *cpt++ = *cpf++ - '!';
+	COPY_CPF_TO_CPTM('!');
+//	while (*cpf > '\t')
+//	    *cpt++ = *cpf++ - '!';
     }
 
     assert((char *)cpt == (char *)(bam_aux(bs)));
@@ -1136,7 +1293,8 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	cpf += 5;
 
 	value = cpf;
-	while (*cpf && *cpf != '\t')
+	//CPF_SKIP();
+	while (*cpf > '\t')
 	    cpf++;
 
 	*cpt++ = key[0];
@@ -1149,7 +1307,8 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    break;
 
 	case 'i':
-	    n = atoi((char *)value);
+	    //n = atoi((char *)value);
+	    n = STRTOL((char *)value, (const char **)&value, 10);
 	    if (n >= 0) {
 		if (n < 256) {
 		    *cpt++ = 'C';
@@ -2148,7 +2307,8 @@ int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam) {
 	    break;
 
 	case 'i':
-	    n = atoi((char *)value);
+	    //n = atoi((char *)value);
+	    n = STRTOL((char *)value, (const char **)&value, 10);
 	    if (n >= 0) {
 		if (n < 256) {
 		    *cpt++ = 'C';
