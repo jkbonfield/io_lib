@@ -1,5 +1,7 @@
 #!/bin/sh
 
+$srcdir/generate_data.pl || exit 1
+
 scramble="${VALGRIND} $top_builddir/progs/scramble ${SCRAMBLE_ARGS}"
 compare_sam=$srcdir/compare_sam.pl
 
