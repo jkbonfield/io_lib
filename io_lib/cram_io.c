@@ -1466,18 +1466,18 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     return 0;
 }
 
-void cram_ref_incr(refs_t *r, int id) {
-    pthread_mutex_lock(&r->lock);
-
+static void cram_ref_incr_locked(refs_t *r, int id) {
     RP("INC REF %d, %d\n", id, (int)(id>=0?r->ref_id[id]->count+1:-1));
 
-    if (id < 0 || !r->ref_id[id]->seq) {
-	pthread_mutex_unlock(&r->lock);
+    if (id < 0 || !r->ref_id[id]->seq)
 	return;
-    }
 
     ++r->ref_id[id]->count;
+}
 
+void cram_ref_incr(refs_t *r, int id) {
+    pthread_mutex_lock(&r->lock);
+    cram_ref_incr_locked(r, id);
     pthread_mutex_unlock(&r->lock);
 }
 
@@ -1580,8 +1580,6 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
     if (e->seq)
 	return e;
 
-    pthread_mutex_lock(&r->lock);
-
     if (r->last) {
 	if (--r->last->count <= 0) {
 	    RP("FREE REF %d (%p)\n", id, r->ref_id[id]->seq);
@@ -1599,7 +1597,6 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
 	r->fn = e->fn;
 	if (!(r->fp = fopen(r->fn, "r"))) {
 	    perror(r->fn);
-	    pthread_mutex_unlock(&r->lock);
 	    return NULL;
 	}
     }
@@ -1607,7 +1604,6 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
     RP("Loading ref %d (%d..%d)\n", id, start, end);
 
     if (!(seq = load_ref_portion(r->fp, e, start, end))) {
-	pthread_mutex_unlock(&r->lock);
 	return NULL;
     }
 
@@ -1623,8 +1619,6 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
      */
     r->last = e;
     e->count++; 
-
-    pthread_mutex_unlock(&r->lock);
 
     return e;
 }
@@ -1710,6 +1704,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	}
 	r = fd->refs->ref_id[id];
     }
+    pthread_mutex_lock(&fd->refs->lock);
 
 
     /*
@@ -1737,12 +1732,15 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
      * a pointer to that one instead.
      */
     if (fd->shared_ref || r->seq || (start == 1 && end == r->length)) {
+	char *cp;
+
 	if (id >= 0) {
 	    if (r->seq) {
-		cram_ref_incr(fd->refs, id);
+		cram_ref_incr_locked(fd->refs, id);
 	    } else {
 		ref_entry *e;
 		if (!(e = cram_ref_load(fd->refs, id))) {
+		    pthread_mutex_unlock(&fd->refs->lock);
 		    pthread_mutex_unlock(&fd->ref_lock);
 		    return NULL;
 		}
@@ -1756,8 +1754,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	    fd->ref = NULL;
 	}
 
+	cp = fd->ref + ostart-1;
+	pthread_mutex_unlock(&fd->refs->lock);
 	pthread_mutex_unlock(&fd->ref_lock);
-	return fd->ref + ostart-1;
+	return cp;
     }
 
     /*
@@ -1776,6 +1776,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	}
 	fd->ref = NULL;
 	fd->ref_id = id;
+	pthread_mutex_unlock(&fd->refs->lock);
 	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
     }
@@ -1787,12 +1788,14 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	fd->refs->fn = r->fn;
 	if (!(fd->refs->fp = fopen(fd->refs->fn, "r"))) {
 	    perror(fd->refs->fn);
+	    pthread_mutex_unlock(&fd->refs->lock);
 	    pthread_mutex_unlock(&fd->ref_lock);
 	    return NULL;
 	}
     }
 
     if (!(fd->ref = load_ref_portion(fd->refs->fp, r, start, end))) {
+	pthread_mutex_unlock(&fd->refs->lock);
 	pthread_mutex_unlock(&fd->ref_lock);
 	return NULL;
     }
@@ -1806,6 +1809,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     fd->ref_free = fd->ref;
     seq = fd->ref;
 
+    pthread_mutex_unlock(&fd->refs->lock);
     pthread_mutex_unlock(&fd->ref_lock);
 
     return seq + ostart - start;
