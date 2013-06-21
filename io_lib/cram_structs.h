@@ -263,6 +263,7 @@ typedef struct {
     int max_apos;                // maximum position, used if pos_sorted==0
     int last_slice;              // number of reads in last slice (0 for 1st)
     int multi_seq;               // true if packing multi seqs per cont/slice
+    int unsorted;		 // true is AP_delta is 0.
 
     /* Copied from fd before encoding, to allow multi-threading */
     int ref_start, first_base, last_base, ref_id, ref_end;
@@ -470,6 +471,7 @@ typedef struct cram_slice {
 
     char *ref;               // slice of current reference
     int ref_start;           // start position of current reference;
+    int ref_end;             // end position of current reference;
 
 #ifdef BA_external
     int BA_len;

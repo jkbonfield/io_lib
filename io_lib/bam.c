@@ -735,7 +735,6 @@ static int bam_uncompress_input(bam_file_t *b) {
 	if (b->eof == 2 && t_pool_results_queue_empty(b->dqueue))
 	    return 0;
 
-	//fprintf(stderr, "Waiting on result with len %d\n", t_pool_results_queue_len(b->dqueue));
 	res = t_pool_next_result_wait(b->dqueue);
 	if (!res || !res->data) {
 	    fprintf(stderr, "t_pool_next_result failure\n");
