@@ -368,12 +368,6 @@ int main(int argc, char **argv) {
 	return 1;
 
     /* Finally tidy up and close files */
-    if (refs == scram_get_refs(out)) {
-	scram_set_refs(out, NULL);
-    }
-
-    //sleep(50);
-
     if (scram_close(in))
 	return 1;
     if (scram_close(out))
