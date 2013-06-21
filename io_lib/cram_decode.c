@@ -1265,6 +1265,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		return -1;
 	    s->ref = (char *)BLOCK_DATA(b);
 	    s->ref_start = s->hdr->ref_seq_start;
+	    s->ref_end   = s->hdr->ref_seq_start + s->hdr->ref_seq_span-1;
 	} else if (!fd->no_ref) {
 	    //// Avoid Java cramtools bug by loading entire reference seq 
 	    //s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
@@ -1273,8 +1274,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    s->ref =
 	       cram_get_ref(fd, s->hdr->ref_seq_id,
 	                    s->hdr->ref_seq_start,
-	    		      s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
+			    s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
 	    s->ref_start = s->hdr->ref_seq_start;
+	    s->ref_end   = s->hdr->ref_seq_start + s->hdr->ref_seq_span-1;
 	}
     }
 
@@ -1291,30 +1293,30 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	MD5_CTX md5;
 	unsigned char digest[16];
 
-	if (fd->ref && s->hdr->ref_seq_id >= 0) {
+	if (s->ref && s->hdr->ref_seq_id >= 0) {
 	    int start, len;
 
-	    if (s->hdr->ref_seq_start >= fd->ref_start) {
-		start = s->hdr->ref_seq_start - fd->ref_start;
+	    if (s->hdr->ref_seq_start >= s->ref_start) {
+		start = s->hdr->ref_seq_start - s->ref_start;
 	    } else {
 		fprintf(stderr, "Slice starts before base 1.\n");
 		start = 0;
 	    }
 
-	    if (s->hdr->ref_seq_span <= fd->ref_end - fd->ref_start + 1) {
+	    if (s->hdr->ref_seq_span <= s->ref_end - s->ref_start + 1) {
 		len = s->hdr->ref_seq_span;
 	    } else {
 		fprintf(stderr, "Slice ends beyond reference end.\n");
-		len = fd->ref_end - fd->ref_start + 1;
+		len = s->ref_end - s->ref_start + 1;
 	    }
 
 	    MD5_Init(&md5);
-	    if (start + len > fd->ref_end - fd->ref_start + 1)
-		len = fd->ref_end - fd->ref_start + 1 - start;
+	    if (start + len > s->ref_end - s->ref_start + 1)
+		len = s->ref_end - s->ref_start + 1 - start;
 	    if (len >= 0)
-		MD5_Update(&md5, fd->ref + start, len);
+		MD5_Update(&md5, s->ref + start, len);
 	    MD5_Final(digest, &md5);
-	} else if (!fd->ref && s->hdr->ref_base_id >= 0) {
+	} else if (!s->ref && s->hdr->ref_base_id >= 0) {
 	    cram_block *b;
 	    if (s->block_by_id && (b = s->block_by_id[s->hdr->ref_base_id])) {
 		MD5_Init(&md5);
@@ -1323,7 +1325,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    }
 	}
 
-	if ((!fd->ref && s->hdr->ref_base_id < 0)
+	if ((!s->ref && s->hdr->ref_base_id < 0)
 	    || memcmp(digest, s->hdr->md5, 16) != 0) {
 	    fprintf(stderr, "ERROR: md5sum reference mismatch\n");
 	    return -1;
@@ -1360,7 +1362,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 					       (char *)&cr->ref_id, &out_sz);
 	    if (!fd->no_ref)
 		s->ref = cram_get_ref(fd, cr->ref_id, 1, 0);
+	    assert(s->ref == fd->refs->ref_id[cr->ref_id]->seq);
 	    s->ref_start = 1;
+	    s->ref_end = fd->refs->ref_id[cr->ref_id]->length;
 	} else {
 	    cr->ref_id = ref_id; // Forced constant in CRAM 1.0
 	}
@@ -1473,6 +1477,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	seq = (char *)BLOCK_END(s->seqs_blk);
 	BLOCK_SIZE(s->seqs_blk) += cr->len;
 
+	if (!seq)
+	    fprintf(stderr, "seq=%p, s->seqs_blk->data = %p\n", seq, s->seqs_blk->data);
+	
 	cr->qual = BLOCK_SIZE(s->qual_blk);
 	BLOCK_GROW(s->qual_blk, cr->len);
 	qual = (char *)BLOCK_END(s->qual_blk);
@@ -1701,8 +1708,11 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
 	if (!c->comp_hdr)
 	    return NULL;
-	if (!c->comp_hdr->AP_delta)
+	if (!c->comp_hdr->AP_delta) {
+	    pthread_mutex_lock(&fd->ref_lock);
 	    fd->unsorted = 1;
+	    pthread_mutex_unlock(&fd->ref_lock);
+	}
     }
 
     if ((s = c->slice))
@@ -1765,8 +1775,11 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 		if (!c->comp_hdr)
 		    return NULL;
 
-		if (!c->comp_hdr->AP_delta)
+		if (!c->comp_hdr->AP_delta) {
+		    pthread_mutex_lock(&fd->ref_lock);
 		    fd->unsorted = 1;
+		    pthread_mutex_unlock(&fd->ref_lock);
+		}
 	    }
 
 	    if (!(s = c->slice = cram_read_slice(fd)))

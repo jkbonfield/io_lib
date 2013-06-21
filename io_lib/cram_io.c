@@ -1642,7 +1642,7 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
  *
  * To cease using a reference, call cram_ref_decr().
  *
- * Returns reference on success
+ * Returns reference on success,
  *         NULL on failure
  */
 char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
@@ -1653,6 +1653,10 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     if (id == -1)
 	return NULL;
+
+    /* FIXME: axiomatic query of r->seq being true?
+     * Or shortcut for unsorted data where we load once and never free?
+     */
 
     //fd->shared_ref = 1; // hard code for now to simplify things
 
@@ -1744,17 +1748,19 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 		    pthread_mutex_unlock(&fd->ref_lock);
 		    return NULL;
 		}
-	    
-		fd->ref       = e->seq;
-		fd->ref_start = 1;
-		fd->ref_end   = r->length;
-		fd->ref_id    = id;
 	    }	    
+
+	    fd->ref       = r->seq;
+	    fd->ref_start = 1;
+	    fd->ref_end   = r->length;
+	    fd->ref_id    = id;
+
+	    cp = fd->refs->ref_id[id]->seq + ostart-1;
 	} else {
 	    fd->ref = NULL;
+	    cp = NULL;
 	}
 
-	cp = fd->ref + ostart-1;
 	pthread_mutex_unlock(&fd->refs->lock);
 	pthread_mutex_unlock(&fd->ref_lock);
 	return cp;
