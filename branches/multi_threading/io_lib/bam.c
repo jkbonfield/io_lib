@@ -925,7 +925,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 	uint32_t *cpfi = (uint32_t *)cpf;		\
 	uint32_t *cpti = (uint32_t *)cpt;		\
 	uint32_t *orig = cpfi;				\
-	while (!haszero(*cpfi ^ 0x09090909)) {		\
+	while (!hasless(*cpfi,10)) {			\
 	    *cpti++ = *cpfi++ - (n)*0x01010101;		\
 	}						\
 	cpf += (cpfi-orig)*4; cpt += (cpfi-orig)*4;	\
@@ -937,7 +937,7 @@ static int bam_uncompress_input(bam_file_t *b) {
     do {						\
 	uint32_t *cpfi = (uint32_t *)cpf;		\
 	uint32_t *orig = cpfi;				\
-	while(!haszero(*cpfi ^ 0x09090909))		\
+	while(!hasless(*cpfi,10))			\
 	    cpfi++;					\
 	cpf += (cpfi-orig)*4;				\
 	while (*cpf > '\t')				\
