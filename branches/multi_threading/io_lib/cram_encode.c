@@ -1045,7 +1045,11 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    c->ref       = fd->refs->ref_id[c->ref_seq_id]->seq;
 	    c->ref_start = 1;
 	    c->ref_end   = fd->refs->ref_id[c->ref_seq_id]->length;
+	} else {
+	    c->ref_seq_id = c->ref_id; // FIXME remove one var!
 	}
+    } else {
+	    c->ref_seq_id = c->ref_id; // FIXME remove one var!
     }
 
     /* Turn bams into cram_records and gather basic stats */
@@ -1077,6 +1081,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 		    }
 
 		    c->ref_seq_id = bam_ref(b); // overwritten later by -2
+		    assert(fd->refs->ref_id[c->ref_seq_id]->seq);
 		    c->ref       = fd->refs->ref_id[c->ref_seq_id]->seq;
 		    c->ref_start = 1;
 		    c->ref_end   = fd->refs->ref_id[c->ref_seq_id]->length;
@@ -1431,8 +1436,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     c->comp_hdr_block = c_hdr;
 
-    if (c->ref_id >= 0) {
-	cram_ref_decr(fd->refs, c->ref_id);
+    if (c->ref_seq_id >= 0) {
+	cram_ref_decr(fd->refs, c->ref_seq_id);
     }
 
     return 0;
@@ -1942,6 +1947,14 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
     cram_slice *s;
     int i;
 
+    /* Cache references up-front if we have unsorted access patterns */
+    if (c->refs_used) {
+	for (i = 0; i < fd->refs->nref; i++) {
+	    if (c->refs_used[i])
+		cram_get_ref(fd, i, 1, 0);
+	}
+    }
+
     /* First occurence */
     if (c->curr_ref == -2)
 	c->curr_ref = bam_ref(b);
@@ -2027,6 +2040,14 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
     }
 
     c->curr_rec = 0;
+
+    /* Cache references up-front if we have unsorted access patterns */
+    if (c->refs_used) {
+	for (i = 0; i < fd->refs->nref; i++) {
+	    if (c->refs_used[i])
+		cram_ref_decr(fd->refs, i);
+	}
+    }
 
     return c;
 }
@@ -2469,19 +2490,33 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    fd->multi_seq = 1;
 	    c->multi_seq = 1;
 	    c->pos_sorted = 0; // required atm for multi_seq slices
+
+	    if (!c->refs_used) {
+		c->refs_used = calloc(fd->refs->nref, sizeof(int));
+		if (!c->refs_used)
+		    return -1;
+	    }
 	}
 
 	fd->last_slice = curr_rec - slice_rec;
 	c->slice_rec = c->curr_rec;
 
-//	// Have we seen this reference before?
-//	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref) {
-//	    fprintf(stderr, "Multi_seq mode enabled\n");
-//	    fd->unsorted = 1;
-//	    fd->multi_seq = 1;
-//	}
+	// Have we seen this reference before?
+	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref &&
+	    (fd->unsorted == 0 || fd->multi_seq == 0)) {
+	    fprintf(stderr, "Multi_seq mode enabled\n");
+	    fd->unsorted = 1;
+	    fd->multi_seq = 1;
+
+	    if (!c->refs_used) {
+		c->refs_used = calloc(fd->refs->nref, sizeof(int));
+		if (!c->refs_used)
+		    return -1;
+	    }
+	}
 
 	c->curr_ref = bam_ref(b);
+	if (c->refs_used && c->curr_ref >= 0) c->refs_used[c->curr_ref]++;
     }
 
     if (!c->bams) {
