@@ -2503,15 +2503,15 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	// Have we seen this reference before?
 	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref &&
-	    (fd->unsorted == 0 || fd->multi_seq == 0)) {
-	    fprintf(stderr, "Multi_seq mode enabled\n");
-	    fd->unsorted = 1;
-	    fd->multi_seq = 1;
-
+	    !fd->unsorted) {
 	    if (!c->refs_used) {
 		c->refs_used = calloc(fd->refs->nref, sizeof(int));
 		if (!c->refs_used)
 		    return -1;
+	    } else if (c->refs_used && c->refs_used[bam_ref(b)]) {
+		fprintf(stderr, "Unsorted mode enabled\n");
+		fd->unsorted = 1;
+		fd->multi_seq = 1;
 	    }
 	}
 
