@@ -304,6 +304,7 @@ typedef struct {
     cram_stats *HC_stats;
 
     HashTable *tags_used; // hash of tag types in use, for tag encoding map
+    int *refs_used;       // array of frequency of ref seq IDs
 } cram_container;
 
 /*

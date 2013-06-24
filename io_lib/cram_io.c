@@ -47,6 +47,9 @@
 #define RP(...) 
 #endif
 
+#include <sys/syscall.h>
+#define gettid() (int)syscall(SYS_gettid)
+
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
  *
@@ -979,6 +982,8 @@ int paranoid_fclose(FILE *fp) {
 void refs_free(refs_t *r) {
     int i;
 
+    RP("refs_free()\n");
+
     if (--r->count > 0)
 	return;
 
@@ -1018,6 +1023,9 @@ void refs_free(refs_t *r) {
 
 static refs_t *refs_create(void) {
     refs_t *r = calloc(1, sizeof(*r));
+
+    RP("refs_create()\n");
+
     if (!r)
 	return NULL;
 
@@ -1058,7 +1066,7 @@ static refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
     char line[8192];
     refs_t *r = r_orig;
 
-    //fprintf(stderr, "refs_load_fai %s\n", fn);
+    RP("refs_load_fai %s\n", fn);
 
     if (!r)
 	if (!(r = refs_create()))
@@ -1467,7 +1475,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 }
 
 static void cram_ref_incr_locked(refs_t *r, int id) {
-    RP("INC REF %d, %d\n", id, (int)(id>=0?r->ref_id[id]->count+1:-1));
+    RP("%d INC REF %d, %d\n", gettid(), id, (int)(id>=0?r->ref_id[id]->count+1:-1));
 
     if (id < 0 || !r->ref_id[id]->seq)
 	return;
@@ -1484,7 +1492,7 @@ void cram_ref_incr(refs_t *r, int id) {
 void cram_ref_decr(refs_t *r, int id) {
     pthread_mutex_lock(&r->lock);
 
-    RP("DEC REF %d, %d\n", id, (int)(id>=0?r->ref_id[id]->count-1:-1));
+    RP("%d DEC REF %d, %d\n", gettid(), id, (int)(id>=0?r->ref_id[id]->count-1:-1));
 
     if (id < 0 || !r->ref_id[id]->seq) {
 	pthread_mutex_unlock(&r->lock);
@@ -1492,7 +1500,8 @@ void cram_ref_decr(refs_t *r, int id) {
     }
 
     if (--r->ref_id[id]->count <= 0) {
-	RP("FREE REF %d (%p)\n", id, r->ref_id[id]->seq);
+	assert(r->ref_id[id]->count == 0);
+	RP("%d FREE REF %d (%p)\n", gettid(), id, r->ref_id[id]->seq);
 	if (r->ref_id[id]->seq) {
 	    free(r->ref_id[id]->seq);
 	    r->ref_id[id]->seq = NULL;
@@ -1577,12 +1586,18 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
     int offset, len;
     char *seq;
 
+    RP("cram_ref_load\n");
+
     if (e->seq)
 	return e;
 
+    assert(e->count == 0);
+
     if (r->last) {
+	RP("%d cram_ref_load DECR %d\n", gettid(), r->last - r->ref_id[0]);
+	assert(r->last->count > 0);
 	if (--r->last->count <= 0) {
-	    RP("FREE REF %d (%p)\n", id, r->ref_id[id]->seq);
+	    RP("%d FREE REF %d (%p)\n", gettid(), id, r->ref_id[id]->seq);
 	    if (r->ref_id[id]->seq) {
 		free(r->ref_id[id]->seq);
 		r->ref_id[id]->seq = NULL;
@@ -1601,15 +1616,15 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
 	}
     }
 
-    RP("Loading ref %d (%d..%d)\n", id, start, end);
+    RP("%d Loading ref %d (%d..%d)\n", gettid(), id, start, end);
 
     if (!(seq = load_ref_portion(r->fp, e, start, end))) {
 	return NULL;
     }
 
-    RP("Loaded ref %d (%d..%d) = %p\n", id, start, end, seq);
+    RP("%d Loaded ref %d (%d..%d) = %p\n", gettid(), id, start, end, seq);
 
-    RP("INC REF %d, %d\n", id, (int)(e->count+1));
+    RP("%d INC REF %d, %d\n", gettid(), id, (int)(e->count+1));
     e->seq = seq;
     e->count++;
 
@@ -1617,6 +1632,7 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
      * Also keep track of last used ref so incr/decr loops on the same
      * sequence don't cause load/free loops.
      */
+    RP("%d cram_ref_load INCR %d\n", gettid(), id);
     r->last = e;
     e->count++; 
 
@@ -1662,7 +1678,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     pthread_mutex_lock(&fd->ref_lock);
 
-    RP("cram_get_ref on fd %p, id %d, range %d..%d\n", fd, id, start, end);
+    RP("%d cram_get_ref on fd %p, id %d, range %d..%d\n", gettid(), fd, id, start, end);
 
     /*
      * Unsorted data implies we want to fetch an entire reference at a time.
@@ -1760,6 +1776,8 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	    fd->ref = NULL;
 	    cp = NULL;
 	}
+
+	RP("%d cram_get_ref returning for id %d, count %d\n", gettid(), id, (int)r->count);
 
 	pthread_mutex_unlock(&fd->refs->lock);
 	pthread_mutex_unlock(&fd->ref_lock);
@@ -1920,6 +1938,7 @@ cram_container *cram_new_container(int nrec, int nslice) {
 
     if (!(c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
 	return NULL;
+    c->refs_used = 0;
 
     return c;
 }
@@ -1929,6 +1948,9 @@ void cram_free_container(cram_container *c) {
 
     if (!c)
 	return;
+
+    if (c->refs_used)
+	free(c->refs_used);
 
     if (c->landmark)
 	free(c->landmark);
@@ -2914,6 +2936,8 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	return -1;
 
     fflush(fd->fp);
+
+    RP("=== Finishing saving header ===\n");
 
     return 0;
 }
