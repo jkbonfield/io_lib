@@ -95,7 +95,8 @@ libstaden_read_la_SOURCES = \
 	md5.h \
 	scram.c \
 	scram.h \
-	thread_pool.c
+	thread_pool.c \
+	thread_pool.h
 
 libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
 
