@@ -1586,8 +1586,6 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
     int offset, len;
     char *seq;
 
-    RP("cram_ref_load\n");
-
     if (e->seq)
 	return e;
 
@@ -1598,9 +1596,9 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
 	assert(r->last->count > 0);
 	if (--r->last->count <= 0) {
 	    RP("%d FREE REF %d (%p)\n", gettid(), id, r->ref_id[id]->seq);
-	    if (r->ref_id[id]->seq) {
-		free(r->ref_id[id]->seq);
-		r->ref_id[id]->seq = NULL;
+	    if (r->last->seq) {
+		free(r->last->seq);
+		r->last->seq = NULL;
 	    }
 	}
     }
@@ -1764,6 +1762,12 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 		    pthread_mutex_unlock(&fd->ref_lock);
 		    return NULL;
 		}
+
+		/* unsorted data implies cache ref indefinitely, to avoid
+		 * continually loading and unloading.
+		 */
+		if (fd->unsorted)
+		    cram_ref_incr_locked(fd->refs, id);
 	    }	    
 
 	    fd->ref       = r->seq;
