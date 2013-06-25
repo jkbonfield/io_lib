@@ -27,7 +27,36 @@ typedef struct {
 	bam_file_t *b;
 	cram_fd    *c;
     };
+
+    /* Primary Input/Output buffer */
+    unsigned char *buf;
+    size_t alloc;
+    size_t used;
+    FILE *fp;   // copy of file handle.
+
+    t_pool *pool;
 } scram_fd;
+
+/*
+ * An input stream in SCRAM is a large block of memory which we periodically
+ * fread into.
+ *
+ * This input stream is then broken down into chunks of appropriate size
+ * as used by the underlying format. The only tricky bit here is the first
+ * portion (opening the underlying format) can use an unknown amount of 
+ * buffer due to the BAM header being variable length.
+ *
+ * Once we have this, scram_next_input() will return the next natural
+ * chunk from the input buffer. This permits a single input buffer being
+ * divided into multiple scram_buffers to pass to separate threads for
+ * decoding.
+ */
+typedef struct {
+    unsigned char *buf;
+    size_t alloc; // allocated size of buf
+    size_t size;  // size loaded
+    size_t usize; // size usable by the underlying format
+} scram_buffer_t;
 
 /*!@return
  * Returns 1 if we hit the end of file; 0 otherwise.
@@ -114,6 +143,16 @@ refs_t *scram_get_refs(scram_fd *fd);
  * Note: this only works for CRAM files.
  */
 void scram_set_refs(scram_fd *fd, refs_t *refs);
+
+
+/*!
+ * Replaces the FILE* input interface with an explicit buffer to decode
+ * from.
+ *
+ * @Returns 0 on success;
+ *         -1 on failure
+ */
+int scram_input_buffer(scram_fd *fd, unsigned char *buf, size_t size);
 
 
 /*! Fetches the next sequence and returns it in BAM format.

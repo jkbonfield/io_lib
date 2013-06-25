@@ -55,6 +55,7 @@ void cram_stats_del(cram_stats *st, int32_t val) {
 
     if (val < MAX_STAT_VAL && val >= 0) {
 	st->freqs[val]--;
+	assert(st->freqs[val] >= 0);
     } else if (st->h) {
 	HashItem *hi;
 

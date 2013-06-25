@@ -1,6 +1,8 @@
 #!/bin/sh
 
-scramble="${VALGRIND} $top_builddir/progs/scramble"
+$srcdir/generate_data.pl || exit 1
+
+scramble="${VALGRIND} $top_builddir/progs/scramble ${SCRAMBLE_ARGS}"
 compare_sam=$srcdir/compare_sam.pl
 
 #valgrind="valgrind --leak-check=full"
@@ -48,6 +50,34 @@ do
     rm $outdir/tmp.sam
     echo "$cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam"
     $cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
-    # Compare converted data
+
+
+    # Try again with embedded ref; skip for unsorted sams
+    case "$root" in
+    *"unsorted") #skip
+        ;;
+    *) 
+        echo "$scramble -X -r $ref $outdir/$root.bam $outdir/$root.full.cram"
+        $scramble -r $ref $outdir/$root.bam $outdir/$root.full.cram
+        
+        echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
+        $scramble $outdir/$root.full.cram > $outdir/$root.full.sam
+        $compare_sam --nomd --unknownrg $srcdir/data/$root.sam $outdir/$root.full.sam || exit 1
+        echo "$cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam"
+        $cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
+	;;
+    esac
+
+
+    # And again with no ref.
+    echo "$scramble -x -r $ref $outdir/$root.bam $outdir/$root.full.cram"
+    $scramble -r $ref $outdir/$root.bam $outdir/$root.full.cram
+
+    echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
+    $scramble $outdir/$root.full.cram > $outdir/$root.full.sam
+    $compare_sam --nomd --unknownrg $srcdir/data/$root.sam $outdir/$root.full.sam || exit 1
+    echo "$cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam"
+    $cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
+
     echo ""
 done

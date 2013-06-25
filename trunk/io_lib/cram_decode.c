@@ -587,6 +587,25 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 
 
 #if 0
+/* Returns the number of bits set in val; it the highest bit used */
+static int nbits(int v) {
+    static const int MultiplyDeBruijnBitPosition[32] = {
+	1, 10, 2, 11, 14, 22, 3, 30, 12, 15, 17, 19, 23, 26, 4, 31,
+	9, 13, 21, 29, 16, 18, 25, 8, 20, 28, 24, 7, 27, 6, 5, 32
+    };
+
+    v |= v >> 1; // first up to set all bits 1 after the first 1 */
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+
+    // DeBruijn magic to find top bit
+    return MultiplyDeBruijnBitPosition[(uint32_t)(v * 0x07C4ACDDU) >> 27];
+}
+#endif
+
+#if 0
 static int sort_freqs(const void *vp1, const void *vp2) {
     const int i1 = *(const int *)vp1;
     const int i2 = *(const int *)vp2;
@@ -1209,6 +1228,13 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     int rec;
     char *seq, *qual;
     int unknown_rg = -1;
+    int id, embed_ref;
+    char **refs = NULL;
+
+    for (id = 0; id < s->hdr->num_blocks; id++) {
+	if (cram_uncompress_block(s->block[id]))
+	    return -1;
+    }
 
     blk->bit = 7; // MSB first
 
@@ -1225,10 +1251,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	return -1;
 
     ref_id = s->hdr->ref_seq_id;
-    fd->embed_ref = s->hdr->ref_base_id >= 0 ? 1 : 0;
+    embed_ref = s->hdr->ref_base_id >= 0 ? 1 : 0;
 
     if (ref_id >= 0) {
-	if (fd->embed_ref) {
+	if (embed_ref) {
 	    cram_block *b;
 	    if (s->hdr->ref_base_id < 0) {
 		fprintf(stderr, "No reference specified and "
@@ -1240,6 +1266,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		return -1;
 	    s->ref = (char *)BLOCK_DATA(b);
 	    s->ref_start = s->hdr->ref_seq_start;
+	    s->ref_end   = s->hdr->ref_seq_start + s->hdr->ref_seq_span-1;
 	} else if (!fd->no_ref) {
 	    //// Avoid Java cramtools bug by loading entire reference seq 
 	    //s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
@@ -1248,8 +1275,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    s->ref =
 	       cram_get_ref(fd, s->hdr->ref_seq_id,
 	                    s->hdr->ref_seq_start,
-	    		      s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
-	    s->ref_start = fd->ref_start;
+			    s->hdr->ref_seq_start + s->hdr->ref_seq_span -1);
+	    s->ref_start = s->hdr->ref_seq_start;
+	    s->ref_end   = s->hdr->ref_seq_start + s->hdr->ref_seq_span-1;
 	}
     }
 
@@ -1266,30 +1294,30 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	MD5_CTX md5;
 	unsigned char digest[16];
 
-	if (fd->ref && s->hdr->ref_seq_id >= 0) {
+	if (s->ref && s->hdr->ref_seq_id >= 0) {
 	    int start, len;
 
-	    if (s->hdr->ref_seq_start >= fd->ref_start) {
-		start = s->hdr->ref_seq_start - fd->ref_start;
+	    if (s->hdr->ref_seq_start >= s->ref_start) {
+		start = s->hdr->ref_seq_start - s->ref_start;
 	    } else {
 		fprintf(stderr, "Slice starts before base 1.\n");
 		start = 0;
 	    }
 
-	    if (s->hdr->ref_seq_span <= fd->ref_end - fd->ref_start + 1) {
+	    if (s->hdr->ref_seq_span <= s->ref_end - s->ref_start + 1) {
 		len = s->hdr->ref_seq_span;
 	    } else {
 		fprintf(stderr, "Slice ends beyond reference end.\n");
-		len = fd->ref_end - fd->ref_start + 1;
+		len = s->ref_end - s->ref_start + 1;
 	    }
 
 	    MD5_Init(&md5);
-	    if (start + len > fd->ref_end - fd->ref_start + 1)
-		len = fd->ref_end - fd->ref_start + 1 - start;
+	    if (start + len > s->ref_end - s->ref_start + 1)
+		len = s->ref_end - s->ref_start + 1 - start;
 	    if (len >= 0)
-		MD5_Update(&md5, fd->ref + start, len);
+		MD5_Update(&md5, s->ref + start, len);
 	    MD5_Final(digest, &md5);
-	} else if (!fd->ref && s->hdr->ref_base_id >= 0) {
+	} else if (!s->ref && s->hdr->ref_base_id >= 0) {
 	    cram_block *b;
 	    if (s->block_by_id && (b = s->block_by_id[s->hdr->ref_base_id])) {
 		MD5_Init(&md5);
@@ -1298,11 +1326,17 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    }
 	}
 
-	if ((!fd->ref && s->hdr->ref_base_id < 0)
+	if ((!s->ref && s->hdr->ref_base_id < 0)
 	    || memcmp(digest, s->hdr->md5, 16) != 0) {
 	    fprintf(stderr, "ERROR: md5sum reference mismatch\n");
 	    return -1;
 	}
+    }
+
+    if (ref_id == -2) {
+	refs = calloc(fd->refs->nref, sizeof(char *));
+	if (!refs)
+	    return -1;
     }
 
     for (rec = 0; rec < s->hdr->num_records; rec++) {
@@ -1333,9 +1367,16 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	if (fd->version != CRAM_1_VERS && ref_id == -2) {
 	    r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, blk,
 					       (char *)&cr->ref_id, &out_sz);
-	    if (!fd->no_ref)
-		s->ref = cram_get_ref(fd, cr->ref_id, 1, 0);
-	    s->ref_start = 1;
+	    if (cr->ref_id >= 0) {
+		if (!fd->no_ref) {
+		    if (!refs[cr->ref_id])
+			refs[cr->ref_id] = cram_get_ref(fd, cr->ref_id, 1, 0);
+		    s->ref = refs[cr->ref_id];
+		    assert(s->ref == fd->refs->ref_id[cr->ref_id]->seq);
+		}
+		s->ref_start = 1;
+		s->ref_end = fd->refs->ref_id[cr->ref_id]->length;
+	    }
 	} else {
 	    cr->ref_id = ref_id; // Forced constant in CRAM 1.0
 	}
@@ -1448,6 +1489,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	seq = (char *)BLOCK_END(s->seqs_blk);
 	BLOCK_SIZE(s->seqs_blk) += cr->len;
 
+	if (!seq)
+	    fprintf(stderr, "seq=%p, s->seqs_blk->data = %p\n", seq, s->seqs_blk->data);
+	
 	cr->qual = BLOCK_SIZE(s->qual_blk);
 	BLOCK_GROW(s->qual_blk, cr->len);
 	qual = (char *)BLOCK_END(s->qual_blk);
@@ -1481,11 +1525,71 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	}
     }
 
+    if (refs) {
+	int i;
+	for (i = 0; i < fd->refs->nref; i++) {
+	    if (refs[i])
+		cram_ref_decr(fd->refs, i);
+	}
+    } else if (ref_id >= 0) {
+	cram_ref_decr(fd->refs, ref_id);
+    }
+
     /* Resolve mate pair cross-references between recs within this slice */
     cram_decode_slice_xref(s);
 
     return r;
 }
+
+typedef struct {
+    cram_fd *fd;
+    cram_container *c;
+    cram_slice *s;
+    SAM_hdr *h;
+    int exit_code;
+} cram_decode_job;
+
+void *cram_decode_slice_thread(void *arg) {
+    cram_decode_job *j = (cram_decode_job *)arg;
+
+    j->exit_code = cram_decode_slice(j->fd, j->c, j->s, j->h);
+
+    return j;
+}
+
+/*
+ * Spawn a multi-threaded version of cram_decode_slice().
+ */
+int cram_decode_slice_mt(cram_fd *fd, cram_container *c, cram_slice *s,
+			 SAM_hdr *bfd) {
+    cram_decode_job *j;
+    int nonblock;
+
+    if (!fd->pool)
+	return cram_decode_slice(fd, c, s, bfd);
+
+    if (!(j = malloc(sizeof(*j))))
+	return -1;
+
+    j->fd = fd;
+    j->c  = c;
+    j->s  = s;
+    j->h  = bfd;
+    
+    nonblock = t_pool_results_queue_len(fd->rqueue) ? 0 : 1;
+
+    if (-1 == t_pool_dispatch2(fd->pool, fd->rqueue, cram_decode_slice_thread,
+			       j, nonblock)) {
+	/* Would block */
+	fd->job_pending = j;
+    } else {
+	fd->job_pending = NULL;
+    }
+
+    // flush too
+    return 0;
+}
+
 
 /* ----------------------------------------------------------------------
  * CRAM sequence iterators.
@@ -1573,24 +1677,14 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     return bam_idx + (aux - aux_orig);
 }
 
-
 /*
- * Read the next cram record and return it.
- * Note that to decode cram_record the caller will need to look up some data
- * in the current slice, pointed to by fd->ctr->slice. This is valid until
- * the next call to cram_get_seq (which may invalidate it).
- *
- * Returns record pointer on success (do not free)
- *        NULL on failure
+ * Here be dragons! The multi-threading code in this is crufty beyond belief.
  */
-cram_record *cram_get_seq(cram_fd *fd) {
+static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
     cram_container *c;
-    cram_slice *s;
+    cram_slice *s = NULL;
 
- try_again:
     if (!(c = fd->ctr)) {
-	cram_record *cr;
-
 	// Load first container.
 	if (!(c = fd->ctr = cram_read_container(fd)))
 	    return NULL;
@@ -1621,140 +1715,211 @@ cram_record *cram_get_seq(cram_fd *fd) {
 	c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
 	if (!c->comp_hdr)
 	    return NULL;
-	if (!c->comp_hdr->AP_delta)
+	if (!c->comp_hdr->AP_delta) {
+	    pthread_mutex_lock(&fd->ref_lock);
 	    fd->unsorted = 1;
-
-	if (fd->range.refid != -2) {
-	    // In the correct container, now find the first seq.
-	    // FIXME: optimise by skipping slices?
-	    while ((cr = cram_get_seq(fd))) {
-		if (cr->aend >= fd->range.start)
-		    break;
-	    }
-	    return cr;
+	    pthread_mutex_unlock(&fd->ref_lock);
 	}
     }
 
-    s = c->slice;
-    if (!s || c->curr_rec == c->max_rec) {
-	int id;
+    if ((s = c->slice))
+	cram_free_slice(s);
 
-	// new slice
-	if (s)
-	    cram_free_slice(s);
+    if (c->curr_slice == c->max_slice) {
+	cram_free_container(c);
+	c = NULL;
+    }
 
-	if (c->curr_slice == c->max_slice) {
-	    // new container
-	    cram_free_container(c);
+    /* Sorry this is so contorted! */
+    for (;;) {
+	if (fd->job_pending) {
+	    cram_decode_job *j = (cram_decode_job *)fd->job_pending;
+	    c = j->c;
+	    s = j->s;
+	    free(fd->job_pending);
+	    fd->job_pending = NULL;
+	} else if (!fd->ooc) {
+	    if (!c || c->curr_slice == c->max_slice) {
+		// new container
+		if (!(c = fd->ctr = cram_read_container(fd))) {
+		    if (fd->pool) {
+			fd->ooc = 1;
+			break;
+		    }
 
-	    if (!(c = fd->ctr = cram_read_container(fd)))
-		return NULL;
-
-	    /* Skip containers not yet spanning our range */
-	    if (fd->range.refid != -2) {
-		if (c->ref_seq_id != fd->range.refid) {
-		    fd->eof = 1;
 		    return NULL;
 		}
 
-		if (c->ref_seq_start > fd->range.end) {
-		    fd->eof = 1;
-		    return NULL;
+		/* Skip containers not yet spanning our range */
+		if (fd->range.refid != -2) {
+		    if (c->ref_seq_id != fd->range.refid) {
+			fd->eof = 1;
+			return NULL;
+		    }
+
+		    if (c->ref_seq_start > fd->range.end) {
+			fd->eof = 1;
+			return NULL;
+		    }
+
+		    if (c->ref_seq_start + c->ref_seq_span-1 <
+			fd->range.start) {
+			c->curr_rec = c->max_rec;
+			c->curr_slice = c->max_slice;
+			cram_seek(fd, c->length, SEEK_CUR);
+			cram_free_container(c);
+			c = NULL;
+			continue;
+		    }
 		}
 
-		if (c->ref_seq_start + c->ref_seq_span-1 <
-		    fd->range.start) {
-		    c->curr_rec = c->max_rec;
-		    c->curr_slice = c->max_slice;
-		    cram_seek(fd, c->length, SEEK_CUR);
-		    goto try_again;
+		if (!(c->comp_hdr_block = cram_read_block(fd)))
+		    return NULL;
+		assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
+
+		c->comp_hdr = cram_decode_compression_header(fd,
+							     c->comp_hdr_block);
+		if (!c->comp_hdr)
+		    return NULL;
+
+		if (!c->comp_hdr->AP_delta) {
+		    pthread_mutex_lock(&fd->ref_lock);
+		    fd->unsorted = 1;
+		    pthread_mutex_unlock(&fd->ref_lock);
 		}
 	    }
 
-	    if (!(c->comp_hdr_block = cram_read_block(fd)))
+	    if (!(s = c->slice = cram_read_slice(fd)))
 		return NULL;
-	    assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
+	    c->curr_slice++;
+	    c->curr_rec = 0;
+	    c->max_rec = s->hdr->num_records;
 
-	    c->comp_hdr = cram_decode_compression_header(fd,
-							 c->comp_hdr_block);
-	    if (!c->comp_hdr)
-		return NULL;
-
-	    if (!c->comp_hdr->AP_delta)
-		fd->unsorted = 1;
-	}
-
-	if (!(s = c->slice = cram_read_slice(fd)))
-	    return NULL;
-	c->curr_slice++;
-	c->curr_rec = 0;
-	c->max_rec = s->hdr->num_records;
-
-	// FIXME: this should be correct, but we have a bug in the
-	// Java CRAM implementation?
-	s->last_apos = s->hdr->ref_seq_start;
+	    s->last_apos = s->hdr->ref_seq_start;
 	    
-	for (id = 0; id < s->hdr->num_blocks; id++) {
-	    if (cram_uncompress_block(s->block[id])) {
-		cram_free_slice(s);
-		c->slice = NULL;
-		return NULL;
-	    }
-	}
+	    /* Skip slices not yet spanning our range */
+	    if (fd->range.refid != -2) {
+		if (s->hdr->ref_seq_id != fd->range.refid) {
+		    fd->eof = 1;
+		    cram_free_slice(s);
+		    c->slice = NULL;
+		    return NULL;
+		}
 
-	/* Skip slices not yet spanning our range */
-	if (fd->range.refid != -2) {
-	    if (s->hdr->ref_seq_id != fd->range.refid) {
-		fd->eof = 1;
-		cram_free_slice(s);
-		c->slice = NULL;
-		return NULL;
-	    }
+		if (s->hdr->ref_seq_start > fd->range.end) {
+		    fd->eof = 1;
+		    cram_free_slice(s);
+		    c->slice = NULL;
+		    return NULL;
+		}
 
-	    if (s->hdr->ref_seq_start > fd->range.end) {
-		fd->eof = 1;
-		cram_free_slice(s);
-		c->slice = NULL;
-		return NULL;
-	    }
-
-	    if (s->hdr->ref_seq_start + s->hdr->ref_seq_span-1 <
-		fd->range.start) {
-		c->curr_rec = c->max_rec;
-		goto try_again;
+		if (s->hdr->ref_seq_start + s->hdr->ref_seq_span-1 <
+		    fd->range.start) {
+		    cram_free_slice(s);
+		    c->slice = NULL;
+		    cram_free_container(c);
+		    c = NULL;
+		    continue;
+		}
 	    }
 	}
 
 	/* Test decoding of 1st seq */
-	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
+	if (!c || !s)
+	    break;
+
+	if (cram_decode_slice_mt(fd, c, s, fd->header) != 0) {
+	    //	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
 	    cram_free_slice(s);
 	    c->slice = NULL;
 	    return NULL;
 	}
+
+	if (!fd->pool || fd->job_pending)
+	    break;
+
+	if (t_pool_results_queue_sz(fd->rqueue) > fd->pool->qsize)
+	    break;
     }
 
-    if (fd->range.refid != -2) {
-	if (s->crecs[c->curr_rec].ref_id != fd->range.refid) {
-	    fd->eof = 1;
-	    cram_free_slice(s);
-	    c->slice = NULL;
+    if (fd->pool) {
+	t_pool_result *res;
+	cram_decode_job *j;
+	
+//	fprintf(stderr, "Thread pool len = %d, %d\n",
+//		t_pool_results_queue_len(fd->rqueue),
+//		t_pool_results_queue_sz(fd->rqueue));
+
+	if (fd->ooc && t_pool_results_queue_empty(fd->rqueue))
+	    return NULL;
+
+	res = t_pool_next_result_wait(fd->rqueue);
+
+	if (!res || !res->data) {
+	    fprintf(stderr, "t_pool_next_result failure\n");
 	    return NULL;
 	}
 
-	if (s->crecs[c->curr_rec].apos > fd->range.end) {
-	    fd->eof = 1;
-	    cram_free_slice(s);
-	    c->slice = NULL;
-	    return NULL;
-	}
+	j = (cram_decode_job *)res->data;
+	c = j->c;
+	s = j->s;
 
-	if (s->crecs[c->curr_rec].aend < fd->range.start) {
-	    c->curr_rec++;
-	    goto try_again; // yes, yess, I know it needs restructuring!
-	}
+	t_pool_delete_result(res, 1);
     }
 
+    *cp = c;
+    return s;
+}
+
+/*
+ * Read the next cram record and return it.
+ * Note that to decode cram_record the caller will need to look up some data
+ * in the current slice, pointed to by fd->ctr->slice. This is valid until
+ * the next call to cram_get_seq (which may invalidate it).
+ *
+ * Returns record pointer on success (do not free)
+ *        NULL on failure
+ */
+cram_record *cram_get_seq(cram_fd *fd) {
+    cram_container *c;
+    cram_slice *s;
+
+    for (;;) {
+	c = fd->ctr;
+	if (c && c->slice && c->curr_rec < c->max_rec) {
+	    s = c->slice;
+	} else {
+	    if (!(s = cram_next_slice(fd, &c)))
+		return NULL;
+	}
+
+	if (fd->range.refid != -2) {
+	    if (s->crecs[c->curr_rec].ref_id != fd->range.refid) {
+		fd->eof = 1;
+		cram_free_slice(s);
+		c->slice = NULL;
+		return NULL;
+	    }
+
+	    if (s->crecs[c->curr_rec].apos > fd->range.end) {
+		fd->eof = 1;
+		cram_free_slice(s);
+		c->slice = NULL;
+		return NULL;
+	    }
+
+	    if (s->crecs[c->curr_rec].aend < fd->range.start) {
+		c->curr_rec++;
+		continue;
+	    }
+	}
+
+	break;
+    }
+
+    fd->ctr = c;
+    c->slice = s;
     return &s->crecs[c->curr_rec++];
 }
 
