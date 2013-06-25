@@ -97,16 +97,14 @@ int cram_index_load(cram_fd *fd, char *fn) {
     }
 
     while (zfgets(line, 1024, fp)) {
-	int n;
-
 	/* 1.1 layout */
-	n = sscanf(line, "%d\t%d\t%d\t%"PRId64"\t%d\t%d",
-		   &e.refid,
-		   &e.start,
-		   &e.end,
-		   &e.offset,
-		   &e.slice,
-		   &e.len);
+	sscanf(line, "%d\t%d\t%d\t%"PRId64"\t%d\t%d",
+	       &e.refid,
+	       &e.start,
+	       &e.end,
+	       &e.offset,
+	       &e.slice,
+	       &e.len);
 	e.end += e.start-1;
 	//printf("%d/%d..%d\n", e.refid, e.start, e.end);
 

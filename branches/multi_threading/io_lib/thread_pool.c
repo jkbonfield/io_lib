@@ -151,7 +151,6 @@ t_pool_result *t_pool_next_result_wait(t_results_queue *q) {
 	/* Possible race here now avoided via _locked() call, but incase... */
 	struct timeval now;
 	struct timespec timeout;
-	int r;
 
 	gettimeofday(&now, NULL);
 	timeout.tv_sec = now.tv_sec + 10;
@@ -393,7 +392,6 @@ t_pool *t_pool_init(int qsize, int tsize) {
  */
 int t_pool_dispatch(t_pool *p, t_results_queue *q,
 		    void *(*func)(void *arg), void *arg) {
-    int i;
     t_pool_job *j = malloc(sizeof(*j));
 
     if (!j)
@@ -454,7 +452,6 @@ int t_pool_dispatch(t_pool *p, t_results_queue *q,
  */
 int t_pool_dispatch2(t_pool *p, t_results_queue *q,
 		     void *(*func)(void *arg), void *arg, int nonblock) {
-    int i;
     t_pool_job *j = malloc(sizeof(*j));
 
     if (!j)
