@@ -1229,6 +1229,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     char *seq, *qual;
     int unknown_rg = -1;
     int id, embed_ref;
+    char **refs = NULL;
 
     for (id = 0; id < s->hdr->num_blocks; id++) {
 	if (cram_uncompress_block(s->block[id]))
@@ -1332,6 +1333,12 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	}
     }
 
+    if (ref_id == -2) {
+	refs = calloc(fd->refs->nref, sizeof(char *));
+	if (!refs)
+	    return -1;
+    }
+
     for (rec = 0; rec < s->hdr->num_records; rec++) {
 	cram_record *cr = &s->crecs[rec];
 
@@ -1360,11 +1367,16 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	if (fd->version != CRAM_1_VERS && ref_id == -2) {
 	    r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, blk,
 					       (char *)&cr->ref_id, &out_sz);
-	    if (!fd->no_ref)
-		s->ref = cram_get_ref(fd, cr->ref_id, 1, 0);
-	    assert(s->ref == fd->refs->ref_id[cr->ref_id]->seq);
-	    s->ref_start = 1;
-	    s->ref_end = fd->refs->ref_id[cr->ref_id]->length;
+	    if (cr->ref_id >= 0) {
+		if (!fd->no_ref) {
+		    if (!refs[cr->ref_id])
+			refs[cr->ref_id] = cram_get_ref(fd, cr->ref_id, 1, 0);
+		    s->ref = refs[cr->ref_id];
+		    assert(s->ref == fd->refs->ref_id[cr->ref_id]->seq);
+		}
+		s->ref_start = 1;
+		s->ref_end = fd->refs->ref_id[cr->ref_id]->length;
+	    }
 	} else {
 	    cr->ref_id = ref_id; // Forced constant in CRAM 1.0
 	}
@@ -1511,6 +1523,16 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		memset(qual, 30, cr->len);
 	    }
 	}
+    }
+
+    if (refs) {
+	int i;
+	for (i = 0; i < fd->refs->nref; i++) {
+	    if (refs[i])
+		cram_ref_decr(fd->refs, i);
+	}
+    } else if (ref_id >= 0) {
+	cram_ref_decr(fd->refs, ref_id);
     }
 
     /* Resolve mate pair cross-references between recs within this slice */
