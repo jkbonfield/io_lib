@@ -21,6 +21,7 @@ extern "C" {
 #include "io_lib/os.h"
 #include "io_lib/hash_table.h"
 #include "io_lib/sam_header.h"
+#include "io_lib/thread_pool.h"
 
 /* BAM header structs */
 typedef struct tag_list {
@@ -107,13 +108,13 @@ typedef struct {
     z_stream s;
     char vbuf[Z_BUFF_SIZE*4];
 
-    unsigned char in[Z_BUFF_SIZE];
-    unsigned char *in_p;
-    size_t in_sz;
+    unsigned char comp[Z_BUFF_SIZE];
+    unsigned char *comp_p;
+    size_t comp_sz;
 
-    unsigned char out[Z_BUFF_SIZE];
-    unsigned char *out_p;
-    size_t out_sz;
+    unsigned char uncomp[Z_BUFF_SIZE];
+    unsigned char *uncomp_p;
+    size_t uncomp_sz;
 
     /* BAM specifics */
     int32_t next_len;
@@ -143,6 +144,16 @@ typedef struct {
     /* Static avoidance: used in sam_next_seq() */
     unsigned char *sam_str;
     size_t alloc_l;
+
+    /* Thread pool for encoding */
+    t_pool *pool;
+    t_results_queue *equeue;
+
+    /* Decoding queue */
+    t_results_queue *dqueue;
+    void *job_pending;
+    int eof;
+    int nd_jobs, ne_jobs;
 } bam_file_t;
 
 /* Decoding the above struct */
@@ -631,6 +642,14 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
 		      const char *seq,
 		      const char *qual);
 
+/*! Duplicates a bam_seq_t structure.
+ *
+ * @return
+ * Returns the new bam_seq_t pointer on success;
+ *         NULL on failure.
+ */
+bam_seq_t *bam_dup(bam_seq_t *b);
+
 /*! Writes a SAM header block.
  *
  * @return
@@ -638,6 +657,32 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
  *        -1 for failure
  */
 int bam_write_header(bam_file_t *out);
+
+enum bam_option {
+    BAM_OPT_THREAD_POOL
+};
+
+/*! Sets options on the bam_file_t.
+ *
+ * Sets options on the bam_file_t. See BAM_OPT_* definitions in bam.h.
+ * Use this immediately after opening.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int bam_set_option(bam_file_t *fd, enum bam_option opt, ...);
+
+/*! Sets options on the bam_file_t.
+ *
+ * Sets options on the bam_file_t. See BAM_OPT_* definitions in bam.h.
+ * Use this immediately after opening.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args);
 
 #ifdef __cplusplus
 }

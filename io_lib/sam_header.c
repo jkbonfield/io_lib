@@ -784,6 +784,7 @@ SAM_hdr *sam_hdr_new() {
 	goto err;
 
     sh->ID_cnt = 1;
+    sh->ref_count = 1;
 
     sh->nref = 0;
     sh->ref  = NULL;
@@ -888,8 +889,40 @@ SAM_hdr *sam_hdr_dup(SAM_hdr *hdr) {
     return sam_hdr_parse(sam_hdr_str(hdr), sam_hdr_length(hdr));
 }
 
+/*! Increments a reference count on hdr.
+ *
+ * This permits multiple files to share the same header, all calling
+ * sam_hdr_free when done, without causing errors for other open  files.
+ */
+void sam_hdr_incr_ref(SAM_hdr *hdr) {
+    hdr->ref_count++;
+}
+
+/*! Increments a reference count on hdr.
+ *
+ * This permits multiple files to share the same header, all calling
+ * sam_hdr_free when done, without causing errors for other open  files.
+ *
+ * If the reference count hits zero then the header is automatically
+ * freed. This makes it a synonym for sam_hdr_free().
+ */
+void sam_hdr_decr_ref(SAM_hdr *hdr) {
+    sam_hdr_free(hdr);
+}
+
+/*! Deallocates all storage used by a SAM_hdr struct.
+ *
+ * This also decrements the header reference count. If after decrementing 
+ * it is still non-zero then the header is assumed to be in use by another
+ * caller and the free is not done.
+ *
+ * This is a synonym for sam_hdr_dec_ref().
+ */
 void sam_hdr_free(SAM_hdr *hdr) {
     if (!hdr)
+	return;
+
+    if (--hdr->ref_count > 0)
 	return;
 
     if (hdr->text)

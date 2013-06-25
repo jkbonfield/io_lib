@@ -15,7 +15,8 @@ TESTS                   = \
 			srf_info.test \
 			srf_filter.test \
 			srf_index.test \
-			scram.test
+			scram.test \
+			scram_mt.test
 
 dist-hook:
 	rm -rf `find $(distdir)/data -name .svn`
