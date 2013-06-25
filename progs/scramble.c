@@ -71,6 +71,7 @@ static void usage(FILE *fp) {
 #ifdef HAVE_LIBBZ2
     fprintf(fp, "    -j             [Cram] Compress using bzip2.\n");
 #endif
+    fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
 }
 
 int main(int argc, char **argv) {
@@ -81,12 +82,14 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
-    int start, end, multi_seq = 0, no_ref = 0, use_bz2 = 0;
+    int start, end, multi_seq = -1, no_ref = 0, use_bz2 = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
+    int nthreads = 1;
+    t_pool *p = NULL;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXI:O:R:!Mmj")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXI:O:R:!Mmjt:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -179,6 +182,14 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "Warning: bzip2 support is not compiled into this"
 		    " version.\nPlease recompile. (Using zlib instead.)\n");
 #endif
+	    break;
+
+	case 't':
+	    nthreads = atoi(optarg);
+	    if (nthreads < 1) {
+		fprintf(stderr, "Number of threads needs to be >= 1\n");
+		return 1;
+	    }
 	    break;
 
 	case '?':
@@ -275,6 +286,16 @@ int main(int argc, char **argv) {
 	    return 1;
     }
 
+    if (nthreads > 1) {
+	if (NULL == (p = t_pool_init(nthreads*2, nthreads)))
+	    return 1;
+
+	if (scram_set_option(in,  CRAM_OPT_THREAD_POOL, p))
+	    return 1;
+	if (scram_set_option(out, CRAM_OPT_THREAD_POOL, p))
+	    return 1;
+    }
+
     if (ignore_md5)
 	if (scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5))
 	    return 1;
@@ -297,6 +318,7 @@ int main(int argc, char **argv) {
 
 	if (!arg_list)
 	    return 1;
+
 	if (sam_hdr_add_PG(scram_get_header(out), "scramble",
 			   "VN", PACKAGE_VERSION,
 			   "CL", arg_list, NULL))
@@ -337,6 +359,7 @@ int main(int argc, char **argv) {
 
     /* Do the actual file format conversion */
     s = NULL;
+
     while (scram_get_seq(in, &s) >= 0) {
 	if (-1 == scram_put_seq(out, s))
 	    return 1;
@@ -345,16 +368,13 @@ int main(int argc, char **argv) {
 	return 1;
 
     /* Finally tidy up and close files */
-    scram_set_header(out, NULL);
-
-    if (refs == scram_get_refs(out)) {
-	scram_set_refs(out, NULL);
-    }
-
     if (scram_close(in))
 	return 1;
     if (scram_close(out))
 	return 1;
+
+    if (p)
+	t_pool_destroy(p, 0);
 
     if (s)
 	free(s);

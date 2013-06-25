@@ -23,6 +23,7 @@ extern "C" {
 #include <stdint.h>
 
 #include "io_lib/hash_table.h"       // From io_lib aka staden-read
+#include "io_lib/thread_pool.h"
 
 #ifdef SAMTOOLS
 // From within samtools/HTSlib
@@ -220,6 +221,8 @@ typedef struct {
     unsigned char md5[16];
 } cram_block_slice_hdr;
 
+struct ref_entry;
+
 /*
  * Container.
  *
@@ -251,6 +254,7 @@ typedef struct {
     /* For construction purposes */
     int max_slice, curr_slice;   // maximum number of slices
     int max_rec, curr_rec;       // current and max recs per slice
+    int max_c_rec, curr_c_rec;   // current and max recs per container
     int slice_rec;               // rec no. for start of this slice
     int curr_ref;                // current ref ID. -2 for no previous
     int last_pos;                // last record position
@@ -259,6 +263,15 @@ typedef struct {
     int max_apos;                // maximum position, used if pos_sorted==0
     int last_slice;              // number of reads in last slice (0 for 1st)
     int multi_seq;               // true if packing multi seqs per cont/slice
+    int unsorted;		 // true is AP_delta is 0.
+
+    /* Copied from fd before encoding, to allow multi-threading */
+    int ref_start, first_base, last_base, ref_id, ref_end;
+    char *ref;
+    //struct ref_entry *ref;
+
+    /* For multi-threading */
+    bam_seq_t **bams;
 
     /* Statistics for encoding */
     cram_stats *TS_stats;
@@ -291,6 +304,7 @@ typedef struct {
     cram_stats *HC_stats;
 
     HashTable *tags_used; // hash of tag types in use, for tag encoding map
+    int *refs_used;       // array of frequency of ref seq IDs
 } cram_container;
 
 /*
@@ -458,6 +472,7 @@ typedef struct cram_slice {
 
     char *ref;               // slice of current reference
     int ref_start;           // start position of current reference;
+    int ref_end;             // end position of current reference;
 
 #ifdef BA_external
     int BA_len;
@@ -470,7 +485,7 @@ typedef struct cram_slice {
  * Consider moving reference handling to cram_refs.[ch]
  */
 // from fa.fai / samtools faidx files
-typedef struct {
+typedef struct ref_entry {
     char *name;
     char *fn;
     int64_t length;
@@ -493,6 +508,9 @@ typedef struct {
     FILE *fp;              // and the FILE* to go with it.
 
     int count;             // how many cram_fd sharing this refs struct
+
+    pthread_mutex_t lock;  // Mutex for multi-threaded updating
+    ref_entry *last;       // Last queried sequence
 } refs_t;
 
 /*-----------------------------------------------------------------------------
@@ -531,6 +549,12 @@ typedef struct {
 /*-----------------------------------------------------------------------------
  */
 /* CRAM File handle */
+
+typedef struct spare_bams {
+    bam_seq_t **bams;
+    struct spare_bams *next;
+} spare_bams;
+
 typedef struct {
     FILE          *fp;
     int            mode;     // 'r' or 'w'
@@ -591,6 +615,16 @@ typedef struct {
     int last_slice;                     // number of recs encoded in last slice
     int multi_seq;
     int unsorted;
+    
+    // thread pool
+    t_pool *pool;
+    t_results_queue *rqueue;
+    pthread_mutex_t metrics_lock;
+    pthread_mutex_t ref_lock;
+    spare_bams *bl;
+    pthread_mutex_t bam_list_lock;
+    void *job_pending;
+    int ooc;                            // out of containers.
 } cram_fd;
 
 enum cram_option {
@@ -608,6 +642,8 @@ enum cram_option {
     CRAM_OPT_NO_REF,
     CRAM_OPT_USE_BZIP2,
     CRAM_OPT_SHARED_REF,
+    CRAM_OPT_NTHREADS,
+    CRAM_OPT_THREAD_POOL,
 };
 
 /* BF bitfields */

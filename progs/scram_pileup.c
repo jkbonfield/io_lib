@@ -764,7 +764,7 @@ static int basic_pileup(void *cd, scram_fd *fp, pileup_t *p,
 			int depth, int pos, int nth, int is_insert) {
     static char *seq = NULL, *qual = NULL, *buf = NULL;
     static int max_depth = 0;
-    char *sp, *qp, *cp, *rp;
+    char *qp, *cp, *rp;
     int ref;
 
     if (max_depth < depth) {
@@ -777,7 +777,7 @@ static int basic_pileup(void *cd, scram_fd *fp, pileup_t *p,
 	    return -1;
     }
 
-    sp = seq; qp = qual; cp = buf;
+    qp = qual; cp = buf;
 
     if (!p)
 	return 0;
