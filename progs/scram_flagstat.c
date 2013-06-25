@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
     int level = '\0'; // nul terminate string => auto level
     int c;
     char *ref_fn = NULL;
-    int start, end, multi_seq = 0, no_ref = 0, ignore_md5 = 0;
+    int start, end, ignore_md5 = 0;
     char ref_name[1024] = {0};
     bam_flagstat_t st;
     int nthreads = 1;

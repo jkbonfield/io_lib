@@ -2430,18 +2430,11 @@ static int process_one_read(cram_fd *fd, cram_container *c,
  * Write iterator: put BAM format sequences into a CRAM file.
  * We buffer up a containers worth of data at a time.
  *
- * FIXME: break this into smaller pieces.
- *
  * Returns 0 on success
  *        -1 on failure
  */
 int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     cram_container *c;
-    cram_record *cr;
-    cram_slice *s;
-    int i, fake_qual = 0;
-    char *cp, *rg;
-    char *ref, *seq, *qual;
 
     if (!fd->ctr) {
 	fd->ctr = cram_new_container(fd->seqs_per_slice,

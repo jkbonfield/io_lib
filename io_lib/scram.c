@@ -46,32 +46,6 @@ before sending on to FILE *fp.
 #define SCRAM_BUF_SIZE (1024*1024)
 
 /*
- * Takes a SAM/BAM file opened for read and steals the input buffer / fp for
- * its own purposes. The BAM file will have already decoded the header for
- * us.
- */
-static int scram_usurp_buffer(scram_fd *fd) {
-    if (!fd)
-	return -1;
-
-    if (!(fd->buf = realloc(fd->buf, fd->alloc = SCRAM_BUF_SIZE)))
-	return -1;
-
-    /* Transfer buffer */
-    memcpy(fd->buf, fd->b->comp_p, fd->b->comp_sz);
-    fd->used = fd->b->comp_sz;
-    fd->b->comp_p = NULL;
-    fd->b->comp_sz = 0;
-    fd->b->uncomp_sz = 0;
-
-    /* Transfer fp */
-    fd->fp = fd->b->fp;
-    fd->b->fp = NULL;
-
-    return 0;
-}
-
-/*
  * Expands the input buffer.
  * Returns 0 on sucess
  *        -1 on failure
@@ -211,10 +185,6 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 
 	if ((fd->b = bam_open(filename, mode))) {
 	    fd->is_bam = 1;
-//	    if (-1 == scram_usurp_buffer(fd)) {
-//		free(fd);
-//		return NULL;
-//	    }
 	    return fd;
 	}
 	

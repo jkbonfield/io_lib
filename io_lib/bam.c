@@ -24,7 +24,9 @@
 #include "io_lib/os.h"
 #include "io_lib/thread_pool.h"
 
-#if 1
+#define USE_MT
+
+#ifdef USE_MT
 #  define BGZF_WRITE bgzf_write_mt
 #  define BGZF_FLUSH bgzf_flush_mt
 #else
@@ -66,8 +68,11 @@ static int bam_uncompress_input(bam_file_t *b);
 static int reg2bin(int start, int end);
 static int bgzf_write(bam_file_t *bf, int level, const void *buf, size_t count);
 static int bgzf_write_mt(bam_file_t *bf, int level, const void *buf, size_t count);
-static int bgzf_flush(bam_file_t *bf);
+#ifdef USE_MT
 static int bgzf_flush_mt(bam_file_t *bf);
+#else
+static int bgzf_flush(bam_file_t *bf);
+#endif
 
 /*
  * Reads len bytes from fp into data.
@@ -636,8 +641,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 	/* Multi-threaded decoding. Assume BGZF for now */
 	while (t_pool_results_queue_sz(b->dqueue) < b->pool->qsize) {
 	    bgzf_decode_job *j;
-	    int len, nonblock;
-	    unsigned char *blk;
+	    int nonblock;
 
 	    if (b->job_pending) {
 		j = b->job_pending;
@@ -660,7 +664,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 		    break;
 		}
 	    
-		blk = bgzf = b->comp_p;
+		bgzf = b->comp_p;
 		b->comp_p += 10; b->comp_sz -= 10;
 
 		if (bgzf[0] != 31 || bgzf[1] != 139) {
@@ -2732,7 +2736,7 @@ static int bgzf_encode(int level,
 }
 
 static int bgzf_write(bam_file_t *bf, int level, const void *buf, size_t count) {
-    unsigned char blk[Z_BUFF_SIZE+4], *out;
+    unsigned char blk[Z_BUFF_SIZE+4];
     uint32_t len;
 
     if (0 != bgzf_encode(level, buf, count, blk, &len)) 
@@ -2782,10 +2786,7 @@ static int bgzf_write_mt(bam_file_t *bf, int level, const void *buf,
     return 0;
 }
 
-static int bgzf_flush(bam_file_t *bf) {
-    return 0;
-}
-
+#ifdef USE_MT
 static int bgzf_flush_mt(bam_file_t *bf) {
     t_pool_result *r;
     bgzf_encode_job *j;
@@ -2804,6 +2805,12 @@ static int bgzf_flush_mt(bam_file_t *bf) {
 
     return 0;
 }
+
+#else
+static int bgzf_flush(bam_file_t *bf) {
+    return 0;
+}
+#endif
 
 /*
  * Writes a single bam sequence object.
