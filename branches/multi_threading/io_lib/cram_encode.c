@@ -1030,6 +1030,14 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     int r1, r2, sn;
     spare_bams *spares;
 
+    /* Cache references up-front if we have unsorted access patterns */
+    if (c->refs_used) {
+	for (i = 0; i < fd->refs->nref; i++) {
+	    if (c->refs_used[i])
+		cram_get_ref(fd, i, 1, 0);
+	}
+    }
+
     /* Fetch reference sequence */
     if (!fd->no_ref) {
 	bam_seq_t *b = c->bams[0];
@@ -1438,6 +1446,14 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     if (c->ref_seq_id >= 0) {
 	cram_ref_decr(fd->refs, c->ref_seq_id);
+    }
+
+    /* Cache references up-front if we have unsorted access patterns */
+    if (c->refs_used) {
+	for (i = 0; i < fd->refs->nref; i++) {
+	    if (c->refs_used[i])
+		cram_ref_decr(fd->refs, i);
+	}
     }
 
     return 0;
@@ -1947,14 +1963,6 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
     cram_slice *s;
     int i;
 
-    /* Cache references up-front if we have unsorted access patterns */
-    if (c->refs_used) {
-	for (i = 0; i < fd->refs->nref; i++) {
-	    if (c->refs_used[i])
-		cram_get_ref(fd, i, 1, 0);
-	}
-    }
-
     /* First occurence */
     if (c->curr_ref == -2)
 	c->curr_ref = bam_ref(b);
@@ -2040,14 +2048,6 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
     }
 
     c->curr_rec = 0;
-
-    /* Cache references up-front if we have unsorted access patterns */
-    if (c->refs_used) {
-	for (i = 0; i < fd->refs->nref; i++) {
-	    if (c->refs_used[i])
-		cram_ref_decr(fd->refs, i);
-	}
-    }
 
     return c;
 }
@@ -2504,6 +2504,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	// Have we seen this reference before?
 	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref &&
 	    !fd->unsorted) {
+	    
 	    if (!c->refs_used) {
 		c->refs_used = calloc(fd->refs->nref, sizeof(int));
 		if (!c->refs_used)
