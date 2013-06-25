@@ -1590,19 +1590,6 @@ int cram_decode_slice_mt(cram_fd *fd, cram_container *c, cram_slice *s,
     return 0;
 }
 
-/*
- * A thread to keep the queue of decoded chunks fully occupied.
- * Runs until no more input is available. (We may wish to allocate
- * Nthreads+1 for this as it uses no real CPU of its own?)
- */
-void *cram_decoder_thread(void *arg) {
-    cram_fd *fd = (cram_fd *)arg;
-    cram_container *c;
-    cram_slice *s;
-
-    return NULL;
-}
-
 
 /* ----------------------------------------------------------------------
  * CRAM sequence iterators.
@@ -1698,8 +1685,6 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
     cram_slice *s = NULL;
 
     if (!(c = fd->ctr)) {
-	cram_record *cr;
-
 	// Load first container.
 	if (!(c = fd->ctr = cram_read_container(fd)))
 	    return NULL;

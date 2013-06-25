@@ -980,8 +980,6 @@ int paranoid_fclose(FILE *fp) {
  */
 
 void refs_free(refs_t *r) {
-    int i;
-
     RP("refs_free()\n");
 
     if (--r->count > 0)
@@ -1583,7 +1581,6 @@ static char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
 ref_entry *cram_ref_load(refs_t *r, int id) {
     ref_entry *e = r->ref_id[id];
     int start = 1, end = e->length;
-    int offset, len;
     char *seq;
 
     if (e->seq)
@@ -1661,7 +1658,6 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
  */
 char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     ref_entry *r;
-    off_t offset, len;
     char *seq;
     int ostart = start;
 
@@ -2246,13 +2242,10 @@ static int cram_flush_result(cram_fd *fd) {
 }
 
 int cram_flush_container_mt(cram_fd *fd, cram_container *c) {
-    int i;
     cram_job *j;
 
     if (!fd->pool)
 	return cram_flush_container(fd, c);
-
-    //usleep(5000);
 
     if (!(j = malloc(sizeof(*j))))
 	return -1;

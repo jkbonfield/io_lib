@@ -17,7 +17,7 @@
 int main(int argc, char **argv) {
     cram_fd *fd;
     cram_container *c;
-    off_t first_c, cpos, spos, hpos;
+    off_t cpos, spos, hpos;
     zfp *fp;
     char fn[PATH_MAX];
 
@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    first_c = cpos = ftello(fd->fp);
+    cpos = ftello(fd->fp);
     while ((c = cram_read_container(fd))) {
 	int j;
 
