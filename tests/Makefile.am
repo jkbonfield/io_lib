@@ -20,8 +20,9 @@ TESTS                   = \
 
 dist-hook:
 	rm -rf `find $(distdir)/data -name .svn`
-	rm -f $(distdir)/data/ce#sorted.bam $(distdir)/data/ce#unsorted.bam
+	rm -f $(distdir)/data/ce#sorted.*am $(distdir)/data/ce#unsorted.*am
 	rm -f $(distdir)/data/*~
+	chmod u+w $(distdir)/data
 
 distclean-local:
 	-rm -rf $(test_outdir)
