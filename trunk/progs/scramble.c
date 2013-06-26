@@ -64,7 +64,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -S integer     [Cram] Slices per container, default %d.\n",
 	    SLICE_PER_CNT);
     fprintf(fp, "    -V version     [Cram] Specify the file format version to write (eg 1.1, 2.0)\n");
-    fprintf(fp, "    -X             [Cram] Embed reference sequence.\n");
+    fprintf(fp, "    -e             [Cram] Embed reference sequence.\n");
     fprintf(fp, "    -x             [Cram] Non-reference based encoding.\n");
     fprintf(fp, "    -M             [Cram] Use multiple references per slice.\n");
     fprintf(fp, "    -m             [Cram] Generate MD and NM tags.\n");
@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
     t_pool *p = NULL;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXI:O:R:!Mmjt:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!Mmjt:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -130,6 +130,8 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'X':
+	    fprintf(stderr, "-X is deprecated in favour of -e.\n");
+	case 'e':
 	    embed_ref = 1;
 	    break;
 

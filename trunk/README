@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.13.1
+			IO_LIB VERSION 1.13.2
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -24,6 +24,19 @@ These link together to form a single "libstaden-read" library supporting
 all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
+
+
+What's new in 1.13.2
+====================
+
+This release has various improvements and bug fixes to CRAM support,
+in addition to experimental multi-threading code for reading and
+writing BAM/CRAM (but not SAM). By default this is not used, but use
+the -t option in scramble to enable it.
+
+Multi-threading scales well with BAM reading and writing, but CRAM
+currently has diminishing returns after 4 or 5 threads.
+
 
 What's new in 1.13.1
 ====================
