@@ -41,10 +41,16 @@ my $n;
 my @base = qw/A C G T/;
 
 
+if (! -w "$ENV{srcdir}/data") {
+    chmod(0755, "$ENV{srcdir}/data") || die "$ENV{srcdir}/data: $!";
+    chmod(0755, "$ENV{srcdir}")      || die "$ENV{srcdir}: $!";
+}
+
 #---- Generate sorted data
 print "Generating ce#sorted.sam\n";
 srand 15551;
-open(my $out, ">", "$ENV{srcdir}/data/ce#sorted.sam");
+open(my $out, ">", "$ENV{srcdir}/data/ce#sorted.sam") ||
+    die "$ENV{srcdir}/data/ce#sorted.sam: $!";
 
 # Create @SQ headers
 foreach (sort @names) {
@@ -75,7 +81,8 @@ close($out) || die;
 #---- Generate unsorted data
 print "Generating ce#unsorted.sam\n";
 srand 15551;
-open($out, ">", "$ENV{srcdir}/data/ce#unsorted.sam");
+open($out, ">", "$ENV{srcdir}/data/ce#unsorted.sam") ||
+    die "$ENV{srcdir}/data/ce#unsorted.sam: $!";
 
 # Create @SQ headers
 foreach (sort @names) {
