@@ -3126,6 +3126,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->shared_ref = 0;
 
     fd->index       = NULL;
+    fd->own_pool    = 0;
     fd->pool        = NULL;
     fd->rqueue      = NULL;
     fd->job_pending = NULL;
@@ -3251,6 +3252,9 @@ int cram_close(cram_fd *fd) {
     if (fd->index)
 	cram_index_free(fd);
 
+    if (fd->own_pool && fd->pool)
+	t_pool_destroy(fd->pool, 0);
+
     free(fd);
     return 0;
 }
@@ -3363,6 +3367,22 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	fd->multi_seq = va_arg(args, int);
 	break;
 
+    case CRAM_OPT_NTHREADS: {
+	int nthreads =  va_arg(args, int);
+        if (nthreads > 1) {
+            if (!(fd->pool = t_pool_init(nthreads*2, nthreads)))
+                return -1;
+
+	    fd->rqueue = t_results_queue_init();
+	    pthread_mutex_init(&fd->metrics_lock, NULL);
+	    pthread_mutex_init(&fd->ref_lock, NULL);
+	    pthread_mutex_init(&fd->bam_list_lock, NULL);
+	    fd->shared_ref = 1;
+	    fd->own_pool = 1;
+        }
+	break;
+    }
+
     case CRAM_OPT_THREAD_POOL:
 	fd->pool = va_arg(args, t_pool *);
 	if (fd->pool) {
@@ -3372,6 +3392,7 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	    pthread_mutex_init(&fd->bam_list_lock, NULL);
 	}
 	fd->shared_ref = 1; // Needed to avoid clobbering ref between threads
+	fd->own_pool = 0;
 
 	//fd->qsize = 1;
 	//fd->decoded = calloc(fd->qsize, sizeof(cram_container *));
