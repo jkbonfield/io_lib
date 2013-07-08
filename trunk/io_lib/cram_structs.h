@@ -617,6 +617,7 @@ typedef struct {
     int unsorted;
     
     // thread pool
+    int own_pool;
     t_pool *pool;
     t_results_queue *rqueue;
     pthread_mutex_t metrics_lock;

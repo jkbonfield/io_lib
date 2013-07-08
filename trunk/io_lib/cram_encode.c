@@ -21,6 +21,9 @@
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
 
+#ifdef SAMTOOLS
+#    define bam_copy(dst, src) bam_copy1(*(dst), (src))
+#else
 void bam_copy(bam_seq_t **bt, bam_seq_t *bf) {
     size_t a;
 
@@ -35,6 +38,7 @@ void bam_copy(bam_seq_t **bt, bam_seq_t *bf) {
 
     (*bt)->alloc = a;
 }
+#endif
 
 #define Z_CRAM_STRAT Z_FILTERED
 //#define Z_CRAM_STRAT Z_DEFAULT_STRATEGY

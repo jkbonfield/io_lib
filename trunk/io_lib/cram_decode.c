@@ -633,7 +633,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
     uint32_t ncigar = s->ncigar;
     uint32_t cigar_alloc = s->cigar_alloc;
     uint32_t nm = 0, md_dist = 0;
-    int orig_aux;
+    int orig_aux = 0;
     int decode_md = fd->decode_md;
     char buf[20];
 
@@ -1651,7 +1651,7 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     if (bam_idx == -1)
 	return -1;
 
-    aux = aux_orig = bam_aux(*bam);
+    aux = aux_orig = (char *)bam_aux(*bam);
 
     /* Auxiliary strings */
     if (cr->aux_size != 0) {
