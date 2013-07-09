@@ -427,9 +427,7 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 
     /* Load first block so we can check */
     bam_more_input(b);
-    if (b->comp_sz < 2)
-	return NULL;
-    if (b->comp_p[0] == 31 && b->comp_p[1] == 139)
+    if (b->comp_sz >= 2 && b->comp_p[0] == 31 && b->comp_p[1] == 139)
 	b->gzip = 1;
     else
 	b->gzip = 0;
@@ -445,13 +443,13 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
     if (-1 == bam_uncompress_input(b))
 	return NULL;
     /* Auto-correct open file type if we detect a BAM */
-    if (b->uncomp_sz >= 3 && strncmp("BAM", (char *)b->uncomp_p, 3) != 0) {
-	b->mode &= ~O_BINARY;
-	mode = "r";
-    } else if (b->uncomp_sz >= 3 && strncmp("BAM", (char *)b->uncomp_p, 3) == 0) {
+    if (b->uncomp_sz >= 4 && strncmp("BAM\001", (char *)b->uncomp_p, 4) == 0) {
 	b->mode |= O_BINARY;
 	b->binary = 1;
 	mode = "rb";
+    } else {
+	b->mode &= ~O_BINARY;
+	mode = "r";
     }
 
     /* Load header */
