@@ -188,7 +188,11 @@ SAM_hdr *sam_hdr_new();
  * Returns a SAM_hdr struct on success (free with sam_hdr_free());
  *         NULL on failure
  */
+#ifdef SAMTOOLS
+SAM_hdr *sam_hdr_parse_(const char *hdr, int len);
+#else
 SAM_hdr *sam_hdr_parse(const char *hdr, int len);
+#endif
 
 
 /*! Produces a duplicate copy of hdr and returns it.

@@ -12,6 +12,10 @@
 #include "io_lib/sam_header.h"
 #include "io_lib/string_alloc.h"
 
+#ifdef SAMTOOLS
+#define sam_hdr_parse sam_hdr_parse_
+#endif
+
 static void sam_hdr_error(char *msg, char *line, int len, int lno) {
     int j;
     
