@@ -383,6 +383,7 @@ static mFILE *find_file_archive(char *file, char *arcname) {
 }
 #endif
 
+#ifndef SAMTOOLS
 #ifdef USE_WGET
 /* NB: non-reentrant due to reuse of handle */
 mFILE *find_file_url(char *file, char *url) {
@@ -522,7 +523,6 @@ mFILE *find_file_url(char *file, char *url) {
 #endif
 
 
-#ifndef SAMTOOLS
 /*
  * Takes an SFF file in 'data' and edits the header to ensure
  * that it has no index listed and only claims to contain a single entry.
@@ -1118,6 +1118,7 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 		    return fp;
 		}
 #endif
+#ifndef SAMTOOLS
 #if defined(USE_WGET) || defined(HAVE_LIBCURL)
 	    } else if (0 == strncmp(ele2, "URL=", 4)) {
 		if (valid && (fp = find_file_url(file2, ele2+4))) {
@@ -1125,7 +1126,6 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 		    return fp;
 		}
 #endif
-#ifndef SAMTOOLS
 	    } else if (0 == strncmp(ele2, "SFF=", 4)) {
 		if (valid && (fp = find_file_sff(file2, ele2+4))) {
 		    free(newsearch);

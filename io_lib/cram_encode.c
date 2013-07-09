@@ -1805,7 +1805,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 			     cram_slice *s, cram_record *cr) {
     char *aux, *orig, *tmp, *rg = NULL;
 #ifdef SAMTOOLS
-    int aux_size = b->l_aux;
+    int aux_size = bam_get_l_aux(b);
 #else
     int aux_size = bam_blk_size(b) -
 	((char *)bam_aux(b) - (char *)&bam_ref(b));
@@ -2151,7 +2151,11 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     *seq = 0;
     for (i = 0; i < cr->len; i++) {
 	// FIXME: do 2 char at a time for efficiency
+#ifdef SAMTOOLS
+	cp[i] = seq_nt16_str[bam_seqi(bam_seq(b), i)];
+#else
 	cp[i] = bam_nt16_rev_table[bam_seqi(bam_seq(b), i)];
+#endif
     }
     BLOCK_SIZE(s->seqs_blk) += cr->len;
 

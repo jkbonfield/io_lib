@@ -2733,7 +2733,11 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
     }
 
     /* Parse */
+#ifdef SAMTOOLS
+    hdr = sam_hdr_parse_(header, header_len);
+#else
     hdr = sam_hdr_parse(header, header_len);
+#endif
     free(header);
 
     return hdr;
