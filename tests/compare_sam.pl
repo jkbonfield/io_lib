@@ -41,7 +41,7 @@ while (<$fd2>) {
 #print "@hd2\n";
 
 # Compare lines
-do {
+while ($ln1 && $ln2) {
     chomp($ln1);
     chomp($ln2);
 
@@ -102,6 +102,16 @@ do {
     # Cram will populate a sequence string that starts as "*"
     $ln2[9] = "*" if ($ln1[9] eq "*");
 
+    # Fix 0<op> cigar fields
+    $ln1[5] =~ s/(\D|^)0\D/$1/g;
+    $ln1[5] =~ s/^$/*/g;
+    $ln2[5] =~ s/(\D|^)0\D/$1/g;
+    $ln2[5] =~ s/^$/*/g;
+
+    # Fix 10M10M cigar to 20M
+    $ln1[5] =~ s/(\d+)(\D)(\d+)(\2)/$1+$3.$2/e;
+    $ln2[5] =~ s/(\d+)(\D)(\d+)(\2)/$1+$3.$2/e;
+
     if ("@ln1" ne "@ln2") {
 	print "Diff at lines $fn1:$c1, $fn2:$c2\n";
 	my @s1 = split("","@ln1");
@@ -122,7 +132,7 @@ do {
     $ln2 = <$fd2>;
 
     $c1++; $c2++;
-} while ($ln1 && $ln2);
+}
 
 if (defined($ln1)) {
     print "EOF on $fn1\n";
