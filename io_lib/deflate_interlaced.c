@@ -540,6 +540,7 @@ huffman_codes_t *calc_bit_lengths(unsigned char *data, int len,
 	nodes[ncodes].count = eof;
 	nodes[ncodes].parent = NULL;
 	n2[ncodes] = &nodes[ncodes];
+	ncodes++;
     }
 
     /* All 256 chars existing at a minimal level */
@@ -549,6 +550,7 @@ huffman_codes_t *calc_bit_lengths(unsigned char *data, int len,
 	    nodes[ncodes].count = hist[i];
 	    nodes[ncodes].parent = NULL;
 	    n2[ncodes] = &nodes[ncodes];
+	    ncodes++;
 	}
     } else {
 	/* Only include non-zero symbols */
@@ -559,6 +561,7 @@ huffman_codes_t *calc_bit_lengths(unsigned char *data, int len,
 	    nodes[ncodes].count = hist[i];
 	    nodes[ncodes].parent = NULL;
 	    n2[ncodes] = &nodes[ncodes];
+	    ncodes++;
 	}
     }
 
