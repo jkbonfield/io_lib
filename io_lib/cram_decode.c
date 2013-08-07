@@ -1295,9 +1295,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		fprintf(stderr, "Slice starts before base 1.\n");
 		s->ref_start = 0;
 	    }
-	    if (s->ref_end >= fd->refs->ref_id[ref_id]->length) {
+	    if (s->ref_end > fd->refs->ref_id[ref_id]->length) {
 		fprintf(stderr, "Slice ends beyond reference end.\n");
-		s->ref_end =  fd->refs->ref_id[ref_id]->length-1;
+		s->ref_end = fd->refs->ref_id[ref_id]->length;
 	    }
 	}
     }
