@@ -1157,6 +1157,7 @@ if (magic != MAGIC) \
   goto abort ; \
 }
 
+#define DEC_NN(n) if ((nn -= (n)) < 0) goto abort
 
 static BOOL ctfUnPackTraces (Read *read, Array a)
 { 
@@ -1174,7 +1175,7 @@ static BOOL ctfUnPackTraces (Read *read, Array a)
 
   cp = arrp (a, 0, unsigned char) ; nn = arrayMax (a) ;
 
-  while (TRUE)
+  while (nn >= 12)
     {
       CHECKMAGIC ; 
       section = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
@@ -1184,10 +1185,11 @@ static BOOL ctfUnPackTraces (Read *read, Array a)
 	case 999:  /* end of record */
 	  goto done ;
 	case 1:  /* read the bases  and positions, problem if negative dx */
+	  if (nn < 8) goto abort;
 	  baseMax = read->NBases = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  CHECKMAGIC ;
 
-	  n = baseMax ; nn -= 2 * n ;
+	  n = baseMax ; DEC_NN(2 * n) ;
 
 	  read->base = (char *)malloc (baseMax) ; /* staden's alloc */
 	  b = (unsigned char *)read->base;
@@ -1210,20 +1212,22 @@ static BOOL ctfUnPackTraces (Read *read, Array a)
 	  break ;
 	  
 	case 11:  /* read the basecall, fullproof method */
+	  if (nn < 8) goto abort;
 	  baseMax = read->NBases = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  CHECKMAGIC ;
 
-	  n = baseMax ; nn -= n ;
+	  n = baseMax ; DEC_NN(n) ;
 	  b = (unsigned char *)(read->base = (char *)malloc (baseMax)) ; 
 	  memcpy (b, cp, n) ;
 	  cp += n ;
 	  break ;
 	  
 	case 12:  /* read the baspos, fullproof method */
+	  if (nn < 8) goto abort;
 	  baseMax = read->NBases = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  CHECKMAGIC ;
 
-	  n = baseMax ; nn -= n ;
+	  n = baseMax ; DEC_NN(n) ;
 
 	  bp = read->basePos = (unsigned short *) malloc (baseMax * sizeof (unsigned short)) ;
 	  
@@ -1233,14 +1237,16 @@ static BOOL ctfUnPackTraces (Read *read, Array a)
 	      dx = (unsigned char) *cp++;
 	      if (dx == 254) 
 		{
+		  DEC_NN(2) ;
 		  dx = (cp[0] << 8) | cp[1];
-		  cp += 2; nn -= 2 ;
+		  cp += 2; 
 		  dx = -dx ;
 		}
 	      else if (dx == 255) 
 		{
+		  DEC_NN(2) ;
 		  dx = (cp[0] << 8) | cp[1];
-		  cp += 2; nn -= 2 ;
+		  cp += 2;
 		}
 	      dx -= 32 ;
 	      x += dx;
@@ -1249,6 +1255,7 @@ static BOOL ctfUnPackTraces (Read *read, Array a)
 	  break ;
 	  
 	case 2:  /* read the traces */
+	  if (nn < 20) goto abort;
 	  predictionMode = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  compressionMode = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  traceMax = read->NPoints = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
@@ -1261,6 +1268,7 @@ static BOOL ctfUnPackTraces (Read *read, Array a)
 	  break ;
 	  
 	case 3:  /* read miscelaneous info */
+	  if (nn < 20) goto abort;
 	  read->leftCutoff = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  read->rightCutoff = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  read->orig_trace_format = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ; 
@@ -1268,29 +1276,33 @@ static BOOL ctfUnPackTraces (Read *read, Array a)
 	  n = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  if (n > 0)
 	    {
+	      DEC_NN(n) ;
 	      read->info = (char *) malloc (n+1) ; 
-	      strncpy (read->info, (char *)cp, n) ; cp += n ; nn -= n ;
+	      strncpy (read->info, (char *)cp, n) ; cp += n ;
 	      read->info[n] = 0 ; /* zero terminate the string */
 	    }
 	  break ;
 
 	case 4:  /*  Probability information */  
+	  if (nn < 4) goto abort;
 	  n = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
+	  DEC_NN(n*4) ;
 	  read->prob_A = (char *) malloc (n) ;
 	  read->prob_C = (char *) malloc (n) ;
 	  read->prob_G = (char *) malloc (n) ;
 	  read->prob_T = (char *) malloc (n) ;
-	  memcpy (read->prob_A, cp, n) ; cp += n ; nn -= n ;
-	  memcpy (read->prob_C, cp, n) ; cp += n ; nn -= n ;
-	  memcpy (read->prob_G, cp, n) ; cp += n ; nn -= n ;
-	  memcpy (read->prob_T, cp, n) ; cp += n ; nn -= n ; 
+	  memcpy (read->prob_A, cp, n) ; cp += n ;
+	  memcpy (read->prob_C, cp, n) ; cp += n ;
+	  memcpy (read->prob_G, cp, n) ; cp += n ;
+	  memcpy (read->prob_T, cp, n) ; cp += n ;
 	  break ;
 
 	case 5:  /*  Mixed Probability information */  
 	  n = ctfGetInt (cp) ; cp += 4 ; nn -= 4 ;
 	  mixProb = (unsigned char*) malloc (n) ; nMixProb = n ;
 	  ucp = cp ; /* to please memcpy */
-	  memcpy (mixProb, ucp, n) ; cp += n ; nn -= n ; 
+	  DEC_NN(n) ; 
+	  memcpy (mixProb, ucp, n) ; cp += n ;
 	  break ;
 
 	case 6:
@@ -1306,9 +1318,12 @@ static BOOL ctfUnPackTraces (Read *read, Array a)
 
 	default: /* not yet defined stuff */
 	  cp += sectionLength ; 
+	  nn -= sectionLength;
 	  break ;
 	}
     }
+
+  goto abort;
 
  done:
   if (mixProb)
