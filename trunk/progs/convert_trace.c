@@ -635,7 +635,8 @@ int main(int argc, char **argv) {
 	} else if (strcmp(*argv, "-abi_data") == 0) {
 	    int c1, c2, c3, c4;
 	    argc--;
-	    if (4 == sscanf(*++argv, "%d,%d,%d,%d", &c1, &c2, &c3, &c4)) {
+	    if (argc &&
+		4 == sscanf(*++argv, "%d,%d,%d,%d", &c1, &c2, &c3, &c4)) {
 		abi_set_data_counts(c1, c2, c3, c4);
 	    } else {
 		usage();
