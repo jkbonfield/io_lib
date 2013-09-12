@@ -831,6 +831,8 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	// metrics ignored for bzip2
 	return cram_compress_block_bzip2(fd, b, metrics, level);
 #endif
+    
+    //return cram_compress_block_arith1(fd, b, metrics);
 
     pthread_mutex_lock(&fd->metrics_lock);
     if (strat2 >= 0)
@@ -1939,6 +1941,8 @@ cram_container *cram_new_container(int nrec, int nslice) {
     if (!(c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
 	return NULL;
     c->refs_used = 0;
+
+    c->last_name = "";
 
     return c;
 }
