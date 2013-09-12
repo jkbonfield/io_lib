@@ -91,6 +91,7 @@ enum cram_block_method {
     RAW   = 0,
     GZIP  = 1,
     BZIP2 = 2,
+    ARITH1 = 3,
 };
 
 enum cram_content_type {
@@ -305,6 +306,8 @@ typedef struct {
 
     HashTable *tags_used; // hash of tag types in use, for tag encoding map
     int *refs_used;       // array of frequency of ref seq IDs
+
+    char *last_name;
 } cram_container;
 
 /*
