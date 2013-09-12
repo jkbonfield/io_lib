@@ -460,7 +460,7 @@ mFILE *find_file_url(char *file, char *url) {
 
     if (0 != curl_easy_setopt(handle, CURLOPT_URL, buf))
 	goto error;
-    if (0 != curl_easy_setopt(handle, CURLOPT_TIMEOUT, 10L))
+    if (0 != curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT, 10L))
 	goto error;
     if (0 != curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION,
 			      (curl_write_callback)mfwrite))
