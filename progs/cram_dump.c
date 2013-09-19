@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
     off_t pos, pos2, hpos;
     int verbose = 0;
 
-    static int bsize[100], bmax = 0;
+    static int64_t bsize[100], bmax = 0;
 
     if (argc >= 2 && strcmp(argv[1], "-v") == 0) {
 	argc--;
@@ -591,7 +591,7 @@ int main(int argc, char **argv) {
 	int id;
 	puts("");
 	for (id = 0; id < bmax; id++)
-	    printf("Block %d, total size %d\n", id, bsize[id]);
+	    printf("Block %d, total size %"PRId64"\n", id, bsize[id]);
     }
 
     return 0;
