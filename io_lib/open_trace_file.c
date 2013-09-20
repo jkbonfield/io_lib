@@ -421,17 +421,25 @@ mFILE *find_file_url(char *file, char *url) {
 }
 #endif
 
+#define STATIC_CURL
+
 #ifdef HAVE_LIBCURL
 mFILE *find_file_url(char *file, char *url) {
     char buf[8192], *cp;
     mFILE *mf = NULL, *headers = NULL;
     int maxlen = 8190 - strlen(file);
+#ifdef STATIC_CURL
     static CURL *handle = NULL;
     static int curl_init = 0;
+#else
+    CURL *handle = NULL;
+    static int curl_init = 0;
+#endif
     char errbuf[CURL_ERROR_SIZE];
 
     *errbuf = 0;
 
+#ifdef STATIC_CURL
     if (!curl_init) {
 	if (curl_global_init(CURL_GLOBAL_ALL))
 	    return NULL;
@@ -441,6 +449,17 @@ mFILE *find_file_url(char *file, char *url) {
 
 	curl_init = 1;
     }
+#else
+    if (!curl_init) {
+	if (curl_global_init(CURL_GLOBAL_ALL))
+	    return NULL;
+
+	curl_init = 1;
+    }
+    if (NULL == (handle = curl_easy_init()))
+	goto error;
+
+#endif
 
     /* Expand %s for the trace name */
     for (cp = buf; *url && cp - buf < maxlen; url++) {
@@ -460,7 +479,7 @@ mFILE *find_file_url(char *file, char *url) {
 
     if (0 != curl_easy_setopt(handle, CURLOPT_URL, buf))
 	goto error;
-    if (0 != curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT, 10L))
+    if (0 != curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT, 60L))
 	goto error;
     if (0 != curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION,
 			      (curl_write_callback)mfwrite))
@@ -502,16 +521,24 @@ mFILE *find_file_url(char *file, char *url) {
 
     mfdestroy(headers);
 
+#ifndef STATIC_CURL
+    curl_easy_cleanup(handle);
+#endif
+
     mrewind(mf);
     return mf;
 
  error:
+#ifndef STATIC_CURL
+    if (handle)
+	curl_easy_cleanup(handle);
+#endif
     if (mf)
 	mfdestroy(mf);
     if (headers)
 	mfdestroy(headers);
     if (*errbuf)
-	fprintf(stderr, "%s\n", errbuf);
+	fprintf(stderr, "CURL ERROR: %s\n", errbuf);
     return NULL;
 }
 #endif
