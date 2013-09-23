@@ -1181,6 +1181,8 @@ int refs2id(refs_t *r, SAM_hdr *h) {
     int i;
     if (r->ref_id)
 	free(r->ref_id);
+    if (r->last)
+	r->last = NULL;
 
     r->ref_id = calloc(h->nref, sizeof(*r->ref_id));
     if (!r->ref_id)
@@ -1594,7 +1596,14 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
     assert(e->count == 0);
 
     if (r->last) {
-	RP("%d cram_ref_load DECR %d\n", gettid(), r->last - r->ref_id[0]);
+#ifdef REF_DEBUG
+	int idx = 0;
+	for (idx = 0; idx < r->nref; idx++)
+	    if (r->last == r->ref_id[idx])
+		break;
+	RP("%d cram_ref_load DECR %d\n", gettid(), idx);
+#endif
+
 	assert(r->last->count > 0);
 	if (--r->last->count <= 0) {
 	    RP("%d FREE REF %d (%p)\n", gettid(), id, r->ref_id[id]->seq);
