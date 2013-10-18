@@ -21,9 +21,6 @@ libstaden_read_la_SOURCES = \
 	seqIOABI.h \
 	seqIOALF.c \
 	alf.h \
-	ctfCompress.c \
-	seqIOCTF.c \
-	seqIOCTF.h \
 	expFileIO.c \
 	expFileIO.h \
 	plain.h \

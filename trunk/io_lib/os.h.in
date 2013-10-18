@@ -201,7 +201,6 @@ extern "C" {
 #define IOLIB_SCF
 #define IOLIB_ALF
 #define IOLIB_PLN
-#define IOLIB_CTF
 #define IOLIB_EXP
 #define IOLIB_SFF
 #define IOLIB_ZTR

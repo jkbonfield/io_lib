@@ -51,8 +51,6 @@ extern "C" {
 #define fwrite_abi mfwrite_abi
 #define fread_alf  mfread_alf
 #define fwrite_alf mfwrite_alf
-#define fread_ctf  mfread_ctf
-#define fwrite_ctf mfwrite_ctf
 #define fread_pln  mfread_pln
 #define fwrite_pln mfwrite_pln
 #define fread_scf  mfread_scf
