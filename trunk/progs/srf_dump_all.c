@@ -1,25 +1,34 @@
 /*
- * ======================================================================
- * This software has been created by Genome Research Limited (GRL).
- *
- * GRL hereby grants permission to use, copy, modify and distribute
- * this software and its documentation for non-commercial purposes
- * without fee at the user's own risk on the basis set out below.
- *
- * GRL neither undertakes nor accepts any duty whether contractual or
- * otherwise in connection with the software, its use or the use of
- * any derivative, and makes no representations or warranties, express
- * or implied, concerning the software, its suitability, fitness for
- * a particular purpose or non-infringement.
- *
- * In no event shall the authors of the software or GRL be responsible
- * or liable for any loss or damage whatsoever arising in any way
- * directly or indirectly out of the use of this software or its
- * derivatives, even if advised of the possibility of such damage.
- *
- * Our software can be freely distributed under the conditions set out
- * above, and must contain this copyright notice.
- * ======================================================================
+ * Copyright (c) 2007-2008, 2010, 2013 Genome Research Ltd.
+ * Author(s): James Bonfield
+ * 
+ * Redistribution and use in source and binary forms, with or without 
+ * modification, are permitted provided that the following conditions are met:
+ * 
+ *    1. Redistributions of source code must retain the above copyright notice,
+ *       this list of conditions and the following disclaimer.
+ * 
+ *    2. Redistributions in binary form must reproduce the above
+ *       copyright notice, this list of conditions and the following
+ *       disclaimer in the documentation and/or other materials provided
+ *       with the distribution.
+ * 
+ *    3. Neither the names Genome Research Ltd and Wellcome Trust Sanger
+ *    Institute nor the names of its contributors may be used to endorse
+ *    or promote products derived from this software without specific
+ *    prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY GENOME RESEARCH LTD AND CONTRIBUTORS "AS
+ * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL GENOME RESEARCH
+ * LTD OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 /*
