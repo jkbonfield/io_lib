@@ -26,8 +26,12 @@ although it is compatible with the above one.
 
 Newer files and changes are copyright Genome Research Ltd using the
 following compatible BSD licence. Disentangling which is which is
-somewhat tricky, but it's sufficient to say that work in the CVS tree
-from August 2002 will be bound by the GRL licence instead.
+somewhat tricky, but it's sufficient to say that work in the CVS/SVN
+tree from August 2002 will be bound by the GRL licence instead.
+
+The GRL licence will have author(s) listed too. Note that these are
+not the sole authors of the files, but the authors for whom the GRL
+licence applies.
 
 /*
  * Copyright (c), Genome Research Ltd (GRL).
