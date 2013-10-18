@@ -91,8 +91,6 @@ int main(int argc, char **argv) {
             format = TT_PLN;
         } else if (strcasecmp(*argv, "-ztr") == 0) {
             format = TT_ZTR;
-        } else if (strcasecmp(*argv, "-ctf") == 0) {
-            format = TT_CTF;
 	} else if (strcmp(*argv, "-fofn") == 0) {
 	    fofn = *++argv;
 	    argc--;

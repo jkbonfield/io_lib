@@ -94,9 +94,6 @@
 #ifdef IOLIB_ZTR
 # include "io_lib/ztr.h"
 #endif
-#ifdef IOLIB_CTF
-# include "io_lib/seqIOCTF.h"
-#endif
 #ifdef IOLIB_SFF
 # include "io_lib/sff.h"
 #endif
@@ -228,12 +225,6 @@ Read *mfread_reading(mFILE *fp, char *fn, int format) {
 
 	break;
     }
-#endif
-
-#ifdef IOLIB_CTF
-    case TT_CTF:
-	read = mfread_ctf(fp);
-	break;
 #endif
 
 #ifdef IOLIB_SFF
@@ -375,12 +366,6 @@ int mfwrite_reading(mFILE *fp, Read *read, int format) {
     }
 #endif
 
-#ifdef IOLIB_CTF
-    case TT_CTF:
-	r = mfwrite_ctf(fp, read); 
-	break;
-#endif
-
 #ifdef IOLIB_ABI
     case TT_ABI:
 	/*return mfwrite_abi(fp, read); */
@@ -486,16 +471,6 @@ Read *fread_alf(FILE *fp) {
 
 int fwrite_alf(FILE *fp, Read *read) {
     return fwrite_reading(fp, read, TT_ALF);
-}
-#endif
-
-#ifdef IOLIB_CTF
-Read *fread_ctf(FILE *fp) {
-    return fread_reading(fp, NULL, TT_CTF);
-}
-
-int fwrite_ctf(FILE *fp, Read *read) {
-    return fwrite_reading(fp, read, TT_CTF);
 }
 #endif
 

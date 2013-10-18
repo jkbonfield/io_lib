@@ -99,7 +99,6 @@ extern "C" {
 #define TT_ALF 3
 #define TT_PLN 4
 #define TT_EXP 5
-#define TT_CTF 6
 #define TT_ZTR 7
 #define TT_ZTR1 8
 #define TT_ZTR2 9
@@ -266,13 +265,6 @@ int mfwrite_pln(mFILE *fp, Read *read);
 Read *read_pln(char *fn);
 Read *fread_pln(FILE *fp);
 Read *mfread_pln(mFILE *fp);
-
-Read *read_ctf(char *fn);
-Read *fread_ctf(FILE *fp);
-Read *mfread_ctf(mFILE *fp);
-int write_ctf(char *fn, Read *read);
-int fwrite_ctf(FILE *fp, Read *read);
-int mfwrite_ctf(mFILE *fp, Read *read);
 
 int read_sections(int sec);
 

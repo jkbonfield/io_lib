@@ -89,7 +89,6 @@ static struct {
     char *string;
 } magics[] = {
 	{ TT_SCF, 0,   ".scf" } ,
-	{ TT_CTF, 1,   "\007\375\343\000" } ,   /* mieg */
 	{ TT_ZTR, 0,   "\256ZTR\r\n\032\n" } ,
 	{ TT_ABI, 0,   "ABIF" } ,
 	{ TT_ABI, 128, "ABIF" } ,
@@ -117,7 +116,7 @@ int remove_file(char *fn) { return unlink(fn); }
  * (as biolims doesn't use files !)
  *
  * Returns:
- *     TT_SCF, TT_CTF, TT_ZTR, TT_ABI, TT_ALF, or TT_PLN for success.
+ *     TT_SCF, TT_ZTR, TT_ABI, TT_ALF, or TT_PLN for success.
  *     TT_UNK for unknown type.
  *     TT_ERR for error.
  */
@@ -179,7 +178,7 @@ int fdetermine_trace_type(FILE *fp)
  * Determine the trace type for file 'fn'.
  *
  * Returns:
- *     TT_SCF, TT_CTF, TT_ZTR, TT_ABI, TT_ALF, TT_BIO, or TT_PLN for success.
+ *     TT_SCF, TT_ZTR, TT_ABI, TT_ALF, TT_BIO, or TT_PLN for success.
  *     TT_UNK for unknown type.
  *     TT_ERR for error.
  */
@@ -209,8 +208,6 @@ int trace_type_str2int(char *str) {
 	return TT_SCF;
     else if (strcmp(str, "SFF") == 0 || strcmp(str, "sff") == 0)
         return TT_SFF;   /* 454 */
-    else if (strcmp(str, "CTF") == 0 || strcmp(str, "ctf") == 0)
-        return TT_CTF;   /* mieg */
     else if (strcmp(str, "ZTR") == 0 || strcmp(str, "ztr") == 0)
         return TT_ZTR;
     else if (strcmp(str, "ZTR1") == 0 || strcmp(str, "ztr1") == 0)
@@ -244,7 +241,6 @@ char *trace_type_int2str(int type) {
     switch(type) {
     case TT_SCF: t = "SCF"; break;
     case TT_SFF: t = "SFF"; break;  /* 454 */
-    case TT_CTF: t = "CTF"; break;  /* mieg */
     case TT_ZTR: t = "ZTR";break;
     case TT_ZTR1: t = "ZTR1";break;
     case TT_ZTR2: t = "ZTR2";break;
@@ -266,7 +262,7 @@ char *trace_type_int2str(int type) {
  * Returns a statically declared string containing a 3 character
  * identifier for the trace type of this file.
  * "ERR" represents error, and "UNK" for unknown.
- * Successful values are "SCF", "ABI", "ALF", "PLN", "CTF", "ZTR" and "BIO".
+ * Successful values are "SCF", "ABI", "ALF", "PLN", "ZTR" and "BIO".
  */
 char *trace_type_str(char *traceName)
 {
