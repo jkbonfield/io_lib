@@ -674,7 +674,7 @@ char *unxrle2(char *comp, int comp_len, int *uncomp_len) {
  * NB: This is analogous to our SCF delta_samples1 (etc) function, except that
  * this function about 40% faster.
  *
- * Implementation details taken from Jean Thierry-Mieg's CTF code.
+ * Implementation ideas taken from Jean Thierry-Mieg's CTF code.
  */
 
 /*

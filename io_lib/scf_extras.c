@@ -96,7 +96,6 @@ int get_read_conf(Exp_info *e, int length, int2 *opos, int1 *conf) {
     ttype = trace_type_str2int(exp_get_entry(e, EFLT_LT));
 
     if (ttype != TT_SCF &&
-	ttype != TT_CTF &&
 	ttype != TT_ZTR)
 	return -1;
 

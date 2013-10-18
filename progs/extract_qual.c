@@ -240,7 +240,7 @@ static int do_trans(mFILE *infp, char *in_file, FILE *outfp, int format,
 }
 
 static void usage(void) {
-    fprintf(stderr, "Usage: extract_qual [-r] [-(abi|alf|scf|exp|pln|ctf|ztr)]\n"
+    fprintf(stderr, "Usage: extract_qual [-r] [-(abi|alf|scf|exp|pln|ztr)]\n"
 	    "                   [-good_only] [-clip_cosmid] [-fasta_out]\n"
 	    "                   [-output output_name] [input_name] ...\n");
     exit(1);
@@ -273,8 +273,6 @@ int main(int argc, char **argv) {
             format = TT_PLN;
         } else if (strcasecmp(*argv, "-ztr") == 0) {
             format = TT_ZTR;
-        } else if (strcasecmp(*argv, "-ctf") == 0) {
-            format = TT_CTF;
         } else if (strcasecmp(*argv, "-good_only") == 0) {
 	    good_only = 1;
         } else if (strcasecmp(*argv, "-clip_cosmid") == 0) {

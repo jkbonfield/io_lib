@@ -36,7 +36,6 @@ pkginclude_HEADERS = \
 	io_lib/fpoint.h \
 	io_lib/seqIOABI.h \
 	io_lib/alf.h \
-	io_lib/seqIOCTF.h \
 	io_lib/expFileIO.h \
 	io_lib/plain.h \
 	io_lib/scf.h \
