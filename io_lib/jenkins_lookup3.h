@@ -1,3 +1,5 @@
+/* From lookup3.c, by Bob Jenkins, May 2006, Public Domain. */
+
 #ifndef _JENKINS_LOOKUP3_H_
 #define _JENKINS_LOOKUP3_H_
 

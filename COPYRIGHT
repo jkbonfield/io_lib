@@ -20,6 +20,10 @@ under this licence:
  * MRC disclaims all warranties with regard to this software.
  */
 
+Later MRC made the entire Staden Package open source under the
+3-clause BSD licence. This copyright message is also included,
+although it is compatible with the above one.
+
 Newer files and changes are copyright Genome Research Ltd using the
 following compatible BSD licence. Disentangling which is which is
 somewhat tricky, but it's sufficient to say that work in the CVS tree
