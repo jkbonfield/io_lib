@@ -346,7 +346,7 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 		break;
 	    }
 	}
-	if (i == slice->hdr->num_blocks)
+	if (i == slice->hdr->num_blocks || !b)
 	    return -1;
     }
 
@@ -377,7 +377,7 @@ int cram_external_decode_char(cram_slice *slice, cram_codec *c,
 		break;
 	    }
 	}
-	if (i == slice->hdr->num_blocks)
+	if (i == slice->hdr->num_blocks || !b)
 	    return -1;
     }
 
@@ -409,7 +409,7 @@ int cram_external_decode_block(cram_slice *slice, cram_codec *c,
 		break;
 	    }
 	}
-	if (i == slice->hdr->num_blocks)
+	if (i == slice->hdr->num_blocks || !b)
 	    return -1;
     }
 
@@ -940,8 +940,10 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
     h->free   = cram_huffman_decode_free;
 
     codes = h->huffman.codes = malloc(ncodes * sizeof(*codes));
-    if (!codes)
+    if (!codes) {
+	free(h);
 	return NULL;
+    }
 
     /* Read symbols and bit-lengths */
     for (i = 0; i < ncodes; i++) {
@@ -1187,8 +1189,12 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 	    vals_alloc = vals_alloc ? vals_alloc*2 : 1024;
 	    vals  = realloc(vals,  vals_alloc * sizeof(int));
 	    freqs = realloc(freqs, vals_alloc * sizeof(int));
-	    if (!vals || !freqs)
+	    if (!vals || !freqs) {
+		if (vals)  free(vals);
+		if (freqs) free(freqs);
+		free(c);
 		return NULL;
+	    }
 	}
 	vals[nvals] = i;
 	freqs[nvals] = st->freqs[i];
@@ -1485,7 +1491,7 @@ int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
 		break;
 	    }
 	}
-	if (i == slice->hdr->num_blocks)
+	if (i == slice->hdr->num_blocks || !b)
 	    return -1;
     }
 
@@ -1524,7 +1530,7 @@ int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
 		break;
 	    }
 	}
-	if (i == slice->hdr->num_blocks)
+	if (i == slice->hdr->num_blocks || !b)
 	    return -1;
     }
 
