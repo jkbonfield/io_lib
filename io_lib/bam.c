@@ -2925,6 +2925,11 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* QNAME */
 	if (end - fp->uncomp_p < (sz = bam_name_len(b))) BF_FLUSH();
+	if (bam_name(b) - (char *)b + sz-1 >
+	    b->blk_size + offsetof(bam_seq_t, ref)) {
+	    fprintf(stderr, "Name length too large for bam block\n");
+	    return -1;
+	}
 	memcpy(fp->uncomp_p, bam_name(b), sz-1); fp->uncomp_p += sz-1;
 	*fp->uncomp_p++ = '\t';
 
@@ -3005,6 +3010,11 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	/* SEQ */
 	n = (b->len+1)/2;
 	dat = (uc *)bam_seq(b);
+
+	if (dat - (uc *)b + b->len > b->blk_size + offsetof(bam_seq_t, ref)) {
+	    fprintf(stderr, "Sequence length too large for bam block\n");
+	    return -1;
+	}
 
 	/* BAM encoding */
 	//	while (n) {
