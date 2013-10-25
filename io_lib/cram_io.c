@@ -773,7 +773,8 @@ int cram_uncompress_block(cram_block *b) {
 	uncomp = zlib_mem_inflate((char *)b->data, b->comp_size, &uncomp_size);
 	if (!uncomp)
 	    return -1;
-	assert((int)uncomp_size == b->uncomp_size);
+	if ((int)uncomp_size != b->uncomp_size)
+	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->method = RAW;
@@ -799,9 +800,12 @@ int cram_uncompress_block(cram_block *b) {
     case BZIP2:
 	fprintf(stderr, "Bzip2 compression is not compiled into this "
 		"version.\nPlease rebuild and try again.\n");
-	abort();
+	return -1;
 	break;
 #endif
+
+    default:
+	return -1;
     }
 
     return 0;
@@ -1289,6 +1293,9 @@ static int refs_from_header(refs_t *r, cram_fd *fd, SAM_hdr *h) {
 	    continue;
 
 	if (!(r->ref_id[i] = calloc(1, sizeof(ref_entry))))
+	    return -1;
+
+	if (!h->ref[i].name)
 	    return -1;
 
 	r->ref_id[i]->name = string_dup(r->pool, h->ref[i].name);
@@ -2635,7 +2642,7 @@ cram_slice *cram_read_slice(cram_fd *fd) {
 	}
     }
     if (min_id >= 0 && max_id < 1024) {
-	if (!(s->block_by_id = calloc(max_id+1, sizeof(s->block[0]))))
+	if (!(s->block_by_id = calloc(1024, sizeof(s->block[0]))))
 	    goto err;
 
 	for (i = 0; i < n; i++) {
