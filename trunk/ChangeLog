@@ -1,5 +1,503 @@
 ===============================================================================
-2013-05-03: RELEASE 1.13.2
+2013-10-25: RELEASE 1.13.3
+
+------------------------------------------------------------------------
+r3500 | jkbonfield | 2013-10-25 11:25:35 +0100 (Fri, 25 Oct 2013) | 6 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_codecs.h
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Various input sanity checks on reading CRAM, spotted by randomly
+"fuzzing" uncompressed CRAM files and looking for crashes.
+
+By no means is this fully complete, but it is a significant
+improvement to robustness.
+
+------------------------------------------------------------------------
+r3499 | jkbonfield | 2013-10-24 16:56:23 +0100 (Thu, 24 Oct 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Another clang report; dup of before.
+
+------------------------------------------------------------------------
+r3498 | jkbonfield | 2013-10-24 16:25:20 +0100 (Thu, 24 Oct 2013) | 13 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_index.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_stats.c
+   M /io_lib/trunk/io_lib/mFILE.c
+   M /io_lib/trunk/io_lib/sam_header.c
+   M /io_lib/trunk/io_lib/zfio.c
+
+Fixed a bunch of code warnings produced by clang's static analyser.
+
+1) Various memory leaks, all caused by returning after a malloc
+failure without freeing precursor allocations.
+
+2) Fixed potential error in cram_codecs.c where an external block ID
+could fail to be found, resulting in dereferencing a null pointer.
+
+3) Improved guards around block IDs to prevent negative blocks (not
+found by clang).
+
+4) Removal of dead code; assignments that are no longer used.
+
+------------------------------------------------------------------------
+r3495 | jkbonfield | 2013-10-23 10:31:36 +0100 (Wed, 23 Oct 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+
+A raft of multi-threading locking bugs, detected by clang -fsantize=thread
+
+------------------------------------------------------------------------
+r3494 | jkbonfield | 2013-10-18 17:00:05 +0100 (Fri, 18 Oct 2013) | 8 lines
+Changed paths:
+   M /io_lib/trunk/COPYRIGHT
+   M /io_lib/trunk/Makefile.am
+   M /io_lib/trunk/io_lib/Makefile.am
+   M /io_lib/trunk/io_lib/Read.c
+   M /io_lib/trunk/io_lib/Read.h
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/bam.h
+   M /io_lib/trunk/io_lib/compress.c
+   M /io_lib/trunk/io_lib/compress.h
+   M /io_lib/trunk/io_lib/compression.c
+   M /io_lib/trunk/io_lib/compression.h
+   M /io_lib/trunk/io_lib/cram.h
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_codecs.h
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_decode.h
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_encode.h
+   M /io_lib/trunk/io_lib/cram_index.c
+   M /io_lib/trunk/io_lib/cram_index.h
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_stats.c
+   M /io_lib/trunk/io_lib/cram_stats.h
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/io_lib/deflate_interlaced.c
+   M /io_lib/trunk/io_lib/deflate_interlaced.h
+   M /io_lib/trunk/io_lib/dstring.c
+   M /io_lib/trunk/io_lib/dstring.h
+   M /io_lib/trunk/io_lib/expFileIO.c
+   M /io_lib/trunk/io_lib/expFileIO.h
+   M /io_lib/trunk/io_lib/files.c
+   M /io_lib/trunk/io_lib/find.c
+   M /io_lib/trunk/io_lib/hash_table.c
+   M /io_lib/trunk/io_lib/hash_table.h
+   M /io_lib/trunk/io_lib/mFILE.c
+   M /io_lib/trunk/io_lib/mFILE.h
+   M /io_lib/trunk/io_lib/mach-io.c
+   M /io_lib/trunk/io_lib/mach-io.h
+   M /io_lib/trunk/io_lib/misc.h
+   M /io_lib/trunk/io_lib/misc_scf.c
+   M /io_lib/trunk/io_lib/open_trace_file.c
+   M /io_lib/trunk/io_lib/open_trace_file.h
+   M /io_lib/trunk/io_lib/plain.h
+   M /io_lib/trunk/io_lib/pooled_alloc.c
+   M /io_lib/trunk/io_lib/pooled_alloc.h
+   M /io_lib/trunk/io_lib/read_alloc.c
+   M /io_lib/trunk/io_lib/read_scf.c
+   M /io_lib/trunk/io_lib/sam_header.c
+   M /io_lib/trunk/io_lib/sam_header.h
+   M /io_lib/trunk/io_lib/scf.h
+   M /io_lib/trunk/io_lib/scf_extras.c
+   M /io_lib/trunk/io_lib/scf_extras.h
+   M /io_lib/trunk/io_lib/scram.c
+   M /io_lib/trunk/io_lib/scram.h
+   M /io_lib/trunk/io_lib/seqIOABI.c
+   M /io_lib/trunk/io_lib/seqIOABI.h
+   M /io_lib/trunk/io_lib/seqIOALF.c
+   M /io_lib/trunk/io_lib/seqIOPlain.c
+   M /io_lib/trunk/io_lib/sff.c
+   M /io_lib/trunk/io_lib/sff.h
+   M /io_lib/trunk/io_lib/srf.c
+   M /io_lib/trunk/io_lib/srf.h
+   M /io_lib/trunk/io_lib/stdio_hack.h
+   M /io_lib/trunk/io_lib/string_alloc.c
+   M /io_lib/trunk/io_lib/string_alloc.h
+   M /io_lib/trunk/io_lib/strings.c
+   M /io_lib/trunk/io_lib/thread_pool.c
+   M /io_lib/trunk/io_lib/thread_pool.h
+   M /io_lib/trunk/io_lib/traceType.c
+   M /io_lib/trunk/io_lib/traceType.h
+   M /io_lib/trunk/io_lib/translate.c
+   M /io_lib/trunk/io_lib/translate.h
+   M /io_lib/trunk/io_lib/vlen.c
+   M /io_lib/trunk/io_lib/vlen.h
+   M /io_lib/trunk/io_lib/write_scf.c
+   M /io_lib/trunk/io_lib/xalloc.c
+   M /io_lib/trunk/io_lib/zfio.c
+   M /io_lib/trunk/io_lib/zfio.h
+   M /io_lib/trunk/io_lib/ztr.c
+   M /io_lib/trunk/io_lib/ztr.h
+   M /io_lib/trunk/io_lib/ztr_translate.c
+   M /io_lib/trunk/progs/Makefile.am
+   M /io_lib/trunk/progs/append_sff.c
+   M /io_lib/trunk/progs/convert_trace.c
+   M /io_lib/trunk/progs/cram_dump.c
+   M /io_lib/trunk/progs/cram_index.c
+   M /io_lib/trunk/progs/cram_to_sam.c
+   M /io_lib/trunk/progs/extract_fastq.c
+   M /io_lib/trunk/progs/extract_qual.c
+   M /io_lib/trunk/progs/extract_seq.c
+   M /io_lib/trunk/progs/get_comment.c
+   M /io_lib/trunk/progs/hash_exp.c
+   M /io_lib/trunk/progs/hash_extract.c
+   M /io_lib/trunk/progs/hash_list.c
+   M /io_lib/trunk/progs/hash_sff.c
+   M /io_lib/trunk/progs/hash_tar.c
+   M /io_lib/trunk/progs/index_tar.c
+   M /io_lib/trunk/progs/makeSCF.c
+   M /io_lib/trunk/progs/sam_convert.c
+   M /io_lib/trunk/progs/sam_to_cram.c
+   M /io_lib/trunk/progs/scf_dump.c
+   M /io_lib/trunk/progs/scf_info.c
+   M /io_lib/trunk/progs/scf_update.c
+   M /io_lib/trunk/progs/scram_flagstat.c
+   M /io_lib/trunk/progs/scram_merge.c
+   M /io_lib/trunk/progs/scram_pileup.c
+   M /io_lib/trunk/progs/scram_pileup.h
+   M /io_lib/trunk/progs/scramble.c
+   M /io_lib/trunk/progs/srf2fasta.c
+   M /io_lib/trunk/progs/srf2fastq.c
+   M /io_lib/trunk/progs/srf_dump_all.c
+   M /io_lib/trunk/progs/srf_extract_hash.c
+   M /io_lib/trunk/progs/srf_extract_linear.c
+   M /io_lib/trunk/progs/srf_filter.c
+   M /io_lib/trunk/progs/srf_index_hash.c
+   M /io_lib/trunk/progs/srf_info.c
+   M /io_lib/trunk/progs/srf_list.c
+   M /io_lib/trunk/progs/trace_dump.c
+   M /io_lib/trunk/progs/ztr_dump.c
+   M /io_lib/trunk/tests/Makefile.am
+
+Added GRL copyright too due to appropriate local requirements.
+
+Sorry that occasionally it will have been automatically added for the
+most mundance of micro-changes (like adjustments to comments or
+changing #include <x> to #include "x"). However given the licence is
+BSD and do-what-you-like it is compatible with the MRC one.
+
+
+------------------------------------------------------------------------
+r3493 | jkbonfield | 2013-10-18 12:34:51 +0100 (Fri, 18 Oct 2013) | 11 lines
+Changed paths:
+   M /io_lib/trunk/Makefile.am
+   M /io_lib/trunk/README
+   M /io_lib/trunk/io_lib/Makefile.am
+   M /io_lib/trunk/io_lib/Read.c
+   M /io_lib/trunk/io_lib/Read.h
+   M /io_lib/trunk/io_lib/compression.c
+   D /io_lib/trunk/io_lib/ctfCompress.c
+   M /io_lib/trunk/io_lib/os.h.in
+   M /io_lib/trunk/io_lib/scf_extras.c
+   D /io_lib/trunk/io_lib/seqIOCTF.c
+   D /io_lib/trunk/io_lib/seqIOCTF.h
+   M /io_lib/trunk/io_lib/stdio_hack.h
+   M /io_lib/trunk/io_lib/traceType.c
+   M /io_lib/trunk/options.mk
+   M /io_lib/trunk/progs/extract_fastq.c
+   M /io_lib/trunk/progs/extract_qual.c
+   M /io_lib/trunk/progs/extract_seq.c
+
+Purged CTF from the source tree.
+
+It had no explicitly stated licence (although was implicitly assumed
+to be given to us under the same licence as the rest of the code,
+this is not technically enough).
+
+Obviously we could have got this corrected, but the code is also
+superfluous (I never saw a CTF file in the wild) and we remove a large
+number of compilation warnings too.
+
+
+------------------------------------------------------------------------
+r3492 | jkbonfield | 2013-10-18 12:16:37 +0100 (Fri, 18 Oct 2013) | 10 lines
+Changed paths:
+   M /io_lib/trunk/COPYRIGHT
+   M /io_lib/trunk/io_lib/Read.c
+   M /io_lib/trunk/io_lib/Read.h
+   M /io_lib/trunk/io_lib/abi.h
+   M /io_lib/trunk/io_lib/alf.h
+   M /io_lib/trunk/io_lib/array.c
+   M /io_lib/trunk/io_lib/array.h
+   M /io_lib/trunk/io_lib/compress.c
+   M /io_lib/trunk/io_lib/compress.h
+   M /io_lib/trunk/io_lib/compression.c
+   M /io_lib/trunk/io_lib/compression.h
+   M /io_lib/trunk/io_lib/dstring.c
+   M /io_lib/trunk/io_lib/dstring.h
+   M /io_lib/trunk/io_lib/error.c
+   M /io_lib/trunk/io_lib/error.h
+   M /io_lib/trunk/io_lib/expFileIO.c
+   M /io_lib/trunk/io_lib/expFileIO.h
+   M /io_lib/trunk/io_lib/files.c
+   M /io_lib/trunk/io_lib/find.c
+   M /io_lib/trunk/io_lib/fpoint.c
+   M /io_lib/trunk/io_lib/fpoint.h
+   M /io_lib/trunk/io_lib/jenkins_lookup3.h
+   M /io_lib/trunk/io_lib/mach-io.c
+   M /io_lib/trunk/io_lib/mach-io.h
+   M /io_lib/trunk/io_lib/misc.h
+   M /io_lib/trunk/io_lib/misc_scf.c
+   M /io_lib/trunk/io_lib/open_trace_file.c
+   M /io_lib/trunk/io_lib/open_trace_file.h
+   M /io_lib/trunk/io_lib/plain.h
+   M /io_lib/trunk/io_lib/read_alloc.c
+   M /io_lib/trunk/io_lib/read_scf.c
+   M /io_lib/trunk/io_lib/scf.h
+   M /io_lib/trunk/io_lib/scf_extras.c
+   M /io_lib/trunk/io_lib/scf_extras.h
+   M /io_lib/trunk/io_lib/seqIOABI.c
+   M /io_lib/trunk/io_lib/seqIOABI.h
+   M /io_lib/trunk/io_lib/seqIOALF.c
+   M /io_lib/trunk/io_lib/seqIOPlain.c
+   M /io_lib/trunk/io_lib/strings.c
+   M /io_lib/trunk/io_lib/tar_format.h
+   M /io_lib/trunk/io_lib/traceType.c
+   M /io_lib/trunk/io_lib/traceType.h
+   M /io_lib/trunk/io_lib/translate.c
+   M /io_lib/trunk/io_lib/translate.h
+   M /io_lib/trunk/io_lib/vlen.c
+   M /io_lib/trunk/io_lib/vlen.h
+   M /io_lib/trunk/io_lib/write_scf.c
+   M /io_lib/trunk/io_lib/xalloc.c
+   M /io_lib/trunk/io_lib/xalloc.h
+   M /io_lib/trunk/io_lib/ztr.c
+   M /io_lib/trunk/io_lib/ztr.h
+   M /io_lib/trunk/io_lib/ztr_translate.c
+   M /io_lib/trunk/progs/convert_trace.c
+   M /io_lib/trunk/progs/extract_fastq.c
+   M /io_lib/trunk/progs/extract_seq.c
+   M /io_lib/trunk/progs/get_comment.c
+   M /io_lib/trunk/progs/index_tar.c
+   M /io_lib/trunk/progs/makeSCF.c
+   M /io_lib/trunk/progs/scf_dump.c
+   M /io_lib/trunk/progs/scf_info.c
+   M /io_lib/trunk/progs/scf_update.c
+   M /io_lib/trunk/progs/trace_dump.c
+
+Added the 3-clause BSD copyright notices as issued by MRC-LMB when they
+made the entire package open source (which included this).
+
+Where possible the dates and authors are correct. They have been
+culled from semi-automatic analysis of the old MRC change.log file,
+but some files predate keeping these logs. Apologies to absent
+authors.
+
+(Next up, GRL/Sanger copyright notices.)
+
+------------------------------------------------------------------------
+r3489 | jkbonfield | 2013-10-15 12:53:15 +0100 (Tue, 15 Oct 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/tests/data/ce#5.sam
+
+Increased the bam->cram bit swap arrays to 0x1000 size to accommodate
+the new 0x800 bam flag.
+
+------------------------------------------------------------------------
+r3470 | jkbonfield | 2013-09-23 17:09:21 +0100 (Mon, 23 Sep 2013) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed re-calling refs2id so it clears cached r->last; the pointer
+becomes invalid.
+
+Also fixed debugging information to avoid assumptions on how pointer
+differencing works when both pointers aren't from the same allocated
+memory block.
+
+------------------------------------------------------------------------
+r3468 | jkbonfield | 2013-09-20 09:33:34 +0100 (Fri, 20 Sep 2013) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/open_trace_file.c
+
+Currently #ifdefed out, added code to distinguish between static CURL
+*handle and per call CURL *handles. This was an attempt to make the
+code handle multi-threaded I/O, but I ended up resolving this in the
+functions that call find_file_url() instead of in that function.
+
+------------------------------------------------------------------------
+r3467 | jkbonfield | 2013-09-19 17:44:08 +0100 (Thu, 19 Sep 2013) | 12 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Bug fix for reference handling when fetching via MD5/http.
+
+Firstly the fd->refs->lock mutex has been moved to just before
+cram_populate_ref instead of just after, given that this code is not
+thread safe (it potentially uses open_path_url+curl in a manner which
+shares the curl handle between threads).
+
+Secondly certain thread orderings could cause the reference count to
+hit zero and then try to reaccess it again, which triggered a
+bug. ref->length is now reset to zero as well as ->seq=NULL as both
+are checked.
+
+------------------------------------------------------------------------
+r3466 | jkbonfield | 2013-09-19 13:58:26 +0100 (Thu, 19 Sep 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/cram_dump.c
+
+Fixed 32-bit wraparound problem when reporting total block sizes.
+
+------------------------------------------------------------------------
+r3461 | jkbonfield | 2013-09-12 16:27:21 +0100 (Thu, 12 Sep 2013) | 10 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Optimised the compression levels so -1, -3, and above are more
+distinct and use their own specific zlib parameters.
+
+Minor speed up.
+
+Various experimental code, disabled/commented out for now. This
+includes an API to do arithmetic compression (implementation not
+checked in as it's unused now) and an example of how to do
+string-delta encoding for read names.
+
+------------------------------------------------------------------------
+r3460 | jkbonfield | 2013-09-12 15:26:10 +0100 (Thu, 12 Sep 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/open_trace_file.c
+
+Fixed curl timeout. We meant CONNECTTIMEOUT instead of TIMEOUT. This
+was causing long downloads to be terminated early.
+
+------------------------------------------------------------------------
+r3453 | jkbonfield | 2013-09-09 11:28:11 +0100 (Mon, 09 Sep 2013) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/ctfCompress.c
+
+See https://sourceforge.net/p/staden/bugs/101/
+
+Adding copious extra error checks in ctfUnPackTraces() to avoid it
+running off the end of the 'cp' trace.
+
+------------------------------------------------------------------------
+r3452 | jkbonfield | 2013-09-09 11:26:57 +0100 (Mon, 09 Sep 2013) | 4 lines
+Changed paths:
+   M /io_lib/trunk/progs/convert_trace.c
+
+See https://sourceforge.net/p/staden/bugs/101/
+
+Fixed a crash in argument parsing when -abi_data is not given an argument.
+
+------------------------------------------------------------------------
+r3439 | jkbonfield | 2013-08-07 17:31:47 +0100 (Wed, 07 Aug 2013) | 4 lines
+Changed paths:
+   A /io_lib/trunk/tests/data/c1#bounds.sam
+
+Added test case for sequences with alignments beyond references. These
+are handled by scramble by adding individual base features for the
+base calls that are beyond the reference.
+
+------------------------------------------------------------------------
+r3438 | jkbonfield | 2013-08-07 17:04:16 +0100 (Wed, 07 Aug 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Bug fix to the last reference array bounds fix.
+
+------------------------------------------------------------------------
+r3437 | jkbonfield | 2013-08-07 16:24:54 +0100 (Wed, 07 Aug 2013) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Improved error reporting and detection for MD5 sums. We report where
+the md5 error comes from (which reference slice). We also have better
+detection of slices that overhang the end of the reference.
+
+Finally it no longer crashes sometimes after getting reference errors,
+now exiting cleanly with exit code 1.
+
+------------------------------------------------------------------------
+r3425 | jkbonfield | 2013-07-23 09:24:17 +0100 (Tue, 23 Jul 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/deflate_interlaced.c
+
+Bug fix to unused code.
+
+------------------------------------------------------------------------
+r3421 | jkbonfield | 2013-07-09 17:45:40 +0100 (Tue, 09 Jul 2013) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/open_trace_file.c
+   M /io_lib/trunk/io_lib/sam_header.c
+   M /io_lib/trunk/io_lib/sam_header.h
+
+Switched the SAMTOOLS #define to be coding against htslib instead of
+samtools API.
+
+htslib is the bamifier of the future!
+
+------------------------------------------------------------------------
+r3420 | jkbonfield | 2013-07-09 17:45:01 +0100 (Tue, 09 Jul 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+
+Bug fix to allow blank files to be detected as SAM format, as
+technically this is legal (both header and sequences are optional).
+
+------------------------------------------------------------------------
+r3419 | jkbonfield | 2013-07-09 17:44:08 +0100 (Tue, 09 Jul 2013) | 7 lines
+Changed paths:
+   M /io_lib/trunk/tests/compare_sam.pl
+   A /io_lib/trunk/tests/data/xx#blank.sam
+   A /io_lib/trunk/tests/data/xx#minimal.sam
+
+Extra test cases
+
+- The nul SAM file (no header, no seqs).
+- Zero length cigar ops.
+- Zero length sequences (with seq and qual "*")
+
+
+------------------------------------------------------------------------
+r3418 | jkbonfield | 2013-07-08 12:17:45 +0100 (Mon, 08 Jul 2013) | 6 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Back port from minor tweaks at github's jkbonfield/samtools. This
+change adds SAMTOOLS macros for bam_copy and bam_dup, and tweaks the
+pthreads interface to accept an NTHREADs option, allowing the cram_fd
+to own the pool instead of the caller. (This isn't the best solution
+for samtools, but pragmatic.)
+
+===============================================================================
+2013-06-25: RELEASE 1.13.2
+
+------------------------------------------------------------------------
+r3405 | jkbonfield | 2013-06-26 16:32:26 +0100 (Wed, 26 Jun 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/progs/scramble.c
+   M /io_lib/trunk/tests/Makefile.am
+   M /io_lib/trunk/tests/generate_data.pl
+
+Final tweaks to make "make distcheck" work and for 1.13.2 release.
 
 ------------------------------------------------------------------------
 r3403 | jkbonfield | 2013-06-25 15:20:42 +0100 (Tue, 25 Jun 2013) | 2 lines
