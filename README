@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.13.2
+			IO_LIB VERSION 1.13.3
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -18,11 +18,23 @@ following file formats:
 	SRF trace archives
 	Experiment files
 	Plain text files
+	SAM/BAM sequence files
+	CRAM sequence files
 
 These link together to form a single "libstaden-read" library supporting
 all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
+
+
+What's new in 1.13.3
+====================
+
+Another bug fix release, primarily focused around CRAM support. The
+most significant fixes here are to multi-threading (do not use
+threading in 1.13.2) and handling of fetching reference sequences.
+
+Improved robustness of code too, in particular when facing broken data.
 
 
 What's new in 1.13.2
@@ -76,74 +88,16 @@ So please consider the sam/bam/cram code as beta with the rest of
 io_lib as a stable release.
 
 
-What's new in 1.12.5
-====================
-
-Improvements for MacOS X builds and maybe other platforms (related to
-the use of va_copy function call).
-
-
-What's new in 1.12.4
-====================
-
-Bug fix to extracting data from .hash files.
-
-
-What's new in 1.12.3
-====================
-
-Primarily this release is to resolve compilation issues on some platforms. 
-
-Additionally there are a few improvements to srf2fastq, srf_dump_all,
-srf_filter, hash_tar and hash_list. See CHANGES for the full list.
-
-
-What's new in 1.12.2
-====================
-
-Extra options in srf2fastq:
-	-S to output split regions sequentially to stdout.
-	-r to request a region to be reverse complemented before output.
-
-API changes in HashTable code:
-	We now support HASH_POOL_ITEMS flag to reduce memory usage and
-	fragmentation, while speeding it up too. The pooled_alloc
-	methods implementing this may be useful in other places too.
-	(This change does not break the existing ABI.)
-
-Minor bug fixes (see CHANGES file).
-
-
-What's new in 1.12.1
-====================
-
-Library renaming:
-	The final object is no longer libread.so (or read.dll), but
-	libstaden-read.so. This had already been done by the Fedora bundled
-	version and work was in progress to do this in Debian too.
-
-Illumina2srf/srf2illumina:
-	Both of these tools have now been removed. Illumina itself should
-	now be supporting these tools and shipping appropriate versions
-	compatible with each GA-pipeline release.
-
-Libtool:
-	We now create dynamic library too, in addition to the static
-	versions, using the autoconf "libtool" program.  Furthermore we now
-	have proper library versioning, starting with an soname of
-	libstaden-read.so.1 for this release.
-
-INCOMPATIBILITY:
-	The Array data type and Array* functions now use size_t instead of
-	int for the array sizes. This means programs linked against the old
-	io_lib releases are not binary compatible with this version. 
-
-See CHANGES and ChangeLog for a full list of changes and for older release
-notes.
-
-
 Older comments
 ==============
+
+In 1.12.x saw various improvements to building and linking,
+specifically on Fedora and MacOS X plus the use of libtool to create
+dynamic libraries.  The library name is now libstaden-read.so too, as
+this was already renamed within Debian.
+
+We removed illumina2srf and srf2illumina in this release too (they
+have their own package on SourceForge now).
 
 In 1.11.x the SRF support was added. The SRF v1.3 format specification can
 be found here:

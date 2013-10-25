@@ -1,3 +1,43 @@
+Version 1.13.3 (25th October 2013)
+--------------
+
+* Improved robustness of CRAM support.
+
+* Fixed important bugs in CRAM multi-threading support.
+
+* CTF has been removed from io_lib source tree. Use 1.13.2 or older if
+  you still need this.
+
+* CRAM now supports the new SAM 0x800 supplementary flag.
+
+* Minor optimisations to CRAM compression levels (-1, -3 etc) so they
+  are more distinct.
+
+* Fixed bug with curl timeouts when fetching large traces and/or
+  reference sequences.
+
+
+Version 1.13.2 (25th June 2013)
+--------------
+
+* Added multi-threading support for sam/bam/cram I/O.
+
+* New scram_flagstat command, mainly to act as a test harness for
+  reading speed.
+
+* Bug fixes and improvements to reference sequence handling, in
+  particular when dealing with unsorted data.
+
+* Sped up SAM decoding by about 70%. Also improved robustness of
+  header parsing.
+
+* Improved automatic file type detection (scramble).
+
+* The CRAM header block is now padded out with lots of nul characters
+  to permit inline editing, although we have no tool or API to do this
+  currently. 
+
+
 Version 1.13.1 (3rd May 2013)
 --------------
 
