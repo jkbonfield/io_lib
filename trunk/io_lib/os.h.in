@@ -273,7 +273,8 @@ typedef int mode_t;
  * Microsoft Windows running MinGW
  */
 #if defined(__MINGW32__)
-/* #define mkdir(filename,mode) mkdir((filename)) */
+#include <io.h>
+#define mkdir(filename,mode) mkdir((filename))
 #define NOPIPE
 #define NOLOCKF
 #define NO_STRPTIME

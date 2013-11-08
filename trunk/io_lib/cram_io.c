@@ -76,12 +76,12 @@
 
 #ifdef REF_DEBUG
 #define RP(...) fprintf (stderr, __VA_ARGS__)
-#else
-#define RP(...) 
-#endif
-
 #include <sys/syscall.h>
 #define gettid() (int)syscall(SYS_gettid)
+#else
+#define RP(...) 
+#define gettid() 0
+#endif
 
 
 /* ----------------------------------------------------------------------
@@ -992,12 +992,15 @@ int paranoid_fclose(FILE *fp) {
     }
 
     errno = 0;
+#ifdef HAVE_FSYNC
     if (-1 == fsync(fileno(fp))) {
 	if (errno != EINVAL) { // eg pipe
 	    fclose(fp);
 	    return -1;
 	}
     }
+#endif
+
     return fclose(fp);
 }
 
