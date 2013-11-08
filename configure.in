@@ -153,5 +153,6 @@ dnl AC_FUNC_STRFTIME
 dnl AC_FUNC_VPRINTF
 AC_CHECK_FUNCS(strdup)
 dnl AC_CHECK_FUNCS(mktime strspn strstr strtol)
+AC_CHECK_FUNCS(fsync)
 
 AC_OUTPUT(Makefile io_lib/Makefile progs/Makefile tests/Makefile io_lib-config io_lib/os.h)

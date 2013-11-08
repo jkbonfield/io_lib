@@ -195,7 +195,7 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 	 * On 64-bit OS this function becomes 3x faster.
 	 */
 #ifdef ALLOW_UAC
-#if SIZEOF_LONG == 8
+#if SIZEOF_LONG == 8 && ULONG_MAX != 0xffffffff
 #define hasless(x,n) (((x)-0x0101010101010101UL*(n))&~(x)&0x8080808080808080UL)
 #define haszero(x) (((x)-0x0101010101010101UL)&~(x)&0x8080808080808080UL)
 	{
@@ -929,7 +929,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 }
 
 #ifdef ALLOW_UAC
-#if SIZEOF_LONG == 8
+#if SIZEOF_LONG == 8 && ULONG_MAX != 0xffffffff
 #define COPY_CPF_TO_CPTM(n)				\
     do {					        \
 	uint64_t *cpfi = (uint64_t *)cpf;		\

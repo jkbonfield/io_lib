@@ -45,6 +45,10 @@
 #include <ctype.h>
 #include <errno.h>
 
+#if defined(__MINGW32__)
+#   include <getopt.h>
+#endif
+
 #include <io_lib/scram.h>
 #include <io_lib/os.h>
 
