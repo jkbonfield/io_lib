@@ -184,6 +184,11 @@ int main(int argc, char **argv) {
 
 	hpos = ftello(fd->fp);
 
+	if (!c->length) {
+	    //printf("\n    EMPTY BLOCK\n");
+	    pos = ftello(fd->fp);
+	    continue;
+	}
 	printf("\n    Container_header block pos %"PRId64"\n", (int64_t)hpos);
 	if (!(c->comp_hdr_block = cram_read_block(fd)))
 	    return 1;
