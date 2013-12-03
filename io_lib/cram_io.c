@@ -854,7 +854,7 @@ static int cram_compress_block_bzip2(cram_fd *fd, cram_block *b,
  */
 int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 			int level,  int strat,
-			 int level2, int strat2) {
+			int level2, int strat2) {
     char *comp = NULL;
     size_t comp_size = 0;
 
@@ -884,7 +884,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    metrics->trial, metrics->next_trial,
 		    metrics->m1, metrics->m2);
 
-    if (strat2 >= 0 && (metrics->trial || --metrics->next_trial == 0)) {
+    if (strat2 >= 0 && (metrics->trial > 0 || --metrics->next_trial <= 0)) {
 	char *c1, *c2;
 	size_t s1, s2;
 
@@ -3311,7 +3311,6 @@ int cram_close(cram_fd *fd) {
     spare_bams *bl, *next;
     int i;
 	
-
     if (!fd)
 	return -1;
 
