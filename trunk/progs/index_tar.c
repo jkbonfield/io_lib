@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
     int directories = 0;
     FILE *fp;
     tar_block blk;
-    char member[256];
+    char member[257];
     size_t size, extra;
     int LongLink = 0;
     size_t offset = 0;
@@ -127,10 +127,14 @@ int main(int argc, char **argv) {
 	     * was ././@LongLink
 	     */
             if (LongLink == 0) {
+		char *cp;
                 (void) strncpy(member, blk.header.prefix, 155);
+		member[155] = 0;
 	        if (strlen(blk.header.prefix) > 0 && blk.header.name[0])
 		    (void) strcat(member, "/");
-    	        (void) strncat(member, blk.header.name, 100);
+		cp = member + strlen(member);
+    	        (void) strncpy(cp, blk.header.name, 100);
+		cp[100] = 0;
             }
             
             /* account for gtar ././@LongLink */
