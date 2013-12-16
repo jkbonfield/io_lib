@@ -174,6 +174,9 @@ typedef struct {
     /* line number (when in SAM mode) */
     int line;
 
+    /* EOF block present in BAM */
+    int eof_block;
+
     /* Static avoidance: used in sam_next_seq() */
     unsigned char *sam_str;
     size_t alloc_l;
