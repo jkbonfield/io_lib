@@ -280,7 +280,7 @@ typedef struct {
 
     /* Size of container header above */
     size_t   offset;
-
+    
     /* Compression header is always the first block? */
     cram_block_compression_hdr *comp_hdr;
     cram_block *comp_hdr_block;
@@ -652,6 +652,7 @@ typedef struct {
     int last_slice;                     // number of recs encoded in last slice
     int multi_seq;
     int unsorted;
+    int empty_container; 		// Marker for EOF block
     
     // thread pool
     int own_pool;
