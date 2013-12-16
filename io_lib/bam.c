@@ -71,6 +71,8 @@
 #  define MIN(a,b) ((a)<(b)?(a):(b))
 #endif
 
+#define EOF_BLOCK "\037\213\010\4\0\0\0\0\0\377\6\0\102\103\2\0\033\0\3\0\0\0\0\0\0\0\0\0"
+
 /* Macros to store integers of various sizes in little endian byte order.
  * The value is put in the location pointed to by ucp, which should be 
  * an unsigned char pointer.  ucp is incremented by the size of the
@@ -523,8 +525,7 @@ int bam_close(bam_file_t *b) {
 	    BGZF_FLUSH(b);
 
 	    /* Output a blank BGZF block too to mark EOF */
-	    if (28 != fwrite("\037\213\010\4\0\0\0\0\0\377\6\0\102\103\2\0"
-			     "\033\0\3\0\0\0\0\0\0\0\0\0", 1, 28, b->fp)) {
+	    if (28 != fwrite(EOF_BLOCK, 1, 28, b->fp)) {
 		fprintf(stderr, "Write failed in bam_close()\n");
 	    }
 	} else {
@@ -680,10 +681,11 @@ static int bam_uncompress_input(bam_file_t *b) {
 		if (!(j = malloc(sizeof(*j))))
 		    return -1;
 
-		if (b->comp_sz < 18 && !b->eof) {
+	    empty_block_1:
+		if (b->comp_sz < 28 && !b->eof) {
 		    if (-1 == bam_more_input(b)) {
 			b->eof = 1;
-			if (b->comp_sz < 18) {
+			if (b->comp_sz < 28) {
 			    b->eof = 2;
 			    free(j);
 			    break;
@@ -695,6 +697,16 @@ static int bam_uncompress_input(bam_file_t *b) {
 		    break;
 		}
 	    
+		if (!b->eof) {
+		    if (memcmp(b->comp_p, EOF_BLOCK, 28) == 0) {
+			b->eof_block = 1;
+			b->comp_p += 28; b->comp_sz -= 28;
+			goto empty_block_1;
+		    } else {
+			b->eof_block = 0;
+		    }
+		}
+
 		bgzf = b->comp_p;
 		b->comp_p += 10; b->comp_sz -= 10;
 
@@ -800,11 +812,20 @@ static int bam_uncompress_input(bam_file_t *b) {
 
 	/* Uncompress another BGZF block */
 	/* BGZF header */
-	if (b->comp_sz < 18) {
+    empty_block_2:
+	if (b->comp_sz < 28) {
 	    if (-1 == bam_more_input(b))
 		return 0;
-	    if (b->comp_sz < 18)
+	    if (b->comp_sz < 28)
 		return -1;
+	}
+	
+	if (memcmp(b->comp_p, EOF_BLOCK, 28) == 0) {
+	    b->eof_block = 1;
+	    b->comp_p += 28; b->comp_sz -= 28;
+	    goto empty_block_2;
+	} else {
+	    b->eof_block = 0;
 	}
 
 	if (b->z_finish) {

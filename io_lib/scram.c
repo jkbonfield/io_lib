@@ -319,6 +319,12 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
     return 0;
 }
 
+int scram_eof_block(scram_fd *fd) {
+    if (fd->is_bam)
+	return fd->b->bam ? fd->b->eof_block : 1;
+    else
+	return fd->c->empty_container;
+}
 
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
     return scram_get_seq(fd, bsp);

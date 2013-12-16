@@ -400,11 +400,18 @@ int main(int argc, char **argv) {
     s = NULL;
 
     while (scram_get_seq(in, &s) >= 0) {
-	if (-1 == scram_put_seq(out, s))
+	if (-1 == scram_put_seq(out, s)) {
+	    fprintf(stderr, "Failed to encode sequence\n");
 	    return 1;
+	}
     }
-    if (!scram_eof(in))
+    if (!scram_eof(in)) {
+	fprintf(stderr, "Failed to decode sequence\n");
 	return 1;
+    }
+    if (!scram_eof_block(in))
+	fprintf(stderr, "Warning: no end-of-file block identified. "
+		"File may be truncated.\n");
 
     /* Finally tidy up and close files */
     if (scram_close(in))
