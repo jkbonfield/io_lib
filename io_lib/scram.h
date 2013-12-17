@@ -92,7 +92,9 @@ typedef struct {
 } scram_buffer_t;
 
 /*!@return
- * Returns 1 if we hit the end of file; 0 otherwise.
+ * Returns 0 if not at end of file
+ *         1 if we hit an expected EOF (end of range or EOF block)
+ *         2 for other EOF (end of stream without EOF block)
  */
 #define scram_eof(fd) ((fd)->eof)
 

@@ -304,7 +304,9 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
 	    return 0;
 
 	case 0:
-	    fd->eof = 1;
+	    // FIXME: if we ever implement range queries for BAM this will
+	    // need amendments to not claim a sub-range is invalid EOF.
+	    fd->eof = fd->b->eof_block ? 1 : 2;
 
 	default:
 	    return -1;
@@ -312,18 +314,10 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
     }
 
     if (-1 == cram_get_bam_seq(fd->c, bsp)) {
-	if (cram_eof(fd->c))
-	    fd->eof = 1;
+	fd->eof = cram_eof(fd->c);
 	return -1;
     }
     return 0;
-}
-
-int scram_eof_block(scram_fd *fd) {
-    if (fd->is_bam)
-	return fd->b->bam ? fd->b->eof_block : 1;
-    else
-	return fd->c->empty_container;
 }
 
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
