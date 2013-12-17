@@ -405,13 +405,18 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }
-    if (!scram_eof(in)) {
+    switch(scram_eof(in)) {
+    case 0:
 	fprintf(stderr, "Failed to decode sequence\n");
 	return 1;
-    }
-    if (!scram_eof_block(in))
+    case 2:
 	fprintf(stderr, "Warning: no end-of-file block identified. "
 		"File may be truncated.\n");
+	break;
+    case 1: default:
+	// expected case
+	break;
+    }
 
     /* Finally tidy up and close files */
     if (scram_close(in))
