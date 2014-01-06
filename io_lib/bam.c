@@ -260,7 +260,11 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 
     if (r == -1)
 	return -1;
-    return b->uncomp_sz ? -1 : 0;
+    if (b->uncomp_sz)
+	return -1;
+    
+    b->eof_block = 1; // expected eof
+    return 0;
 }
 
 static int load_bam_header(bam_file_t *b) {
