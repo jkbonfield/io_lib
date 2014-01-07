@@ -707,6 +707,29 @@ cram_block *cram_read_block(cram_fd *fd) {
 	}
     }
 
+    if (IS_CRAM_3_VERS(fd)) {
+	unsigned char dat[100], *cp = dat;;
+	uint32_t crc;
+
+	
+	if (-1 == int32_decode(fd, &b->crc32))  { free(b); return NULL; }
+
+	*cp++ = b->method;
+	*cp++ = b->content_type;
+	cp += itf8_put(cp, b->content_id);
+	cp += itf8_put(cp, b->comp_size);
+	cp += itf8_put(cp, b->uncomp_size);
+	crc = crc32(0L, dat, cp-dat);
+	crc = crc32(crc, b->data ? b->data : "", b->alloc);
+
+	if (crc != b->crc32) {
+	    fprintf(stderr, "Block CRC32 failure\n");
+	    free(b->data);
+	    free(b);
+	    return NULL;
+	}
+    }
+
     b->orig_method = b->method;
     b->idx = 0;
     b->byte = 0;
@@ -734,6 +757,27 @@ int cram_write_block(cram_fd *fd, cram_block *b) {
 	    return -1;
     } else {
 	if (b->comp_size != fwrite(b->data, 1, b->comp_size, fd->fp)) 
+	    return -1;
+    }
+
+    if (IS_CRAM_3_VERS(fd)) {
+	unsigned char dat[100], *cp = dat;;
+	uint32_t crc;
+
+	*cp++ = b->method;
+	*cp++ = b->content_type;
+	cp += itf8_put(cp, b->content_id);
+	cp += itf8_put(cp, b->comp_size);
+	cp += itf8_put(cp, b->uncomp_size);
+	crc = crc32(0L, dat, cp-dat);
+
+	if (b->method == RAW) {
+	    b->crc32 = crc32(crc, b->data ? b->data : "", b->uncomp_size);
+	} else {
+	    b->crc32 = crc32(crc, b->data ? b->data : "", b->comp_size);
+	}
+
+	if (-1 == int32_encode(fd, b->crc32))
 	    return -1;
     }
 
@@ -2122,7 +2166,7 @@ cram_container *cram_read_container(cram_fd *fd) {
     fd->err = 0;
 
     memset(&c2, 0, sizeof(c2));
-    if (fd->version == CRAM_1_VERS) {
+    if (IS_CRAM_1_VERS(fd)) {
 	if ((s = itf8_decode(fd, &c2.length)) == -1) {
 	    fd->eof = fd->empty_container ? 1 : 2;
 	    return NULL;
@@ -2142,7 +2186,7 @@ cram_container *cram_read_container(cram_fd *fd) {
     if ((s = itf8_decode(fd, &c2.ref_seq_span)) == -1) return NULL; else rd+=s;
     if ((s = itf8_decode(fd, &c2.num_records))  == -1) return NULL; else rd+=s;
 
-    if (fd->version == CRAM_1_VERS) {
+    if (IS_CRAM_1_VERS(fd)) {
 	c2.record_counter = 0;
 	c2.num_bases = 0;
     } else {
@@ -2178,8 +2222,49 @@ cram_container *cram_read_container(cram_fd *fd) {
 	    rd += s;
 	}
     }
-    c->offset = rd;
 
+    if (IS_CRAM_3_VERS(fd)) {
+	uint32_t crc, i;
+	unsigned char *dat = malloc(50 + 5*(c->num_landmarks)), *cp = dat;
+	if (!dat) {
+	    cram_free_container(c);
+	    return NULL;
+	}
+	if (-1 == int32_decode(fd, &c->crc32))return NULL; else rd+=4;
+
+	/* Reencode first as we can't easily access the original byte stream.
+	 *
+	 * FIXME: Technically this means this may not be fool proof. We could
+	 * create a CRAM file using a 2 byte ITF8 value that can fit in a 
+	 * 1 byte field, meaning the encoding is different to the original
+	 * form and so has a different CRC.
+	 *
+	 * The correct implementation would be to have an alternative form
+	 * of itf8_decode which also squirrels away the raw byte stream
+	 * during decoding so we can then CRC that.
+	 */
+	*(unsigned int *)cp = le_int4(c->length); cp += 4;
+	cp += itf8_put(cp, c->ref_seq_id);
+	cp += itf8_put(cp, c->ref_seq_start);
+	cp += itf8_put(cp, c->ref_seq_span);
+	cp += itf8_put(cp, c->num_records);
+	cp += itf8_put(cp, c->record_counter);
+	cp += itf8_put(cp, c->num_bases);
+	cp += itf8_put(cp, c->num_blocks);
+	cp += itf8_put(cp, c->num_landmarks);
+	for (i = 0; i < c->num_landmarks; i++) {
+	    cp += itf8_put(cp, c->landmark[i]);
+	}
+
+	crc = crc32(0L, dat, cp-dat);
+	if (crc != c->crc32) {
+	    fprintf(stderr, "Container header CRC32 failure\n");
+	    cram_free_container(c);
+	    return NULL;
+	}
+    }
+
+    c->offset = rd;
     c->slices = NULL;
     c->curr_slice = 0;
     c->max_slice = c->num_landmarks;
@@ -2205,11 +2290,11 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
     char buf_a[1024], *buf = buf_a, *cp;
     int i;
 
-    if (50 + c->num_landmarks * 5 >= 1024)
-	buf = malloc(50 + c->num_landmarks * 5);
+    if (55 + c->num_landmarks * 5 >= 1024)
+	buf = malloc(55 + c->num_landmarks * 5);
     cp = buf;
 
-    if (fd->version == CRAM_1_VERS) {
+    if (IS_CRAM_1_VERS(fd)) {
 	cp += itf8_put(cp, c->length);
     } else {
 	*(int32_t *)cp = le_int4(c->length);
@@ -2225,7 +2310,7 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
 	cp += itf8_put(cp, c->ref_seq_span);
     }
     cp += itf8_put(cp, c->num_records);
-    if (fd->version != CRAM_1_VERS) {
+    if (!IS_CRAM_1_VERS(fd)) {
 	cp += itf8_put(cp, c->record_counter);
 	cp += ltf8_put(cp, c->num_bases);
     }
@@ -2233,6 +2318,16 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
     cp += itf8_put(cp, c->num_landmarks);
     for (i = 0; i < c->num_landmarks; i++)
 	cp += itf8_put(cp, c->landmark[i]);
+
+    if (IS_CRAM_3_VERS(fd)) {
+	c->crc32 = crc32(0L, buf, cp-buf);
+	cp[0] =  c->crc32        & 0xff;
+	cp[1] = (c->crc32 >>  8) & 0xff;
+	cp[2] = (c->crc32 >> 16) & 0xff;
+	cp[3] = (c->crc32 >> 24) & 0xff;
+	cp += 4;
+    }
+
     if (cp-buf != fwrite(buf, 1, cp-buf, fd->fp)) {
 	if (buf != buf_a)
 	    free(buf);
@@ -2724,9 +2819,10 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
 
     if (!(def->major_version == 1 && def->minor_version == 0) &&
 	!(def->major_version == 1 && def->minor_version == 1) &&
-	!(def->major_version == 2 && def->minor_version == 0)) {
+	!(def->major_version == 2 && def->minor_version == 0) &&
+	!(def->major_version == 3 && def->minor_version == 0)) {
 	fprintf(stderr, "CRAM version number mismatch\n"
-		"Expected 1.0 or 2.0, got %d.%d\n",
+		"Expected 1.[01], 2.0 or 3.0, got %d.%d\n",
 		def->major_version, def->minor_version);
 	free(def);
 	return NULL;
@@ -2770,7 +2866,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
     SAM_hdr *hdr;
 
     /* 1.1 onwards stores the header in the first block of a container */
-    if (fd->version == CRAM_1_VERS) {
+    if (IS_CRAM_1_VERS(fd)) {
 	/* Length */
 	if (-1 == int32_decode(fd, &header_len))
 	    return NULL;
@@ -2802,7 +2898,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    return NULL;
 	}
 
-	len = b->comp_size + 2 +
+	len = b->comp_size + 6 +
 	    itf8_size(b->content_id) + 
 	    itf8_size(b->uncomp_size) + 
 	    itf8_size(b->comp_size);
@@ -2828,7 +2924,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 		cram_free_container(c);
 		return NULL;
 	    }
-	    len += b->comp_size + 2 + 
+	    len += b->comp_size + 6 + 
 		itf8_size(b->content_id) + 
 		itf8_size(b->uncomp_size) + 
 		itf8_size(b->comp_size);
@@ -2901,7 +2997,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
     int header_len;
 
     /* 1.0 requires and UNKNOWN read-group */
-    if (fd->version == CRAM_1_VERS) {
+    if (IS_CRAM_1_VERS(fd)) {
 	if (!sam_hdr_find_rg(hdr, "UNKNOWN"))
 	    if (sam_hdr_add(hdr, "RG",
 			    "ID", "UNKNOWN", "SM", "UNKNOWN", NULL))
@@ -2953,7 +3049,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 
     /* Length */
     header_len = sam_hdr_length(hdr);
-    if (fd->version == CRAM_1_VERS) {
+    if (IS_CRAM_1_VERS(fd)) {
 	if (-1 == int32_encode(fd, header_len))
 	    return -1;
 
@@ -2984,12 +3080,12 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    return -1;
 	c->landmark[0] = 0;
 
-	c->length = b->uncomp_size + 2 +
+	c->length = b->uncomp_size + 6 +
 	    itf8_size(b->content_id)   + 
 	    itf8_size(b->uncomp_size)  +
 	    itf8_size(b->comp_size);
 #else
-	c->length = b->uncomp_size + 2 +
+	c->length = b->uncomp_size + 6 +
 	    itf8_size(b->content_id)   + 
 	    itf8_size(b->uncomp_size)  +
 	    itf8_size(b->comp_size);
@@ -3096,7 +3192,7 @@ static void cram_init_tables(cram_fd *fd) {
     fd->L2['T'] = 3; fd->L2['t'] = 3;
     fd->L2['N'] = 4; fd->L2['n'] = 4;
 
-    if (fd->version == CRAM_1_VERS) {
+    if (IS_CRAM_1_VERS(fd)) {
 	for (i = 0; i < 0x200; i++) {
 	    int f = 0;
 
@@ -3160,6 +3256,7 @@ static void cram_init_tables(cram_fd *fd) {
 }
 
 // Default version numbers for CRAM
+//static int major_version = 3;
 static int major_version = 2;
 static int minor_version = 0;
 
@@ -3203,7 +3300,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
 	if (!(fd->file_def = cram_read_file_def(fd)))
 	    goto err;
 
-	fd->version = fd->file_def->major_version * 100 +
+	fd->version = fd->file_def->major_version * 256 +
 	    fd->file_def->minor_version;
 
 	if (!(fd->header = cram_read_SAM_hdr(fd)))
@@ -3224,7 +3321,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
 	if (0 != cram_write_file_def(fd, &def))
 	    goto err;
 
-	fd->version = def.major_version * 100 + def.minor_version;
+	fd->version = def.major_version * 256 + def.minor_version;
 
 	/* SAM header written later */
     }
@@ -3347,11 +3444,23 @@ int cram_close(cram_fd *fd) {
 
     if (fd->mode == 'w') {
 	/* Write EOF block */
-	if (1 != fwrite("\x0b\x00\x00\x00\xff\xff\xff\xff"
-			"\xff\xe0\x45\x4f\x46\x00\x00\x00"
-			"\x00\x01\x00\x00\x01\x00\x06\x06"
-			"\x01\x00\x01\x00\x01\x00", 30, 1, fd->fp))
-	    return -1;
+	if (IS_CRAM_3_VERS(fd)) {
+	    if (1 != fwrite("\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
+			    "\xff\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
+			    "\x00\x01\x00"                     // Cont HDR
+			    "\x05\xbd\xd9\x4f"                 // CRC
+			    "\x00\x01\x00\x06\x06"             // Comp.HDR blk
+			    "\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
+			    "\xee\x63\x01\x4b",                // CRC
+			    38, 1, fd->fp))
+		return -1;
+	} else { 
+	    if (1 != fwrite("\x0b\x00\x00\x00\xff\xff\xff\xff"
+			    "\xff\xe0\x45\x4f\x46\x00\x00\x00"
+			    "\x00\x01\x00\x00\x01\x00\x06\x06"
+			    "\x01\x00\x01\x00\x01\x00", 30, 1, fd->fp))
+		return -1;
+	}		
 
 //	if (1 != fwrite("\x00\x00\x00\x00\xff\xff\xff\xff"
 //			"\xff\xe0\x45\x4f\x46\x00\x00\x00"
