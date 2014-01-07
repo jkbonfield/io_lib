@@ -54,6 +54,40 @@
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
 
+/* See http://res.illumina.com/documents/products/whitepapers/whitepaper_datacompression.pdf */
+static unsigned int illumina_bin[256] = {
+     0,                                     /* 0 reserved for N */
+     1,                                     /* Unused, but for completeness */
+     6,  6,  6,  6,  6,  6,  6, 6,          /* 2-9 */
+    15, 15, 15, 15, 15, 15, 15, 15, 15, 15, /* 10-19 */
+    22, 22, 22, 22, 22,                     /* 20-24 */
+    27, 27, 27, 27, 27,                     /* 25-29 */
+    33, 33, 33, 33, 33,                     /* 30-34 */
+    37, 37, 37, 37, 37,                     /* 35-39 */
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40, /* 40+ */
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40, 40, 40, 40, 40,
+    40, 40, 40, 40, 40, 40,
+};
+
 #ifdef SAMTOOLS
 #    define bam_copy(dst, src) bam_copy1(*(dst), (src))
 #else
@@ -1569,6 +1603,9 @@ static int cram_add_substitution(cram_fd *fd, cram_container *c,
 	f.X.base = fd->cram_sub_matrix[ref&0x1f][base&0x1f];
 	cram_stats_add(c->BS_stats, f.X.base);
     } else {
+	if (fd->binning == BINNING_ILLUMINA)
+	    qual = illumina_bin[(uc)qual];
+
 	f.B.pos = pos+1;
 	f.B.code = 'B';
 	f.B.base = base;
@@ -1584,6 +1621,9 @@ static int cram_add_base(cram_fd *fd, cram_container *c,
 			 cram_slice *s, cram_record *r,
 			 int pos, char base, char qual) {
     cram_feature f;
+    if (fd->binning == BINNING_ILLUMINA)
+	qual = illumina_bin[(uc)qual];
+
     f.B.pos = pos+1;
     f.B.code = 'B';
     f.B.base = base;
@@ -1602,6 +1642,9 @@ static int cram_add_quality(cram_fd *fd, cram_container *c,
 			    cram_slice *s, cram_record *r,
 			    int pos, char qual) {
     cram_feature f;
+    if (fd->binning == BINNING_ILLUMINA)
+	qual = illumina_bin[(uc)qual];
+
     f.Q.pos = pos+1;
     f.Q.code = 'Q';
     f.Q.qual = qual;
@@ -2394,7 +2437,14 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    cp = (char *)BLOCK_END(s->qual_blk);
 	    char *from = &bam_qual(b)[0];
 	    char *to = &cp[0];
-	    memcpy(to, from, cr->len);
+
+	    if (fd->binning == BINNING_ILLUMINA) {
+		int i;
+		for (i = 0; i < cr->len; i++)
+		    to[i] = illumina_bin[(uc)from[i]];
+	    } else {
+		memcpy(to, from, cr->len);
+	    }
 	    //for (i = 0; i < cr->len; i++) cp[i] = from[i];
 	}
 	BLOCK_SIZE(s->qual_blk) += cr->len;

@@ -3653,6 +3653,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	//t_pool_dispatch(fd->pool, cram_decoder_thread, fd);
 	break;
 
+    case CRAM_OPT_BINNING:
+	fd->binning = va_arg(args, int);
+	break;
+
     default:
 	fprintf(stderr, "Unknown CRAM option code %d\n", opt);
 	return -1;
