@@ -720,7 +720,7 @@ cram_block *cram_read_block(cram_fd *fd) {
 	cp += itf8_put(cp, b->comp_size);
 	cp += itf8_put(cp, b->uncomp_size);
 	crc = crc32(0L, dat, cp-dat);
-	crc = crc32(crc, b->data ? b->data : "", b->alloc);
+	crc = crc32(crc, b->data ? b->data : (uc *)"", b->alloc);
 
 	if (crc != b->crc32) {
 	    fprintf(stderr, "Block CRC32 failure\n");
@@ -772,9 +772,9 @@ int cram_write_block(cram_fd *fd, cram_block *b) {
 	crc = crc32(0L, dat, cp-dat);
 
 	if (b->method == RAW) {
-	    b->crc32 = crc32(crc, b->data ? b->data : "", b->uncomp_size);
+	    b->crc32 = crc32(crc, b->data ? b->data : (uc*)"", b->uncomp_size);
 	} else {
-	    b->crc32 = crc32(crc, b->data ? b->data : "", b->comp_size);
+	    b->crc32 = crc32(crc, b->data ? b->data : (uc*)"", b->comp_size);
 	}
 
 	if (-1 == int32_encode(fd, b->crc32))
