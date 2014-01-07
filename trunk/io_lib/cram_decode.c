@@ -145,7 +145,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 
     cp = (char *)b->data;
 
-    if (fd->version == CRAM_1_VERS) {
+    if (IS_CRAM_1_VERS(fd)) {
 	cp += itf8_get(cp, &hdr->ref_seq_id);
 	cp += itf8_get(cp, &hdr->ref_seq_start);
 	cp += itf8_get(cp, &hdr->ref_seq_span);
@@ -608,7 +608,7 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 	cp += itf8_get(cp, &hdr->ref_seq_span);
     }
     cp += itf8_get(cp, &hdr->num_records);
-    if (fd->version != CRAM_1_VERS)
+    if (!IS_CRAM_1_VERS(fd))
 	cp += itf8_get(cp, &hdr->record_counter);
     cp += itf8_get(cp, &hdr->num_blocks);
 
@@ -627,7 +627,7 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 	cp += itf8_get(cp, &hdr->ref_base_id);
     }
 
-    if (fd->version != CRAM_1_VERS) {
+    if (!IS_CRAM_1_VERS(fd)) {
 	memcpy(hdr->md5, cp, 16);
     } else {
 	memset(hdr->md5, 0, 16);
@@ -767,7 +767,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		cigar[ncigar++] = (cig_len<<4) + cig_op;
 		cig_len = 0;
 	    }
-	    if (fd->version == CRAM_1_VERS) {
+	    if (IS_CRAM_1_VERS(fd)) {
 		r |= c->comp_hdr->IN_codec
 		    ? c->comp_hdr->IN_codec->decode(s, c->comp_hdr->IN_codec,
 						    blk, &seq[pos-1], &out_sz2)
@@ -1394,7 +1394,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	return -1;
     }
 
-    if (fd->version != CRAM_1_VERS && s->hdr->ref_seq_id >= 0
+    if (!IS_CRAM_1_VERS(fd) && s->hdr->ref_seq_id >= 0
 	&& !fd->ignore_md5
 	&& memcmp(s->hdr->md5, "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16)) {
 	MD5_CTX md5;
@@ -1470,7 +1470,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	bf = fd->bam_flag_swap[bf];
 	cr->flags = bf;
 
-	if (fd->version == CRAM_1_VERS) {
+	if (IS_CRAM_1_VERS(fd)) {
 	    /* CF is byte in 1.0, int32 in 2.0 */
 	    if (!c->comp_hdr->CF_codec) return -1;
 	    r |= c->comp_hdr->CF_codec->decode(s, c->comp_hdr->CF_codec, blk,
@@ -1484,7 +1484,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    cf = cr->cram_flags;
 	}
 
-	if (fd->version != CRAM_1_VERS && ref_id == -2) {
+	if (!IS_CRAM_1_VERS(fd) && ref_id == -2) {
 	    if (!c->comp_hdr->RI_codec) return -1;
 	    r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, blk,
 					       (char *)&cr->ref_id, &out_sz);
@@ -1539,7 +1539,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	cr->mate_line = -1;
 	cr->mate_ref_id = -1;
 	if (cf & CRAM_FLAG_DETACHED) {
-	    if (fd->version == CRAM_1_VERS) {
+	    if (IS_CRAM_1_VERS(fd)) {
 		/* MF is byte in 1.0, int32 in 2.0 */
 		unsigned char mf;
 		if (!c->comp_hdr->MF_codec) return -1;
@@ -1613,7 +1613,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	*/
 
 	/* Auxiliary tags */
-	if (fd->version == CRAM_1_VERS)
+	if (IS_CRAM_1_VERS(fd))
 	    r |= cram_decode_aux_1_0(c, s, blk, cr);
 	else
 	    r |= cram_decode_aux(c, s, blk, cr);

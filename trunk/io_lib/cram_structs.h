@@ -115,8 +115,11 @@ typedef struct {
     char    file_id[20];      // Filename or SHA1 checksum
 } cram_file_def;
 
-#define CRAM_1_VERS 100 // 1.0
-#define CRAM_2_VERS 200 // 1.1, or 2.0?
+#define CRAM_MAJOR_VERS(v) ((v) >> 8)
+#define CRAM_MINOR_VERS(v) ((v) & 0xff)
+#define IS_CRAM_1_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==1)
+#define IS_CRAM_2_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==2)
+#define IS_CRAM_3_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==3)
 
 struct cram_slice;
 
@@ -151,6 +154,7 @@ typedef struct {
     int32_t  content_id;
     int32_t  comp_size;
     int32_t  uncomp_size;
+    uint32_t crc32;
     int32_t  idx; /* offset into data */
     unsigned char    *data;
 
@@ -341,6 +345,8 @@ typedef struct {
     int *refs_used;       // array of frequency of ref seq IDs
 
     char *last_name;
+
+    uint32_t crc32;       // CRC32
 } cram_container;
 
 /*
