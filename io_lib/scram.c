@@ -356,6 +356,12 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 	    fd->pool = NULL;
 	    return 0;
 	}
+    } else if (opt == CRAM_OPT_BINNING) {
+	int bin = va_arg(args, int);
+
+	return fd->is_bam
+	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
+	    : cram_set_option(fd->c, CRAM_OPT_BINNING, bin);
     }
 
     if (!fd->is_bam) {
