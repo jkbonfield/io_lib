@@ -139,11 +139,6 @@ enum cram_content_type {
     CORE               = 5,
 };
 
-enum quality_binning {
-    BINNING_NONE       = 0,
-    BINNING_ILLUMINA   = 1,
-};
-
 /* Compression metrics */
 typedef struct {
     int m1;
