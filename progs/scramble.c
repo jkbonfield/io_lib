@@ -109,6 +109,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -j             [Cram] Compress using bzip2.\n");
 #endif
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
+    fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
 }
 
 int main(int argc, char **argv) {
@@ -124,9 +125,10 @@ int main(int argc, char **argv) {
     refs_t *refs;
     int nthreads = 1;
     t_pool *p = NULL;
+    enum quality_binning binning = BINNING_NONE;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!Mmjt:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!Mmjt:B")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -231,6 +233,10 @@ int main(int argc, char **argv) {
 	    }
 	    break;
 
+	case 'B':
+	    binning = BINNING_ILLUMINA;
+	    break;
+
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
 	    usage(stderr);
@@ -303,6 +309,10 @@ int main(int argc, char **argv) {
 
     if (use_bz2)
 	if (scram_set_option(out, CRAM_OPT_USE_BZIP2, use_bz2))
+	    return 1;
+
+    if (binning != BINNING_NONE)
+	if (scram_set_option(out, CRAM_OPT_BINNING, binning))
 	    return 1;
 
     if (no_ref) {

@@ -139,6 +139,11 @@ enum cram_content_type {
     CORE               = 5,
 };
 
+enum quality_binning {
+    BINNING_NONE       = 0,
+    BINNING_ILLUMINA   = 1,
+};
+
 /* Compression metrics */
 typedef struct {
     int m1;
@@ -642,6 +647,7 @@ typedef struct {
     int ignore_md5;
     int use_bz2;
     int shared_ref;
+    enum quality_binning binning;
     cram_range range;
 
     // lookup tables, stored here so we can be trivially multi-threaded
@@ -689,6 +695,7 @@ enum cram_option {
     CRAM_OPT_SHARED_REF,
     CRAM_OPT_NTHREADS,
     CRAM_OPT_THREAD_POOL,
+    CRAM_OPT_BINNING,
 };
 
 /* BF bitfields */
