@@ -278,7 +278,7 @@ int main(int argc, char **argv) {
 		    printf("BF = %d => SAM 0x%x (ret %d, out_sz %d)\n", bf, fd->bam_flag_swap[bf], r, out_sz);
 		    bf = fd->bam_flag_swap[bf];
 
-		    if (fd->version != CRAM_1_VERS) {
+		    if (!IS_CRAM_1_VERS(fd)) {
 			r = c->comp_hdr->CF_codec->decode(s,c->comp_hdr->CF_codec, b, (char *)&i32, &out_sz);
 			printf("CF = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
 			cf = i32;
@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
 			printf("CF = %d (ret %d, out_sz %d)\n", cf, r, out_sz);
 		    }
 
-		    if (fd->version != CRAM_1_VERS && s->hdr->ref_seq_id == -2) {
+		    if (!IS_CRAM_1_VERS(fd) && s->hdr->ref_seq_id == -2) {
 			int32_t ri;
 			r |= c->comp_hdr->RI_codec->decode(s, c->comp_hdr->RI_codec, b, (char *)&ri, &out_sz);
 			printf("RI = %d (ret %d, out_sz %d)\n", ri, r, out_sz);
@@ -315,7 +315,7 @@ int main(int argc, char **argv) {
 			char mf;
 			puts("Detached");
 			/* MF, RN if !captureReadNames, NS, NP, IS */
-			if (fd->version != CRAM_1_VERS) {
+			if (!IS_CRAM_1_VERS(fd)) {
 			    r = c->comp_hdr->MF_codec->decode(s,c->comp_hdr->MF_codec, b, (char *)&i32, &out_sz);
 			    printf("MF = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
 			} else {
@@ -345,7 +345,7 @@ int main(int argc, char **argv) {
 			printf("NF = %d+%d = %d (ret %d, out_sz %d)\n", i32, rec+1, i32+rec+1, r, out_sz);
 		    }
 
-		    if (fd->version == CRAM_1_VERS) {
+		    if (IS_CRAM_1_VERS(fd)) {
 			r = c->comp_hdr->TC_codec->decode(s,c->comp_hdr->TC_codec, b, (char *)&ntags, &out_sz);
 			printf("TC = %d (ret %d, out_sz %d)\n", ntags, r, out_sz);
 
@@ -449,7 +449,7 @@ int main(int argc, char **argv) {
 				int32_t out_sz2 = 1;
 
 				dat[0]='?';dat[1]=0;
-				if (fd->version == CRAM_1_VERS) {
+				if (IS_CRAM_1_VERS(fd)) {
 				    if (c->comp_hdr->IN_codec) {
 					r = c->comp_hdr->IN_codec->decode(s,c->comp_hdr->IN_codec, b, dat, &out_sz2);
 					printf("  %d: IN(S) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, dat, r, out_sz2);
