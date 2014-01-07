@@ -55,6 +55,7 @@ extern "C" {
 #include "io_lib/hash_table.h"
 #include "io_lib/sam_header.h"
 #include "io_lib/thread_pool.h"
+#include "io_lib/binning.h"
 
 /* BAM header structs */
 typedef struct tag_list {
@@ -190,6 +191,9 @@ typedef struct {
     void *job_pending;
     int eof;
     int nd_jobs, ne_jobs;
+
+    /* Quality binning */
+    enum quality_binning binning;
 } bam_file_t;
 
 /* Decoding the above struct */
@@ -695,7 +699,8 @@ bam_seq_t *bam_dup(bam_seq_t *b);
 int bam_write_header(bam_file_t *out);
 
 enum bam_option {
-    BAM_OPT_THREAD_POOL
+    BAM_OPT_THREAD_POOL,
+    BAM_OPT_BINNING
 };
 
 /*! Sets options on the bam_file_t.

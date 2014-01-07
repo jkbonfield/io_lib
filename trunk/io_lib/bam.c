@@ -3105,11 +3105,20 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		dat += b->len;
 	    } else {
 		if (end - fp->uncomp_p < b->len + 3) BF_FLUSH();
-		if (end - fp->uncomp_p < b->len + 3) {
+		if (end - fp->uncomp_p < b->len + 3 ||
+		    fp->binning == BINNING_ILLUMINA) {
+
 		    /* Long seqs */
-		    for (i = 0; i < b->len; i++) {
-			if (end - fp->uncomp_p < 3) BF_FLUSH();
-			*fp->uncomp_p++ = *dat++ + '!';
+		    if (fp->binning == BINNING_ILLUMINA) {
+			for (i = 0; i < b->len; i++) {
+			    if (end - fp->uncomp_p < 3) BF_FLUSH();
+			    *fp->uncomp_p++ = illumina_bin_33[(uc)*dat++];
+			}
+		    } else {
+			for (i = 0; i < b->len; i++) {
+			    if (end - fp->uncomp_p < 3) BF_FLUSH();
+			    *fp->uncomp_p++ = *dat++ + '!';
+			}
 		    }
 		} else {
 		    unsigned char *cp = fp->uncomp_p;
@@ -3370,6 +3379,14 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	ptr        = (unsigned char *)cigar;
 #endif
 
+	if (fp->binning == BINNING_ILLUMINA) {
+	    int i;
+	    uc *q = (uc *)bam_qual(b);
+	    for (i = 0; i < b->len; i++) {
+		q[i] = illumina_bin[q[i]];
+	    }
+	}
+
         do {
             size_t blk_len = MIN(to_write, end - fp->uncomp_p);
             memcpy(fp->uncomp_p, ptr, blk_len);
@@ -3386,6 +3403,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
         } while(to_write > 0);
 
 #ifdef SP_BIG_ENDIAN
+	/* Swap back again */
 	b->ref         = le_int4(b->ref);
 	b->pos         = le_int4(b->pos);
 	b->bin_packed  = le_int4(b->bin_packed);
@@ -3513,6 +3531,10 @@ int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args) {
 	fd->pool = va_arg(args, t_pool *);
 	fd->equeue = t_results_queue_init();
 	fd->dqueue = t_results_queue_init();
+	break;
+
+    case BAM_OPT_BINNING:
+	fd->binning = va_arg(args, int);
 	break;
     }
 
