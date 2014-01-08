@@ -2898,7 +2898,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    return NULL;
 	}
 
-	len = b->comp_size + 6 +
+	len = b->comp_size + 2 + 4*IS_CRAM_3_VERS(fd) +
 	    itf8_size(b->content_id) + 
 	    itf8_size(b->uncomp_size) + 
 	    itf8_size(b->comp_size);
@@ -2924,7 +2924,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 		cram_free_container(c);
 		return NULL;
 	    }
-	    len += b->comp_size + 6 + 
+	    len += b->comp_size + 2 + 4*IS_CRAM_3_VERS(fd) + 
 		itf8_size(b->content_id) + 
 		itf8_size(b->uncomp_size) + 
 		itf8_size(b->comp_size);
@@ -3080,12 +3080,12 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    return -1;
 	c->landmark[0] = 0;
 
-	c->length = b->uncomp_size + 6 +
+	c->length = b->uncomp_size + 2 + 4*IS_CRAM_3_VERS(fd) +
 	    itf8_size(b->content_id)   + 
 	    itf8_size(b->uncomp_size)  +
 	    itf8_size(b->comp_size);
 #else
-	c->length = b->uncomp_size + 6 +
+	c->length = b->uncomp_size + 2 + 4*IS_CRAM_3_VERS(fd) +
 	    itf8_size(b->content_id)   + 
 	    itf8_size(b->uncomp_size)  +
 	    itf8_size(b->comp_size);
