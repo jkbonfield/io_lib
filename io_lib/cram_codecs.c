@@ -216,6 +216,12 @@ static inline unsigned int get_bits_MSB(cram_block *block, int nbits) {
 	return val;
     }
 
+//    /* Consume as many as possible from current byte */
+//    val = block->data[block->byte] & ((1<<(block->bit+1))-1);
+//    nbits -= block->bit+1;
+//    block->bit = 7;
+//    block->byte++;
+
     switch(nbits) {
 //    case 15: GET_BIT_MSB(block, val);
 //    case 14: GET_BIT_MSB(block, val);
@@ -278,10 +284,10 @@ static int store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
 	}
     }
 
-    
-    
+    /* fits in current bit-field */
     if (nbits <= block->bit+1) {
 	block->data[block->byte] |= (val << (block->bit+1-nbits));
+
 	if ((block->bit-=nbits) == -1) {
 	    block->bit = 7;
 	    block->byte++;
@@ -517,7 +523,6 @@ cram_codec *cram_external_encode_init(cram_stats *st,
 int cram_beta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
     int32_t *out_i = (int32_t *)out;
     int i, n;
-
     if (c->beta.nbits) {
 	for (i = 0, n = *out_size; i < n; i++)
 	    out_i[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
@@ -864,9 +869,9 @@ int cram_huffman_decode_char(cram_slice *slice, cram_codec *c,
 
 	    //val <<= dlen;
 	    //val  |= get_bits_MSB(in, dlen);
-	    //last_len = (len  += dlen);
+	    //last_len = (len += dlen);
 
-	    last_len = (len  += dlen);
+	    last_len = (len += dlen);
 	    for (; dlen; dlen--) GET_BIT_MSB(in, val);
 
 	    idx = val - codes[idx].p;
@@ -914,9 +919,9 @@ int cram_huffman_decode_int(cram_slice *slice, cram_codec *c,
 	    
 	    //val <<= dlen;
 	    //val  |= get_bits_MSB(in, dlen);
-	    //last_len = (len  += dlen);
+	    //last_len = (len += dlen);
 
-	    last_len = (len  += dlen);
+	    last_len = (len += dlen);
 	    for (; dlen; dlen--) GET_BIT_MSB(in, val);
 
 	    idx = val - codes[idx].p;
@@ -1560,25 +1565,20 @@ int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
 	return -1;
     cp = (char *)b->data + b->idx;
     cp_end = (char *)b->data + b->uncomp_size;
-    BLOCK_GROW(out, space);
     out_cp = (char *)BLOCK_END(out);
-    out_end = out_cp + space;
 
     stop = c->byte_array_stop.stop;
-    while ((ch = *cp) != stop) {
-	if (cp++ == cp_end)
-	    return -1;
-	*out_cp++ = ch;
-
-	if (out_cp == out_end) {
-	    BLOCK_SIZE(out) = out_cp - (char *)BLOCK_DATA(out);
-	    space *= 2;
-	    BLOCK_GROW(out, space);
-	    out_cp = (char *)BLOCK_END(out);
-	    out_end = out_cp + space;
-	}
+    if (cp_end - cp < out->alloc - out->byte) {
+	while (*cp != stop && cp != cp_end)
+	    *out_cp++ = *cp++;
+	BLOCK_SIZE(out) = out_cp - (char *)BLOCK_DATA(out);
+    } else {
+	char *cp_start;
+	for (cp_start = cp; *cp != stop && cp != cp_end; cp++)
+	    ;
+	BLOCK_APPEND(out, cp_start, cp - cp_start);
+	BLOCK_GROW(out, cp - cp_start);
     }
-    BLOCK_SIZE(out) = out_cp - (char *)BLOCK_DATA(out);
 
     *out_size = cp - (char *)(b->data + b->idx);
     b->idx = cp - (char *)b->data + 1;
