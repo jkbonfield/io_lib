@@ -124,10 +124,12 @@ typedef struct {
 struct cram_slice;
 
 enum cram_block_method {
-    RAW   = 0,
-    GZIP  = 1,
-    BZIP2 = 2,
-    ARITH1 = 3,
+    RAW    = 0,
+    GZIP   = 1,
+    BZIP2  = 2,
+    LZMA   = 3,
+    ARITH0 = 4,
+    ARITH1 = 5,
 };
 
 enum cram_content_type {
@@ -630,7 +632,7 @@ typedef struct {
 
     // compression level and metrics
     int level;
-    cram_metrics *m[7];
+    cram_metrics *m[10];
 
     // options
     int decode_md; // Whether to export MD and NM tags
@@ -641,6 +643,7 @@ typedef struct {
     int no_ref;
     int ignore_md5;
     int use_bz2;
+    int use_arith;
     int shared_ref;
     enum quality_binning binning;
     cram_range range;
@@ -691,6 +694,7 @@ enum cram_option {
     CRAM_OPT_NTHREADS,
     CRAM_OPT_THREAD_POOL,
     CRAM_OPT_BINNING,
+    CRAM_OPT_USE_ARITH,
 };
 
 /* BF bitfields */

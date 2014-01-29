@@ -100,6 +100,7 @@ libstaden_read_la_SOURCES = \
 	sam_header.h \
 	sam_header.c \
 	cram.h \
+	arith_static.c \
 	cram_codecs.c \
 	cram_codecs.h \
 	cram_encode.c \
