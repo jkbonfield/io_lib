@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
-    int start, end, multi_seq = -1, no_ref = 0, use_bz2 = 0;
+    int start, end, multi_seq = -1, no_ref = 0, use_bz2 = 0, use_arith = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
     enum quality_binning binning = BINNING_NONE;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!Mmjt:B")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJt:B")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -225,6 +225,10 @@ int main(int argc, char **argv) {
 #endif
 	    break;
 
+	case 'J':
+	    use_arith = 1;
+	    break;
+
 	case 't':
 	    nthreads = atoi(optarg);
 	    if (nthreads < 1) {
@@ -309,6 +313,10 @@ int main(int argc, char **argv) {
 
     if (use_bz2)
 	if (scram_set_option(out, CRAM_OPT_USE_BZIP2, use_bz2))
+	    return 1;
+
+    if (use_arith)
+	if (scram_set_option(out, CRAM_OPT_USE_ARITH, use_arith))
 	    return 1;
 
     if (binning != BINNING_NONE)
