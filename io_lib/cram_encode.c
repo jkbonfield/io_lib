@@ -638,6 +638,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     int rec, r = 0, last_pos;
     cram_block *core;
     int nblk, embed_ref;
+    enum cram_block_method method1 = GZIP, method2 = RAW;
+    int level2, strat2 = Z_DEFAULT_STRATEGY;
 
     embed_ref = fd->embed_ref && s->hdr->ref_seq_id != -1 ? 1 : 0;
 
@@ -996,83 +998,109 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 
     /* Compress the CORE Block too, with minimal zlib level */
     if (fd->level > 5)
-	cram_compress_block(fd, s->block[0], NULL, 1, Z_CRAM_STRAT, -1, -1);
+	cram_compress_block(fd, s->block[0], NULL,
+			    GZIP, 1, Z_CRAM_STRAT,
+			    RAW, -1, -1);
 
-#define USE_METRICS
-
-#ifdef USE_METRICS
-#  define LEVEL2 1
-#  define STRAT2 Z_RLE
-#else
-#  define LEVEL2 -1
-#  define STRAT2 -1
-#endif
-
+    if (fd->use_bz2) {
+	method1 = BZIP2;
+	if (fd->use_arith) {
+	    method2 = ARITH1;
+	    level2 = 1;
+	} else {
+	    method2 = GZIP;
+	    level2 = 3;
+	}
+    } else if (fd->use_arith) {
+	method1 = ARITH1;
+	method2 = GZIP;
+	level2 = -1; // default
+    } else {
+	method1 = GZIP;
+	method2 = GZIP;
+	level2 = 0; // disable except when level2 overridden
+	strat2 = Z_RLE;
+    }
     /* Compress the other blocks */
-    if (cram_compress_block(fd, s->block[1], NULL, //IN (seq)
-			    fd->level, Z_CRAM_STRAT,
-			    -1, -1))
+    if (cram_compress_block(fd, s->block[1], fd->m[0], //IN (seq)
+			    method1, fd->level, Z_CRAM_STRAT,
+			    method2, level2, strat2)) {
+	abort();
 	return -1;
+    }
 
     if (fd->level == 0) {
 	/* Do nothing */
     } else if (fd->level == 1) {
 	if (cram_compress_block(fd, s->block[2], fd->m[1], //qual
-				1, Z_RLE, -1, -1))
+				method1, 1, Z_RLE,
+				method2, level2,
+				method1 == GZIP ? strat2 : Z_RLE))
 	    return -1;
 	if (cram_compress_block(fd, s->block[5], fd->m[4], //Tags
-				1, Z_RLE, -1, -1))
+				method1, 1, Z_RLE,
+				method2, level2, strat2))
 	    return -1;
     } else if (fd->level < 3) {
 	if (cram_compress_block(fd, s->block[2], fd->m[1], //qual
-				1, Z_RLE,
-				1, Z_HUFFMAN_ONLY))
+				method1, 1, Z_RLE,
+				method2, 1,
+				method1 == GZIP ? Z_HUFFMAN_ONLY : Z_RLE))
 	    return -1;
 	if (cram_compress_block(fd, s->block[5], fd->m[4], //Tags
-				1, Z_RLE,
-				1, Z_HUFFMAN_ONLY))
+				method1, 1, Z_RLE,
+				method2, 1,
+				method1 == GZIP ? Z_HUFFMAN_ONLY : Z_RLE))
 	    return -1;
     } else {
 	if (cram_compress_block(fd, s->block[2], fd->m[1], //qual
-				fd->level, Z_CRAM_STRAT, 
-				LEVEL2, STRAT2))
+				method1, fd->level, Z_CRAM_STRAT, 
+				method2, -1, Z_RLE)) {
+	    abort();
 	    return -1;
+	}
 	if (cram_compress_block(fd, s->block[5], fd->m[4], //Tags
-				fd->level, Z_CRAM_STRAT,
-				LEVEL2, STRAT2))
+				method1, fd->level, Z_CRAM_STRAT,
+				method2, -1, strat2)) {
+	    abort();
 	    return -1;
+	}
     }
-    if (cram_compress_block(fd, s->block[3], NULL, //Name
-			    fd->level, Z_CRAM_STRAT,
-			    -1, -1))
-	return -1;
-    if (cram_compress_block(fd, s->block[4], NULL, //TS, NP
-			    fd->level, Z_CRAM_STRAT,
-			    -1, -1))
-	return -1;
+
+    if (cram_compress_block(fd, s->block[3], fd->m[2], //Name
+			    method1, fd->level, Z_CRAM_STRAT,
+			    method2, level2, strat2))
+	abort();
+    if (cram_compress_block(fd, s->block[4], fd->m[3], //TS, NP
+			    method1, fd->level, Z_CRAM_STRAT,
+			    method2, level2, strat2))
+	abort();
     if (!IS_CRAM_1_VERS(fd)) {
-	if (cram_compress_block(fd, s->block[6], NULL, //SC (seq)
-				fd->level, Z_CRAM_STRAT,
-				-1, -1))
-	    return -1;
+	if (cram_compress_block(fd, s->block[6], fd->m[5], //SC (seq)
+				method1, fd->level, Z_CRAM_STRAT,
+				method2, level2, strat2))
+	    abort();
     }
 #ifdef BA_external
-    if (cram_compress_block(fd, s->block[s->ba_id], NULL,
-			    fd->level, Z_CRAM_STRAT, -1, -1))
-	return -1;
+    if (cram_compress_block(fd, s->block[s->ba_id], fd->m[7],
+			    method1, fd->level, Z_CRAM_STRAT,
+			    method2, level2, strat2))
+	abort();
 #endif
 #ifdef TN_external
     if (IS_CRAM_1_VERS(fd)) {
-	if (cram_compress_block(fd, s->block[s->tn_id], NULL,
-				fd->level, Z_DEFAULT_STRATEGY, -1, -1))
-	    return -1;
+	if (cram_compress_block(fd, s->block[s->tn_id], fd->m[8],
+				method1, fd->level, Z_DEFAULT_STRATEGY,
+				method2, level2, strat2))
+	    abort();
     }
 #endif
     if (embed_ref) {
 	BLOCK_UPLEN(s->block[s->ref_id]);
-	if (cram_compress_block(fd, s->block[s->ref_id], NULL,
-				fd->level, Z_DEFAULT_STRATEGY, -1, -1))
-	    return -1;
+	if (cram_compress_block(fd, s->block[s->ref_id], fd->m[9],
+				method1, fd->level, Z_DEFAULT_STRATEGY,
+				method2, level2, strat2))
+	    abort();
     }
 
     return r ? -1 : 0;
@@ -2234,14 +2262,57 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     BLOCK_GROW(s->qual_blk, cr->len);
     seq = cp = (char *)BLOCK_END(s->seqs_blk);
 
-    *seq = 0;
-    for (i = 0; i < cr->len; i++) {
-	// FIXME: do 2 char at a time for efficiency
-#ifdef SAMTOOLS
-	cp[i] = seq_nt16_str[bam_seqi(bam_seq(b), i)];
-#else
-	cp[i] = bam_nt16_rev_table[bam_seqi(bam_seq(b), i)];
+    // Convert seq 2 bases at a time for speed.
+    {
+#ifdef ALLOW_UAC
+	static const uint16_t code2base[256] = {
+	    15677, 16701, 17213, 19773, 18237, 21053, 21309, 22077,
+	    21565, 22333, 22845, 18493, 19261, 17469, 16957, 20029,
+	    15681, 16705, 17217, 19777, 18241, 21057, 21313, 22081,
+	    21569, 22337, 22849, 18497, 19265, 17473, 16961, 20033,
+	    15683, 16707, 17219, 19779, 18243, 21059, 21315, 22083,
+	    21571, 22339, 22851, 18499, 19267, 17475, 16963, 20035,
+	    15693, 16717, 17229, 19789, 18253, 21069, 21325, 22093,
+	    21581, 22349, 22861, 18509, 19277, 17485, 16973, 20045,
+	    15687, 16711, 17223, 19783, 18247, 21063, 21319, 22087,
+	    21575, 22343, 22855, 18503, 19271, 17479, 16967, 20039,
+	    15698, 16722, 17234, 19794, 18258, 21074, 21330, 22098,
+	    21586, 22354, 22866, 18514, 19282, 17490, 16978, 20050,
+	    15699, 16723, 17235, 19795, 18259, 21075, 21331, 22099,
+	    21587, 22355, 22867, 18515, 19283, 17491, 16979, 20051,
+	    15702, 16726, 17238, 19798, 18262, 21078, 21334, 22102,
+	    21590, 22358, 22870, 18518, 19286, 17494, 16982, 20054,
+	    15700, 16724, 17236, 19796, 18260, 21076, 21332, 22100,
+	    21588, 22356, 22868, 18516, 19284, 17492, 16980, 20052,
+	    15703, 16727, 17239, 19799, 18263, 21079, 21335, 22103,
+	    21591, 22359, 22871, 18519, 19287, 17495, 16983, 20055,
+	    15705, 16729, 17241, 19801, 18265, 21081, 21337, 22105,
+	    21593, 22361, 22873, 18521, 19289, 17497, 16985, 20057,
+	    15688, 16712, 17224, 19784, 18248, 21064, 21320, 22088,
+	    21576, 22344, 22856, 18504, 19272, 17480, 16968, 20040,
+	    15691, 16715, 17227, 19787, 18251, 21067, 21323, 22091,
+	    21579, 22347, 22859, 18507, 19275, 17483, 16971, 20043,
+	    15684, 16708, 17220, 19780, 18244, 21060, 21316, 22084,
+	    21572, 22340, 22852, 18500, 19268, 17476, 16964, 20036,
+	    15682, 16706, 17218, 19778, 18242, 21058, 21314, 22082,
+	    21570, 22338, 22850, 18498, 19266, 17474, 16962, 20034,
+	    15694, 16718, 17230, 19790, 18254, 21070, 21326, 22094,
+	    21582, 22350, 22862, 18510, 19278, 17486, 16974, 20046
+	};
 #endif
+	int l2 = cr->len & ~1;
+	unsigned char *from = bam_seq(b);
+	cp[0] = 0;
+	for (i = 0; i < l2; i += 2, from++) {
+#ifdef ALLOW_UAC
+	    *(int16_t *)&cp[i] = le_int2(code2base[*from]);
+#else
+	    cp[i+0] = bam_nt16_rev_table[*from >> 4];
+	    cp[i+1] = bam_nt16_rev_table[*from & 0xf];
+#endif
+	}
+	if (i < cr->len)
+	    cp[i] = bam_nt16_rev_table[*from >> 4];
     }
     BLOCK_SIZE(s->seqs_blk) += cr->len;
 
@@ -2286,16 +2357,20 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		if (!fd->no_ref && cr->len) {
 		    int end = cig_len+apos < c->ref_end
 			? cig_len : c->ref_end - apos;
-		    for (l = 0; l < end && seq[spos]; l++, apos++, spos++) {
-			if (ref[apos] != seq[spos]) {
-			    //fprintf(stderr, "Subst: %d; %c vs %c\n",
-			    //	spos, ref[apos], seq[spos]);
-			    if (cram_add_substitution(fd, c, s, cr, spos,
-						      seq[spos], qual[spos],
-						      ref[apos]))
+		    char *sp = &seq[spos];
+		    char *rp = &ref[apos];
+		    char *qp = &qual[spos];
+		    for (l = 0; l < end; l++) {
+			if (rp[l] != sp[l]) {
+			    if (!sp[l])
+				break;
+			    if (cram_add_substitution(fd, c, s, cr, spos+l,
+						      sp[l], qp[l], rp[l]))
 				return -1;
 			}
 		    }
+		    spos += l;
+		    apos += l;
 		}
 
 		if (l < cig_len && cr->len) {

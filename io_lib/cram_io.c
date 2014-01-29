@@ -62,6 +62,9 @@
 #ifdef HAVE_LIBBZ2
 #include <bzlib.h>
 #endif
+#ifdef HAVE_LIBLZMA
+#include <lzma.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <math.h>
@@ -71,6 +74,7 @@
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
 #include "io_lib/open_trace_file.h"
+#include "io_lib/arith_static.h"
 
 //#define REF_DEBUG
 
@@ -635,6 +639,90 @@ static char *zlib_mem_deflate(char *data, size_t size, size_t *cdata_size,
     return (char *)cdata;
 }
 
+#ifdef HAVE_LIBLZMA
+/* ------------------------------------------------------------------------ */
+/*
+ * Data compression routines using liblzma (xz)
+ *
+ * On a test set this shrunk the main db from 136157104 bytes to 114796168, but
+ * caused tg_index to grow from 2m43.707s to 15m3.961s. Exporting as bfastq
+ * went from 18.3s to 36.3s. So decompression suffers too, but not as bad
+ * as compression times.
+ *
+ * For now we disable this functionality. If it's to be reenabled make sure you
+ * improve the mem_inflate implementation as it's just a test hack at the
+ * moment.
+ */
+
+static char *lzma_mem_deflate(char *data, size_t size, size_t *cdata_size,
+			      int level) {
+    char *out;
+    size_t out_size = lzma_stream_buffer_bound(size);
+    *cdata_size = 0;
+
+    out = malloc(out_size);
+
+    /* Single call compression */
+    if (LZMA_OK != lzma_easy_buffer_encode(level, LZMA_CHECK_CRC32, NULL,
+					   (uint8_t *)data, size,
+					   (uint8_t *)out, cdata_size,
+					   out_size))
+    	return NULL;
+
+    return out;
+}
+
+static char *lzma_mem_inflate(char *cdata, size_t csize, size_t *size) {
+    lzma_stream strm = LZMA_STREAM_INIT;
+    size_t out_size = 0, out_pos = 0;
+    char *out = NULL;
+    int r;
+
+    /* Initiate the decoder */
+    if (LZMA_OK != lzma_stream_decoder(&strm, 50000000, 0))
+	return NULL;
+
+    /* Decode loop */
+    strm.avail_in = csize;
+    strm.next_in = (uint8_t *)cdata;
+
+    for (;strm.avail_in;) {
+	if (strm.avail_in > out_size - out_pos) {
+	    out_size += strm.avail_in * 4 + 32768;
+	    out = realloc(out, out_size);
+	}
+	strm.avail_out = out_size - out_pos;
+	strm.next_out = (uint8_t *)&out[out_pos];
+
+	r = lzma_code(&strm, LZMA_RUN);
+	if (LZMA_OK != r && LZMA_STREAM_END != r) {
+	    fprintf(stderr, "r=%d\n", r);
+	    fprintf(stderr, "mem=%"PRId64"d\n", (int64_t)lzma_memusage(&strm));
+	    return NULL;
+	}
+
+	out_pos = strm.total_out;
+
+	if (r == LZMA_STREAM_END)
+	    break;
+    }
+
+    /* finish up any unflushed data; necessary? */
+    r = lzma_code(&strm, LZMA_FINISH);
+    if (r != LZMA_OK && r != LZMA_STREAM_END) {
+	fprintf(stderr, "r=%d\n", r);
+	return NULL;
+    }
+
+    out = realloc(out, strm.total_out);
+    *size = strm.total_out;
+
+    lzma_end(&strm);
+
+    return out;
+}
+#endif
+
 /* ----------------------------------------------------------------------
  * CRAM blocks - the dynamically growable data block. We have code to
  * create, update, (un)compress and read/write.
@@ -848,6 +936,47 @@ int cram_uncompress_block(cram_block *b) {
 	break;
 #endif
 
+#ifdef HAVE_LIBLZMA
+    case LZMA:
+	uncomp = lzma_mem_inflate((char *)b->data, b->comp_size, &uncomp_size);
+	if (!uncomp)
+	    return -1;
+	if ((int)uncomp_size != b->uncomp_size)
+	    return -1;
+	free(b->data);
+	b->data = (unsigned char *)uncomp;
+	b->method = RAW;
+	break;
+#else
+    case LZMA:
+	fprintf(stderr, "Lzma compression is not compiled into this "
+		"version.\nPlease rebuild and try again.\n");
+	return -1;
+	break;
+#endif
+
+    case ARITH0: {
+	unsigned int usize = b->uncomp_size, usize2;
+	uncomp = arith_uncompress(b->data, b->comp_size, &usize2, 0);
+	assert(usize == usize2);
+	b->data = (unsigned char *)uncomp;
+	b->method = RAW;
+	b->uncomp_size = usize2; // Just incase it differs
+	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
+	break;
+    }
+
+    case ARITH1: {
+	unsigned int usize = b->uncomp_size, usize2;
+	uncomp = arith_uncompress(b->data, b->comp_size, &usize2, 1);
+	assert(usize == usize2);
+	b->data = (unsigned char *)uncomp;
+	b->method = RAW;
+	b->uncomp_size = usize2; // Just incase it differs
+	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
+	break;
+    }
+
     default:
 	return -1;
     }
@@ -855,38 +984,118 @@ int cram_uncompress_block(cram_block *b) {
     return 0;
 }
 
-#ifdef HAVE_LIBBZ2
-static int cram_compress_block_bzip2(cram_fd *fd, cram_block *b,
-				     cram_metrics *metrics, int level) {
-    unsigned int comp_size = b->uncomp_size*1.01 + 600;
-    char *comp = malloc(comp_size);
-    char *data = (char *)b->data;
+#define EBASE 65536
+static double entropy16(unsigned short *data, int len) {
+    double E[EBASE];
+    double P[EBASE];
+    double e = 0;
+    int i;
+    
+    for (i = 0; i < EBASE; i++)
+        P[i] = 0;
 
-    if (!comp)
-	return -1;
+    for (i = 0; i < len; i++)
+        P[data[i]]++;
 
-    if (!data)
-	data = "";
-
-    if (BZ_OK != BZ2_bzBuffToBuffCompress(comp, &comp_size,
-					  data, b->uncomp_size,
-					  level, 0, 30)) {
-	free(comp);
-	return -1;
+    for (i = 0; i < EBASE; i++) {
+        if (P[i]) {
+            P[i] /= len;
+            E[i] = -(log(P[i])/log(EBASE));
+        } else {
+            E[i] = 0;
+        }
     }
 
-    free(b->data);
-    b->data = (unsigned char *)comp;
-    b->method = BZIP2;
-    b->comp_size = comp_size;
+    for (e = i = 0; i < len; i++)
+        e += E[data[i]];
 
-    if (fd->verbose)
-	fprintf(stderr, "Compressed block ID %d from %d to %d\n",
-		b->content_id, b->uncomp_size, b->comp_size);
-
-    return 0;
+    return e * log(EBASE)/log(256);
 }
+
+#define EBASE2 256
+static double entropy8(unsigned char *data, int len) {
+    int F[EBASE2];
+    double e = 0;
+    int i;
+    
+    for (i = 0; i < EBASE2; i++)
+        F[i] = 0;
+
+    for (i = 0; i < len; i++)
+        F[data[i]]++;
+
+    for (i = 0; i < EBASE2; i++) {
+        if (F[i]) {
+	    e += -log((double)F[i]/len) * F[i];
+        }
+    }
+
+    return e / log(EBASE2);
+}
+
+static char *cram_compress_by_method(char *in, size_t in_size,
+				     size_t *out_size,
+				     enum cram_block_method method,
+				     int level, int strat) {
+    switch (method) {
+    case GZIP:
+	return zlib_mem_deflate(in, in_size, out_size, level, strat);
+
+    case BZIP2: {
+#ifdef HAVE_LIBBZ2
+	unsigned int comp_size = in_size*1.01 + 600;
+	char *comp = malloc(comp_size);
+	if (!comp)
+	    return NULL;
+
+	if (BZ_OK != BZ2_bzBuffToBuffCompress(comp, &comp_size,
+					      in, in_size,
+					      level, 0, 30)) {
+	    free(comp);
+	    return NULL;
+	}
+	*out_size = comp_size;
+	return comp;
+#else
+	return NULL;
 #endif
+    }
+
+    case LZMA:
+#ifdef HAVE_LIBLZMA
+	return lzma_mem_deflate(in, in_size, out_size, level);
+#else
+	return NULL;
+#endif
+
+    case ARITH0: {
+	unsigned int out_size_i;
+	unsigned char *cp;
+	cp = arith_compress(in, in_size, &out_size_i, 0);
+	*out_size = out_size_i;
+	return cp;
+    }
+
+    case ARITH1: {
+	unsigned int out_size_i;
+	unsigned char *cp;
+	
+//	double e8  = entropy8(in, in_size);
+//	double e16 = entropy16((unsigned short *)in, in_size/2);
+//
+//	if (e8 / e16 < 1.02 || e8 - e16 < 512) {
+//	    return cram_compress_by_method(in, in_size, out_size,
+//					   ARITH0, level, strat);
+//	}
+
+	cp = arith_compress(in, in_size, &out_size_i, 1);
+	*out_size = out_size_i;
+	return cp;
+    }
+    }
+
+    return NULL;
+}
 
 /*
  * Compresses a block using one of two different zlib strategies. If we only
@@ -897,12 +1106,14 @@ static int cram_compress_block_bzip2(cram_fd *fd, cram_block *b,
  * significantly faster.
  */
 int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
-			int level,  int strat,
-			int level2, int strat2) {
+			enum cram_block_method method1, int level1, int strat1,
+			enum cram_block_method method2, int level2,int strat2){
+
     char *comp = NULL;
     size_t comp_size = 0;
+    enum cram_block_method method;
 
-    if (level == 0) {
+    if (method1 == RAW || level1 == 0 || b->uncomp_size == 0) {
 	b->method = RAW;
 	b->comp_size = b->uncomp_size;
 	return 0;
@@ -913,22 +1124,14 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	return 0;
     }
 
-#ifdef HAVE_LIBBZ2
-    if (fd->use_bz2)
-	// metrics ignored for bzip2
-	return cram_compress_block_bzip2(fd, b, metrics, level);
-#endif
-    
-    //return cram_compress_block_arith1(fd, b, metrics);
-
     pthread_mutex_lock(&fd->metrics_lock);
-    if (strat2 >= 0)
+    if (level2)
 	if (fd->verbose > 1)
 	    fprintf(stderr, "metrics trial %d, next_trial %d, m1 %d, m2 %d\n",
 		    metrics->trial, metrics->next_trial,
 		    metrics->m1, metrics->m2);
-
-    if (strat2 >= 0 && (metrics->trial > 0 || --metrics->next_trial <= 0)) {
+    
+    if (level2 && (metrics->trial > 0 || --metrics->next_trial <= 0)) {
 	char *c1, *c2;
 	size_t s1, s2;
 
@@ -939,10 +1142,10 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	}
 	pthread_mutex_unlock(&fd->metrics_lock);
 
-	c1 = zlib_mem_deflate((char *)b->data, b->uncomp_size,
-			      &s1, level, strat);
-	c2 = zlib_mem_deflate((char *)b->data, b->uncomp_size,
-			      &s2, level2, strat2);
+	c1 = cram_compress_by_method((char *)b->data, b->uncomp_size, &s1,
+				     method1, level1, strat1);
+	c2 = cram_compress_by_method((char *)b->data, b->uncomp_size, &s2,
+				     method2, level2, strat2);
 	if (!c1 || !c2)
 	    return -1;
 	
@@ -955,25 +1158,30 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    comp = c1; comp_size = s1;
 	    free(c2);
 	    metrics->m1++;
+	    method = method1;
 	} else {
 	    if (fd->verbose > 1)
 		fprintf(stderr, "M2 wins %d vs %d\n", (int)s1, (int)s2);
 	    comp = c2; comp_size = s2;
 	    free(c1);
 	    metrics->m2++;
+	    method = method2;
 	}
 	metrics->trial--;
 	pthread_mutex_unlock(&fd->metrics_lock);
-    } else if (strat2 >= 0) {
-	int xlevel = metrics->m1 > metrics->m2 ? level : level2;
-	int xstrat = metrics->m1 > metrics->m2 ? strat : strat2;
+    } else if (level2) {
+	int xlevel = metrics->m1 > metrics->m2 ? level1 : level2;
+	int xstrat = metrics->m1 > metrics->m2 ? strat1 : strat2;
+
+	method = metrics->m1 > metrics->m2 ? method1 : method2;
 	pthread_mutex_unlock(&fd->metrics_lock);
-	comp = zlib_mem_deflate((char *)b->data, b->uncomp_size, &comp_size,
-				xlevel, xstrat);
+	comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
+				       &comp_size, method, xlevel, xstrat);
     } else {
 	pthread_mutex_unlock(&fd->metrics_lock);
-	comp = zlib_mem_deflate((char *)b->data, b->uncomp_size, &comp_size,
-				level, strat);
+	comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
+				       &comp_size, method1, level1, strat1);
+	method = method1;
     }
 
     if (!comp)
@@ -981,12 +1189,13 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
     free(b->data);
     b->data = (unsigned char *)comp;
-    b->method = GZIP;
+    b->method = method;
     b->comp_size = comp_size;
 
     if (fd->verbose)
-	fprintf(stderr, "Compressed block ID %d from %d to %d\n",
-		b->content_id, b->uncomp_size, b->comp_size);
+	fprintf(stderr, "Compressed block ID %d from %d to %d by method %s\n",
+		b->content_id, b->uncomp_size, b->comp_size,
+		cram_block_method2str(b->method));
 
     return 0;
 }
@@ -1006,6 +1215,9 @@ char *cram_block_method2str(enum cram_block_method m) {
     case RAW:	return "RAW";
     case GZIP:	return "GZIP";
     case BZIP2:	return "BZIP2";
+    case LZMA:  return "LZMA";
+    case ARITH0:return "ARITH0";
+    case ARITH1:return "ARITH1";
     }
     return "?";
 }
@@ -3350,6 +3562,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
     fd->use_bz2 = 0;
+    fd->use_arith = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
     fd->shared_ref = 0;
@@ -3361,7 +3574,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->job_pending = NULL;
     fd->ooc         = 0;
 
-    for (i = 0; i < 7; i++)
+    for (i = 0; i < 10; i++)
 	fd->m[i] = cram_new_metrics();
 
     fd->range.refid = -2; // no ref.
@@ -3499,7 +3712,7 @@ int cram_close(cram_fd *fd) {
     if (fd->ref_free)
         free(fd->ref_free);
 
-    for (i = 0; i < 7; i++)
+    for (i = 0; i < 10; i++)
 	if (fd->m[i])
 	    free(fd->m[i]);
 
@@ -3587,6 +3800,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_USE_BZIP2:
 	fd->use_bz2 = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_ARITH:
+	fd->use_arith = va_arg(args, int);
 	break;
 
     case CRAM_OPT_SHARED_REF:
