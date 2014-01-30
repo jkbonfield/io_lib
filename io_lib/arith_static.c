@@ -92,30 +92,6 @@ typedef struct {
     uc *out_buf;
 } RngCoder;
 
-double RC_recip[65536];
-void RC_init(void) {
-    int i;
-    for (i = 0; i < 65536; i++)
-	RC_recip[i] = (1.0+DBL_EPSILON)/i;
-}
-
-//uint32_t RC_recip2b[65536][2];
-uint32_t RC_recip3[65536];
-void RC_init2(void) {
-    int i;
-    for (i = 1; i < 65536; i++) {
-	//double d = 1.0/i;
-	//d *= ((uint64_t)1)<<32;
-	//d *= ((uint64_t)1)<<32;
-	//d += 255;
-	//RC_recip2b[i][0] = ((uint64_t)d)>>32;
-	//RC_recip2b[i][1] = (uint64_t)d;
-
-	RC_recip3[i] = 1+((1LL<<31) * ((1LL<<(i_log2(i)+1)) - i)) / i;
-    }
-}
-
-
 static inline void RC_input(RngCoder *rc, char *in) {
     rc->out_buf = rc->in_buf = (uc *)in;
 }
@@ -172,54 +148,7 @@ static inline void RC_Encode(RngCoder *rc, uint32_t cumFreq, uint32_t freq) {
 }
 
 static inline uint32_t RC_GetFreq(RngCoder *rc) {
-    //fprintf(stderr, "%d / %d = %d\n", rc->code, (rc->range >> TF_SHIFT), rc->code / (rc->range >> TF_SHIFT));
-
     return rc->code / (rc->range >>= TF_SHIFT); // 10.57
-    //return rc->code * RC_recip[rc->range >>= TF_SHIFT]; // 10.99
-
-#if 0
-    // 9.94 elapsed
-    rc->range >>= TF_SHIFT;
-    uint32_t t = (rc->code * (uint64_t)RC_recip3[rc->range]) >> 31;
-
-    return (((rc->code - t)>>1) + t) >> i_log2(rc->range);
-    //return (rc->code + t) >> (1+i_log2(rc->range));
-
-#endif
-
-#if 0
-    /* Multiply 32-bit rc->code by 64-bit RC_recip2[rc->range], which is
-     * split into two 32-bit registers r1, r2.
-     *
-     * Alas it's typically slower than the division, but keeping it here
-     * incase we get old systems that are slower dividing.
-     */
-    rc->range >>= TF_SHIFT;
-    uint64_t a  = rc->code;
-    uint64_t r1 = a * RC_recip2b[rc->range][0];
-    uint64_t r2 = a * RC_recip2b[rc->range][1];
-    return (r1 + (r2>>32)) >> 32;
-#endif
-}
-
-static inline void RC_GetFreq8(RngCoder *rc, uint32_t *freq) {
-    rc[0].range >>= TF_SHIFT;
-    rc[1].range >>= TF_SHIFT;
-    rc[2].range >>= TF_SHIFT;
-    rc[3].range >>= TF_SHIFT;
-    rc[4].range >>= TF_SHIFT;
-    rc[5].range >>= TF_SHIFT;
-    rc[6].range >>= TF_SHIFT;
-    rc[7].range >>= TF_SHIFT;
-
-    freq[0] = rc[0].code / rc[0].range;
-    freq[1] = rc[1].code / rc[1].range;
-    freq[2] = rc[2].code / rc[2].range;
-    freq[3] = rc[3].code / rc[3].range;
-    freq[4] = rc[4].code / rc[4].range;
-    freq[5] = rc[5].code / rc[5].range;
-    freq[6] = rc[6].code / rc[6].range;
-    freq[7] = rc[7].code / rc[7].range;
 }
 
 static inline void RC_Decode(RngCoder *rc, uint32_t cumFreq, uint32_t freq) {
