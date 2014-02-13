@@ -682,7 +682,7 @@ Read *fread_abi(FILE *fp) {
 	read->traceT = (TRACE *)xrealloc(read->traceT, n * sizeof(TRACE));
 
 	if (read->traceA == NULL || read->traceC == NULL ||
-	    read->traceC == NULL || read->traceG == NULL)
+	    read->traceG == NULL || read->traceT == NULL)
 	    goto bail_out;
 
 	for (i = read->NPoints; i < n; i++) {
