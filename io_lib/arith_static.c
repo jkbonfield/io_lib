@@ -50,7 +50,10 @@
 #include "io_lib/arith_static.h"
 
 #define ABS(a) ((a)>0?(a):-(a))
-#define BLK_SIZE 1000000
+#define BLK_SIZE 2000000
+
+// Room to allow for expanded BLK_SIZE on worst case compression.
+#define BLK_SIZE2 ((int)(1.05*BLK_SIZE+10))
 
 /*-----------------------------------------------------------------------------
  * Arithmetic coder. clr.cdr from fqz_comp. Adapted from Eugene Shelwien's
@@ -79,7 +82,9 @@ static inline uint32_t i_log2(const uint32_t x) {
 
 #define  TOP	   (1<<24)
 
-#define TF_SHIFT 16
+// Set TF_SHIFT to 15 or less, so we can encode 15-bit values in 1 or 2
+// bytes easily
+#define TF_SHIFT 15
 #define TOTFREQ (1<<TF_SHIFT)
 
 typedef unsigned char uc;
@@ -134,21 +139,21 @@ static inline void RC_FinishEncode(RngCoder *rc) {
 static inline void RC_FinishDecode(RngCoder *rc) {}
 
 static inline void RC_Encode(RngCoder *rc, uint32_t cumFreq, uint32_t freq) {
-    //rc->low  += cumFreq * (rc->range/= totFreq);
     rc->low  += cumFreq * (rc->range >>= TF_SHIFT);
     rc->range*= freq;
 
     //if (cumFreq + freq > TOTFREQ) abort();
 
-    while (rc->range<TOP) {
-	if ( (uc)((rc->low^(rc->low+rc->range))>>56) ) 
+    if (rc->range>=TOP) return;
+    do {
+	if ( (uc)((rc->low^(rc->low+rc->range))>>56) )
 	    rc->range = (((uint32_t)rc->low | (TOP-1))-(uint32_t)rc->low);
 	*rc->out_buf++ = rc->low>>56, rc->range<<=8, rc->low<<=8;
-    }
+    } while (rc->range<TOP);
 }
 
 static inline uint32_t RC_GetFreq(RngCoder *rc) {
-    return rc->code / (rc->range >>= TF_SHIFT); // 10.57
+    return rc->code / (rc->range >>= TF_SHIFT);
 }
 
 static inline void RC_Decode(RngCoder *rc, uint32_t cumFreq, uint32_t freq) {
@@ -174,15 +179,15 @@ static inline void RC_Decode(RngCoder *rc, uint32_t cumFreq, uint32_t freq) {
  */
 unsigned char *arith_compress_O0(unsigned char *in, unsigned int in_size,
 				 unsigned int *out_size) {
-    unsigned char *out_buf = malloc(2*in_size + 256*256*2);
+    unsigned char *out_buf = malloc(1.05*in_size + 257*257*3 + 21);
     unsigned char *cp;
-    int F[256], C[256], T = 0, i, j, n, i_end;
+    int F[256], C[256], T = 0, i, j, n, i_end, rle;
     unsigned char c;
     RngCoder rc[8];
-    char blk0[BLK_SIZE];
-    char blk1[BLK_SIZE];
-    char blk2[BLK_SIZE];
-    char blk3[BLK_SIZE];
+    char *blk0 = malloc(BLK_SIZE2);
+    char *blk1 = malloc(BLK_SIZE2);
+    char *blk2 = malloc(BLK_SIZE2);
+    char *blk3 = malloc(BLK_SIZE2);
 
     if (!out_buf)
 	return NULL;
@@ -209,15 +214,28 @@ unsigned char *arith_compress_O0(unsigned char *in, unsigned int in_size,
 
 
     // Encode statistis.
-    // FIXME: use range coder to encode these more efficiently
     cp = out_buf+4;
-    for (T = j = 0; j < 256; j++) {
+    for (T = rle = j = 0; j < 256; j++) {
 	C[j] = T;
 	T += F[j];
 	if (F[j]) {
-	    *cp++ = j;
-	    *cp++ = F[j]>>8;
-	    *cp++ = F[j]&0xff;
+	    if (rle) {
+		rle--;
+	    } else {
+		*cp++ = j;
+		if (!rle && j && F[j-1]) {
+		    for(rle=j+1; rle<256 && F[rle]; rle++)
+			;
+		    rle -= j+1;
+		    *cp++ = rle;
+		}
+	    }
+	    if (F[j]<128) {
+		*cp++ = F[j];
+	    } else {
+		*cp++ = 128 | (F[j]>>8);
+		*cp++ = F[j]&0xff;
+	    }
 	}
     }
     *cp++ = 0;
@@ -293,6 +311,13 @@ unsigned char *arith_compress_O0(unsigned char *in, unsigned int in_size,
     *cp++ = (in_size>>16) & 0xff;
     *cp++ = (in_size>>24) & 0xff;
 
+    assert(*out_size < 1.05*in_size + 257*257*3 + 21);
+
+    free(blk0);
+    free(blk1);
+    free(blk2);
+    free(blk3);
+
     return out_buf;
 }
 
@@ -308,7 +333,7 @@ unsigned char *arith_uncompress_O0(unsigned char *in, unsigned int in_size,
 				   unsigned int *out_size) {
     /* Load in the static tables */
     unsigned char *cp = in + 4;
-    int i, j, x, out_sz, i_end;
+    int i, j, x, out_sz, i_end, rle;
     RngCoder rc[4];
     unsigned int sz;
     char *out_buf;
@@ -326,8 +351,12 @@ unsigned char *arith_uncompress_O0(unsigned char *in, unsigned int in_size,
     // Precompute reverse lookup of frequency.
     j = *cp++;
     x = 0;
+    rle = 0;
     do {
-	D.fc[j].F = (cp[0]<<8) | (cp[1]);
+	if ((D.fc[j].F = *cp++) >= 128) {
+	    D.fc[j].F &= ~128;
+	    D.fc[j].F = ((D.fc[j].F & 127) << 8) | *cp++;
+	}
 	D.fc[j].C = x;
 
 	/* Build reverse lookup table */
@@ -335,8 +364,16 @@ unsigned char *arith_uncompress_O0(unsigned char *in, unsigned int in_size,
 	memset(&D.R[x], j, D.fc[j].F);
 
 	x += D.fc[j].F;
-	cp += 2;
-	j = *cp++;
+
+	if (!rle && *cp == j+1) {
+	    j = *cp++;
+	    rle = *cp++;
+	} else if (rle) {
+	    rle--;
+	    j++;
+	} else {
+	    j = *cp++;
+	}
     } while(j);
 
 
@@ -411,14 +448,13 @@ unsigned char *arith_uncompress_O0(unsigned char *in, unsigned int in_size,
 
 unsigned char *arith_compress_O1(unsigned char *in, unsigned int in_size,
 				 unsigned int *out_size) {
-    unsigned char *out_buf = malloc(2*in_size + 256*256*2);
+    unsigned char *out_buf = malloc(1.05*in_size + 257*257*3 + 37);
     unsigned char *cp = out_buf;
     RngCoder rc[8];
     unsigned int last, i, j, i8[8], l8[8], i_end;
     int F[256][256], C[256][256], T[256];
     unsigned char c;
-    // FIXME: too large for stack size on some systems.
-    char *blk = malloc(BLK_SIZE+8);
+    char *blk = malloc(BLK_SIZE2*8+8);
 
     if (!out_buf || !out_buf) {
 	if (blk) free(blk);
@@ -473,17 +509,33 @@ unsigned char *arith_compress_O1(unsigned char *in, unsigned int in_size,
     //assert(in_size < TOP);
     for (i = 0; i < 256; i++) {
 	unsigned int x = 0;
+	int rle = 0;
+
 	if (!T[i])
 	    continue;
 
 	*cp++ = i;
 	for (j = 0; j < 256; j++) {
 	    C[i][j] = x;
-	    x += F[i][j];
 	    if (F[i][j]) {
-	    	*cp++ = j;
-	    	*cp++ = F[i][j]>>8;
-	    	*cp++ = F[i][j]&0xff;
+		x += F[i][j];
+		if (rle) {
+		    rle--;
+		} else {
+		    *cp++ = j;
+		    if (!rle && j && F[i][j-1]) {
+			for(rle=j+1; rle<256 && F[i][rle]; rle++)
+			    ;
+			rle -= j+1;
+			*cp++ = rle;
+		    }
+		}
+		if (F[i][j]<128) {
+		    *cp++ = F[i][j];
+		} else {
+		    *cp++ = 128 | (F[i][j]>>8);
+		    *cp++ = F[i][j]&0xff;
+		}
 	    }
 	}
 	*cp++ = 0;
@@ -493,14 +545,14 @@ unsigned char *arith_compress_O1(unsigned char *in, unsigned int in_size,
 
 
     /* Initialise our 8 range coders with their appropriate buffers */
-    RC_output(&rc[0], blk+0*(BLK_SIZE>>3));
-    RC_output(&rc[1], blk+1*(BLK_SIZE>>3));
-    RC_output(&rc[2], blk+2*(BLK_SIZE>>3));
-    RC_output(&rc[3], blk+3*(BLK_SIZE>>3));
-    RC_output(&rc[4], blk+4*(BLK_SIZE>>3));
-    RC_output(&rc[5], blk+5*(BLK_SIZE>>3));
-    RC_output(&rc[6], blk+6*(BLK_SIZE>>3));
-    RC_output(&rc[7], blk+7*(BLK_SIZE>>3));
+    RC_output(&rc[0], blk+0*BLK_SIZE2);
+    RC_output(&rc[1], blk+1*BLK_SIZE2);
+    RC_output(&rc[2], blk+2*BLK_SIZE2);
+    RC_output(&rc[3], blk+3*BLK_SIZE2);
+    RC_output(&rc[4], blk+4*BLK_SIZE2);
+    RC_output(&rc[5], blk+5*BLK_SIZE2);
+    RC_output(&rc[6], blk+6*BLK_SIZE2);
+    RC_output(&rc[7], blk+7*BLK_SIZE2);
 
     RC_StartEncode(&rc[0]);
     RC_StartEncode(&rc[1]);
@@ -582,56 +634,56 @@ unsigned char *arith_compress_O1(unsigned char *in, unsigned int in_size,
     *cp++ = (RC_size_out(&rc[0]) >> 8) & 0xff;
     *cp++ = (RC_size_out(&rc[0]) >>16) & 0xff;
     *cp++ = (RC_size_out(&rc[0]) >>24) & 0xff;
-    memcpy(cp, blk+0*(BLK_SIZE>>3), RC_size_out(&rc[0]));
+    memcpy(cp, blk+0*BLK_SIZE2, RC_size_out(&rc[0]));
     cp += RC_size_out(&rc[0]);
 
     *cp++ = (RC_size_out(&rc[1]) >> 0) & 0xff;
     *cp++ = (RC_size_out(&rc[1]) >> 8) & 0xff;
     *cp++ = (RC_size_out(&rc[1]) >>16) & 0xff;
     *cp++ = (RC_size_out(&rc[1]) >>24) & 0xff;
-    memcpy(cp, blk+1*(BLK_SIZE>>3), RC_size_out(&rc[1]));
+    memcpy(cp, blk+1*BLK_SIZE2, RC_size_out(&rc[1]));
     cp += RC_size_out(&rc[1]);
 
     *cp++ = (RC_size_out(&rc[2]) >> 0) & 0xff;
     *cp++ = (RC_size_out(&rc[2]) >> 8) & 0xff;
     *cp++ = (RC_size_out(&rc[2]) >>16) & 0xff;
     *cp++ = (RC_size_out(&rc[2]) >>24) & 0xff;
-    memcpy(cp, blk+2*(BLK_SIZE>>3), RC_size_out(&rc[2]));
+    memcpy(cp, blk+2*BLK_SIZE2, RC_size_out(&rc[2]));
     cp += RC_size_out(&rc[2]);
 
     *cp++ = (RC_size_out(&rc[3]) >> 0) & 0xff;
     *cp++ = (RC_size_out(&rc[3]) >> 8) & 0xff;
     *cp++ = (RC_size_out(&rc[3]) >>16) & 0xff;
     *cp++ = (RC_size_out(&rc[3]) >>24) & 0xff;
-    memcpy(cp, blk+3*(BLK_SIZE>>3), RC_size_out(&rc[3]));
+    memcpy(cp, blk+3*BLK_SIZE2, RC_size_out(&rc[3]));
     cp += RC_size_out(&rc[3]);
 
     *cp++ = (RC_size_out(&rc[4]) >> 0) & 0xff;
     *cp++ = (RC_size_out(&rc[4]) >> 8) & 0xff;
     *cp++ = (RC_size_out(&rc[4]) >>16) & 0xff;
     *cp++ = (RC_size_out(&rc[4]) >>24) & 0xff;
-    memcpy(cp, blk+4*(BLK_SIZE>>3), RC_size_out(&rc[4]));
+    memcpy(cp, blk+4*BLK_SIZE2, RC_size_out(&rc[4]));
     cp += RC_size_out(&rc[4]);
 
     *cp++ = (RC_size_out(&rc[5]) >> 0) & 0xff;
     *cp++ = (RC_size_out(&rc[5]) >> 8) & 0xff;
     *cp++ = (RC_size_out(&rc[5]) >>16) & 0xff;
     *cp++ = (RC_size_out(&rc[5]) >>24) & 0xff;
-    memcpy(cp, blk+5*(BLK_SIZE>>3), RC_size_out(&rc[5]));
+    memcpy(cp, blk+5*BLK_SIZE2, RC_size_out(&rc[5]));
     cp += RC_size_out(&rc[5]);
 
     *cp++ = (RC_size_out(&rc[6]) >> 0) & 0xff;
     *cp++ = (RC_size_out(&rc[6]) >> 8) & 0xff;
     *cp++ = (RC_size_out(&rc[6]) >>16) & 0xff;
     *cp++ = (RC_size_out(&rc[6]) >>24) & 0xff;
-    memcpy(cp, blk+6*(BLK_SIZE>>3), RC_size_out(&rc[6]));
+    memcpy(cp, blk+6*BLK_SIZE2, RC_size_out(&rc[6]));
     cp += RC_size_out(&rc[6]);
 
     *cp++ = (RC_size_out(&rc[7]) >> 0) & 0xff;
     *cp++ = (RC_size_out(&rc[7]) >> 8) & 0xff;
     *cp++ = (RC_size_out(&rc[7]) >>16) & 0xff;
     *cp++ = (RC_size_out(&rc[7]) >>24) & 0xff;
-    memcpy(cp, blk+7*(BLK_SIZE>>3), RC_size_out(&rc[7]));
+    memcpy(cp, blk+7*BLK_SIZE2, RC_size_out(&rc[7]));
     cp += RC_size_out(&rc[7]);
 
     *out_size = cp - out_buf;
@@ -667,10 +719,14 @@ unsigned char *arith_uncompress_O1(unsigned char *in, unsigned int in_size,
 
     i = *cp++;
     do {
+	int rle = 0;
 	j = *cp++;
 	x = 0;
 	do {
-	    D[i].fc[j].F = (cp[0]<<8) | (cp[1]);
+	    if ((D[i].fc[j].F = *cp++) >= 128) {
+		D[i].fc[j].F &= ~128;
+		D[i].fc[j].F = ((D[i].fc[j].F & 127) << 8) | *cp++;
+	    }
 	    D[i].fc[j].C = x;
 
 	    /* Build reverse lookup table */
@@ -678,9 +734,15 @@ unsigned char *arith_uncompress_O1(unsigned char *in, unsigned int in_size,
 	    memset(&D[i].R[x], j, D[i].fc[j].F);
 
 	    x += D[i].fc[j].F;
-	    cp += 2;
-	    //fprintf(stderr, "F[%d][%d]=%d\n", i, j, F[i][j]);
-	    j = *cp++;
+	    if (!rle && *cp == j+1) {
+		j = *cp++;
+		rle = *cp++;
+	    } else if (rle) {
+		rle--;
+		j++;
+	    } else {
+		j = *cp++;
+	    }
 	} while(j);
 
 	i = *cp++;

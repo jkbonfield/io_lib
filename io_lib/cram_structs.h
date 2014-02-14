@@ -130,6 +130,8 @@ enum cram_block_method {
     LZMA   = 3,
     ARITH0 = 4,
     ARITH1 = 5,
+    RANS0  = 6,
+    RANS1  = 7,
 };
 
 enum cram_content_type {
