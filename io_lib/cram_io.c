@@ -75,6 +75,7 @@
 #include "io_lib/md5.h"
 #include "io_lib/open_trace_file.h"
 #include "io_lib/arith_static.h"
+#include "io_lib/rANS_static.h"
 
 //#define REF_DEBUG
 
@@ -977,6 +978,28 @@ int cram_uncompress_block(cram_block *b) {
 	break;
     }
 
+    case RANS0: {
+	unsigned int usize = b->uncomp_size, usize2;
+	uncomp = rans_uncompress(b->data, b->comp_size, &usize2, 0);
+	assert(usize == usize2);
+	b->data = (unsigned char *)uncomp;
+	b->method = RAW;
+	b->uncomp_size = usize2; // Just incase it differs
+	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
+	break;
+    }
+
+    case RANS1: {
+	unsigned int usize = b->uncomp_size, usize2;
+	uncomp = rans_uncompress(b->data, b->comp_size, &usize2, 1);
+	assert(usize == usize2);
+	b->data = (unsigned char *)uncomp;
+	b->method = RAW;
+	b->uncomp_size = usize2; // Just incase it differs
+	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
+	break;
+    }
+
     default:
 	return -1;
     }
@@ -1089,6 +1112,23 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 //	}
 
 	cp = arith_compress(in, in_size, &out_size_i, 1);
+	*out_size = out_size_i;
+	return cp;
+    }
+
+    case RANS0: {
+	unsigned int out_size_i;
+	unsigned char *cp;
+	cp = rans_compress(in, in_size, &out_size_i, 0);
+	*out_size = out_size_i;
+	return cp;
+    }
+
+    case RANS1: {
+	unsigned int out_size_i;
+	unsigned char *cp;
+	
+	cp = rans_compress(in, in_size, &out_size_i, 1);
 	*out_size = out_size_i;
 	return cp;
     }
@@ -1218,6 +1258,8 @@ char *cram_block_method2str(enum cram_block_method m) {
     case LZMA:  return "LZMA";
     case ARITH0:return "ARITH0";
     case ARITH1:return "ARITH1";
+    case RANS0: return "RANS0";
+    case RANS1: return "RANS1";
     }
     return "?";
 }
@@ -3313,7 +3355,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 #endif
 
 #ifdef PADDED_BLOCK
-	padded_length = MIN(c->length*1.5, 10000) - c->length;
+	padded_length = MAX(c->length*1.5, 10000) - c->length;
 	c->length += padded_length;
 	if (NULL == (pads = calloc(1, padded_length))) {
 	    cram_free_block(b);

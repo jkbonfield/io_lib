@@ -1005,14 +1005,14 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     if (fd->use_bz2) {
 	method1 = BZIP2;
 	if (fd->use_arith) {
-	    method2 = ARITH1;
+	    method2 = RANS1;
 	    level2 = 1;
 	} else {
 	    method2 = GZIP;
 	    level2 = 3;
 	}
     } else if (fd->use_arith) {
-	method1 = ARITH1;
+	method1 = RANS1;
 	method2 = GZIP;
 	level2 = -1; // default
     } else {
