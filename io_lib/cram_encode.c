@@ -1000,7 +1000,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     if (fd->level > 5)
 	cram_compress_block(fd, s->block[0], NULL,
 			    GZIP, 1, Z_CRAM_STRAT,
-			    RAW, -1, -1);
+			    RAW, 0, 0);
 
     if (fd->use_bz2) {
 	method1 = BZIP2;
@@ -1014,7 +1014,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     } else if (fd->use_arith) {
 	method1 = RANS1;
 	method2 = GZIP;
-	level2 = -1; // default
+	level2 = fd->level; // default
+	strat2 = Z_CRAM_STRAT;
     } else {
 	method1 = GZIP;
 	method2 = GZIP;
@@ -1061,7 +1062,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	}
 	if (cram_compress_block(fd, s->block[5], fd->m[4], //Tags
 				method1, fd->level, Z_CRAM_STRAT,
-				method2, -1, strat2)) {
+				method2, level2, Z_DEFAULT_STRATEGY)) {
 	    abort();
 	    return -1;
 	}
@@ -1073,7 +1074,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	abort();
     if (cram_compress_block(fd, s->block[4], fd->m[3], //TS, NP
 			    method1, fd->level, Z_CRAM_STRAT,
-			    method2, level2, strat2))
+			    method2, level2, Z_DEFAULT_STRATEGY))
 	abort();
     if (!IS_CRAM_1_VERS(fd)) {
 	if (cram_compress_block(fd, s->block[6], fd->m[5], //SC (seq)
