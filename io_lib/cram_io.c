@@ -524,15 +524,14 @@ int int32_put(cram_block *b, int32_t val) {
  * They're static here as they're only used within the cram_compress_block
  * and cram_uncompress_block functions, which are the external interface.
  */
-
 static char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size) {
     z_stream s;
     unsigned char *data = NULL; /* Uncompressed output */
     int data_alloc = 0;
     int err;
 
-    /* Starting point at uncompressed size, 4x compressed */
-    data = malloc(data_alloc = csize+10);
+    /* Starting point at uncompressed size, and scale after that */
+    data = malloc(data_alloc = csize*1.2+100);
     if (!data)
 	return NULL;
 
@@ -558,6 +557,7 @@ static char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size) {
     /* Decode to 'data' array */
     for (;s.avail_in;) {
 	unsigned char *data_tmp;
+	int alloc_inc;
 
 	s.next_out = &data[s.total_out];
 	err = inflate(&s, Z_NO_FLUSH);
@@ -569,13 +569,14 @@ static char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size) {
 	    break;
 	}
 
-	/* More to come, so realloc */
-	data = realloc((data_tmp = data), data_alloc += s.avail_in + 10);
+	/* More to come, so realloc based on growth so far */
+	alloc_inc = (double)s.avail_in/s.total_in * s.total_out + 100;
+	data = realloc((data_tmp = data), data_alloc += alloc_inc);
 	if (!data) {
 	    free(data_tmp);
 	    return NULL;
 	}
-	s.avail_out += s.avail_in+10;
+	s.avail_out += alloc_inc;
     }
     inflateEnd(&s);
 
@@ -910,6 +911,7 @@ int cram_uncompress_block(cram_block *b) {
 	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
+	b->alloc = uncomp_size;
 	b->method = RAW;
 	break;
 
@@ -925,6 +927,7 @@ int cram_uncompress_block(cram_block *b) {
 	    return -1;
 	}
 	b->data = (unsigned char *)uncomp;
+	b->alloc = usize;
 	b->method = RAW;
 	b->uncomp_size = usize; // Just incase it differs
 	break;
@@ -946,6 +949,7 @@ int cram_uncompress_block(cram_block *b) {
 	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
+	b->alloc = uncomp_size;
 	b->method = RAW;
 	break;
 #else
@@ -961,6 +965,7 @@ int cram_uncompress_block(cram_block *b) {
 	uncomp = arith_uncompress(b->data, b->comp_size, &usize2, 0);
 	assert(usize == usize2);
 	b->data = (unsigned char *)uncomp;
+	b->alloc = usize2;
 	b->method = RAW;
 	b->uncomp_size = usize2; // Just incase it differs
 	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
@@ -972,6 +977,7 @@ int cram_uncompress_block(cram_block *b) {
 	uncomp = arith_uncompress(b->data, b->comp_size, &usize2, 1);
 	assert(usize == usize2);
 	b->data = (unsigned char *)uncomp;
+	b->alloc = usize2;
 	b->method = RAW;
 	b->uncomp_size = usize2; // Just incase it differs
 	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
@@ -983,6 +989,7 @@ int cram_uncompress_block(cram_block *b) {
 	uncomp = rans_uncompress(b->data, b->comp_size, &usize2, 0);
 	assert(usize == usize2);
 	b->data = (unsigned char *)uncomp;
+	b->alloc = usize2;
 	b->method = RAW;
 	b->uncomp_size = usize2; // Just incase it differs
 	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
@@ -994,6 +1001,7 @@ int cram_uncompress_block(cram_block *b) {
 	uncomp = rans_uncompress(b->data, b->comp_size, &usize2, 1);
 	assert(usize == usize2);
 	b->data = (unsigned char *)uncomp;
+	b->alloc = usize2;
 	b->method = RAW;
 	b->uncomp_size = usize2; // Just incase it differs
 	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
