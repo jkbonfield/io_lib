@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.13.3
+			IO_LIB VERSION 1.13.4
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -25,6 +25,22 @@ These link together to form a single "libstaden-read" library supporting
 all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
+
+
+What's new in 1.13.4
+====================
+
+The CRAM specification has updated to version 2.1 and now comes with
+EOF blocks. This is now the default output version.  Scramble now also
+has a -B option to perform the Illumina lossy 8 way quality-binning.
+
+CRAM version 3.0 is under discussion and scramble contains some
+highly experimental options to deal with this (-J for rANS /
+arithmetic coding, block level CRC32s), but these are disabled by
+default and should not be used except for research purposes.
+
+Also fixed a few bugs elsewhere, most notably in BAM decoding and
+index_tar.
 
 
 What's new in 1.13.3

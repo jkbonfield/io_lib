@@ -1,3 +1,35 @@
+Version 1.13.4 (17th February 2014)
+--------------
+
+* BAM: Fixed some buffer overruns in BAM decoding.
+
+* CRAM: Added support for CRAM EOF blocks (new in CRAM v2.1
+  specification).  Also improved BAM EOF block checking.  v2.1 is now
+  the default output version.
+
+* CRAM: Fixed an error causing multi-threading to take longer for the
+  first additional thread.
+
+* CRAM: Improved memory-caching of reference sequences when fetching
+  via MD5 path. Also reduced memory used when loading via REF_PATH.
+
+* CRAM: Experimental / alpha quality code for CRAM version 3.0,
+  including new codecs (rANS & arithmetic coders) and CRCs.
+
+* CRAM: Small improvements to the bzip2 (-j) mode. It now periodically
+  tests bzip2 vs gzip and uses whichever is best rather than forcing
+  all compression to go via bzip2.
+
+* CRAM: Fixed crash when handling CRAM files with non-sequential
+  reference IDs.
+
+* Scramble: Now supports 8-way quality binning as an output option.
+
+* Index_tar: Fixed debian bug #729276 - buffer overflow.
+
+* Improved Windows building via cross-compilation.
+
+
 Version 1.13.3 (25th October 2013)
 --------------
 

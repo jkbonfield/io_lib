@@ -1,4 +1,361 @@
 ===============================================================================
+2014-02-17: RELEASE 1.13.4
+
+------------------------------------------------------------------------
+r3576 | jkbonfield | 2014-02-17 11:56:36 +0000 (Mon, 17 Feb 2014) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Reduced the number of realloc calls zlib_mem_inflate(), while
+hopefully not overallocating much either.
+
+Forcibly set block->alloc field when decompressing from gzip or
+bzip2.  This cures a crash when attempting to compress CRAM with level
+6 and higher.
+
+------------------------------------------------------------------------
+r3575 | jkbonfield | 2014-02-14 17:34:36 +0000 (Fri, 14 Feb 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Bug fix to compression level -6 and above.
+
+Improved the zlib usage when the default compression method is
+ARITH/RANS.
+
+------------------------------------------------------------------------
+r3574 | jkbonfield | 2014-02-14 16:29:00 +0000 (Fri, 14 Feb 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/Makefile.am
+   M /io_lib/trunk/io_lib/arith_static.c
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   A /io_lib/trunk/io_lib/rANS_static.c
+   A /io_lib/trunk/io_lib/rANS_static.h
+
+First test implementation of the rANS encoder, to replace arithmetic
+coding? (See https://github.com/rygorous/ryg_rans)
+
+------------------------------------------------------------------------
+r3573 | jkbonfield | 2014-02-14 11:42:43 +0000 (Fri, 14 Feb 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Fixed EOF check. The usual code path had the correct check, but an
+empty cram triggered the incorrect code.
+
+------------------------------------------------------------------------
+r3572 | jkbonfield | 2014-02-14 10:28:38 +0000 (Fri, 14 Feb 2014) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+The default CRAM version is now 2.1. Also improved version number
+checking so an unknown minor version number isn't fatal - as it's
+minor we should be able to read it without understanding the exact
+change and still get a useful result.
+
+Changed the over-allocation amount of the SAM header block to be
+MIN(length*1.5, 10000) instead of MAX(length*2, 10000).  The Java code
+didn't allocate such vast tracks, so neither should I.
+
+------------------------------------------------------------------------
+r3571 | awhitwham | 2014-02-13 12:05:36 +0000 (Thu, 13 Feb 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/seqIOABI.c
+
+Fixed duplicated and missing error check pointed out by dcb314.
+
+------------------------------------------------------------------------
+r3570 | jkbonfield | 2014-02-13 11:15:33 +0000 (Thu, 13 Feb 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_index.c
+
+Bug fix to index initialisation when a CRAM file has non-sequential
+ref IDs.
+
+------------------------------------------------------------------------
+r3569 | jkbonfield | 2014-01-30 10:25:59 +0000 (Thu, 30 Jan 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/arith_static.c
+
+Tidy up of redundant code.
+
+------------------------------------------------------------------------
+r3568 | jkbonfield | 2014-01-29 17:41:12 +0000 (Wed, 29 Jan 2014) | 22 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/Makefile.am
+   A /io_lib/trunk/io_lib/arith_static.c
+   A /io_lib/trunk/io_lib/arith_static.h
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/progs/scramble.c
+
+Added a range coder (order 0 and 1, but only the order-1 coder is used
+at the moment, and probably Z_HUFFMAN_ONLY is good enough for most
+scenarios to replace an order-0 RC).
+
+This can be enabled using scramble -J, although note it produces
+non-standard CRAM files so should be considered as an experimental
+option. It is likely that the output format may change still, so use
+for testing only.
+
+Also updated how the encoding selection methods work. Scramble -j (for
+bzip2) no longer attempts to bzip2 everything. Instead it tests bz2 vs
+zlib on a few trials and selects whichever is best. This means -j and
+-J indicate additional codecs, but not mandate their use for
+everything.  Best encoding so far comes from scramble -jJ therefore.
+
+There is also an interface to LZMA (xz) compression, but currently it
+is not enabled and has been used experimentally only.
+
+Finally, also sped up the CRAM->BAM in memory struct conversion by
+translating 2 sequence characters at a time.
+
+
+------------------------------------------------------------------------
+r3567 | jkbonfield | 2014-01-29 17:35:58 +0000 (Wed, 29 Jan 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/binning.h
+
+Added copyright notice.
+
+------------------------------------------------------------------------
+r3566 | jkbonfield | 2014-01-29 17:35:32 +0000 (Wed, 29 Jan 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_codecs.h
+
+Minor speed increases.
+
+------------------------------------------------------------------------
+r3560 | jkbonfield | 2014-01-08 17:43:32 +0000 (Wed, 08 Jan 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Bug fix to version 2 encoding. It was erroneously accounting for the 4
+extra CRC32 bytes when specifying container lengths.
+
+------------------------------------------------------------------------
+r3559 | jkbonfield | 2014-01-07 17:07:32 +0000 (Tue, 07 Jan 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/Makefile.am
+   M /io_lib/trunk/io_lib/Makefile.am
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/bam.h
+   A /io_lib/trunk/io_lib/binning.h
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/io_lib/scram.c
+
+Added Illumina binning option to BAM and SAM I/O too, also controlled
+via the scram_set_option function in the same manner.
+
+------------------------------------------------------------------------
+r3558 | jkbonfield | 2014-01-07 15:31:03 +0000 (Tue, 07 Jan 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/progs/scramble.c
+
+Added Illumina 8-way quality binning as an output option for
+Scramble. (CRAM only at the moment.)
+
+------------------------------------------------------------------------
+r3557 | jkbonfield | 2014-01-07 15:21:12 +0000 (Tue, 07 Jan 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Removal of compiler warnings
+
+------------------------------------------------------------------------
+r3556 | jkbonfield | 2014-01-07 15:19:56 +0000 (Tue, 07 Jan 2014) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/progs/cram_dump.c
+
+Updated the version checking to cope with major/minor versions easier.
+
+Added a prototype for CRC32 checking on container and block
+structures.  This is enabled only for CRAM v3.0, but this is under
+discussion still so it should not be used in production.  The default
+output format is still CRAM v2.0.
+
+------------------------------------------------------------------------
+r3555 | jkbonfield | 2014-01-06 16:44:29 +0000 (Mon, 06 Jan 2014) | 6 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+
+Set eof_block when finishing up on a SAM file.
+
+Technically it hasn't read an EOF block, but as this cannot exist in
+SAM we cheat and claim it does in order to avoid outputting spurious
+warnings about lacking the correct file termination.
+
+------------------------------------------------------------------------
+r3549 | jkbonfield | 2013-12-17 14:57:18 +0000 (Tue, 17 Dec 2013) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/scram.c
+   M /io_lib/trunk/io_lib/scram.h
+   M /io_lib/trunk/progs/scramble.c
+
+Bug fix to the EOF handling and also a simplification.
+
+We incorrectly reported the lack of an EOF block when checking a
+sub-range, where we get an expected EOF at the end of range but this
+isn't due to a file EOF.
+
+Simplifying this the API now uses scram_eof() returning 0 for false, 1
+for expected eof and 2 for unexpected eof (no EOF block).
+
+------------------------------------------------------------------------
+r3548 | jkbonfield | 2013-12-16 17:46:10 +0000 (Mon, 16 Dec 2013) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Bug fix to EOF block writing in multi-threaded mode. It was writing it
+out before flushing the final pending blocks, causing EOF block to
+sometimes appear slightly before the true end of file.
+
+------------------------------------------------------------------------
+r3547 | jkbonfield | 2013-12-16 17:38:30 +0000 (Mon, 16 Dec 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Bug fix to cram_next_slice().  The new while loop checking for
+non-empty blocks caused a crash when multi-threading.
+
+------------------------------------------------------------------------
+r3546 | jkbonfield | 2013-12-16 16:58:27 +0000 (Mon, 16 Dec 2013) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/bam.h
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/io_lib/scram.c
+   M /io_lib/trunk/progs/scramble.c
+
+Added an EOF block to CRAM which simply consists of a container
+containing no sequences and a special ref-seq-position field.  In
+theory this is backwards compatible, but in practice was not due to
+bugs (in both C and Java implementations).
+
+Also added checking of the EOF blocks for BAM too.
+
+------------------------------------------------------------------------
+r3540 | daviesrob | 2013-12-13 16:56:42 +0000 (Fri, 13 Dec 2013) | 11 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/mFILE.c
+
+Added missing return code checks.  Fixed 'x' mode of mfreopen.
+
+Added missing checks for system call return codes.  Mainly malloc/realloc
+but also i/o calls in mfflush.
+
+Removed pointless check to see if the underlying file is seekable in
+mfreopen when 'x' is present in the mode string.  The whole point of 'x'
+was to turn off a seek in mfflush, so it doesn't matter if the file is
+seekable or not.
+
+
+------------------------------------------------------------------------
+r3533 | daviesrob | 2013-12-13 12:08:20 +0000 (Fri, 13 Dec 2013) | 11 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/mFILE.c
+   M /io_lib/trunk/io_lib/mFILE.h
+
+Add mfsteal to mFILE, and use it in cram_populate_ref.
+
+mfsteal returns the data stored in an mFILE.  The mFILE itself is closed
+after the data has been detached.  This can be used to replace an
+unnecessary allocation and copy if the entire contents of the mFILE are
+wanted.
+
+Update cram_populate_ref to use mfsteal.  This halves the memory it uses
+when trying to load via REF_PATH.
+
+
+------------------------------------------------------------------------
+r3532 | jkbonfield | 2013-12-04 10:10:39 +0000 (Wed, 04 Dec 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Added refs_t->last_id (note distinct from ->last) for use when reading
+from MD5 server.
+
+------------------------------------------------------------------------
+r3531 | jkbonfield | 2013-12-03 14:46:47 +0000 (Tue, 03 Dec 2013) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Bug fix to the zlib strategy tuning in multi-threaded mode. It could
+(legitimately) drive the number of trials negative, but this meant it
+never left the trial phase.
+
+------------------------------------------------------------------------
+r3530 | jkbonfield | 2013-12-03 10:20:49 +0000 (Tue, 03 Dec 2013) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+
+Added an implementation of cram_external_encode(), although it's only
+for experimental purposes as it's not used in vanilla code (we fill
+out the core blocks in-situ rather than via the function pointer).
+
+------------------------------------------------------------------------
+r3529 | jkbonfield | 2013-12-03 10:13:18 +0000 (Tue, 03 Dec 2013) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/index_tar.c
+
+Fixed Debian bug #729276 - buffer overflow.
+
+------------------------------------------------------------------------
+r3528 | jkbonfield | 2013-12-02 10:20:12 +0000 (Mon, 02 Dec 2013) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/progs/cram_dump.c
+
+Fixes to cope with empty blocks.
+
+This is largely just placeholder code for handling EOF markers.
+
+------------------------------------------------------------------------
+r3509 | jkbonfield | 2013-11-08 16:38:26 +0000 (Fri, 08 Nov 2013) | 3 lines
+Changed paths:
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/os.h.in
+   M /io_lib/trunk/progs/scram_flagstat.c
+   M /io_lib/trunk/progs/scram_merge.c
+   M /io_lib/trunk/progs/scramble.c
+
+Updates to aid building on Windows (tested using --host=x86_64-w64-mingw32 
+cross-compiler from linux).
+
+------------------------------------------------------------------------
+r3503 | jkbonfield | 2013-10-25 15:50:30 +0100 (Fri, 25 Oct 2013) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+
+Why do I find these things just after a new release?
+
+Fixed some buffer overruns in BAM decoding.
+
+===============================================================================
 2013-10-25: RELEASE 1.13.3
 
 ------------------------------------------------------------------------
