@@ -3714,7 +3714,7 @@ int cram_close(cram_fd *fd) {
 	/* Write EOF block */
 	if (IS_CRAM_3_VERS(fd)) {
 	    if (1 != fwrite("\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
-			    "\xff\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
+			    "\x0f\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
 			    "\x00\x01\x00"                     // Cont HDR
 			    "\x05\xbd\xd9\x4f"                 // CRC
 			    "\x00\x01\x00\x06\x06"             // Comp.HDR blk
@@ -3724,7 +3724,7 @@ int cram_close(cram_fd *fd) {
 		return -1;
 	} else { 
 	    if (1 != fwrite("\x0b\x00\x00\x00\xff\xff\xff\xff"
-			    "\xff\xe0\x45\x4f\x46\x00\x00\x00"
+			    "\x0f\xe0\x45\x4f\x46\x00\x00\x00"
 			    "\x00\x01\x00\x00\x01\x00\x06\x06"
 			    "\x01\x00\x01\x00\x01\x00", 30, 1, fd->fp))
 		return -1;
@@ -3894,6 +3894,8 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 		    "use 1.0, 2.0, 2.1 or 3.0\n");
 	    return -1;
 	}
+	major_version = major;
+	minor_version = minor;
 	break;
     }
 
