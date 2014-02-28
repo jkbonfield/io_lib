@@ -1,3 +1,17 @@
+Version 1.13.5 (28th February 2014)
+--------------
+
+* CRAM: Fixed two bugs involving reference sequences:
+
+  - When loading a fasta file containing un-folded sequence (all on
+    one line) the input data wasn't uppercased. This could lead to
+    invalid slice MD5 sums if the fasta file contained lowercase
+    sequence.
+
+  - In some situations the MD5 header in the @SQ line would be
+    computed on a blank sequence, leading to header errors.
+
+
 Version 1.13.4 (17th February 2014)
 --------------
 
