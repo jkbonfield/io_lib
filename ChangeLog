@@ -1,5 +1,44 @@
 ===============================================================================
+2014-02-28: RELEASE 1.13.5
+
+------------------------------------------------------------------------
+r3584 | jkbonfield | 2014-02-27 16:22:17 +0000 (Thu, 27 Feb 2014) | 6 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed a bug when loading in fasta files consisting of all sequence on
+a single line and in lowercase.
+
+The uppercasing code was only being called during the loop to strip
+out newlines.
+
+------------------------------------------------------------------------
+r3579 | daviesrob | 2014-02-24 11:19:26 +0000 (Mon, 24 Feb 2014) | 10 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed incorrect MD5 generation in cram_write_SAM_hdr
+
+Fixed bug where cram_write_SAM_hdr passed a length of zero to MD5_Update,
+with the result that the MD5 generated was always that of an empty file.  It
+now checks the length again after trying to load the reference so the
+correct value is used.
+
+Also check for cram_get_ref returning NULL, and call cram_ref_decr earlier
+to avoid a possible memory leak if sam_hdr_update fails.
+
+===============================================================================
 2014-02-17: RELEASE 1.13.4
+
+------------------------------------------------------------------------
+r3577 | jkbonfield | 2014-02-17 12:22:05 +0000 (Mon, 17 Feb 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+1.13.4 release
 
 ------------------------------------------------------------------------
 r3576 | jkbonfield | 2014-02-17 11:56:36 +0000 (Mon, 17 Feb 2014) | 7 lines
