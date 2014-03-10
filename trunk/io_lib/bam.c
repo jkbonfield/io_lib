@@ -331,7 +331,7 @@ static int load_bam_header(bam_file_t *b) {
 	} else {
 	    char len_c[100];
 	    sprintf(len_c, "%d", len);
-	    if (sam_hdr_add(b->header, "SQ", "SN", name, "LN", len_c, NULL))
+	    if (sam_hdr_add(b->header, "SQ", "SN", name, "LN", len_c, NULL)<0)
 		return -1;
 	}
 
