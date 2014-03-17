@@ -78,15 +78,37 @@ static cram_map *map_find(cram_map **map, unsigned char *key, int id) {
 
 void dump_core_block(cram_block *b, int verbose) {
     int i;
+    int binary = 0, len;
 
-    printf("Data = {");
-    for (i = 0; (verbose || i < 100) && i < b->uncomp_size; i++) {
-	printf(i ? ", %02x" : "%02x", (unsigned char)b->data[i]);
+    len = verbose ? b->uncomp_size : MIN(100, b->uncomp_size);
+    for (i = 0; i < len; i++) {
+	if (isprint(b->data[i]))
+	    continue;
+	binary++;
     }
-    if (i < b->uncomp_size)
-	printf(", ...}\n");
-    else
-	printf("}\n");
+
+    if (binary * 10 > len) {
+	printf("Data = {");
+	for (i = 0; i < len; i++) {
+	    printf(i ? ", %02x" : "%02x", (unsigned char)b->data[i]);
+	}
+
+	if (i < b->uncomp_size)
+	    puts(", ...}");
+	else
+	    puts("}");
+
+    } else {
+	for (i = 0; i < len; i++) {
+	    if (isprint(b->data[i]))
+		putchar(b->data[i]);
+	    else
+		printf("\\%03o", b->data[i]);
+	}
+
+	if (i < b->uncomp_size)
+	    puts("...");
+    }
 }
 
 void dump_seq_block(cram_block *b, int verbose) {
