@@ -765,7 +765,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 		b->comp_sz -= bsize + 8; // crc & isize
 	    }
 
-	    nonblock = t_pool_results_queue_len(b->dqueue) ? 0 : 1;
+	    nonblock = t_pool_results_queue_len(b->dqueue) ? 1 : 0;
 	    //	    nonblock = (t_pool_results_queue_len(b->dqueue) == 0 &&
 	    //			b->nd_jobs >= b->pool->qsize) ? 0 : -1;
 	    //nonblock = -1;
