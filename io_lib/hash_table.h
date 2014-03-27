@@ -172,6 +172,7 @@ int HashTableDel(HashTable *h, HashItem *hi, int deallocate_data);
 int HashTableRemove(HashTable *h, char *key, int key_len, int deallocate_data);
 HashItem *HashTableSearch(HashTable *h, char *key, int key_len);
 HashItem *HashTableNext(HashItem *hi, char *key, int key_len);
+HashItem *HashTableNextInt(HashItem *hi, char *key, int key_len);
 
 void HashTableStats(HashTable *h, FILE *fp);
 void HashTableDump(HashTable *h, FILE *fp, char *prefix);
