@@ -743,6 +743,19 @@ HashItem *HashTableNext(HashItem *hi, char *key, int key_len) {
     return NULL;
 }
 
+HashItem *HashTableNextInt(HashItem *hi, char *key, int key_len) {
+    if (!hi)
+	return NULL;
+
+    for (hi = hi->next; hi; hi = hi->next) {
+	if (key_len == hi->key_len &&
+	    memcmp(&key, &hi->key, key_len) == 0)
+	    return hi;
+    }
+
+    return NULL;
+}
+
 /*
  * Dumps a textual represenation of the hash table to stdout.
  */
