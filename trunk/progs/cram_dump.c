@@ -303,10 +303,11 @@ int main(int argc, char **argv) {
 		    hd.i = s->block[id]->comp_size;
 		    HashTableAdd(bsize_h, (char *)k, 4, hd, NULL);
 		}
-	    }
 
-            if (bmax < s->hdr->num_blocks)
-                bmax = s->hdr->num_blocks;
+		// WARNING: scuppered by having high content_id values.
+		if (bmax < s->block[id]->content_id)
+		    bmax = s->block[id]->content_id;
+	    }
 
 	    for (id = 0; id < s->hdr->num_blocks; id++)
 		cram_uncompress_block(s->block[id]);
@@ -683,7 +684,7 @@ int main(int argc, char **argv) {
 	int id;
 
 	puts("");
-	for (id = -1; id < bmax; id++) {
+	for (id = -1; id <= bmax; id++) {
 	    int k;
 	    HashItem *hi;
 	    HashIter *iter;
