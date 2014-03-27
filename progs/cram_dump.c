@@ -45,7 +45,8 @@
 
 #include <io_lib/cram.h>
 
-void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data) {
+void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data,
+	      HashTable *ds_h) {
     int i, j, k;
     for (i = 0; i < CRAM_MAP_HASH; i++) {
 	cram_map *m;
@@ -60,6 +61,17 @@ void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data) {
 		printf(j ? ", %d" : "%d", (unsigned char)data[k]);
 	    }
 	    printf("}\n");
+
+	    // Crude, only works with single byte ITF8 values
+	    if (m->encoding == E_EXTERNAL ||
+		m->encoding == E_BYTE_ARRAY_STOP ||
+		m->encoding == E_BYTE_ARRAY_LEN) {
+		HashData hd;
+		hd.i = (unsigned char)data[m->offset + m->size-1];
+
+		k = (m->key << 8) | hd.i;
+		HashTableAdd(ds_h, (char *)k, 4, hd, NULL);
+	    }
 	}
     }
 }
@@ -152,8 +164,16 @@ int main(int argc, char **argv) {
     cram_container *c;
     off_t pos, pos2, hpos;
     int verbose = 0;
+    HashTable *bsize_h;
+    HashTable *ds_h; // content_id to data-series lookup.
 
-    static int64_t bsize[100], bmax = 0;
+    static bmax = 0;
+    bsize_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
+			    HASH_NONVOLATILE_KEYS |
+			    HASH_INT_KEYS);
+    ds_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
+			   HASH_NONVOLATILE_KEYS |
+			   HASH_INT_KEYS);
 
     if (argc >= 2 && strcmp(argv[1], "-v") == 0) {
 	argc--;
@@ -231,11 +251,11 @@ int main(int argc, char **argv) {
 
 	printf("\n      Record encoding map:\n");
 	DumpMap2(c->comp_hdr->rec_encoding_map, stdout, "\t", 
-		 (char *)c->comp_hdr_block->data);
+		 (char *)c->comp_hdr_block->data, ds_h);
 
 	printf("\n      Tag encoding map:\n");
 	DumpMap2(c->comp_hdr->tag_encoding_map, stdout, "\t",
-		 (char *)c->comp_hdr_block->data);
+		 (char *)c->comp_hdr_block->data, ds_h);
 
 	for (j = 0; j < c->num_landmarks; j++) {
 	    cram_slice *s;
@@ -271,10 +291,22 @@ int main(int argc, char **argv) {
 		printf("\tRef base id:     %d\n", s->hdr->ref_base_id);
 	    }
 	
-	    for (id = 0; id < s->hdr->num_blocks; id++)
-		bsize[id] += s->block[id]->comp_size;
-	    if (bmax < s->hdr->num_blocks)
-		bmax = s->hdr->num_blocks;
+	    for (id = 0; id < s->hdr->num_blocks; id++) {
+		HashItem *hi;
+		int k = s->block[id]->content_type == CORE
+		    ? -1 : s->block[id]->content_id;
+		hi = HashTableSearch(bsize_h, (char *)k, 4);
+		if (hi) {
+		    hi->data.i += s->block[id]->comp_size;
+		} else {
+		    HashData hd;
+		    hd.i = s->block[id]->comp_size;
+		    HashTableAdd(bsize_h, (char *)k, 4, hd, NULL);
+		}
+	    }
+
+            if (bmax < s->hdr->num_blocks)
+                bmax = s->hdr->num_blocks;
 
 	    for (id = 0; id < s->hdr->num_blocks; id++)
 		cram_uncompress_block(s->block[id]);
@@ -593,7 +625,7 @@ int main(int argc, char **argv) {
 
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
 		cram_block *b = s->block[id];
-		printf("\n\tBlock %d/%d\n", id+1, s->hdr->num_blocks);
+		printf("\n\tBlock %d/%d\n", id, s->hdr->num_blocks-1);
 		printf("\t    Size:         %d comp / %d uncomp\n",
 		       b->comp_size, b->uncomp_size);
 		printf("\t    Method:       %s\n",
@@ -649,10 +681,50 @@ int main(int argc, char **argv) {
 
     {
 	int id;
+
 	puts("");
-	for (id = 0; id < bmax; id++)
-	    printf("Block %d, total size %"PRId64"\n", id, bsize[id]);
+	for (id = -1; id < bmax; id++) {
+	    int k;
+	    HashItem *hi;
+	    HashIter *iter;
+
+	    if (!(hi = HashTableSearch(bsize_h, (char *)id, 4)))
+		continue;
+
+	    k = (int)hi->key;
+	    if (k == -1) {
+		printf("Block CORE          , total size %10d\n", hi->data.i);
+		continue;
+	    }
+
+	    printf("Block content_id %3d, total size %10d ", k, hi->data.i);
+
+	    iter = HashTableIterCreate();
+	    while ((hi = HashTableIterNext(ds_h, iter))) {
+		int c;
+		char buf[5];
+		int x = 4;
+
+		if (hi->data.i != k)
+		    continue;
+		
+		c = ((int)hi->key)>>8;
+		
+		buf[x--] = 0;
+		while(c & 0xff) {
+		    buf[x--] = c;
+		    c >>= 8;
+		}
+		printf(" %s", &buf[x+1]);
+	    }
+	    putchar('\n');
+
+	    HashTableIterDestroy(iter);
+	}
     }
+
+    HashTableDestroy(bsize_h, 0);
+    HashTableDestroy(ds_h, 0);
 
     return 0;
 }
