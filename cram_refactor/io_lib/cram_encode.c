@@ -473,14 +473,14 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 				 "\005" // BYTE_ARRAY_STOP
 				 "\005" // len
 				 "\t"   // stop-byte is also SAM separator
-				 CRAM_EXT_TAG_S "\000\000\000",
+				 DS_aux_S "\000\000\000",
 				 7);
 		} else {
 		    BLOCK_APPEND(map,
 				 "\005" // BYTE_ARRAY_STOP
 				 "\002" // len
 				 "\t"   // stop-byte is also SAM separator
-				 CRAM_EXT_TAG_S,
+				 DS_aux_S,
 				 4);
 		}
 		break;
@@ -498,7 +498,7 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 			     "\000" // length=0
 			     "\001" // EXTERNAL (val)
 			     "\001" // external-len
-			     CRAM_EXT_TAG_S,// content-id
+			     DS_aux_S,// content-id
 			     11);
 		break;
 
@@ -515,7 +515,7 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 			     "\000" // length=0
 			     "\001" // EXTERNAL (val)
 			     "\001" // external-len
-			     CRAM_EXT_TAG_S,// content-id
+			     DS_aux_S,// content-id
 			     11);
 		break;
 
@@ -532,7 +532,7 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 			     "\000" // length=0
 			     "\001" // EXTERNAL (val)
 			     "\001" // external-len
-			     CRAM_EXT_TAG_S,// content-id
+			     DS_aux_S,// content-id
 			     11);
 		break;
 
@@ -547,10 +547,10 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 			     "\006" // length
 			     "\001" // EXTERNAL (len)
 			     "\001" // external-len
-			     "\004" // content-id
+			     DS_aux_S // content-id
 			     "\001" // EXTERNAL (val)
 			     "\001" // external-len
-			     CRAM_EXT_TAG_S,// content-id
+			     DS_aux_S,// content-id
 			     8);
 		break;
 
@@ -656,14 +656,14 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
      */
 
     /* Create cram slice header */
-    s->hdr->ref_base_id = embed_ref ? CRAM_EXT_REF : -1;
+    s->hdr->ref_base_id = embed_ref ? DS_ref : -1;
     s->hdr->record_counter = c->num_records + c->record_counter;
     c->num_records += s->hdr->num_records;
 
     //s->hdr->num_content_ids = nblk;
     //s->hdr->num_blocks = s->hdr->num_content_ids+1;
-    s->block = calloc(100, sizeof(s->block[0]));
-    s->hdr->block_content_ids = malloc(100 * sizeof(int32_t));
+    s->block = calloc(DS_END, sizeof(s->block[0]));
+    s->hdr->block_content_ids = malloc(DS_END * sizeof(int32_t));
     if (!s->block || !s->hdr->block_content_ids)
 	return -1;
 
@@ -672,13 +672,12 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     nblk = 0;
     if (!(s->block[0] = cram_new_block(CORE, 0)))
 	return -1;
-    s->hdr->block_content_ids[nblk++] = 0;
 
-    s->hdr->block_content_ids[nblk++] = CRAM_EXT_QUAL;
-    s->hdr->block_content_ids[nblk++] = CRAM_EXT_NAME;
-    s->hdr->block_content_ids[nblk++] = CRAM_EXT_TS_NP;
-    s->hdr->block_content_ids[nblk++] = CRAM_EXT_TAG;
-    s->hdr->block_content_ids[nblk++] = CRAM_EXT_SC;
+    // FIXME: s->hdr->block_content_ids[nblk++] = DS_TN;
+    // becomes nblk++ ?
+    //
+    // We already resolve the block_content_ids later. Maybe the nblk is
+    // no longer needed either.
 
     // TN block for CRAM v1
     if (IS_CRAM_1_VERS(fd)) {
@@ -694,11 +693,11 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 
     // Embedded reference
     if (embed_ref) {
-	if (!(s->block[CRAM_EXT_REF] = cram_new_block(EXTERNAL, CRAM_EXT_REF)))
+	if (!(s->block[DS_ref] = cram_new_block(EXTERNAL, DS_ref)))
 	    return -1;
-	s->ref_id = CRAM_EXT_REF; // needed?
-	s->hdr->block_content_ids[nblk++] = CRAM_EXT_REF;
-	BLOCK_APPEND(s->block[CRAM_EXT_REF],
+	s->ref_id = DS_ref; // needed?
+	s->hdr->block_content_ids[nblk++] = DS_ref;
+	BLOCK_APPEND(s->block[DS_ref],
 		     c->ref + c->first_base - c->ref_start,
 		     c->last_base - c->first_base + 1);
     }
@@ -1109,16 +1108,16 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[0]->comp_size = s->block[0]->uncomp_size;
 
     // Make sure the fixed blocks point to the correct sources
-    s->block[1] = s->base_blk; s->base_blk = NULL;
-    s->block[2] = s->qual_blk; s->qual_blk = NULL;
-    s->block[3] = s->name_blk; s->name_blk = NULL;
-    s->block[4] = s->soft_blk; s->soft_blk = NULL;
-    s->block[5] = s->aux_blk;  s->aux_blk  = NULL;
+    s->block[DS_IN] = s->base_blk; s->base_blk = NULL;
+    s->block[DS_QS] = s->qual_blk; s->qual_blk = NULL;
+    s->block[DS_RN] = s->name_blk; s->name_blk = NULL;
+    s->block[DS_SC] = s->soft_blk; s->soft_blk = NULL;
+    s->block[DS_aux]= s->aux_blk;  s->aux_blk  = NULL;
 
     // Ensure block sizes are up to date.
     {
 	int i;
-	for (i = 1; i < 100; i++) {
+	for (i = 1; i < DS_END; i++) {
 	    if (!s->block[i] || s->block[i] == s->block[0])
 		continue;
 
@@ -1156,7 +1155,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	strat2 = Z_RLE;
     }
     /* Compress the other blocks */
-    if (cram_compress_block(fd, s->block[1], fd->m[0], //IN (seq)
+    if (cram_compress_block(fd, s->block[DS_IN], fd->m[0], //IN (seq)
 			    method1, fd->level, Z_CRAM_STRAT,
 			    method2, level2, strat2)) {
 	abort();
@@ -1166,34 +1165,34 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     if (fd->level == 0) {
 	/* Do nothing */
     } else if (fd->level == 1) {
-	if (cram_compress_block(fd, s->block[2], fd->m[1], //qual
+	if (cram_compress_block(fd, s->block[DS_QS], fd->m[1], //qual
 				method1, 1, Z_RLE,
 				method2, level2,
 				method1 == GZIP ? strat2 : Z_RLE))
 	    return -1;
-	if (cram_compress_block(fd, s->block[5], fd->m[4], //Tags
+	if (cram_compress_block(fd, s->block[DS_aux], fd->m[4], //Tags
 				method1, 1, Z_RLE,
 				method2, level2, strat2))
 	    return -1;
     } else if (fd->level < 3) {
-	if (cram_compress_block(fd, s->block[2], fd->m[1], //qual
+	if (cram_compress_block(fd, s->block[DS_QS], fd->m[1], //qual
 				method1, 1, Z_RLE,
 				method2, 1,
 				method1 == GZIP ? Z_HUFFMAN_ONLY : Z_RLE))
 	    return -1;
-	if (cram_compress_block(fd, s->block[5], fd->m[4], //Tags
+	if (cram_compress_block(fd, s->block[DS_aux], fd->m[4], //Tags
 				method1, 1, Z_RLE,
 				method2, 1,
 				method1 == GZIP ? Z_HUFFMAN_ONLY : Z_RLE))
 	    return -1;
     } else {
-	if (cram_compress_block(fd, s->block[2], fd->m[1], //qual
+	if (cram_compress_block(fd, s->block[DS_QS], fd->m[1], //qual
 				method1, fd->level, Z_CRAM_STRAT, 
 				method2, -1, Z_RLE)) {
 	    abort();
 	    return -1;
 	}
-	if (cram_compress_block(fd, s->block[5], fd->m[4], //Tags
+	if (cram_compress_block(fd, s->block[DS_aux], fd->m[4], //Tags
 				method1, fd->level, Z_CRAM_STRAT,
 				method2, level2, Z_DEFAULT_STRATEGY)) {
 	    abort();
@@ -1201,12 +1200,12 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	}
     }
 
-    if (cram_compress_block(fd, s->block[3], fd->m[2], //Name
+    if (cram_compress_block(fd, s->block[DS_RN], fd->m[2], //Name
 			    method1, fd->level, Z_CRAM_STRAT,
 			    method2, level2, strat2))
 	abort();
     if (!IS_CRAM_1_VERS(fd)) {
-	if (cram_compress_block(fd, s->block[4], fd->m[3], //SC (seq)
+	if (cram_compress_block(fd, s->block[DS_SC], fd->m[3], //SC (seq)
 				method1, fd->level, Z_CRAM_STRAT,
 				method2, level2, strat2))
 	    abort();
@@ -1251,7 +1250,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
      */
     {
 	int i;
-	for (i = 1; i < 100; i++) {
+	for (i = 1; i < DS_END; i++) {
 	    if (!s->block[i] || s->block[i] == s->block[0])
 		continue;
 
@@ -1268,7 +1267,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     // Collapse blocks down in number and create hdr_block
     {
 	int i, j;
-	for (i = j = 1; i < 100; i++) {
+	for (i = j = 1; i < DS_END; i++) {
 	    if (!s->block[i] || s->block[i] == s->block[0])
 		continue;
 	    s->block[j] = s->block[i];
@@ -1439,17 +1438,11 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     h->BF_codec = cram_encoder_init(cram_stats_encoding(fd, c->BF_stats),
 				    c->BF_stats, E_INT, NULL,
 				    fd->version);
-//    h->BF_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)106,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "CF_stats: ");
     h->CF_codec = cram_encoder_init(cram_stats_encoding(fd, c->CF_stats),
 				    c->CF_stats, E_INT, NULL,
 				    fd->version);
-//    h->CF_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)119,
-//				    fd->version);
 
 //    fprintf(stderr, "=== RN ===\n");
 //    h->RN_codec = cram_encoder_init(cram_stats_encoding(fd, c->RN_stats),
@@ -1461,9 +1454,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	h->AP_codec = cram_encoder_init(cram_stats_encoding(fd, c->AP_stats),
 					c->AP_stats, E_INT, NULL,
 					fd->version);
-//	h->AP_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//					E_INT, (void *)108,
-//					fd->version);
     } else {
 	int p[2] = {0, c->max_apos};
 	h->AP_codec = cram_encoder_init(E_BETA, NULL, E_INT, p, fd->version);
@@ -1473,112 +1463,70 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     h->RG_codec = cram_encoder_init(cram_stats_encoding(fd, c->RG_stats),
 				    c->RG_stats, E_INT, NULL,
 				    fd->version);
-//    h->RG_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)121,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "MQ_stats: ");
     h->MQ_codec = cram_encoder_init(cram_stats_encoding(fd, c->MQ_stats),
 				    c->MQ_stats, E_INT, NULL,
 				    fd->version);
-//    h->MQ_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)107,
-//				    fd->version);
 
     //fprintf(stderr, "=== NS ===\n");
     if (fd->verbose > 1) fprintf(stderr, "NS_stats: ");
     h->NS_codec = cram_encoder_init(cram_stats_encoding(fd, c->NS_stats),
 				    c->NS_stats, E_INT, NULL,
 				    fd->version);
-//    h->NS_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)116,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "MF_stats: ");
     h->MF_codec = cram_encoder_init(cram_stats_encoding(fd, c->MF_stats),
 				    c->MF_stats, E_INT, NULL,
 				    fd->version);
-//    h->MF_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)118,
-//				    fd->version);
 
     h->TS_codec = cram_encoder_init(cram_stats_encoding(fd, c->TS_stats),
 				    c->TS_stats, E_INT, NULL,
 				    fd->version);
-//    h->TS_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)123,
-//				    fd->version);
 
     h->NP_codec = cram_encoder_init(cram_stats_encoding(fd, c->NP_stats),
 				    c->NP_stats, E_INT, NULL,
 				    fd->version);
-//    h->NP_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)124,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "NF_stats: ");
     h->NF_codec = cram_encoder_init(cram_stats_encoding(fd, c->NF_stats),
 				    c->NF_stats, E_INT, NULL,
 				    fd->version);
-//    h->NF_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)125,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "RL_stats: ");
     h->RL_codec = cram_encoder_init(cram_stats_encoding(fd, c->RL_stats),
 				    c->RL_stats, E_INT, NULL,
 				    fd->version);
-//    h->RL_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)117,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "FN_stats: ");
     h->FN_codec = cram_encoder_init(cram_stats_encoding(fd, c->FN_stats),
 				    c->FN_stats, E_INT, NULL,
 				    fd->version);
-//    h->FN_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)109,
-//				    fd->version);
 
-//    if (fd->verbose > 1) fprintf(stderr, "FC_stats: ");
+    if (fd->verbose > 1) fprintf(stderr, "FC_stats: ");
     h->FC_codec = cram_encoder_init(cram_stats_encoding(fd, c->FC_stats),
 				    c->FC_stats, E_BYTE, NULL,
 				    fd->version);
-//    h->FC_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_BYTE, (void *)111,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "FP_stats: ");
     h->FP_codec = cram_encoder_init(cram_stats_encoding(fd, c->FP_stats),
 				    c->FP_stats, E_INT, NULL,
 				    fd->version);
-//    h->FP_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)110,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "DL_stats: ");
     h->DL_codec = cram_encoder_init(cram_stats_encoding(fd, c->DL_stats),
 				    c->DL_stats, E_INT, NULL,
 				    fd->version);
-//    h->DL_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_INT, (void *)114,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "BA_stats: ");
     h->BA_codec = cram_encoder_init(cram_stats_encoding(fd, c->BA_stats),
 				    c->BA_stats, E_BYTE, NULL,
 				    fd->version);
-//    h->BA_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_BYTE, (void *)115,
-//				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "BS_stats: ");
     h->BS_codec = cram_encoder_init(cram_stats_encoding(fd, c->BS_stats),
 				    c->BS_stats, E_BYTE, NULL,
 				    fd->version);
-//    h->BS_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//				    E_BYTE, (void *)112,
-//				    fd->version);
 
     if (IS_CRAM_1_VERS(fd)) {
 	h->TL_codec = NULL;
@@ -1599,7 +1547,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					c->TN_stats, E_INT, NULL,
 					fd->version);
     } else {
-	int i2[2] = {0, CRAM_EXT_SC};
+	int i2[2] = {0, DS_SC};
 
 	h->TC_codec = NULL;
 	h->TN_codec = NULL;
@@ -1608,18 +1556,12 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	h->TL_codec = cram_encoder_init(cram_stats_encoding(fd, c->TL_stats),
 					c->TL_stats, E_INT, NULL,
 					fd->version);
-//	h->TL_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//					E_INT, (void *)113,
-//					fd->version);
 
 
 	if (fd->verbose > 1) fprintf(stderr, "RI_stats: ");
 	h->RI_codec = cram_encoder_init(cram_stats_encoding(fd, c->RI_stats),
 					c->RI_stats, E_INT, NULL,
 					fd->version);
-//	h->RI_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//					E_INT, (void *)122,
-//					fd->version);
 
 	if (fd->verbose > 1) fprintf(stderr, "RS_stats: ");
 	h->RS_codec = cram_encoder_init(cram_stats_encoding(fd, c->RS_stats),
@@ -1635,10 +1577,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	h->HC_codec = cram_encoder_init(cram_stats_encoding(fd, c->HC_stats),
 					c->HC_stats, E_INT, NULL,
 					fd->version);
-//	h->HC_codec = cram_encoder_init(E_EXTERNAL, NULL,
-//					E_INT, (void *)120,
-//					fd->version);
-
 	//fprintf(stderr, "=== SC ===\n");
 	h->SC_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL,
 					E_BYTE_ARRAY, (void *)i2,
@@ -1647,22 +1585,18 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     
     //fprintf(stderr, "=== IN ===\n");
     {
-	int i2[2] = {0, CRAM_EXT_IN};
+	int i2[2] = {0, DS_IN};
 	h->IN_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL,
 					E_BYTE_ARRAY, (void *)i2,
 					fd->version);
     }
 
+    h->QS_codec = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
+				    (void *)DS_QS,
+				    fd->version);
+
     {
-	//int i2[2] = {0, 1};
-	//h->QS_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL, (void *)i2,
-	//				    fd->version);
-	h->QS_codec = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
-					(void *)CRAM_EXT_QUAL,
-					fd->version);
-    }
-    {
-	int i2[2] = {0, CRAM_EXT_NAME};
+	int i2[2] = {0, DS_RN};
 	h->RN_codec = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL,
 					E_BYTE_ARRAY, (void *)i2,
 					fd->version);

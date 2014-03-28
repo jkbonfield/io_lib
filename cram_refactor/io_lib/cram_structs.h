@@ -737,35 +737,43 @@ enum cram_option {
 #define CRAM_FQCFAIL        2
 #define CRAM_FDUP           1
 
-#define DS_IN 1
-#define DS_QS 2
-#define DS_RN 3
-#define DS_aux 8
+/* External IDs used by this implementation (only assumed during writing) */
+enum cram_DS_ID {
+    DS_CORE = 0,
+    DS_aux  = 1, // aux_blk
+    DS_ref,
+    DS_RN, // name_blk
+    DS_QS, // qual_blk
+    DS_SC, // soft_blk
+    DS_IN, // base_blk
+    DS_BF,
+    DS_CF,
+    DS_AP,
+    DS_RG,
+    DS_MQ,
+    DS_NS,
+    DS_MF,
+    DS_TS,
+    DS_NP,
+    DS_NF,
+    DS_RL,
+    DS_FN,
+    DS_FC,
+    DS_FP,
+    DS_DL,
+    DS_BA,
+    DS_BS,
+    DS_TL,
+    DS_RI,
+    DS_RS,
+    DS_PD,
+    DS_HC,
+    DS_TN,
+    
+    DS_END,
+};
 
-#define DS_BF 10
-#define DS_CF 11
-#define DS_AP 12
-#define DS_RG 13
-#define DS_MQ 14
-#define DS_NS 15
-#define DS_MF 16
-#define DS_TS 17
-#define DS_NP 18
-#define DS_NF 19
-#define DS_RL 20
-#define DS_FN 21
-#define DS_FC 22
-#define DS_FP 23
-#define DS_DL 24
-#define DS_BA 25
-#define DS_BS 26
-#define DS_TL 27
-#define DS_RI 28
-#define DS_RS 29
-#define DS_PD 30
-#define DS_HC 31
-#define DS_SC 32
-#define DS_TN 33
+#define DS_aux_S "\001"
 
 #define CRAM_M_REVERSE  1
 #define CRAM_M_UNMAP    2
@@ -775,18 +783,6 @@ enum cram_option {
 #define CRAM_FLAG_PRESERVE_QUAL_SCORES (1<<0)
 #define CRAM_FLAG_DETACHED             (1<<1)
 #define CRAM_FLAG_MATE_DOWNSTREAM      (1<<2)
-
-/* External IDs used by this implementation (only assumed during writing) */
-#define CRAM_EXT_IN	0
-#define CRAM_EXT_QUAL	1
-#define CRAM_EXT_NAME	2
-#define CRAM_EXT_TS_NP	3
-#define CRAM_EXT_TAG	4
-#define CRAM_EXT_TAG_S	"\004"
-#define CRAM_EXT_BA	5
-#define CRAM_EXT_TN	6
-#define CRAM_EXT_SC	7
-#define CRAM_EXT_REF    8
 
 #ifdef __cplusplus
 }

@@ -2939,15 +2939,12 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->cigar_alloc = 0;
     s->ncigar = 0;
 
-    if (!(s->seqs_blk = cram_new_block(EXTERNAL, 0)))             goto err;
-    if (!(s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL))) goto err;
-    if (!(s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME))) goto err;
-    if (!(s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG)))  goto err;
-    if (!(s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN)))   goto err;
-    if (!(s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC)))   goto err;
-#ifdef TN_external
-    if (!(s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN)))   goto err;
-#endif
+    if (!(s->seqs_blk = cram_new_block(EXTERNAL, 0)))       goto err;
+    if (!(s->qual_blk = cram_new_block(EXTERNAL, DS_QS)))   goto err;
+    if (!(s->name_blk = cram_new_block(EXTERNAL, DS_RN)))   goto err;
+    if (!(s->aux_blk  = cram_new_block(EXTERNAL, DS_aux)))  goto err;
+    if (!(s->base_blk = cram_new_block(EXTERNAL, DS_IN)))   goto err;
+    if (!(s->soft_blk = cram_new_block(EXTERNAL, DS_SC)))   goto err;
 
     s->features = NULL;
     s->nfeatures = s->afeatures = 0;
@@ -3043,16 +3040,12 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->cigar_alloc = 0;
     s->ncigar = 0;
 
-    if (!(s->seqs_blk = cram_new_block(EXTERNAL, 0)))             goto err;
-    if (!(s->qual_blk = cram_new_block(EXTERNAL, CRAM_EXT_QUAL))) goto err;
-    if (!(s->name_blk = cram_new_block(EXTERNAL, CRAM_EXT_NAME))) goto err;
-    if (!(s->aux_blk  = cram_new_block(EXTERNAL, CRAM_EXT_TAG)))  goto err;
-    if (!(s->base_blk = cram_new_block(EXTERNAL, CRAM_EXT_IN)))   goto err;
-    if (!(s->soft_blk = cram_new_block(EXTERNAL, CRAM_EXT_SC)))   goto err;
-#ifdef TN_external
-    if (!(s->tn_blk   = cram_new_block(EXTERNAL, CRAM_EXT_TN)))   goto err;
-#endif
-
+    if (!(s->seqs_blk = cram_new_block(EXTERNAL, 0)))      goto err;
+    if (!(s->qual_blk = cram_new_block(EXTERNAL, DS_QS)))  goto err;
+    if (!(s->name_blk = cram_new_block(EXTERNAL, DS_RN)))  goto err;
+    if (!(s->aux_blk  = cram_new_block(EXTERNAL, DS_aux))) goto err;
+    if (!(s->base_blk = cram_new_block(EXTERNAL, DS_IN)))  goto err;
+    if (!(s->soft_blk = cram_new_block(EXTERNAL, DS_SC)))  goto err;
 
     s->crecs = NULL;
 
