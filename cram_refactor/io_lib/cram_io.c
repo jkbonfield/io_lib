@@ -2903,6 +2903,13 @@ void cram_free_slice(cram_slice *s) {
     if (s->pair)
 	HashTableDestroy(s->pair, 0);
 
+//    {
+//	int i;
+//	for (i = 0; i < 1024; i++)
+//	    if (s->blocks[i])
+//		cram_free_block(s->blocks[i]);
+//    }    
+
     free(s);
 }
 
@@ -2956,6 +2963,12 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
 #ifdef BA_external
     s->BA_len = 0;
 #endif
+
+    //memset(&s->blocks[0], 0, 1024*sizeof(s->blocks[0]));
+    //if (!(s->blocks[ID("QS")] = cram_new_block(EXTERNAL, ID("QS")))) goto err;
+    //if (!(s->blocks[ID("RN")] = cram_new_block(EXTERNAL, ID("RN")))) goto err;
+    //if (!(s->blocks[ID("IN")] = cram_new_block(EXTERNAL, ID("IN")))) goto err;
+    //if (!(s->blocks[ID("SC")] = cram_new_block(EXTERNAL, ID("SC")))) goto err;
 
     return s;
 
@@ -3874,8 +3887,7 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_RANGE:
 	fd->range = *va_arg(args, cram_range *);
-	cram_seek_to_refpos(fd, &fd->range);
-	break;
+	return cram_seek_to_refpos(fd, &fd->range);
 
     case CRAM_OPT_REFERENCE:
 	return cram_load_reference(fd, va_arg(args, char *));

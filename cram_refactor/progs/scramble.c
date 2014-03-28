@@ -125,10 +125,11 @@ int main(int argc, char **argv) {
     refs_t *refs;
     int nthreads = 1;
     t_pool *p = NULL;
+    int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJt:B")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJt:BN:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -239,6 +240,10 @@ int main(int argc, char **argv) {
 
 	case 'B':
 	    binning = BINNING_ILLUMINA;
+	    break;
+
+	case 'N': // For debugging
+	    max_reads = atoi(optarg);
 	    break;
 
 	case '?':
@@ -422,18 +427,24 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "Failed to encode sequence\n");
 	    return 1;
 	}
+	if (max_reads >= 0)
+	    if (--max_reads == 0)
+		break;
     }
-    switch(scram_eof(in)) {
-    case 0:
-	fprintf(stderr, "Failed to decode sequence\n");
-	return 1;
-    case 2:
-	fprintf(stderr, "Warning: no end-of-file block identified. "
-		"File may be truncated.\n");
-	break;
-    case 1: default:
-	// expected case
-	break;
+
+    if (max_reads == -1) {
+	switch(scram_eof(in)) {
+	case 0:
+	    fprintf(stderr, "Failed to decode sequence\n");
+	    return 1;
+	case 2:
+	    fprintf(stderr, "Warning: no end-of-file block identified. "
+		    "File may be truncated.\n");
+	    break;
+	case 1: default:
+	    // expected case
+	    break;
+	}
     }
 
     /* Finally tidy up and close files */

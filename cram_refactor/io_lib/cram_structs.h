@@ -71,10 +71,8 @@ extern "C" {
 
 #define CRAM_SUBST_MATRIX "CGTNAGTNACTNACGNACGT"
 
-#define TN_external
-//#define NS_external
-#define TS_external
-//#define BA_external
+// TN only in Cram v1
+//#define TN_external
 
 #define MAX_STAT_VAL 1024
 //#define MAX_STAT_VAL 16
@@ -468,6 +466,9 @@ typedef struct {
     };
 } cram_feature;
 
+//// Turns [A-Z][A-Z] into an integer from 0 to 32*32
+//#define ID(a) ((((a)[0]-'A')<<5)+(a)[1]-'A')
+
 /*
  * A slice is really just a set of blocks, but it
  * is the logical unit for decoding a number of
@@ -494,12 +495,6 @@ typedef struct cram_slice {
     uint32_t  *cigar;
     uint32_t   cigar_alloc;
     uint32_t   ncigar;
-    cram_block *name_blk;
-    cram_block *seqs_blk;
-    cram_block *qual_blk;
-    cram_block *aux_blk;
-    cram_block *base_blk; // substitutions (soft-clips for 1.0)
-    cram_block *soft_blk; // soft-clips
 
     cram_feature *features;
     int           nfeatures;
@@ -514,17 +509,48 @@ typedef struct cram_slice {
     int tn_id;
 #endif
 
+    // Pointers to either an external block or to the CORE block.
+    cram_block *BF_blk;
+    cram_block *MQ_blk;
+    cram_block *AP_blk;
+    cram_block *FN_blk;
+    cram_block *FP_blk;
+    cram_block *FC_blk;
+    cram_block *BS_blk;
+    cram_block *TL_blk;
+    cram_block *DL_blk;
+    cram_block *BA_blk;
+    cram_block *NS_blk;
+    cram_block *RL_blk;
+    cram_block *MF_blk;
+    cram_block *CF_blk;
+    cram_block *HC_blk;
+    cram_block *RG_blk;
+    cram_block *RI_blk;
+    cram_block *TS_blk;
+    cram_block *NP_blk;
+    cram_block *NF_blk;
+    cram_block *TN_blk;
+    cram_block *RS_blk;
+    cram_block *PD_blk;
+    cram_block *TC_blk;
+
+    // For variable sized elements which are always external blocks.
+    cram_block *name_blk;
+    cram_block *seqs_blk;
+    cram_block *qual_blk;
+    cram_block *base_blk;
+    cram_block *soft_blk;
+    cram_block *aux_blk;
+
     HashTable *pair;         // for identifying read-pairs in this slice.
 
     char *ref;               // slice of current reference
     int ref_start;           // start position of current reference;
     int ref_end;             // end position of current reference;
-
-#ifdef BA_external
-    int BA_len;
-    int ba_id;
-#endif
     int ref_id;
+
+    //cram_block *blocks[1024];
 } cram_slice;
 
 /*-----------------------------------------------------------------------------
@@ -710,6 +736,36 @@ enum cram_option {
 #define CRAM_FSECONDARY     4
 #define CRAM_FQCFAIL        2
 #define CRAM_FDUP           1
+
+#define DS_IN 1
+#define DS_QS 2
+#define DS_RN 3
+#define DS_aux 8
+
+#define DS_BF 10
+#define DS_CF 11
+#define DS_AP 12
+#define DS_RG 13
+#define DS_MQ 14
+#define DS_NS 15
+#define DS_MF 16
+#define DS_TS 17
+#define DS_NP 18
+#define DS_NF 19
+#define DS_RL 20
+#define DS_FN 21
+#define DS_FC 22
+#define DS_FP 23
+#define DS_DL 24
+#define DS_BA 25
+#define DS_BS 26
+#define DS_TL 27
+#define DS_RI 28
+#define DS_RS 29
+#define DS_PD 30
+#define DS_HC 31
+#define DS_SC 32
+#define DS_TN 33
 
 #define CRAM_M_REVERSE  1
 #define CRAM_M_UNMAP    2

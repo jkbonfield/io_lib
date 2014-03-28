@@ -212,25 +212,19 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
     if (nvals <= 1) {
 	free(vals);
 	free(freqs);
+
+	if (fd->verbose > 1)
+	    fprintf(stderr, "0 values => 0 bits\n");
+
 	return E_HUFFMAN;
     }
-
-    /*
-     * Avoid complex stats for now, just do heuristic of HUFFMAN for small
-     * alphabets and BETA for anything large.
-     */
-    free(vals); free(freqs);
-    return nvals < 200 ? E_HUFFMAN : E_BETA;
-
-    /* We only support huffman now anyway... */
-    //free(vals); free(freqs); return E_HUFFMAN;
 
     if (fd->verbose > 1)
 	fprintf(stderr, "Range = %d..%d, nvals=%d, ntot=%d\n",
 		min_val, max_val, nvals, ntot);
 
     /* Theoretical entropy */
-    {
+    if (fd->verbose > 1) {
 	double dbits = 0;
 	for (i = 0; i < nvals; i++) {
 	    dbits += freqs[i] * log((double)freqs[i]/ntot);
@@ -239,6 +233,87 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 	if (fd->verbose > 1)
 	    fprintf(stderr, "Entropy = %f\n", dbits);
     }
+
+
+    if (nvals > 1 && ntot > 256) {
+	/*
+	 * CRUDE huffman estimator. Round to closest and round up from 0
+	 * to 1 bit.
+	 *
+	 * With and without ITF8 incase we have a few discrete values but with
+	 * large magnitude.
+	 */
+	double dbits = 0;  // entropy + ~huffman
+	double dbitsH = 0;
+	double dbitsE = 0; // external entropy + ~huffman
+	double dbitsEH = 0;
+	int F[256] = {0}, n = 0;
+	for (i = 0; i < nvals; i++) {
+	    double x; int X;
+	    unsigned int v = vals[i];
+
+	    if (!(v & ~0x7f)) {
+		F[v]             += freqs[i], n+=freqs[i];
+	    } else if (!(v & ~0x3fff)) {
+		F[(v>>8) |0x80] += freqs[i];
+		F[ v     &0xff] += freqs[i], n+=2*freqs[i];
+	    } else if (!(v & ~0x1fffff)) {
+		F[(v>>16)|0xc0] += freqs[i];
+		F[(v>>8 )&0xff] += freqs[i];
+		F[ v     &0xff] += freqs[i], n+=3*freqs[i];
+	    } else if (!(v & ~0x0fffffff)) {
+		F[(v>>24)|0xe0] += freqs[i];
+		F[(v>>16)&0xff] += freqs[i];
+		F[(v>>8 )&0xff] += freqs[i];
+		F[ v     &0xff] += freqs[i], n+=4*freqs[i];
+	    } else {
+		F[(v>>28)|0xf0] += freqs[i];
+		F[(v>>20)&0xff] += freqs[i];
+		F[(v>>12)&0xff] += freqs[i];
+		F[(v>>4 )&0xff] += freqs[i];
+		F[ v     &0x0f] += freqs[i], n+=5*freqs[i];
+	    }
+
+	    x = -log((double)freqs[i]/ntot)/.69314718055994530941;
+	    X = x+0.5;
+	    X += (X==0);
+	    dbits  += freqs[i] * x;
+	    dbitsH += freqs[i] * X;
+	}
+
+	for (i = 0; i < 256; i++) {
+	    if (F[i]) {
+		double x = -log((double)F[i]/n)/.69314718055994530941;
+		int X = x+0.5;
+		X += (X==0);
+		dbitsE  += F[i] * x;
+		dbitsEH += F[i] * X;
+	    }
+	}
+
+	//fprintf(stderr, "CORE Entropy = %f, %f\n", dbits/8, dbitsH/8);
+	//fprintf(stderr, "Ext. Entropy = %f, %f\n", dbitsE/8, dbitsEH/8);
+
+	free(vals); free(freqs);
+
+	if (dbitsE < 1000 || dbitsE / dbits > 1.1)
+	    return nvals < 200 ? E_HUFFMAN : E_BETA;
+
+	return E_EXTERNAL;
+    }
+
+    /*
+     * Avoid complex stats for now, just do heuristic of HUFFMAN for small
+     * alphabets and BETA for anything large.
+     */
+    free(vals); free(freqs);
+    return nvals < 200 ? E_HUFFMAN : E_BETA;
+    //return E_HUFFMAN;
+    //return E_EXTERNAL;
+
+
+    /* We only support huffman now anyway... */
+    //free(vals); free(freqs); return E_HUFFMAN;
 
     /* Beta */
     bits = nbits(max_val - min_val) * ntot;

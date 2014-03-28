@@ -447,7 +447,10 @@ int t_pool_dispatch(t_pool *p, t_results_queue *q,
     fprintf(stderr, "Dispatching job %p for queue %p, serial %d\n", j, q, j->serial);
 #endif
 
+    struct timeval t1, t2;
+    gettimeofday(&t1, NULL);
     pthread_mutex_lock(&p->pool_m);
+    gettimeofday(&t2, NULL);
 
     // Check if queue is full
     while (p->njobs == p->qsize)
@@ -462,10 +465,10 @@ int t_pool_dispatch(t_pool *p, t_results_queue *q,
 	p->head = p->tail = j;
     }
 
-    if (p->njobs == 1) {
+    //if (p->njobs == 1) {
 	// First job => tell all worker threads to start up
 	pthread_cond_broadcast(&p->pending_c);
-    }
+    //}
 
     pthread_mutex_unlock(&p->pool_m);
 
