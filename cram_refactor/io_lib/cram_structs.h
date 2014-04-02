@@ -105,6 +105,47 @@ enum cram_external_type {
     E_BYTE_ARRAY_BLOCK   = 5,
 };
 
+/* External IDs used by this implementation (only assumed during writing) */
+enum cram_DS_ID {
+    DS_CORE = 0,
+    DS_aux  = 1, // aux_blk
+    DS_ref,
+    DS_RN, // name_blk
+    DS_QS, // qual_blk
+    DS_SC, // soft_blk
+    DS_IN, // base_blk
+    DS_BF,
+    DS_CF,
+    DS_AP,
+    DS_RG,
+    DS_MQ,
+    DS_NS,
+    DS_MF,
+    DS_TS,
+    DS_NP,
+    DS_NF,
+    DS_RL,
+    DS_FN,
+    DS_FC,
+    DS_FP,
+    DS_DL,
+    DS_BA,
+    DS_BS,
+    DS_TL,
+    DS_RI,
+    DS_RS,
+    DS_PD,
+    DS_HC,
+    DS_TN,
+
+    DS_TC, // CRAM v1.0 tags
+    DS_TM, // test
+    DS_TV, // test
+    DS_Qs, // BYTE_ARRAY version of QS
+    
+    DS_END,
+};
+
 /* "File Definition Structure" */
 typedef struct {
     char    magic[4];
@@ -201,37 +242,7 @@ typedef struct {
     struct cram_map *rec_encoding_map[CRAM_MAP_HASH];
     struct cram_map *tag_encoding_map[CRAM_MAP_HASH];
 
-    struct cram_codec *BF_codec; // bam bit flags
-    struct cram_codec *CF_codec; // compression flags
-    struct cram_codec *RL_codec; // read length
-    struct cram_codec *AP_codec; // alignment pos
-    struct cram_codec *RG_codec; // read group
-    struct cram_codec *MF_codec; // mate flags
-    struct cram_codec *NS_codec; // next frag ref ID
-    struct cram_codec *NP_codec; // next frag pos
-    struct cram_codec *TS_codec; // template size
-    struct cram_codec *NF_codec; // next frag distance
-    struct cram_codec *TC_codec; // tag count      CRAM_1_VERS
-    struct cram_codec *TN_codec; // tag name/type  CRAM_1_VERS
-    struct cram_codec *TL_codec; // tag line       CRAM_2_VERS
-    struct cram_codec *FN_codec; // no. features
-    struct cram_codec *FC_codec; // feature code
-    struct cram_codec *FP_codec; // feature pos
-    struct cram_codec *BS_codec; // base subst feature
-    struct cram_codec *IN_codec; // insertion feature
-    struct cram_codec *SC_codec; // soft-clip feature
-    struct cram_codec *DL_codec; // deletion len feature
-    struct cram_codec *BA_codec; // base feature
-    struct cram_codec *RS_codec; // ref skip length feature
-    struct cram_codec *PD_codec; // padding length feature
-    struct cram_codec *HC_codec; // hard clip length feature
-    struct cram_codec *MQ_codec; // mapping quality
-    struct cram_codec *RN_codec; // read names
-    struct cram_codec *QS_codec; // quality value (single)
-    struct cram_codec *Qs_codec; // quality values (string)
-    struct cram_codec *RI_codec; // ref ID
-    struct cram_codec *TM_codec; // ?
-    struct cram_codec *TV_codec; // ?
+    struct cram_codec *codecs[DS_END];
 
     char *uncomp; // A single block of uncompressed data
     size_t uncomp_size, uncomp_alloc;
@@ -314,34 +325,7 @@ typedef struct {
     bam_seq_t **bams;
 
     /* Statistics for encoding */
-    cram_stats *TS_stats;
-    cram_stats *RG_stats;
-    cram_stats *FP_stats;
-    cram_stats *NS_stats;
-    cram_stats *RN_stats;
-    cram_stats *CF_stats;
-    cram_stats *TN_stats;
-    cram_stats *BA_stats;
-    cram_stats *TV_stats;
-    cram_stats *BS_stats;
-    cram_stats *FC_stats;
-    cram_stats *BF_stats;
-    cram_stats *AP_stats;
-    cram_stats *NF_stats;
-    cram_stats *MF_stats;
-    cram_stats *FN_stats;
-    cram_stats *RL_stats;
-    cram_stats *DL_stats;
-    cram_stats *TC_stats;
-    cram_stats *TL_stats;
-    cram_stats *MQ_stats;
-    cram_stats *TM_stats;
-    cram_stats *QS_stats;
-    cram_stats *NP_stats;
-    cram_stats *RI_stats;
-    cram_stats *RS_stats;
-    cram_stats *PD_stats;
-    cram_stats *HC_stats;
+    cram_stats *stats[DS_END];
 
     HashTable *tags_used; // hash of tag types in use, for tag encoding map
     int *refs_used;       // array of frequency of ref seq IDs
@@ -549,8 +533,6 @@ typedef struct cram_slice {
     int ref_start;           // start position of current reference;
     int ref_end;             // end position of current reference;
     int ref_id;
-
-    //cram_block *blocks[1024];
 } cram_slice;
 
 /*-----------------------------------------------------------------------------
@@ -736,42 +718,6 @@ enum cram_option {
 #define CRAM_FSECONDARY     4
 #define CRAM_FQCFAIL        2
 #define CRAM_FDUP           1
-
-/* External IDs used by this implementation (only assumed during writing) */
-enum cram_DS_ID {
-    DS_CORE = 0,
-    DS_aux  = 1, // aux_blk
-    DS_ref,
-    DS_RN, // name_blk
-    DS_QS, // qual_blk
-    DS_SC, // soft_blk
-    DS_IN, // base_blk
-    DS_BF,
-    DS_CF,
-    DS_AP,
-    DS_RG,
-    DS_MQ,
-    DS_NS,
-    DS_MF,
-    DS_TS,
-    DS_NP,
-    DS_NF,
-    DS_RL,
-    DS_FN,
-    DS_FC,
-    DS_FP,
-    DS_DL,
-    DS_BA,
-    DS_BS,
-    DS_TL,
-    DS_RI,
-    DS_RS,
-    DS_PD,
-    DS_HC,
-    DS_TN,
-    
-    DS_END,
-};
 
 #define DS_aux_S "\001"
 
