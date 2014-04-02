@@ -1635,7 +1635,8 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     /* The remainder, word aligned */
     blk_size = blk_ret;
-    if ((blk_ret = bam_read(b, (char *)bam_cigar(bs), blk_size+4)) == 0)
+    if ((blk_ret = bam_read(b, (char *)bam_cigar(bs), blk_size+4)) == 0 &&
+	blk_size != 0)
 	return 0;
     if (blk_size+4 != blk_ret) {
 	if (blk_size != blk_ret) {
