@@ -315,13 +315,13 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 	//fprintf(stderr, "CORE Entropy = %f, %f\n", dbits/8, dbitsH/8);
 	//fprintf(stderr, "Ext. Entropy = %f, %f\n", dbitsE/8, dbitsEH/8);
 
-	free(vals); free(freqs);
-
 	if (dbitsE < 1000 || dbitsE / dbits > 1.1) {
 	    //fprintf(stderr, "=> %d < 200 ? E_HUFFMAN : E_BETA\n", nvals);
+	    free(vals); free(freqs);
 	    return nvals < 200 ? E_HUFFMAN : E_BETA;
 	}
 #endif
+	free(vals); free(freqs);
 	return E_EXTERNAL;
     }
 

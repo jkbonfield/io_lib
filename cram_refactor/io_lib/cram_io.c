@@ -2933,6 +2933,11 @@ void cram_free_compression_header(cram_block_compression_hdr *hdr) {
 	}
     }
 
+    for (i = 0; i < DS_END; i++) {
+	if (hdr->codecs[i])
+	    hdr->codecs[i]->free(hdr->codecs[i]);
+    }
+
     if (hdr->TL)
 	free(hdr->TL);
     if (hdr->TD_blk)
