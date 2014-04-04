@@ -107,14 +107,22 @@ enum cram_external_type {
 
 /* External IDs used by this implementation (only assumed during writing) */
 enum cram_DS_ID {
-    DS_CORE = 0,
-    DS_aux  = 1, // aux_blk
+    DS_CORE   = 0,
+    DS_aux    = 1, // aux_blk
+    DS_aux_OQ = 2,
+    DS_aux_BQ = 3,
+    DS_aux_BD = 4, // BD & BI
+    DS_aux_FZ = 5,
+    DS_aux_oq = 6, // other qualities
+    DS_aux_os = 7, // other sequences
+    DS_aux_oz = 8, // other strings
     DS_ref,
     DS_RN, // name_blk
     DS_QS, // qual_blk
     DS_SC, // soft_blk
     DS_IN, // base_blk
-    DS_BF,
+
+    DS_BF, // start loop
     DS_CF,
     DS_AP,
     DS_RG,
@@ -136,7 +144,8 @@ enum cram_DS_ID {
     DS_RS,
     DS_PD,
     DS_HC,
-    DS_TN,
+
+    DS_TN, // end loop
 
     DS_TC, // CRAM v1.0 tags
     DS_TM, // test
@@ -171,6 +180,8 @@ enum cram_block_method {
     ARITH1 = 5,
     RANS0  = 6,
     RANS1  = 7,
+
+    GZIP_RLE = 8, // NB: not externalised in CRAM
 };
 
 enum cram_content_type {
@@ -184,10 +195,28 @@ enum cram_content_type {
 
 /* Compression metrics */
 typedef struct {
-    int m1;
-    int m2;
+    // number of trials and time to next trial
     int trial;
     int next_trial;
+
+    // aggregate sizes during trials
+    int sz_gz_rle;
+    int sz_gz_def;
+    int sz_rans0;
+    int sz_rans1;
+    int sz_bzip2;
+
+    // resultant method from trials
+    int method;
+    int strat;
+
+    // Revisions of method, to allow culling of continually failing ones.
+    int gz_rle_cnt;
+    int gz_def_cnt;
+    int rans0_cnt;
+    int rans1_cnt;
+    int bzip2_cnt;
+    int revised_method;
 } cram_metrics;
 
 /* Block */
@@ -493,32 +522,6 @@ typedef struct cram_slice {
     int tn_id;
 #endif
 
-    // Pointers to either an external block or to the CORE block.
-    cram_block *BF_blk;
-    cram_block *MQ_blk;
-    cram_block *AP_blk;
-    cram_block *FN_blk;
-    cram_block *FP_blk;
-    cram_block *FC_blk;
-    cram_block *BS_blk;
-    cram_block *TL_blk;
-    cram_block *DL_blk;
-    cram_block *BA_blk;
-    cram_block *NS_blk;
-    cram_block *RL_blk;
-    cram_block *MF_blk;
-    cram_block *CF_blk;
-    cram_block *HC_blk;
-    cram_block *RG_blk;
-    cram_block *RI_blk;
-    cram_block *TS_blk;
-    cram_block *NP_blk;
-    cram_block *NF_blk;
-    cram_block *TN_blk;
-    cram_block *RS_blk;
-    cram_block *PD_blk;
-    cram_block *TC_blk;
-
     // For variable sized elements which are always external blocks.
     cram_block *name_blk;
     cram_block *seqs_blk;
@@ -526,6 +529,13 @@ typedef struct cram_slice {
     cram_block *base_blk;
     cram_block *soft_blk;
     cram_block *aux_blk;
+    cram_block *aux_OQ_blk;
+    cram_block *aux_BQ_blk;
+    cram_block *aux_BD_blk;
+    cram_block *aux_FZ_blk;
+    cram_block *aux_oq_blk;
+    cram_block *aux_os_blk;
+    cram_block *aux_oz_blk;
 
     HashTable *pair;         // for identifying read-pairs in this slice.
 
@@ -642,7 +652,7 @@ typedef struct {
 
     // compression level and metrics
     int level;
-    cram_metrics *m[10];
+    cram_metrics *m[DS_END];
 
     // options
     int decode_md; // Whether to export MD and NM tags
@@ -720,6 +730,13 @@ enum cram_option {
 #define CRAM_FDUP           1
 
 #define DS_aux_S "\001"
+#define DS_aux_OQ_S "\002"
+#define DS_aux_BQ_S "\003"
+#define DS_aux_BD_S "\004"
+#define DS_aux_FZ_S "\005"
+#define DS_aux_oq_S "\006"
+#define DS_aux_os_S "\007"
+#define DS_aux_oz_S "\010"
 
 #define CRAM_M_REVERSE  1
 #define CRAM_M_UNMAP    2
