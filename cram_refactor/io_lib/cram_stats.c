@@ -236,21 +236,31 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 
 
     if (nvals > 1 && ntot > 256) {
+#if 0
 	/*
 	 * CRUDE huffman estimator. Round to closest and round up from 0
 	 * to 1 bit.
 	 *
 	 * With and without ITF8 incase we have a few discrete values but with
 	 * large magnitude.
+	 *
+	 * Note rans0/arith0 and Z_HUFFMAN_ONLY vs internal huffman can be
+	 * compared in this way, but order-1 (eg rans1) or maybe LZ77 modes
+	 * may detect the correlation of high bytes to low bytes in multi-
+	 * byte values. So this predictor breaks down.
 	 */
 	double dbits = 0;  // entropy + ~huffman
 	double dbitsH = 0;
 	double dbitsE = 0; // external entropy + ~huffman
 	double dbitsEH = 0;
 	int F[256] = {0}, n = 0;
+	double e = 0; // accumulated error bits
 	for (i = 0; i < nvals; i++) {
 	    double x; int X;
 	    unsigned int v = vals[i];
+
+	    //Better encoding would cope with sign.
+	    //v = ABS(vals[i])*2+(vals[i]<0);
 
 	    if (!(v & ~0x7f)) {
 		F[v]             += freqs[i], n+=freqs[i];
@@ -276,7 +286,16 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 
 	    x = -log((double)freqs[i]/ntot)/.69314718055994530941;
 	    X = x+0.5;
+	    if ((int)(x+((double)e/freqs[i])+.5)>X) {
+		X++;
+	    } else if ((int)(x+((double)e/freqs[i])+.5)<X) {
+		X--;
+	    }
+	    e-=freqs[i]*(X-x);
 	    X += (X==0);
+
+	    //fprintf(stderr, "Val %d = %d x %d (ent %f, %d) e %f\n", i, v, freqs[i], x, X, e);
+
 	    dbits  += freqs[i] * x;
 	    dbitsH += freqs[i] * X;
 	}
@@ -288,6 +307,8 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 		X += (X==0);
 		dbitsE  += F[i] * x;
 		dbitsEH += F[i] * X;
+
+		//fprintf(stderr, "Val %d = %d x %d (e %f, %d)\n", i, i, F[i], x, X);
 	    }
 	}
 
@@ -296,9 +317,11 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 
 	free(vals); free(freqs);
 
-	if (dbitsE < 1000 || dbitsE / dbits > 1.1)
+	if (dbitsE < 1000 || dbitsE / dbits > 1.1) {
+	    //fprintf(stderr, "=> %d < 200 ? E_HUFFMAN : E_BETA\n", nvals);
 	    return nvals < 200 ? E_HUFFMAN : E_BETA;
-
+	}
+#endif
 	return E_EXTERNAL;
     }
 

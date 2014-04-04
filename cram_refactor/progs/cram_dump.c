@@ -694,11 +694,11 @@ int main(int argc, char **argv) {
 
 	    k = (int)hi->key;
 	    if (k == -1) {
-		printf("Block CORE          , total size %10d\n", hi->data.i);
+		printf("Block CORE          , total size %10ld\n", hi->data.i);
 		continue;
 	    }
 
-	    printf("Block content_id %3d, total size %10d ", k, hi->data.i);
+	    printf("Block content_id %3d, total size %10ld ", k, hi->data.i);
 
 	    iter = HashTableIterCreate();
 	    while ((hi = HashTableIterNext(ds_h, iter))) {
