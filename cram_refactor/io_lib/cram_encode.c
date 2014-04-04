@@ -905,6 +905,9 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     if (fd->use_arith)
 	method |= (1<<RANS0) | (1<<RANS1);
 
+    if (fd->use_lzma)
+	method |= (1<<LZMA);
+
     /* Specific compression methods for certain block types */
 
     if (cram_compress_block(fd, s->block[DS_IN], fd->m[DS_IN], //IN (seq)

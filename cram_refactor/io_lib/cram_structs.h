@@ -205,6 +205,7 @@ typedef struct {
     int sz_rans0;
     int sz_rans1;
     int sz_bzip2;
+    int sz_lzma;
 
     // resultant method from trials
     int method;
@@ -216,6 +217,7 @@ typedef struct {
     int rans0_cnt;
     int rans1_cnt;
     int bzip2_cnt;
+    int lzma_cnt;
     int revised_method;
 } cram_metrics;
 
@@ -664,6 +666,7 @@ typedef struct {
     int ignore_md5;
     int use_bz2;
     int use_arith;
+    int use_lzma;
     int shared_ref;
     enum quality_binning binning;
     cram_range range;
@@ -715,6 +718,7 @@ enum cram_option {
     CRAM_OPT_THREAD_POOL,
     CRAM_OPT_BINNING,
     CRAM_OPT_USE_ARITH,
+    CRAM_OPT_USE_LZMA,
 };
 
 /* BF bitfields */

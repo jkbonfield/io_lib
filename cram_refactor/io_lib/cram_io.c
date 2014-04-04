@@ -1187,6 +1187,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    size_t sz_rans0 = 0;
 	    size_t sz_rans1 = 0;
 	    size_t sz_bzip2 = 0;
+	    size_t sz_lzma = 0;
 	    int method_best = 0;
 	    char *c_best = NULL, *c = NULL;
 
@@ -1203,6 +1204,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		metrics->sz_rans0  /= 2;
 		metrics->sz_rans1  /= 2;
 		metrics->sz_bzip2  /= 2;
+		metrics->sz_lzma   /= 2;
 	    }
 
 	    pthread_mutex_unlock(&fd->metrics_lock);
@@ -1282,6 +1284,20 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		}
 	    }
 
+	    if (method & (1<<LZMA)) {
+		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
+					    &sz_lzma, LZMA, level, 0);
+		if (sz_best > sz_lzma) {
+		    sz_best = sz_lzma;
+		    method_best = LZMA;
+		    if (c_best)
+			free(c_best);
+		    c_best = c;
+		} else {
+		    free(c);
+		}
+	    }
+
 	    //fprintf(stderr, "sz_best = %d\n", sz_best);
 
 	    free(b->data);
@@ -1296,39 +1312,22 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    metrics->sz_rans0  += sz_rans0;
 	    metrics->sz_rans1  += sz_rans1;
 	    metrics->sz_bzip2  += sz_bzip2;
+	    metrics->sz_lzma   += sz_lzma;
 	    if (--metrics->trial == 0) {
 		int best_method = RAW;
 		int best_sz = INT_MAX;
-
-//		fprintf(stderr, "block ID %d to %d by method %s\n",
-//			b->content_id, metrics->sz_gz_rle,
-//			cram_block_method2str(GZIP_RLE));
-//
-//		fprintf(stderr, "block ID %d to %d by method %s\n",
-//			b->content_id, metrics->sz_gz_def,
-//			cram_block_method2str(GZIP));
-//
-//		fprintf(stderr, "block ID %d to %d by method %s\n",
-//			b->content_id, metrics->sz_rans0,
-//			cram_block_method2str(RANS0));
-//
-//		fprintf(stderr, "block ID %d to %d by method %s\n",
-//			b->content_id, metrics->sz_rans1,
-//			cram_block_method2str(RANS1));
-//
-//		fprintf(stderr, "block ID %d to %d by method %s\n",
-//			b->content_id, metrics->sz_bzip2,
-//			cram_block_method2str(BZIP2));
 
 		// Scale methods by cost
 		if (fd->level <= 3) {
 		    metrics->sz_rans1  *= 1.02;
 		    metrics->sz_gz_def *= 1.04;
 		    metrics->sz_bzip2  *= 1.10;
+		    metrics->sz_lzma   *= 1.10;
 		} else if (fd->level <= 6) {
 		    metrics->sz_rans1  *= 1.01;
 		    metrics->sz_gz_def *= 1.03;
 		    metrics->sz_bzip2  *= 1.05;
+		    metrics->sz_lzma   *= 1.05;
 		}
 
 		if (method & (1<<GZIP_RLE) && best_sz > metrics->sz_gz_rle)
@@ -1345,6 +1344,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
 		if (method & (1<<BZIP2) && best_sz > metrics->sz_bzip2)
 		    best_sz = metrics->sz_bzip2, best_method = BZIP2;
+
+		if (method & (1<<LZMA) && best_sz > metrics->sz_lzma)
+		    best_sz = metrics->sz_lzma, best_method = LZMA;
 
 		if (best_method == GZIP_RLE) {
 		    metrics->method = GZIP;
@@ -1389,6 +1391,12 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		else if (best_sz*CFRAC < metrics->sz_bzip2)
 		    if (++metrics->bzip2_cnt >= MAXFAILS)
 			method &= ~(1<<BZIP2);
+
+		if (best_method == LZMA)
+		    metrics->lzma_cnt = 0;
+		else if (best_sz*CFRAC < metrics->sz_lzma)
+		    if (++metrics->lzma_cnt >= MAXFAILS)
+			method &= ~(1<<LZMA);
 
 //		if (method != metrics->revised_method)
 //		    fprintf(stderr, "%d: method from %x to %x\n",
@@ -1443,6 +1451,7 @@ cram_metrics *cram_new_metrics(void) {
     m->sz_rans0 = 0;
     m->sz_rans1 = 0;
     m->sz_bzip2 = 0;
+    m->sz_lzma = 0;
     m->trial = NTRIALS-1;
     m->next_trial = TRIAL_SPAN;
     m->method = RAW;
@@ -3768,6 +3777,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->ignore_md5 = 0;
     fd->use_bz2 = 0;
     fd->use_arith = 0;
+    fd->use_lzma = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
     fd->shared_ref = 0;
@@ -4009,6 +4019,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_USE_ARITH:
 	fd->use_arith = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_LZMA:
+	fd->use_lzma = va_arg(args, int);
 	break;
 
     case CRAM_OPT_SHARED_REF:
