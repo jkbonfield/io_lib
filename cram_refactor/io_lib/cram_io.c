@@ -1321,12 +1321,12 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		if (fd->level <= 3) {
 		    metrics->sz_rans1  *= 1.02;
 		    metrics->sz_gz_def *= 1.04;
-		    metrics->sz_bzip2  *= 1.10;
+		    metrics->sz_bzip2  *= 1.08;
 		    metrics->sz_lzma   *= 1.10;
 		} else if (fd->level <= 6) {
 		    metrics->sz_rans1  *= 1.01;
 		    metrics->sz_gz_def *= 1.03;
-		    metrics->sz_bzip2  *= 1.05;
+		    metrics->sz_bzip2  *= 1.04;
 		    metrics->sz_lzma   *= 1.05;
 		}
 

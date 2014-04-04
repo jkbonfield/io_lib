@@ -893,7 +893,7 @@ static int cram_encode_slice_read(cram_fd *fd,
  */
 static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     int level = fd->level, i;
-    int method = 1<<GZIP | 1<<GZIP_RLE;
+    int method = 1<<GZIP | 1<<GZIP_RLE, methodF = method;
 
     /* Compress the CORE Block too, with minimal zlib level */
     if (level > 5)
@@ -908,41 +908,43 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     if (fd->use_lzma)
 	method |= (1<<LZMA);
 
-    /* Specific compression methods for certain block types */
+    /* Faster method for data series we only need entropy encoding on */
+    methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
+    if (level >= 8)
+	methodF = method;
+    
 
+    /* Specific compression methods for certain block types */
     if (cram_compress_block(fd, s->block[DS_IN], fd->m[DS_IN], //IN (seq)
 			    method, level))
 	return -1;
 
-#if 0
-
     if (fd->level == 0) {
 	/* Do nothing */
     } else if (fd->level == 1) {
-	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS], //qual
-				method & ~(1<<GZIP | 1<<BZIP2), 1))
+	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS],
+				methodF, 1))
 	    return -1;
 	for (i = DS_aux; i <= DS_aux_oz; i++) {
 	    if (s->block[i])
 		if (cram_compress_block(fd, s->block[i], fd->m[i],
-					method & ~(1<<GZIP | 1<<BZIP2), 1))
+					method, 1))
 		    return -1;
 	}
     } else if (fd->level < 3) {
-	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS], //qual
-				method & ~(1<<BZIP2), 3))
+	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS],
+				method, 1))
 	    return -1;
 	for (i = DS_aux; i <= DS_aux_oz; i++) {
 	    if (s->block[i])
 		if (cram_compress_block(fd, s->block[i], fd->m[i],
-					method & ~(1<<BZIP2), 3))
+					method, level))
 		    return -1;
 	}
     } else {
-	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS], //qual
+	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS],
 				method, level))
 	    return -1;
-	}
 	for (i = DS_aux; i <= DS_aux_oz; i++) {
 	    if (s->block[i])
 		if (cram_compress_block(fd, s->block[i], fd->m[i],
@@ -952,162 +954,18 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     }
 
     // NAME: best is generally xz, bzip2, zlib then rans1
-    if (cram_compress_block(fd, s->block[DS_RN], fd->m[DS_RN], //Name
-			    method & ~(1<<RANS0 | 1<<GZIP_RLE), level))
+    // It benefits well from a little bit extra compression level.
+    if (cram_compress_block(fd, s->block[DS_RN], fd->m[DS_RN],
+			    method & ~(1<<RANS0 | 1<<GZIP_RLE),
+			    MIN(9,level+1)))
 	return -1;
-
-    if (!IS_CRAM_1_VERS(fd)) {
-	if (cram_compress_block(fd, s->block[DS_SC], fd->m[DS_SC], //SC (seq)
-				method, level))
-	    return -1;
-    }
-
-    if (s->block[DS_BF] != s->block[0])
-	if (cram_compress_block(fd, s->block[DS_BF], fd->m[DS_BF],
-				method, level))
-				method1, fd->level, Z_RLE,
-				method2, level2, Z_DEFAULT_STRATEGY))
-	    return -1;
-
-    if (s->block[DS_CF] != s->block[0]) {
-	if (fd->use_arith) {
-	    if (cram_compress_block(fd, s->block[DS_CF], fd->m[DS_CF],
-				    method, level))
-				    RANS0, fd->level, Z_RLE,
-				    GZIP, 1, Z_RLE))
-
-		return -1;
-	} else {
-	    if (cram_compress_block(fd, s->block[DS_CF], fd->m[DS_CF],
-				    method, level))
-				    method1, fd->level, Z_RLE,
-				    method2, level2, Z_DEFAULT_STRATEGY))
-
-		return -1;
-	}
-    }
-
-    if (s->block[DS_MQ] != s->block[0]) {
-	if (fd->use_arith) {
-	    if (cram_compress_block(fd, s->block[DS_MQ], fd->m[DS_MQ],
-				    method, level))
-				    RANS0, fd->level, Z_RLE,
-				    method2, level2, Z_DEFAULT_STRATEGY))
-		return -1;
-	} else {
-	    if (cram_compress_block(fd, s->block[DS_MQ], fd->m[DS_MQ],
-				    method, level))
-				    method1, fd->level, Z_RLE,
-				    method2, level2, Z_DEFAULT_STRATEGY))
-		return -1;
-	}
-    }
 
     // NS shows strong local correlation as rearrangements are localised
     if (s->block[DS_NS] != s->block[0])
 	if (cram_compress_block(fd, s->block[DS_NS], fd->m[DS_NS],
 				method, level))
-				GZIP, fd->level, Z_DEFAULT_STRATEGY,
-				method2, level2, Z_RLE))
 	    return -1;
 
-    if (s->block[DS_AP] != s->block[0]) {
-	if (fd->use_arith) {
-	    if (cram_compress_block(fd, s->block[DS_AP], fd->m[DS_AP],
-				    method, level))
-				    RANS0, fd->level, Z_RLE,
-				    GZIP, 1, Z_RLE))
-		return -1;
-	} else {
-	    if (cram_compress_block(fd, s->block[DS_AP], fd->m[DS_AP],
-				    method, level))
-				    method1, fd->level, Z_RLE,
-				    method2, level2, Z_DEFAULT_STRATEGY))
-		return -1;
-	}
-    }
-
-    if (s->block[DS_NF] != s->block[0]) {
-	if (fd->use_arith) {
-	    if (cram_compress_block(fd, s->block[DS_NF], fd->m[DS_NF],
-				    method, level))
-				    RANS0, fd->level, Z_RLE,
-				    GZIP, 1, Z_RLE))
-		return -1;
-	} else {
-	    if (cram_compress_block(fd, s->block[DS_NF], fd->m[DS_NF],
-				    method1, fd->level, Z_RLE,
-				    method2, level2, Z_DEFAULT_STRATEGY))
-		return -1;
-	}
-    }
-
-    if (s->block[DS_RL] != s->block[0])
-	if (cram_compress_block(fd, s->block[DS_RL], fd->m[DS_RL],
-				method, level))
-				method1, fd->level, Z_RLE,
-				method2, level2, Z_DEFAULT_STRATEGY))
-	    return -1;
-
-    if (s->block[DS_FN] != s->block[0])
-	if (cram_compress_block(fd, s->block[DS_FN], fd->m[DS_FN],
-				method, level))
-				method1, fd->level, Z_RLE,
-				method2, level2, Z_DEFAULT_STRATEGY))
-	    return -1;
-
-    if (s->block[DS_FP] != s->block[0])
-	if (cram_compress_block(fd, s->block[DS_FP], fd->m[DS_FP],
-				method, level))
-				method1, fd->level, Z_RLE,
-				method2, level2, Z_DEFAULT_STRATEGY))
-	    return -1;
-
-    if (s->block[DS_FC] != s->block[0])
-	if (cram_compress_block(fd, s->block[DS_FC], fd->m[DS_FC],
-				method, level))
-				method1, fd->level, Z_RLE,
-				method2, level2, Z_DEFAULT_STRATEGY))
-	    return -1;
-
-    if (s->block[DS_BA] != s->block[0])
-	if (cram_compress_block(fd, s->block[DS_BA], fd->m[DS_BA],
-				method, level))
-				method1, fd->level, Z_RLE,
-				method2, level2, Z_DEFAULT_STRATEGY))
-	    return -1;
-
-    if (s->block[DS_BS] != s->block[0])
-	if (cram_compress_block(fd, s->block[DS_BS], fd->m[DS_BS],
-				method, level))
-				method1, fd->level, Z_RLE,
-				method2, level2, Z_DEFAULT_STRATEGY))
-	    return -1;
-
-    if (s->block[DS_TL] != s->block[0]) {
-	if (fd->use_arith) {
-	    if (cram_compress_block(fd, s->block[DS_TL], fd->m[DS_TL],
-				method, level))
-				    RANS0, fd->level, Z_RLE,
-				    method2, level2, Z_DEFAULT_STRATEGY))
-		return -1;
-	} else {
-	    if (cram_compress_block(fd, s->block[DS_TL], fd->m[DS_TL],
-				method, level))
-				    method1, fd->level, Z_RLE,
-				    method2, level2, Z_DEFAULT_STRATEGY))
-		return -1;
-	}
-    }
-
-//    if (embed_ref) {
-//	BLOCK_UPLEN(s->block[s->ref_id]);
-//	if (cram_compress_block(fd, s->block[s->ref_id], fd->m[DS_ref],
-//				method1, fd->level, Z_DEFAULT_STRATEGY,
-//				method2, level2, strat2))
-//	    return -1;
-//    }
-#endif
 
     /*
      * Minimal compression of any block still uncompressed, bar CORE
@@ -1118,9 +976,10 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
 	    if (!s->block[i] || s->block[i] == s->block[0])
 		continue;
 
+	    // fast methods only
 	    if (s->block[i]->method == RAW) {
 		cram_compress_block(fd, s->block[i], fd->m[i],
-				    method, level);
+				    methodF, level);
 	    }
 	}
     }
