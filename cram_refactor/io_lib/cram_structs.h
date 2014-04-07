@@ -219,6 +219,13 @@ typedef struct {
     int bzip2_cnt;
     int lzma_cnt;
     int revised_method;
+
+    double gz_rle_extra;
+    double gz_def_extra;
+    double rans0_extra;
+    double rans1_extra;
+    double bzip2_extra;
+    double lzma_extra;
 } cram_metrics;
 
 /* Block */

@@ -88,7 +88,7 @@
 #define gettid() 0
 #endif
 
-#define TRIAL_SPAN 30
+#define TRIAL_SPAN 50
 #define NTRIALS 3
 
 
@@ -1325,8 +1325,8 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    metrics->sz_lzma   *= 1.10;
 		} else if (fd->level <= 6) {
 		    metrics->sz_rans1  *= 1.01;
-		    metrics->sz_gz_def *= 1.03;
-		    metrics->sz_bzip2  *= 1.04;
+		    metrics->sz_gz_def *= 1.02;
+		    metrics->sz_bzip2  *= 1.03;
 		    metrics->sz_lzma   *= 1.05;
 		}
 
@@ -1356,51 +1356,75 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    metrics->strat  = Z_FILTERED;
 		}
 
-		// If we see MAXFAIL trials in a row for a specific
-		// compression method are always more than CFRAC times
-		// larger than the best method, then drop it from the
-		// list of methods used for this block type.
-#define CFRAC 1.05
-#define MAXFAILS 3
-		if (best_method == GZIP_RLE)
+		// If we see at least MAXFAIL trials in a row for a specific
+		// compression method with more than MAXDELTA aggregate
+		// size then we drop this from the list of methods used
+		// for this block type.
+#define MAXDELTA 0.20
+#define MAXFAILS 4
+		if (best_method == GZIP_RLE) {
 		    metrics->gz_rle_cnt = 0;
-		else if (best_sz*CFRAC < metrics->sz_gz_rle)
-		    if (++metrics->gz_rle_cnt >= MAXFAILS)
+		    metrics->gz_rle_extra = 0;
+		} else if (best_sz < metrics->sz_gz_rle) {
+		    double r = (double)metrics->sz_gz_rle / best_sz - 1;
+		    if (++metrics->gz_rle_cnt >= MAXFAILS && 
+			(metrics->gz_rle_extra += r) >= MAXDELTA)
 			method &= ~(1<<GZIP_RLE);
+		}
 
-		if (best_method == GZIP)
+		if (best_method == GZIP) {
 		    metrics->gz_def_cnt = 0;
-		else if (best_sz*CFRAC < metrics->sz_gz_def)
-		    if (++metrics->gz_def_cnt >= MAXFAILS)
+		    metrics->gz_def_extra = 0;
+		} else if (best_sz < metrics->sz_gz_def) {
+		    double r = (double)metrics->sz_gz_def / best_sz - 1;
+		    if (++metrics->gz_def_cnt >= MAXFAILS &&
+			(metrics->gz_def_extra += r) >= MAXDELTA)
 			method &= ~(1<<GZIP);
+		}
 
-		if (best_method == RANS0)
+		if (best_method == RANS0) {
 		    metrics->rans0_cnt = 0;
-		else if (best_sz*CFRAC < metrics->sz_rans0)
-		    if (++metrics->rans0_cnt >= MAXFAILS)
+		    metrics->rans0_extra = 0;
+		} else if (best_sz < metrics->sz_rans0) {
+		    double r = (double)metrics->sz_rans0 / best_sz - 1;
+		    if (++metrics->rans0_cnt >= MAXFAILS &&
+			(metrics->rans0_extra += r) >= MAXDELTA)
 			method &= ~(1<<RANS0);
+		}
 
-		if (best_method == RANS1)
+		if (best_method == RANS1) {
 		    metrics->rans1_cnt = 0;
-		else if (best_sz*CFRAC < metrics->sz_rans1)
-		    if (++metrics->rans1_cnt >= MAXFAILS)
+		    metrics->rans1_extra = 0;
+		} else if (best_sz < metrics->sz_rans1) {
+		    double r = (double)metrics->sz_rans1 / best_sz - 1;
+		    if (++metrics->rans1_cnt >= MAXFAILS &&
+			(metrics->rans1_extra += r) >= MAXDELTA)
 			method &= ~(1<<RANS1);
+		}
 
-		if (best_method == BZIP2)
+		if (best_method == BZIP2) {
 		    metrics->bzip2_cnt = 0;
-		else if (best_sz*CFRAC < metrics->sz_bzip2)
-		    if (++metrics->bzip2_cnt >= MAXFAILS)
+		    metrics->bzip2_extra = 0;
+		} else if (best_sz < metrics->sz_bzip2) {
+		    double r = (double)metrics->sz_bzip2 / best_sz - 1;
+		    if (++metrics->bzip2_cnt >= MAXFAILS &&
+			(metrics->bzip2_extra += r) >= MAXDELTA)
 			method &= ~(1<<BZIP2);
+		}
 
-		if (best_method == LZMA)
+		if (best_method == LZMA) {
 		    metrics->lzma_cnt = 0;
-		else if (best_sz*CFRAC < metrics->sz_lzma)
-		    if (++metrics->lzma_cnt >= MAXFAILS)
+		    metrics->lzma_extra = 0;
+		} else if (best_sz < metrics->sz_lzma) {
+		    double r = (double)metrics->sz_lzma / best_sz - 1;
+		    if (++metrics->lzma_cnt >= MAXFAILS &&
+			(metrics->lzma_extra += r) >= MAXDELTA)
 			method &= ~(1<<LZMA);
+		}
 
-//		if (method != metrics->revised_method)
-//		    fprintf(stderr, "%d: method from %x to %x\n",
-//			    b->content_id, metrics->revised_method, method);
+		//if (method != metrics->revised_method)
+		//    fprintf(stderr, "%d: method from %x to %x\n",
+		//	    b->content_id, metrics->revised_method, method);
 		metrics->revised_method = method;
 	    }
 	    pthread_mutex_unlock(&fd->metrics_lock);

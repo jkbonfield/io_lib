@@ -910,7 +910,7 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
 
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
-    if (level >= 8)
+    if (level >= 6)
 	methodF = method;
     
 
