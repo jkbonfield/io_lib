@@ -209,6 +209,16 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
     st->nvals = nvals;
     assert(ntot == st->nsamp);
 
+#if 0
+    // RANDOMISER
+    switch(random()%10) {
+    case 0:  return E_HUFFMAN;
+    case 1:  return E_HUFFMAN;
+    //case 1:  return E_BETA; // Java doesn't support E_BETA for BYTE vals
+    default: return E_EXTERNAL;
+    }
+#endif
+
     if (nvals <= 1) {
 	free(vals);
 	free(freqs);
@@ -233,7 +243,6 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 	if (fd->verbose > 1)
 	    fprintf(stderr, "Entropy = %f\n", dbits);
     }
-
 
     if (nvals > 1 && ntot > 256) {
 #if 0

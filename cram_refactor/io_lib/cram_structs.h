@@ -284,6 +284,8 @@ typedef struct {
 
     char *uncomp; // A single block of uncompressed data
     size_t uncomp_size, uncomp_alloc;
+
+    unsigned int data_series; // See cram_fields enum below
 } cram_block_compression_hdr;
 
 typedef struct cram_map {
@@ -676,6 +678,7 @@ typedef struct {
     int use_lzma;
     int shared_ref;
     enum quality_binning binning;
+    unsigned int required_fields;
     cram_range range;
 
     // lookup tables, stored here so we can be trivially multi-threaded
@@ -706,6 +709,64 @@ typedef struct {
     int ooc;                            // out of containers.
 } cram_fd;
 
+// REQUIRED_FIELDS
+enum sam_fields {
+    SAM_QNAME = 0x00000001,
+    SAM_FLAG  = 0x00000002,
+    SAM_RNAME = 0x00000004,
+    SAM_POS   = 0x00000008,
+    SAM_MAPQ  = 0x00000010,
+    SAM_CIGAR = 0x00000020,
+    SAM_RNEXT = 0x00000040,
+    SAM_PNEXT = 0x00000080,
+    SAM_TLEN  = 0x00000100,
+    SAM_SEQ   = 0x00000200,
+    SAM_QUAL  = 0x00000400,
+    SAM_AUX   = 0x00000800,
+};
+
+// Translation of required fields to cram data series
+enum cram_fields {
+    CRAM_BF = 0x00000001,
+    CRAM_AP = 0x00000002,
+    CRAM_FP = 0x00000004,
+    CRAM_RL = 0x00000008,
+    CRAM_DL = 0x00000010,
+    CRAM_NF = 0x00000020,
+    CRAM_BA = 0x00000040,
+    CRAM_QS = 0x00000080,
+    CRAM_FC = 0x00000100,
+    CRAM_FN = 0x00000200,
+    CRAM_BS = 0x00000400,
+    CRAM_IN = 0x00000800,
+    CRAM_RG = 0x00001000,
+    CRAM_MQ = 0x00002000,
+    CRAM_TL = 0x00004000,
+    CRAM_RN = 0x00008000,
+    CRAM_NS = 0x00010000,
+    CRAM_NP = 0x00020000,
+    CRAM_TS = 0x00040000,
+    CRAM_MF = 0x00080000,
+    CRAM_CF = 0x00100000,
+    CRAM_RI = 0x00200000,
+    CRAM_RS = 0x00400000,
+    CRAM_PD = 0x00800000,
+    CRAM_HC = 0x01000000,
+    CRAM_SC = 0x02000000,
+    CRAM_aux= 0x04000000,
+    CRAM_ALL= 0x07ffffff,
+};
+
+// A CIGAR opcode, but not necessarily the implications of it. Eg FC/FP may
+// encode a base difference, but we don't need to know what it is for CIGAR.
+// If we have a soft-clip or insertion, we do need SC/IN though to know how
+// long that array is.
+#define CRAM_CIGAR (CRAM_FN | CRAM_FP | CRAM_FC | CRAM_DL | CRAM_IN | \
+		    CRAM_SC | CRAM_HC | CRAM_PD | CRAM_RS | CRAM_RL | CRAM_BF)
+
+#define CRAM_SEQ (CRAM_CIGAR | CRAM_BA | CRAM_QS | CRAM_BS | CRAM_BA | \
+		  CRAM_RL    | CRAM_AP)
+
 enum cram_option {
     CRAM_OPT_DECODE_MD,
     CRAM_OPT_PREFIX,
@@ -726,6 +787,7 @@ enum cram_option {
     CRAM_OPT_BINNING,
     CRAM_OPT_USE_ARITH,
     CRAM_OPT_USE_LZMA,
+    CRAM_OPT_REQUIRED_FIELDS,
 };
 
 /* BF bitfields */

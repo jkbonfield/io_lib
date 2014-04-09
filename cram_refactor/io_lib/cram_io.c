@@ -906,7 +906,7 @@ int cram_uncompress_block(cram_block *b) {
 
     switch (b->method) {
     case RAW:
-	b->uncomp_size = b->comp_size;
+	//b->uncomp_size = b->comp_size;
 	return 0;
 
     case GZIP:
@@ -3010,6 +3010,10 @@ void cram_free_slice(cram_slice *s) {
 
 	if (s->hdr) {
 	    for (i = 0; i < s->hdr->num_blocks; i++) {
+#if 0
+		//RANDOMISER - leaks memory, but it's debug only
+		break;
+#endif
 		cram_free_block(s->block[i]);
 	    }
 	}
@@ -3812,6 +3816,8 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->rqueue      = NULL;
     fd->job_pending = NULL;
     fd->ooc         = 0;
+    fd->binning     = BINNING_NONE;
+    fd->required_fields = INT_MAX;
 
     for (i = 0; i < DS_END; i++)
 	fd->m[i] = cram_new_metrics();
@@ -4124,6 +4130,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_BINNING:
 	fd->binning = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_REQUIRED_FIELDS:
+	fd->required_fields = va_arg(args, int);
 	break;
 
     default:
