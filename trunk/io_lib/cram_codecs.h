@@ -89,6 +89,7 @@ typedef struct {
 } cram_subexp_decoder;
 
 typedef struct {
+    cram_block *b;
     int32_t content_id;
     enum cram_external_type type;
 } cram_external_decoder;
@@ -99,6 +100,7 @@ typedef struct {
 } cram_byte_array_len_decoder;
 
 typedef struct {
+    cram_block *b;
     unsigned char stop;
     int32_t content_id;
 } cram_byte_array_stop_decoder;
@@ -154,6 +156,13 @@ cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st,
 //#define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, (--b->bit == -1) && (b->bit = 7, b->byte++))
 
 #define GET_BIT_MSB(b,v) (void)(v<<=1, v|=(b->data[b->byte] >> b->bit)&1, b->byte += (--b->bit<0), b->bit&=7)
+
+/*
+ * Returns the content_id used by this codec, also in id2 if byte_array_len.
+ * Returns -1 for the CORE block and -2 for unneeded.
+ * id2 is only filled out for BYTE_ARRAY_LEN which uses 2 codecs.
+ */
+int cram_codec_to_id(cram_codec *c, int *id2);
 
 #ifdef __cplusplus
 }

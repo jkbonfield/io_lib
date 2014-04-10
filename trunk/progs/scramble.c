@@ -35,6 +35,10 @@
  * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -120,15 +124,17 @@ int main(int argc, char **argv) {
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
-    int start, end, multi_seq = -1, no_ref = 0, use_bz2 = 0, use_arith = 0;
+    int start, end, multi_seq = -1, no_ref = 0;
+    int use_bz2 = 0, use_arith = 0, use_lzma = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
     t_pool *p = NULL;
+    int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJt:B")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -221,12 +227,21 @@ int main(int argc, char **argv) {
 	    use_bz2 = 1;
 #else
 	    fprintf(stderr, "Warning: bzip2 support is not compiled into this"
-		    " version.\nPlease recompile. (Using zlib instead.)\n");
+		    " version.\nPlease recompile.\n");
 #endif
 	    break;
 
 	case 'J':
 	    use_arith = 1;
+	    break;
+
+	case 'Z':
+#ifdef HAVE_LIBLZMA
+	    use_lzma = 1;
+#else
+	    fprintf(stderr, "Warning: lzma support is not compiled into this"
+		    " version.\nPlease recompile.\n");
+#endif
 	    break;
 
 	case 't':
@@ -239,6 +254,10 @@ int main(int argc, char **argv) {
 
 	case 'B':
 	    binning = BINNING_ILLUMINA;
+	    break;
+
+	case 'N': // For debugging
+	    max_reads = atoi(optarg);
 	    break;
 
 	case '?':
@@ -317,6 +336,10 @@ int main(int argc, char **argv) {
 
     if (use_arith)
 	if (scram_set_option(out, CRAM_OPT_USE_ARITH, use_arith))
+	    return 1;
+
+    if (use_lzma)
+	if (scram_set_option(out, CRAM_OPT_USE_LZMA, use_lzma))
 	    return 1;
 
     if (binning != BINNING_NONE)
@@ -422,18 +445,24 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "Failed to encode sequence\n");
 	    return 1;
 	}
+	if (max_reads >= 0)
+	    if (--max_reads == 0)
+		break;
     }
-    switch(scram_eof(in)) {
-    case 0:
-	fprintf(stderr, "Failed to decode sequence\n");
-	return 1;
-    case 2:
-	fprintf(stderr, "Warning: no end-of-file block identified. "
-		"File may be truncated.\n");
-	break;
-    case 1: default:
-	// expected case
-	break;
+
+    if (max_reads == -1) {
+	switch(scram_eof(in)) {
+	case 0:
+	    fprintf(stderr, "Failed to decode sequence\n");
+	    return 1;
+	case 2:
+	    fprintf(stderr, "Warning: no end-of-file block identified. "
+		    "File may be truncated.\n");
+	    break;
+	case 1: default:
+	    // expected case
+	    break;
+	}
     }
 
     /* Finally tidy up and close files */
