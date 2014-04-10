@@ -1726,6 +1726,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    if (!s->block_by_id ||
 		!(b = s->block_by_id[s->hdr->ref_base_id]))
 		return -1;
+	    cram_uncompress_block(b);
 	    s->ref = (char *)BLOCK_DATA(b);
 	    s->ref_start = s->hdr->ref_seq_start;
 	    s->ref_end   = s->hdr->ref_seq_start + s->hdr->ref_seq_span-1;
