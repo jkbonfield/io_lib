@@ -64,6 +64,9 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
+    cram_set_option(fd, CRAM_OPT_REQUIRED_FIELDS,
+		    SAM_RNAME | SAM_POS | SAM_CIGAR);
+
     if (cram_index_build(fd, argv[1]) == -1) {
 	cram_close(fd);
 	return 1;
