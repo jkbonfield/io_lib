@@ -113,11 +113,12 @@ int main(int argc, char **argv) {
     char ref_name[1024] = {0};
     bam_flagstat_t st;
     int nthreads = 1;
+    int col = SAM_FLAG, req = 0;
 
     memset(&st, 0, sizeof(st));
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "hI:R:r:!t:")) != -1) {
+    while ((c = getopt(argc, argv, "hI:R:r:!t:c:C:")) != -1) {
 	switch (c) {
 	case 'h':
 	    usage(stdout);
@@ -165,6 +166,14 @@ int main(int argc, char **argv) {
 	    }
 	    break;
 
+	case 'c':
+	    req = col = strtol(optarg, NULL, 0);
+	    break;
+
+	case 'C':
+	    req = strtol(optarg, NULL, 0);
+	    break;
+
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
 	    usage(stderr);
@@ -200,12 +209,12 @@ int main(int argc, char **argv) {
 	if (scram_set_option(in,  CRAM_OPT_NTHREADS, nthreads))
 	    return 1;
 
+
     if (ignore_md5)
 	if (scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5))
 	    return 1;
 
-    scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS,
-		     SAM_FLAG | SAM_MAPQ | SAM_RNEXT);
+    scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS, req);
 
     /* Support for sub-range queries, currently implemented for CRAM only */
     if (*ref_name != 0) {
@@ -235,39 +244,65 @@ int main(int argc, char **argv) {
     /* Do the actual file format conversion */
     s = NULL;
     while (scram_get_seq(in, &s) >= 0) {
-	int w = s->flag & BAM_FQCFAIL ? 1 : 0;
-	++st.n_reads[w];
+	if (col & SAM_QNAME)
+	    printf("Name:\t%.*s\n", bam_name_len(s), bam_name(s));
 
-	if (s->flag & BAM_FPAIRED) {
-	    ++st.n_pair_all[w];
-	    if (s->flag & BAM_FPROPER_PAIR)
-		++st.n_pair_good[w];
+	if (col & SAM_FLAG)
+	    printf("Flag:\t%d\n", bam_flag(s));
 
-	    if (s->flag & BAM_FREAD1)
-		++st.n_read1[w];
+	if (col & SAM_RNAME)
+	    printf("Ref:\t%d\n", bam_ref(s));
 
-	    if (s->flag & BAM_FREAD2)
-		++st.n_read2[w];
+	if (col & SAM_POS)
+	    printf("Pos:\t%d\n", bam_pos(s));
 
-	    if ((s->flag & BAM_FMUNMAP) && !(s->flag & BAM_FUNMAP))
-		++st.n_sgltn[w]; 
+	if (col & SAM_MAPQ)
+	    printf("MapQ:\t%d\n", bam_map_qual(s));
 
-	    if (!(s->flag & BAM_FUNMAP) && !(s->flag & BAM_FMUNMAP)) {
-		++st.n_pair_map[w];
-
-		if (s->mate_ref != s->ref) {
-		    ++st.n_diffchr[w];
-		    if (s->map_qual >= 5)
-			++st.n_diffhigh[w];
-		}
-	    }
+	if (col & SAM_CIGAR) {
+	    int i;
+	    uint32_t *cig = bam_cigar(s);
+	    printf("Cigar:\t");
+	    for (i = 0; i < bam_cigar_len(s); i++)
+		printf("%d%c", cig[i]>>4, "MIDNSHP=X"[cig[i]&0xf]);
+	    putchar('\n');
 	}
 
-	if (!(s->flag & BAM_FUNMAP))
-	    ++st.n_mapped[w];
+	if (col & SAM_RNEXT)
+	    printf("Rnext:\t%d\n", bam_mate_ref(s));
 
-	if (s->flag & BAM_FDUP)
-	    ++st.n_dup[w];
+	if (col & SAM_PNEXT)
+	    printf("Pnext:\t%d\n", bam_mate_pos(s));
+
+	if (col & SAM_TLEN)
+	    printf("Tlen:\t%d\n", bam_ins_size(s));
+
+	if (col & SAM_SEQ) {
+	    unsigned char *seq = bam_seq(s);
+	    int i;
+	    printf("Seq:\t");
+	    for (i = 0; i < bam_seq_len(s); i++)
+		putchar("=ACMGRSVTWYHKDBN"[i&1 ? seq[i/2]&15 : seq[i/2]>>4]);
+	    putchar('\n');
+	}
+
+	if (col & SAM_QUAL) {
+	    char *qual = bam_qual(s);
+	    int i;
+	    printf("Qual:\t");
+	    for (i = 0; i < bam_seq_len(s); i++)
+		putchar(qual[i]+'!');
+	    putchar('\n');
+	}
+
+	if (col & SAM_AUX) {
+	    char *aux = bam_aux(s);
+	    int i, aux_size = ((char *)s + bam_blk_size(s)) - aux;
+	    printf("aux:\t");
+	    for (i = 0; i < aux_size; i++)
+		printf("%02x", aux[i]);
+	    putchar('\n');
+	}
     }
 
     if (s)
@@ -278,18 +313,6 @@ int main(int argc, char **argv) {
 
     if (scram_close(in))
 	return 1;
-
-    printf("%lld + %lld in total (QC-passed reads + QC-failed reads)\n", st.n_reads[0], st.n_reads[1]);
-    printf("%lld + %lld duplicates\n", st.n_dup[0], st.n_dup[1]);
-    printf("%lld + %lld mapped (%.2f%%:%.2f%%)\n", st.n_mapped[0], st.n_mapped[1], (float)st.n_mapped[0] / st.n_reads[0] * 100.0, (float)st.n_mapped[1] / st.n_reads[1] * 100.0);
-    printf("%lld + %lld paired in sequencing\n", st.n_pair_all[0], st.n_pair_all[1]);
-    printf("%lld + %lld read1\n", st.n_read1[0], st.n_read1[1]);
-    printf("%lld + %lld read2\n", st.n_read2[0], st.n_read2[1]);
-    printf("%lld + %lld properly paired (%.2f%%:%.2f%%)\n", st.n_pair_good[0], st.n_pair_good[1], (float)st.n_pair_good[0] / st.n_pair_all[0] * 100.0, (float)st.n_pair_good[1] / st.n_pair_all[1] * 100.0);
-    printf("%lld + %lld with itself and mate mapped\n", st.n_pair_map[0], st.n_pair_map[1]);
-    printf("%lld + %lld singletons (%.2f%%:%.2f%%)\n", st.n_sgltn[0], st.n_sgltn[1], (float)st.n_sgltn[0] / st.n_pair_all[0] * 100.0, (float)st.n_sgltn[1] / st.n_pair_all[1] * 100.0);
-    printf("%lld + %lld with mate mapped to a different chr\n", st.n_diffchr[0], st.n_diffchr[1]);
-    printf("%lld + %lld with mate mapped to a different chr (mapQ>=5)\n", st.n_diffhigh[0], st.n_diffhigh[1]);
 
     return 0;
 }

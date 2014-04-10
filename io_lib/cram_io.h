@@ -178,8 +178,7 @@ int cram_uncompress_block(cram_block *b);
  *        -1 on failure
  */
 int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
-			enum cram_block_method m1, int level1, int strat1,
-			enum cram_block_method m2, int level2, int strat2);
+			int method, int level);
 
 cram_metrics *cram_new_metrics(void);
 char *cram_block_method2str(enum cram_block_method m);
