@@ -73,6 +73,18 @@ int cram_seek_to_refpos(cram_fd *fd, cram_range *r);
  */
 int cram_seek(cram_fd *fd, off_t offset, int whence);
 
+/*
+ * Builds an index file.
+ *
+ * fd is a newly opened cram file that we wish to index.
+ * fn_base is the filename of the associated CRAM file. Internally we
+ * add ".crai" to this to get the index filename.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_index_build(cram_fd *fd, const char *fn_base);
+
 #ifdef __cplusplus
 }
 #endif

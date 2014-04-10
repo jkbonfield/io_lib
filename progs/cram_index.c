@@ -64,61 +64,12 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    sprintf(fn, "%s.crai", argv[1]);
-    if (!(fp = zfopen(fn, "wz"))) {
-	perror(fn);
+    if (cram_index_build(fd, argv[1]) == -1) {
+	cram_close(fd);
 	return 1;
     }
 
-    cpos = ftello(fd->fp);
-    while ((c = cram_read_container(fd))) {
-	int j;
-
-	if (fd->err) {
-	    perror("Cram container read");
-	    return 1;
-	}
-
-	hpos = ftello(fd->fp);
-
-	if (!(c->comp_hdr_block = cram_read_block(fd)))
-	    return 1;
-	assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
-
-	c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
-	if (!c->comp_hdr)
-	    return 1;
-
-	// 1.1 format
-	for (j = 0; j < c->num_landmarks; j++) {
-	    char buf[1024];
-	    cram_slice *s;
-	    int sz;
-	    
-	    spos = ftello(fd->fp);
-	    assert(spos - cpos - c->offset == c->landmark[j]);
-
-	    s = cram_read_slice(fd);
-
-	    sz = (int)(ftello(fd->fp) - spos);
-
-	    sprintf(buf, "%d\t%d\t%d\t%"PRId64"\t%d\t%d\n",
-		    s->hdr->ref_seq_id, s->hdr->ref_seq_start,
-		    s->hdr->ref_seq_span, (int64_t)cpos,
-		    c->landmark[j], sz);
-	    zfputs(buf, fp);
-
-	    cram_free_slice(s);
-	}
-
-	cpos = ftello(fd->fp);
-	assert(cpos == hpos + c->length);
-
-	cram_free_container(c);
-    }
-
     cram_close(fd);
-    zfclose(fp);
 
     return 0;
 }
