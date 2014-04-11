@@ -2360,9 +2360,6 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	    if (!c || c->curr_slice == c->max_slice) {
 		// new container
 		do {
-		    //Breaks multi-threading
-		    //if (c) cram_free_container(c);
-
 		    if (!(c = fd->ctr = cram_read_container(fd))) {
 			if (fd->pool) {
 			    fd->ooc = 1;
@@ -2427,8 +2424,10 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 		 c->ref_seq_id == -1 &&
 		 c->ref_seq_start == 0x454f46 /* EOF */) ? 1 : 0;
 
-	    if (c->num_records == 0)
+	    if (c->num_records == 0) {
+		cram_free_container(c); c = NULL;
 		goto empty_container;
+	    }
 
 	    if (!(s = c->slice = cram_read_slice(fd)))
 		return NULL;
