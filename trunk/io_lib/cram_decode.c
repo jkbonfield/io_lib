@@ -2198,19 +2198,24 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
     char *seq, *qual;
 
     /* Assign names if not explicitly set */
-    if (cr->name_len) {
-	name = (char *)BLOCK_DATA(s->name_blk) + cr->name;
-	name_len = cr->name_len;
-    } else {
-	// FIXME: add prefix, container number, slice number, etc
-	name = name_a;
+    if (fd->required_fields & SAM_QNAME) {
+	if (cr->name_len) {
+	    name = (char *)BLOCK_DATA(s->name_blk) + cr->name;
+	    name_len = cr->name_len;
+	} else {
+	    // FIXME: add prefix, container number, slice number, etc
+	    name = name_a;
 
-	if (cr->mate_line >= 0 && cr->mate_line < rec)
-	    name_len = sprintf(name_a, "%s:%"PRId64":%d",
-			       fd->prefix, s->id, cr->mate_line);
-	else
-	    name_len = sprintf(name_a, "%s:%"PRId64":%d",
-			       fd->prefix, s->id, rec);
+	    if (cr->mate_line >= 0 && cr->mate_line < rec)
+		name_len = sprintf(name_a, "%s:%"PRId64":%d",
+				   fd->prefix, s->id, cr->mate_line);
+	    else
+		name_len = sprintf(name_a, "%s:%"PRId64":%d",
+				   fd->prefix, s->id, rec);
+	}
+    } else {
+	name = "?";
+	name_len = 1;
     }
 
     /* Generate BAM record */
