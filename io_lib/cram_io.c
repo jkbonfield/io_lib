@@ -1467,15 +1467,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 }
 
 cram_metrics *cram_new_metrics(void) {
-    cram_metrics *m = malloc(sizeof(*m));
+    cram_metrics *m = calloc(1, sizeof(*m));
     if (!m)
 	return NULL;
-    m->sz_gz_rle = 0;
-    m->sz_gz_def = 0;
-    m->sz_rans0 = 0;
-    m->sz_rans1 = 0;
-    m->sz_bzip2 = 0;
-    m->sz_lzma = 0;
     m->trial = NTRIALS-1;
     m->next_trial = TRIAL_SPAN;
     m->method = RAW;
