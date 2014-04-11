@@ -136,7 +136,10 @@ void dump_seq_block(cram_block *b, int verbose) {
 void dump_quality_block(cram_block *b, int verbose) {
     int i;
     for (i = 0; (verbose || i < 100) && i < b->uncomp_size; i++) {
-	putchar(b->data[i] + '!');
+	if (isprint(b->data[i] + '!'))
+	    putchar(b->data[i] + '!');
+	else
+	    printf("\\%03o", b->data[i] + '!');
     }
     putchar('\n');
 }
@@ -149,10 +152,6 @@ void dump_name_block(cram_block *b, int verbose) {
 	else
 	    printf("\\%03o", b->data[i]);
     }
-}
-
-void dump_mate_info_block(cram_block *b, int verbose) {
-    return dump_core_block(b, verbose);
 }
 
 void dump_tag_block(cram_block *b, int verbose) {
@@ -626,7 +625,7 @@ int main(int argc, char **argv) {
 
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
 		cram_block *b = s->block[id];
-		printf("\n\tBlock %d/%d\n", id, s->hdr->num_blocks-1);
+		printf("\n\tBlock %d/%d\n", id+1, s->hdr->num_blocks);
 		printf("\t    Size:         %d comp / %d uncomp\n",
 		       b->comp_size, b->uncomp_size);
 		printf("\t    Method:       %s\n",
@@ -641,31 +640,48 @@ int main(int argc, char **argv) {
 		if (b->content_type == CORE) {
 		    dump_core_block(b, verbose);
 		} else {
-		    switch (b->content_id) {
-		    case 0:
-			dump_seq_block(b, verbose);
-			break;
+		    int t, m;
+		    enum cram_fields cf = 0;
+		    char fields[1024], *fp = fields;
+		    for (m = 0; m < 2; m++) {
+			cram_map **ma = m
+			    ? c->comp_hdr->tag_encoding_map
+			    : c->comp_hdr->rec_encoding_map;
 			
-		    case 1:
-			dump_quality_block(b, verbose);
-			break;
-			
-		    case 2:
-			dump_name_block(b, verbose);
-			break;
-			
-		    case 3:
-			dump_mate_info_block(b, verbose);
-			break;
-			
-		    case 4:
-			dump_tag_block(b, verbose);
-			break;
+			for (t = 0; t < CRAM_MAP_HASH; t++) {
+			    cram_map *m;
+			    unsigned char *data = c->comp_hdr_block->data;
+			    for (m = ma[t]; m; m = m->next) {
+				if (data[m->offset + m->size-1] !=
+				    b->content_id)
+				    continue;
+				if ((m->key>>16)&0xff)
+				    *fp++ = (m->key>>16)&0xff;
+				*fp++ = (m->key>> 8)&0xff;
+				*fp++ = (m->key>> 0)&0xff;
+				*fp++ = ' ';
 
-		    default:
-			dump_core_block(b, verbose); // hex
-			break;
+				if (m->key>>16)             cf |= CRAM_aux;
+				if (m->key == ('Q'<<8)+'S') cf |= CRAM_QS;
+				if (m->key == ('R'<<8)+'N') cf |= CRAM_RN;
+				if (m->key == ('S'<<8)+'C') cf |= CRAM_SC;
+				if (m->key == ('I'<<8)+'N') cf |= CRAM_SC;
+			    }
+			}
 		    }
+		    *fp++ = 0;
+		    printf("\t    Keys:         %s\n", fields);
+
+		    if (cf == CRAM_aux)
+			dump_tag_block(b, verbose);
+		    else if (cf == CRAM_QS)
+			dump_quality_block(b, verbose);
+		    else if (cf == CRAM_SC)
+			dump_seq_block(b, verbose);
+		    else if (cf == CRAM_RN)
+			dump_name_block(b, verbose);
+		    else
+			dump_core_block(b, verbose);
 		}
 	    }
 
