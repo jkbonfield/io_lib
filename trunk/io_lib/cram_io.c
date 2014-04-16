@@ -932,6 +932,7 @@ int cram_uncompress_block(cram_block *b) {
 	    free(uncomp);
 	    return -1;
 	}
+	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize;
 	b->method = RAW;
@@ -970,6 +971,7 @@ int cram_uncompress_block(cram_block *b) {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)arith_uncompress(b->data, b->comp_size, &usize2, 0);
 	assert(usize == usize2);
+	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
 	b->method = RAW;
@@ -982,6 +984,7 @@ int cram_uncompress_block(cram_block *b) {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)arith_uncompress(b->data, b->comp_size, &usize2, 1);
 	assert(usize == usize2);
+	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
 	b->method = RAW;
@@ -994,6 +997,7 @@ int cram_uncompress_block(cram_block *b) {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 0);
 	assert(usize == usize2);
+	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
 	b->method = RAW;
@@ -1006,6 +1010,7 @@ int cram_uncompress_block(cram_block *b) {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 1);
 	assert(usize == usize2);
+	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
 	b->method = RAW;
