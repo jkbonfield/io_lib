@@ -658,6 +658,10 @@ int cram_dependent_data_series(cram_fd *fd,
 	return 0;
     }
 
+    block_used = calloc(s->hdr->num_blocks+1, sizeof(int));
+    if (!block_used)
+	return -1;
+
     do {
 	/*
 	 * Also set data_series based on code prerequisites. Eg if we need
@@ -685,10 +689,6 @@ int cram_dependent_data_series(cram_fd *fd,
 	orig_ds = hdr->data_series;
 
 	// Find which blocks are in use.
-	block_used = calloc(s->hdr->num_blocks+1, sizeof(int));
-	if (!block_used)
-	    return -1;
-
 	for (i = 0; i < sizeof(i_to_id)/sizeof(*i_to_id); i++) {
 	    int bnum1, bnum2, j;
 	    cram_codec *c = hdr->codecs[i_to_id[i]];
