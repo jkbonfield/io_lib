@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.13.5
+			IO_LIB VERSION 1.13.6
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -25,6 +25,18 @@ These link together to form a single "libstaden-read" library supporting
 all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
+
+
+What's new in 1.13.6
+====================
+
+Several more CRAM and BAM bug fixes.  CRAM has also had a major
+restructuring to use more external blocks for data series, potentially
+improving compression ratios.  This will become more important once
+v3.0 is finalised, but it still helps v2.1 CRAM format a bit too.
+
+This change also allows for decoding to be faster when only needing a
+few columns, such as with scram_flagstat.
 
 
 What's new in 1.13.5
