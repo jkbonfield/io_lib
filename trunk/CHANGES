@@ -1,3 +1,48 @@
+Version 1.13.6 (19th May 2014)
+--------------
+
+* CRAM: Major overhaul of how data series are assigned to CORE vs
+  EXTERNAL blocks. The net effect is that CRAM file should become
+  slightly smaller and also faster for decoding when the decoder only
+  needs specific SAM columns.  This has dramatically sped up flagstats.
+
+* CRAM: Selection of compression algorithm for external blocks is now
+  more advanced.  We allows specifying multiple compression (eg gzip,
+  bzip2, lzma, rANS) and the tool will learn which methods work best
+  for which blocks and adapt.  (This matters only for v3.0 CRAM
+  specification, so is experimental.)
+
+* Cram_dump should now do a better job of auto-detecting binary vs
+  printable text, allowing printing of arbitrary blocks in a
+  friendlier fashion.  It also now tracks which block is for which
+  data-series and displays these in the summary output.
+
+* Cram_index has been refactored, with the code moving out of the
+  program and into the io_lib library. It has also been bug-fixed to
+  cope with multiple references packed into a single cram container.
+
+* CRAM: bug fixes
+  - The EOF writing code now uses the correct bit stream for value -1.
+
+  - Changing the version with scramble -V wasn't having any effect.
+
+  - The BETA codec now correct honours beta offset value for zero
+    length codes. (Previously unused)
+
+  - EOF now returns the correct value when a CRAM file is closed
+    before attempting to decode the first sequence. (Ie header only.)
+
+* BAM: bug fixes
+  - Adding @SQ lines to a BAM file with no textual representation of
+    the SAM header now works.
+
+  - Fixed an issue in multi-threaded decoding, causing rare deadlocks.
+
+* CRAM: experimental changes
+  - Further tweaks to the rANS codec used for the version 3 CRAM.
+    (Ongoing work, to be used for experimentation only.)
+
+
 Version 1.13.5 (28th February 2014)
 --------------
 
