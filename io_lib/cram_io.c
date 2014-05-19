@@ -2611,6 +2611,7 @@ cram_container *cram_read_container(cram_fd *fd) {
     size_t rd = 0;
     
     fd->err = 0;
+    fd->eof = 0;
 
     memset(&c2, 0, sizeof(c2));
     if (IS_CRAM_1_VERS(fd)) {
@@ -3822,7 +3823,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
 	fd->m[i] = cram_new_metrics();
 
     fd->range.refid = -2; // no ref.
-    fd->eof = 0;
+    fd->eof = 1;
     fd->ref_fn = NULL;
 
     fd->bl = NULL;
