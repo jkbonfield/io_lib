@@ -680,18 +680,20 @@ typedef struct {
 static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 		      int depth, int pos, int nth, int is_insert) {
     static char *seq = NULL, *qual = NULL, *buf = NULL;
+    static size_t seq_alloc = 0, buf_alloc = 0;
     static int max_depth = 0;
     char *sp, *qp, *cp;
     int ref;
     sam_pileup_t *cd = (sam_pileup_t *)cd_v;
+    size_t buf_len;
 
     if (max_depth < depth) {
 	max_depth = depth;
-	seq  = realloc(seq,  max_depth*3);
+	seq  = realloc(seq,  seq_alloc = max_depth*2);
 	qual = realloc(qual, max_depth);
-	buf  = realloc(buf,  max_depth*2+1000);
+	//buf  = realloc(buf,  max_depth*2+1000);
 
-	if (!seq || !qual || !buf)
+	if (!seq || !qual)
 	    return -1;
     }
 
@@ -705,6 +707,7 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 	int i;
 
 	if (nth == 0) {
+	    /* Reference position pos with is_insert inserted bases to come */
 	    if (cd->alloc < depth) {
 		cd->alloc = depth;
 		cd->base       = realloc(cd->base,
@@ -714,7 +717,15 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 		cd->seq_len    = realloc(cd->seq_len,
 					 cd->alloc * sizeof(*cd->seq_len));
 	    }
-	    
+
+	    /*
+	     * FIXME: This assumes that the number of entries in the p list
+	     * here matches the number of entries in the p list when is_inser
+	     * becomes 0 (ie the last base of the insert).
+	     *
+	     * Given that sequences can end mid-way through an insert or
+	     * even start mid-way, this assumption is false.
+	     */
 	    for (i = 0; p; p = p->next, i++) {
 		cd->base[i]       = strand_char[p->b_strand][(uc)p->base];
 		cd->seq_offset[i] = p->seq_offset+1;
@@ -739,6 +750,12 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 	    int i, j;
 	    uint8_t *b_seq = (uint8_t *)bam_seq(p->b);
 
+	    while ((sp - seq + 5 + cd->seq_len[n]) > seq_alloc) {
+		int d = sp - seq;
+		seq = realloc(seq, seq_alloc*=2);
+		sp = seq + d;
+	    }
+
 	    if(p->base != '*')
 		cd->seq_len[n]++;
 
@@ -762,6 +779,11 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 	}
     } else {
 	for (; p; p = p->next) {
+	    while ((sp - seq + 4) > seq_alloc) {
+		int d = sp - seq;
+		seq = realloc(seq, seq_alloc*=2);
+		sp = seq + d;
+	    }
 	    if (p->start) {
 		*sp++ = '^';
 		*sp++ = MIN(p->b->map_qual,93) + '!';
@@ -775,6 +797,15 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
     }
 
     /* Equivalent to the printf below, but faster */
+    buf_len = strlen(scram_get_header(fp)->ref[ref].name) + 1 // name
+	+ 10 + 1                                              // pos
+	+ 1  + 1                                              // base
+	+ 10 + 1                                              // depth
+	+ sp - seq + 1                                        // seq
+	+ qp - qual + 1;                                      // qual
+    if (buf_len > buf_alloc)
+	buf = realloc(buf, buf_alloc = buf_len);
+
     cp = buf;
     strcpy(cp, scram_get_header(fp)->ref[ref].name); cp += strlen(cp);
     *cp++ = '\t';
