@@ -612,6 +612,7 @@ typedef struct {
     unsigned char uncomp[Z_BUFF_SIZE];
     size_t comp_sz, uncomp_sz;
 } bgzf_decode_job;
+static bgzf_decode_job *last_job = NULL;
 
 /*
  * Uncompresses a single zlib buffer.
@@ -675,6 +676,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 	t_pool_result *res;
 
 	/* Multi-threaded decoding. Assume BGZF for now */
+	//while (b->nd_jobs < b->pool->qsize) {
 	while (t_pool_results_queue_sz(b->dqueue) < b->pool->qsize) {
 	    bgzf_decode_job *j;
 	    int nonblock;
@@ -765,12 +767,8 @@ static int bam_uncompress_input(bam_file_t *b) {
 		b->comp_sz -= bsize + 8; // crc & isize
 	    }
 
+	    //nonblock = b->nd_jobs ? 1 : 0;
 	    nonblock = t_pool_results_queue_len(b->dqueue) ? 1 : 0;
-	    //	    nonblock = (t_pool_results_queue_len(b->dqueue) == 0 &&
-	    //			b->nd_jobs >= b->pool->qsize) ? 0 : -1;
-	    //nonblock = -1;
-	    //nonblock = 0;
-	    //nonblock = b->nd_jobs >= b->pool->qsize ? -1 : 0;
 
 	    if (-1 == t_pool_dispatch2(b->pool, b->dqueue,
 				       bgzf_decode_thread, j, nonblock)) {
@@ -806,10 +804,17 @@ static int bam_uncompress_input(bam_file_t *b) {
 
 	j = (bgzf_decode_job *)res->data;
 
+#if 0
 	memcpy(b->uncomp, j->uncomp, j->uncomp_sz);
 	b->uncomp_p = b->uncomp;
+#else
+	if (last_job)
+	    free(last_job);
+	last_job = j;
+	b->uncomp_p = j->uncomp;
+#endif
 	b->uncomp_sz = j->uncomp_sz;
-	t_pool_delete_result(res, 1);
+	t_pool_delete_result(res, 0);
 
     } else {
 	/* Single threaded version, or non-bgzf format data */
