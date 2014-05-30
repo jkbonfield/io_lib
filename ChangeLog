@@ -1,5 +1,74 @@
 ===============================================================================
+2014-05-30: RELEASE 1.13.7
+
+------------------------------------------------------------------------
+r3664 | jkbonfield | 2014-05-30 15:44:28 +0100 (Fri, 30 May 2014) | 6 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Fixed bug detected by trying to scram_flagstat on a Cramtools produced
+CRAM file.
+
+It wasn't correctly noticing the aux block needed decoding due to the
+use of E_BYTE_ARRAY_LEN/STOP codecs instead of just EXTERNAL.
+
+------------------------------------------------------------------------
+r3663 | jkbonfield | 2014-05-30 15:42:47 +0100 (Fri, 30 May 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+
+Avoid an uninitialise variable access when finding HUFFMAN={0,0}
+codecs (reinterpreted as E_NULL).
+
+------------------------------------------------------------------------
+r3662 | jkbonfield | 2014-05-30 15:41:58 +0100 (Fri, 30 May 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/progs/cram_dump.c
+
+Fixed cram_dump to check other external encoding types (than
+E_EXTERNAL) when determining the keys to report.
+
+------------------------------------------------------------------------
+r3660 | jkbonfield | 2014-05-28 14:34:05 +0100 (Wed, 28 May 2014) | 10 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/thread_pool.c
+   M /io_lib/trunk/io_lib/thread_pool.h
+
+Modified the thread pool to use as few threads as possible. The
+intention is that when given, say, 16 threads but being I/O bound such
+that 12 cores is enough to keep up with the I/O then we have 12
+threads kept busy and 4 totally idle.
+
+This is implemented by dispatching jobs on lower thread IDs in
+preference and maintaining a queue of pending jobs in proportion to
+the number of threads currently running, rather than instantly
+dispatching.
+
+------------------------------------------------------------------------
+r3659 | jkbonfield | 2014-05-28 14:08:26 +0100 (Wed, 28 May 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Sanitised fd->empty_container so it is initialised only in one place.
+This also fixes a samtools issue:
+
+https://github.com/samtools/samtools/issues/146
+
+===============================================================================
 2014-05-19: RELEASE 1.13.6
+
+------------------------------------------------------------------------
+r3654 | jkbonfield | 2014-05-19 11:10:41 +0100 (Mon, 19 May 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Updated for v1.13.6
 
 ------------------------------------------------------------------------
 r3653 | jkbonfield | 2014-05-19 10:10:29 +0100 (Mon, 19 May 2014) | 7 lines
