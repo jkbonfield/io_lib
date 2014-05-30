@@ -1,3 +1,17 @@
+Version 1.13.7 (30th May 2014)
+--------------
+
+* CRAM: Bug fixed the required fields detection code. (It was crashing
+  when running scram_flagstat on Cramtools output.)
+
+* CRAM: Bug fix to cram_dump output on files using E_BYTE_ARRAY_*
+  codecs.
+
+* BAM/CRAM: Modified the thread-pool to try and minimise the number of
+  threads used when the program hits an I/O bottleneck.  This avoids
+  CPU auto-frequence-scaling causing slowdowns.
+
+
 Version 1.13.6 (19th May 2014)
 --------------
 
