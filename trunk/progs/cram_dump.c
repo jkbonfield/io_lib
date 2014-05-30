@@ -652,6 +652,10 @@ int main(int argc, char **argv) {
 			    cram_map *m;
 			    unsigned char *data = c->comp_hdr_block->data;
 			    for (m = ma[t]; m; m = m->next) {
+				if (m->encoding != E_EXTERNAL &&
+				    m->encoding != E_BYTE_ARRAY_STOP &&
+				    m->encoding != E_BYTE_ARRAY_LEN)
+				    continue;
 				if (data[m->offset + m->size-1] !=
 				    b->content_id)
 				    continue;
@@ -665,7 +669,7 @@ int main(int argc, char **argv) {
 				if (m->key == ('Q'<<8)+'S') cf |= CRAM_QS;
 				if (m->key == ('R'<<8)+'N') cf |= CRAM_RN;
 				if (m->key == ('S'<<8)+'C') cf |= CRAM_SC;
-				if (m->key == ('I'<<8)+'N') cf |= CRAM_SC;
+				if (m->key == ('I'<<8)+'N') cf |= CRAM_IN;
 			    }
 			}
 		    }
