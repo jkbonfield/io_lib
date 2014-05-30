@@ -712,7 +712,9 @@ int cram_dependent_data_series(cram_fd *fd,
 
 		default:
 		    for (j = 0; j < s->hdr->num_blocks; j++) {
-			if (s->block[j]->content_type == EXTERNAL &&
+			if ((s->block[j]->content_type == EXTERNAL ||
+			     s->block[j]->content_type == E_BYTE_ARRAY_STOP ||
+			     s->block[j]->content_type == E_BYTE_ARRAY_LEN) &&
 			    s->block[j]->content_id == bnum1) {
 			    block_used[j] = 1;
 			    if (cram_uncompress_block(s->block[j])) {
@@ -732,7 +734,8 @@ int cram_dependent_data_series(cram_fd *fd,
 	}
 
 	// Tags too
-	if (fd->required_fields & SAM_AUX) {
+	if ((fd->required_fields & SAM_AUX) ||
+	    (hdr->data_series & CRAM_aux)) {
 	    for (i = 0; i < CRAM_MAP_HASH; i++) {
 		int bnum1, bnum2, j;
 		cram_map *m = hdr->tag_encoding_map[i];
@@ -755,7 +758,12 @@ int cram_dependent_data_series(cram_fd *fd,
 
 			default:
 			    for (j = 0; j < s->hdr->num_blocks; j++) {
-				if (s->block[j]->content_type == EXTERNAL &&
+				if ((s->block[j]->content_type
+				       == EXTERNAL             ||
+				     s->block[j]->content_type
+				       == E_BYTE_ARRAY_STOP    ||
+				     s->block[j]->content_type
+				       == E_BYTE_ARRAY_LEN)    &&
 				    s->block[j]->content_id == bnum1) {
 				    block_used[j] = 1;
 				    if (cram_uncompress_block(s->block[j])) {
@@ -803,7 +811,9 @@ int cram_dependent_data_series(cram_fd *fd,
 
 		default:
 		    for (j = 0; j < s->hdr->num_blocks; j++) {
-			if (s->block[j]->content_type == EXTERNAL &&
+			if ((s->block[j]->content_type == EXTERNAL ||
+			     s->block[j]->content_type == E_BYTE_ARRAY_STOP ||
+			     s->block[j]->content_type == E_BYTE_ARRAY_LEN) &&
 			    s->block[j]->content_id == bnum1) {
 			    if (block_used[j]) {
 				//printf(" + data series %08x:\n", 1<<i);
@@ -845,7 +855,12 @@ int cram_dependent_data_series(cram_fd *fd,
 
 		    default:
 			for (j = 0; j < s->hdr->num_blocks; j++) {
-			    if (s->block[j]->content_type == EXTERNAL &&
+			    if ((s->block[j]->content_type
+				   == EXTERNAL             ||
+				 s->block[j]->content_type
+				   == E_BYTE_ARRAY_STOP    ||
+				 s->block[j]->content_type
+				   == E_BYTE_ARRAY_LEN)    &&
 				s->block[j]->content_id == bnum1) {
 				if (block_used[j]) {
 				    //printf(" + data series %08x:\n",
