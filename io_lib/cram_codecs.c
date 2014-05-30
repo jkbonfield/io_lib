@@ -1832,6 +1832,12 @@ int cram_codec_to_id(cram_codec *c, int *id2) {
     case E_BYTE_ARRAY_STOP:
 	bnum1 = c->byte_array_stop.content_id;
 	break;
+    case E_NULL:
+	bnum1 = -2;
+	break;
+    default:
+	fprintf(stderr, "Unknown codec type %d\n", c->codec);
+	bnum1 = -1;
     }
 
     if (id2)
