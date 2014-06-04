@@ -46,7 +46,7 @@ do
     $scramble -O bam $outdir/$root.full.cram > $outdir/$root.full.bam
     echo "$scramble $outdir/$root.full.bam $outdir/tmp.sam"
     $scramble $outdir/$root.full.bam $outdir/tmp.sam;
-    sed '/^@PG.*scramble\.3.*/d;s/\(^@PG.*scramble.*\) -O bam/\1/' $outdir/tmp.sam > $outdir/$root.full.bam.sam
+    sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -O bam/\1/' $outdir/tmp.sam > $outdir/$root.full.bam.sam
     rm $outdir/tmp.sam
     echo "$cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam"
     $cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
