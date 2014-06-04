@@ -563,7 +563,6 @@ int t_pool_dispatch2(t_pool *p, t_results_queue *q,
     if (p->njobs >= p->qsize && nonblock == 1) {
 	pthread_mutex_unlock(&p->pool_m);
 	errno = EAGAIN;
-	free(j);
 	return -1;
     }
 
