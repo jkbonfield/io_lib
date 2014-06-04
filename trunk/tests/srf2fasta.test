@@ -1,5 +1,5 @@
 #!/bin/sh
-if ! test -e $outdir
+if test ! -d $outdir
 then
     mkdir $outdir
 fi
