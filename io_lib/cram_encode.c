@@ -2075,6 +2075,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    break;
 
 	case 'Z': case 'H': {
 		char *tmp;
