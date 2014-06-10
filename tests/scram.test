@@ -57,11 +57,12 @@ do
     *"unsorted") #skip
         ;;
     *) 
-        echo "$scramble -X -r $ref $outdir/$root.bam $outdir/$root.full.cram"
-        $scramble -r $ref $outdir/$root.bam $outdir/$root.full.cram
+        echo "$scramble -e -r $ref $outdir/$root.bam $outdir/$root.full.cram"
+        $scramble -e -r $ref $outdir/$root.bam $outdir/$root.full.cram
         
         echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
-        $scramble $outdir/$root.full.cram > $outdir/$root.full.sam
+        $scramble $outdir/$root.full.cram > $outdir/tmp.sam
+	sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -e /\1 /' $outdir/tmp.sam > $outdir/$root.full.bam.sam
         $compare_sam --nomd --unknownrg $srcdir/data/$root.sam $outdir/$root.full.sam || exit 1
         echo "$cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam"
         $cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
@@ -71,13 +72,15 @@ do
 
     # And again with no ref.
     echo "$scramble -x -r $ref $outdir/$root.bam $outdir/$root.full.cram"
-    $scramble -r $ref $outdir/$root.bam $outdir/$root.full.cram
+    $scramble -x -r $ref $outdir/$root.bam $outdir/$root.full.cram
 
     echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
-    $scramble $outdir/$root.full.cram > $outdir/$root.full.sam
+    $scramble $outdir/$root.full.cram > $outdir/tmp.sam
+    sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -x /\1 /' $outdir/tmp.sam > $outdir/$root.full.bam.sam
     $compare_sam --nomd --unknownrg $srcdir/data/$root.sam $outdir/$root.full.sam || exit 1
-    echo "$cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam"
-    $cmp $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
+    # need compare against original here as ce#5b.sam as "*" in seq.
+    echo "$compare_sam --unknownrg $srcdir/data/$root.sam $outdir/$root.full.bam.sam"
+    $compare_sam --noqual --unknownrg $srcdir/data/$root.sam $outdir/$root.full.bam.sam || exit 1
 
     echo ""
 done
