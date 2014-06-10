@@ -253,7 +253,9 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 
 	if (used_l >= alloc_l) {
 	    alloc_l = alloc_l ? alloc_l * 2 : 1024;
-	    if (NULL == (buf = realloc(buf, alloc_l)))
+	    // +8 to cope with the 64-bit copy function in the
+	    // COPY_CPF_TO_CPTM macro.
+	    if (NULL == (buf = realloc(buf, alloc_l+8)))
 		return -1;
 	}
     }
