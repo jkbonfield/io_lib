@@ -431,6 +431,7 @@ t_pool *t_pool_init(int qsize, int tsize) {
     p->nwaiting = 0;
     p->shutdown = 0;
     p->head = p->tail = NULL;
+    p->t_stack = NULL;
 #ifdef DEBUG_TIME
     p->total_time = p->wait_time = 0;
 #endif
@@ -723,6 +724,9 @@ void t_pool_destroy(t_pool *p, int kill) {
 	fprintf(stderr, "%d: Wait time=%f\n", i,
 		p->t[i].wait_time / 1000000.0);
 #endif
+
+    if (p->t_stack)
+	free(p->t_stack);
 
     free(p->t);
     free(p);
