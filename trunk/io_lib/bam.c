@@ -236,6 +236,7 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 	    if (*from != '\n') {
 		*to++ = *from++;
 	    } else {
+		if (to[-1] == '\r') *--to = 0; // handle \r\n too
 		b->uncomp_p = from;
 		used_l = to-buf;
 		b->uncomp_p++;
