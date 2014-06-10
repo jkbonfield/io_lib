@@ -3461,7 +3461,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
     }
 
     /* Fix M5 strings */
-    if (fd->refs && !fd->no_ref) {
+    if (fd->refs) {
 	int i;
 	for (i = 0; i < hdr->nref; i++) {
 	    SAM_hdr_type *ty;
