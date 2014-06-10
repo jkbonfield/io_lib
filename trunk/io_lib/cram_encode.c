@@ -1188,11 +1188,12 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    }
 	}
     }
-
+    /* To create M5 strings */
     /* Fetch reference sequence */
     if (!fd->no_ref) {
 	bam_seq_t *b = c->bams[0];
 	char *ref;
+
 
 	ref = cram_get_ref(fd, bam_ref(b), 1, 0);
 	if (!ref && bam_ref(b) >= 0) {
@@ -1205,10 +1206,12 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    c->ref_start = 1;
 	    c->ref_end   = fd->refs->ref_id[c->ref_seq_id]->length;
 	} else {
-	    c->ref_seq_id = c->ref_id; // FIXME remove one var!
+	    c->ref_seq_id = c->ref_id; // FIXME remove one var?
 	}
     } else {
-	    c->ref_seq_id = c->ref_id; // FIXME remove one var!
+	c->ref_id = bam_ref(c->bams[0]);
+	cram_ref_incr(fd->refs, c->ref_id);
+	c->ref_seq_id = c->ref_id;
     }
 
     /* Turn bams into cram_records and gather basic stats */
@@ -2278,7 +2281,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 static int process_one_read(cram_fd *fd, cram_container *c,
 			    cram_slice *s, cram_record *cr,
 			    bam_seq_t *b, int rnum) {
-    int i, fake_qual = 0;
+    int i, fake_qual = -1;
     char *cp, *rg;
     char *ref, *seq, *qual;
 
@@ -2322,6 +2325,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	cr->flags |= BAM_FUNMAP;
     cram_stats_add(c->stats[DS_BF], fd->cram_flag_swap[cr->flags & 0xfff]);
 
+    // Non reference based encoding means storing the bases verbatim as features, which in
+    // turn means every base also has a quality already stored.
     if (!fd->no_ref)
 	cr->cram_flags = CRAM_FLAG_PRESERVE_QUAL_SCORES;
     else
@@ -2601,7 +2606,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	BLOCK_SIZE(s->qual_blk) += cr->len;
     } else {
 	if (cr->len == 0) {
-	    cram_stats_add(c->stats[DS_RL], cr->len = cr->aend - cr->apos + 1);
+	    cr->len = fake_qual >= 0 ? fake_qual : cr->aend - cr->apos + 1;
+	    cram_stats_add(c->stats[DS_RL], cr->len);
 	}
     }
 
