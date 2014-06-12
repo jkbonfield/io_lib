@@ -608,7 +608,7 @@ int cram_dependent_data_series(cram_fd *fd,
      * Set the data_series bit field based on fd->required_fields
      * contents.
      */
-    if (fd->required_fields) {
+    if (fd->required_fields && fd->required_fields != INT_MAX) {
 	hdr->data_series = 0;
 
 	if (fd->required_fields & SAM_QNAME)
@@ -647,6 +647,10 @@ int cram_dependent_data_series(cram_fd *fd,
 
 	if (fd->required_fields & SAM_AUX)
 	    hdr->data_series |= CRAM_RG | CRAM_TL | CRAM_aux;
+
+	// Always uncompress CORE block
+	if (cram_uncompress_block(s->block[0]))
+	    return -1;
     } else {
 	hdr->data_series = CRAM_ALL;
 
