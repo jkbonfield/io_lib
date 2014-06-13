@@ -346,12 +346,9 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_BINNING, binning))
 	    return 1;
 
-    if (no_ref) {
-	if (scram_set_option(in, CRAM_OPT_NO_REF, no_ref))
-	    return 1;
+    if (no_ref)
 	if (scram_set_option(out, CRAM_OPT_NO_REF, no_ref))
 	    return 1;
-    }
 
     if (multi_seq)
 	if (scram_set_option(out, CRAM_OPT_MULTI_SEQ_PER_SLICE, multi_seq))
