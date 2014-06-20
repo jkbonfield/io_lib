@@ -165,6 +165,7 @@ int main(int argc, char **argv) {
     int verbose = 0;
     HashTable *bsize_h;
     HashTable *ds_h; // content_id to data-series lookup.
+    HashTable *dc_h; // content_id to data-compression lookup
 
     static bmax = 0;
     bsize_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
@@ -173,6 +174,7 @@ int main(int argc, char **argv) {
     ds_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
 			   HASH_NONVOLATILE_KEYS |
 			   HASH_INT_KEYS);
+    dc_h = HashTableCreate(128, HASH_DYNAMIC_SIZE);
 
     if (argc >= 2 && strcmp(argv[1], "-v") == 0) {
 	argc--;
@@ -547,6 +549,18 @@ int main(int argc, char **argv) {
 				break;
 			    }
 
+			    case 'b': { // Read bases; BA
+				unsigned char l, cc;
+				int out_sz2;
+				char seq[256];
+
+				r  = c->comp_hdr->codecs[DS_BA]->decode(s,c->comp_hdr->codecs[DS_BA], b, &l, &out_sz);
+				out_sz2 = l;
+				r |= c->comp_hdr->codecs[DS_BA]->decode(s,c->comp_hdr->codecs[DS_BA], b, seq, &out_sz2);
+				printf("  %d: BA(b) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, seq, r, out_sz2);
+				break;
+			    }
+
 			    case 'B': { // Read base; BA, QS
 				char cc, qc;
 				r  = c->comp_hdr->codecs[DS_BA]->decode(s,c->comp_hdr->codecs[DS_BA], b, &cc, &out_sz);
@@ -590,10 +604,10 @@ int main(int argc, char **argv) {
 			    int32_t out_sz2 = rl, i;
 
 			    dat[0]='?';dat[1]=0;
-			    r = c->comp_hdr->codecs[DS_Qs]->decode(s,c->comp_hdr->codecs[DS_Qs], b, dat, &out_sz2);
+			    r = c->comp_hdr->codecs[DS_QS]->decode(s,c->comp_hdr->codecs[DS_QS], b, dat, &out_sz2);
 			    for (i = 0; i < rl; i++)
 				dat[i] += '!';
-			    printf("Qs = %.*s (ret %d, out_sz %d)\n", out_sz2, dat, r, out_sz2);
+			    printf("QS = %.*s (ret %d, out_sz %d)\n", out_sz2, dat, r, out_sz2);
 			}
 		    } else {
 			puts("Unmapped");
@@ -612,10 +626,10 @@ int main(int argc, char **argv) {
 
 			    do {
 				int32_t out_sz2 = len > 1024 ? 1024 : len;
-				r = c->comp_hdr->codecs[DS_Qs]->decode(s, c->comp_hdr->codecs[DS_Qs], b, dat, &out_sz2);
+				r = c->comp_hdr->codecs[DS_QS]->decode(s, c->comp_hdr->codecs[DS_QS], b, dat, &out_sz2);
 				for (i = 0; i < len; i++)
 				    dat[i] += '!';
-				printf("Qs = %.*s (out_sz %d)\n", out_sz2, dat, out_sz2);
+				printf("QS = %.*s (out_sz %d)\n", out_sz2, dat, out_sz2);
 				len -= 1024;
 			    } while (len > 0);
 			}
@@ -624,12 +638,18 @@ int main(int argc, char **argv) {
 	    }
 
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
+		HashData hd;
 		cram_block *b = s->block[id];
 		printf("\n\tBlock %d/%d\n", id+1, s->hdr->num_blocks);
 		printf("\t    Size:         %d comp / %d uncomp\n",
 		       b->comp_size, b->uncomp_size);
 		printf("\t    Method:       %s\n",
 		       cram_block_method2str(b->orig_method));
+		struct {
+		    int id;
+		    enum cram_block_method method;
+		} id_type = {b->content_id, b->orig_method};
+		HashTableAdd(dc_h, (char *)&id_type, sizeof(id_type), hd, NULL);
 		printf("\t    Content type: %s\n",
 		       cram_content_type2str(b->content_type));
 		printf("\t    Content id:   %d\n", b->content_id);
@@ -720,6 +740,26 @@ int main(int argc, char **argv) {
 
 	    printf("Block content_id %3d, total size %10ld ", k, hi->data.i);
 
+	    struct {
+		int id;
+		enum cram_block_method method;
+	    } id_type = {k, 0};
+
+	    id_type.method = GZIP;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'g':' ');
+
+	    id_type.method = BZIP2;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'b':' ');
+
+	    id_type.method = LZMA;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'l':' ');
+
+	    id_type.method = RANS0;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'r':' ');
+
+	    id_type.method = RANS1;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'R':' ');
+
 	    iter = HashTableIterCreate();
 	    while ((hi = HashTableIterNext(ds_h, iter))) {
 		int c;
@@ -746,6 +786,7 @@ int main(int argc, char **argv) {
 
     HashTableDestroy(bsize_h, 0);
     HashTableDestroy(ds_h, 0);
+    HashTableDestroy(dc_h, 0);
 
     return 0;
 }

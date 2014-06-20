@@ -119,10 +119,10 @@ enum cram_DS_ID {
     DS_ref,
     DS_RN, // name_blk
     DS_QS, // qual_blk
-    DS_SC, // soft_blk
     DS_IN, // base_blk
 
     DS_BF, // start loop
+    DS_SC, // soft_blk
     DS_CF,
     DS_AP,
     DS_RG,
@@ -144,13 +144,19 @@ enum cram_DS_ID {
     DS_RS,
     DS_PD,
     DS_HC,
+    DS_BB,
+    DS_QQ,
 
     DS_TN, // end loop
+
+    DS_RN_len,
+    DS_SC_len,
+    DS_BB_len,
+    DS_QQ_len,
 
     DS_TC, // CRAM v1.0 tags
     DS_TM, // test
     DS_TV, // test
-    DS_Qs, // BYTE_ARRAY version of QS
     
     DS_END,
 };
@@ -445,6 +451,12 @@ typedef struct {
 	    int base;    // actual base & qual
 	    int qual;
 	} B;
+	struct {
+	    int pos;
+	    int code;
+	    int seq_idx; // index to s->seqs_blk
+	    int len;
+	} b;
 	struct {
 	    int pos;
 	    int code;
@@ -753,8 +765,12 @@ enum cram_fields {
     CRAM_PD = 0x00800000,
     CRAM_HC = 0x01000000,
     CRAM_SC = 0x02000000,
-    CRAM_aux= 0x04000000,
-    CRAM_ALL= 0x07ffffff,
+    CRAM_BB = 0x04000000,
+    CRAM_BB_len = 0x08000000,
+    CRAM_QQ = 0x10000000,
+    CRAM_QQ_len = 0x20000000,
+    CRAM_aux= 0x40000000,
+    CRAM_ALL= 0x7fffffff,
 };
 
 // A CIGAR opcode, but not necessarily the implications of it. Eg FC/FP may
@@ -764,8 +780,8 @@ enum cram_fields {
 #define CRAM_CIGAR (CRAM_FN | CRAM_FP | CRAM_FC | CRAM_DL | CRAM_IN | \
 		    CRAM_SC | CRAM_HC | CRAM_PD | CRAM_RS | CRAM_RL | CRAM_BF)
 
-#define CRAM_SEQ (CRAM_CIGAR | CRAM_BA | CRAM_QS | CRAM_BS | CRAM_BA | \
-		  CRAM_RL    | CRAM_AP)
+#define CRAM_SEQ (CRAM_CIGAR | CRAM_BA | CRAM_QS | CRAM_BS | \
+		  CRAM_RL    | CRAM_AP | CRAM_BB | CRAM_QQ)
 
 enum cram_option {
     CRAM_OPT_DECODE_MD,

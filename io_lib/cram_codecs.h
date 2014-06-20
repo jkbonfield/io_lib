@@ -106,10 +106,12 @@ typedef struct {
 } cram_byte_array_stop_decoder;
 
 typedef struct {
-    uint32_t len_len;
-    unsigned char *len_dat;
-    uint32_t val_len;
-    unsigned char *val_dat;
+    enum cram_encoding len_encoding;
+    enum cram_encoding val_encoding;
+    void *len_dat;
+    void *val_dat;
+    struct cram_codec *len_codec;
+    struct cram_codec *val_codec;
 } cram_byte_array_len_encoder;
 
 /*
@@ -117,11 +119,12 @@ typedef struct {
  */
 typedef struct cram_codec {
     enum cram_encoding codec;
+    cram_block *out;
     void (*free)(struct cram_codec *codec);
     int (*decode)(cram_slice *slice, struct cram_codec *codec,
 		  cram_block *in, char *out, int *out_size);
     int (*encode)(cram_slice *slice, struct cram_codec *codec,
-		  cram_block *out, char *in, int in_size);
+		  char *in, int in_size);
     int (*store)(struct cram_codec *codec, cram_block *b, char *prefix,
 		 int version);
     union {
