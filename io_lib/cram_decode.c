@@ -472,6 +472,12 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
+	} else if (key[0] == 'B' && key[1] == 'B') {
+	    if (!(hdr->codecs[DS_BB] = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY,
+						    fd->version))) {
+		cram_free_compression_header(hdr);
+		return NULL;
+	    }
 	} else if (key[0] == 'R' && key[1] == 'S') {
 	    if (!(hdr->codecs[DS_RS] = cram_decoder_init(encoding, cp, size, E_INT,
 						    fd->version))) {
@@ -509,8 +515,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
-	    if (!(hdr->codecs[DS_Qs] = cram_decoder_init(encoding, cp, size,
-						    E_BYTE_ARRAY,
+	} else if (key[0] == 'Q' && key[1] == 'Q') {
+	    if (!(hdr->codecs[DS_QQ] = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY,
 						    fd->version))) {
 		cram_free_compression_header(hdr);
 		return NULL;
@@ -600,7 +606,7 @@ int cram_dependent_data_series(cram_fd *fd,
 	DS_BF, DS_AP, DS_FP, DS_RL, DS_DL, DS_NF, DS_BA, DS_QS,
 	DS_FC, DS_FN, DS_BS, DS_IN, DS_RG, DS_MQ, DS_TL, DS_RN,
 	DS_NS, DS_NP, DS_TS, DS_MF, DS_CF, DS_RI, DS_RS, DS_PD,
-	DS_HC, DS_SC
+	DS_HC, DS_SC, DS_BB, DS_QQ,
     };
     uint32_t orig_ds;
 
@@ -687,7 +693,7 @@ int cram_dependent_data_series(cram_fd *fd,
 	    hdr->data_series |= CRAM_CF;
 	if (!hdr->read_names_included && hdr->data_series & CRAM_RN)
 	    hdr->data_series |= CRAM_CF | CRAM_NF;
-	if (hdr->data_series & (CRAM_BA | CRAM_QS))
+	if (hdr->data_series & (CRAM_BA | CRAM_QS | CRAM_BB | CRAM_QQ))
 	    hdr->data_series |= CRAM_BF | CRAM_CF | CRAM_RL;
 
 	orig_ds = hdr->data_series;
@@ -1095,18 +1101,30 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		cig_len = 0;
 	    }
 	    if (ds & CRAM_IN) {
-		if (IS_CRAM_1_VERS(fd)) {
+		switch (CRAM_MAJOR_VERS(fd->version)) {
+		case 1:
 		    r |= c->comp_hdr->codecs[DS_IN]
 			? c->comp_hdr->codecs[DS_IN]
 			             ->decode(s, c->comp_hdr->codecs[DS_IN],
 					      blk, &seq[pos-1], &out_sz2)
 			: (seq[pos-1] = 'N', out_sz2 = 1, 0);
-		} else {
+		    break;
+
+		case 2:
+		default:
 		    r |= c->comp_hdr->codecs[DS_SC]
 			? c->comp_hdr->codecs[DS_SC]
 			             ->decode(s, c->comp_hdr->codecs[DS_SC],
 					      blk, &seq[pos-1], &out_sz2)
 			: (seq[pos-1] = 'N', out_sz2 = 1, 0);
+		    break;
+
+//		default:
+//		    r |= c->comp_hdr->codecs[DS_BB]
+//			? c->comp_hdr->codecs[DS_BB]
+//			             ->decode(s, c->comp_hdr->codecs[DS_BB],
+//					      blk, &seq[pos-1], &out_sz2)
+//			: (seq[pos-1] = 'N', out_sz2 = 1, 0);
 		}
 		cigar[ncigar++] = (out_sz2<<4) + BAM_CSOFT_CLIP;
 		cig_op = BAM_CSOFT_CLIP;
@@ -1227,6 +1245,54 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	    cig_len++;
 	    seq_pos++;
 	    nm++;
+	    break;
+	}
+
+	case 'b': { // Several bases
+	    int32_t len = 1;
+
+	    if (cig_len && cig_op != BAM_CMATCH) {
+		cigar[ncigar++] = (cig_len<<4) + cig_op;
+		cig_len = 0;
+	    }
+
+	    if (ds & CRAM_BB) {
+		if (!c->comp_hdr->codecs[DS_BB]) return -1;
+		r |= c->comp_hdr->codecs[DS_BB]
+		    ->decode(s, c->comp_hdr->codecs[DS_BB], blk,
+			     (char *)&seq[pos-1], &len);
+	    }
+
+	    cig_op = BAM_CMATCH;
+
+	    cig_len+=len;
+	    seq_pos+=len;
+	    ref_pos+=len;
+	    //prev_pos+=len;
+	    break;
+	}
+
+	case 'q': { // Several quality values
+	    int32_t len = 1;
+
+	    if (cig_len && cig_op != BAM_CMATCH) {
+		cigar[ncigar++] = (cig_len<<4) + cig_op;
+		cig_len = 0;
+	    }
+
+	    if (ds & CRAM_QQ) {
+		if (!c->comp_hdr->codecs[DS_QQ]) return -1;
+		r |= c->comp_hdr->codecs[DS_QQ]
+		    ->decode(s, c->comp_hdr->codecs[DS_QQ], blk,
+			     (char *)&qual[pos-1], &len);
+	    }
+
+	    cig_op = BAM_CMATCH;
+
+	    cig_len+=len;
+	    seq_pos+=len;
+	    ref_pos+=len;
+	    //prev_pos+=len;
 	    break;
 	}
 
@@ -1407,9 +1473,9 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	int32_t out_sz2 = cr->len;
 
 	if (ds & CRAM_QS) {
-	    if (!c->comp_hdr->codecs[DS_Qs]) return -1;
-	    r |= c->comp_hdr->codecs[DS_Qs]
-		            ->decode(s, c->comp_hdr->codecs[DS_Qs], blk,
+	    if (!c->comp_hdr->codecs[DS_QS]) return -1;
+	    r |= c->comp_hdr->codecs[DS_QS]
+		            ->decode(s, c->comp_hdr->codecs[DS_QS], blk,
 				     qual, &out_sz2);
 	}
     }
@@ -2110,9 +2176,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    if (ds & CRAM_CF && cf & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
 		out_sz2 = cr->len;
 		if (ds & CRAM_QS) {
-		    if (!c->comp_hdr->codecs[DS_Qs]) return -1;
-		    r |= c->comp_hdr->codecs[DS_Qs]
-			            ->decode(s, c->comp_hdr->codecs[DS_Qs],
+		    if (!c->comp_hdr->codecs[DS_QS]) return -1;
+		    r |= c->comp_hdr->codecs[DS_QS]
+			            ->decode(s, c->comp_hdr->codecs[DS_QS],
 					     blk, qual, &out_sz2);
 		}
 	    } else {
