@@ -155,6 +155,32 @@ char *tokenise_search_path(char *searchpath) {
 	    continue;
 	}
 
+	/* Handle http:// and ftp:// too without :: */
+	if (path_sep == ':') {
+	    if ((i == 0 || (i > 0 && searchpath[i-1] == ':')) &&
+		(!strncmp(&searchpath[i], "http:",     5) ||
+		 !strncmp(&searchpath[i], "ftp:",      4) ||
+		 !strncmp(&searchpath[i], "URL=http:", 9) ||
+		 !strncmp(&searchpath[i], "URL=ftp:",  8))) {
+		do {
+		    newsearch[j++] = searchpath[i];
+		} while (i<len && searchpath[i++] != ':');
+		if (searchpath[i] == ':')
+		    i++;
+		if (searchpath[i]=='/')
+		    newsearch[j++] = searchpath[i++];
+		if (searchpath[i]=='/')
+		    newsearch[j++] = searchpath[i++];
+		// Look for host:port
+		do {
+		    newsearch[j++] = searchpath[i++];
+		} while (i<len && searchpath[i] != ':' && searchpath[i] != '/');
+		newsearch[j++] = searchpath[i++];
+		if (searchpath[i] == ':')
+		    i++;
+	    }
+	}
+
 	if (searchpath[i] == path_sep) {
 	    /* Skip blank path components */
 	    if (j && newsearch[j-1] != 0)
@@ -1217,6 +1243,12 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 #if defined(USE_WGET) || defined(HAVE_LIBCURL)
 	    } else if (0 == strncmp(ele2, "URL=", 4)) {
 		if (valid && (fp = find_file_url(file2, ele2+4))) {
+		    free(newsearch);
+		    return fp;
+		}
+	    } else if (!strncmp(ele2, "http:", 5) ||
+		       !strncmp(ele2, "ftp:", 4)) {
+		if (valid && (fp = find_file_url(file2, ele2))) {
 		    free(newsearch);
 		    return fp;
 		}
