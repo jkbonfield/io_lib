@@ -113,11 +113,12 @@ int main(int argc, char **argv) {
     char ref_name[1024] = {0};
     bam_flagstat_t st;
     int nthreads = 1;
+    int benchmark = 0;
 
     memset(&st, 0, sizeof(st));
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "hI:R:r:!t:")) != -1) {
+    while ((c = getopt(argc, argv, "hI:R:r:!t:b")) != -1) {
 	switch (c) {
 	case 'h':
 	    usage(stdout);
@@ -165,6 +166,12 @@ int main(int argc, char **argv) {
 	    }
 	    break;
 
+	case 'b':
+	    // Benchmark mode simply reads all fields in a SAM/BAM/CRAM
+	    // and discards them, testing pure read speed.
+	    benchmark = 1;
+	    break;
+
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
 	    usage(stderr);
@@ -204,8 +211,9 @@ int main(int argc, char **argv) {
 	if (scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5))
 	    return 1;
 
-    scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS,
-		     SAM_FLAG | SAM_MAPQ | SAM_RNEXT);
+    if (!benchmark)
+	scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS,
+			 SAM_FLAG | SAM_MAPQ | SAM_RNEXT);
 
     /* Support for sub-range queries, currently implemented for CRAM only */
     if (*ref_name != 0) {
@@ -233,6 +241,13 @@ int main(int argc, char **argv) {
     }
 
     /* Do the actual file format conversion */
+    if (benchmark) {
+	s = NULL;
+	while (scram_get_seq(in, &s) >= 0);
+
+	return scram_eof(in) ? 0 : 1;
+    }
+
     s = NULL;
     while (scram_get_seq(in, &s) >= 0) {
 	int w = s->flag & BAM_FQCFAIL ? 1 : 0;
