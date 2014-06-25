@@ -182,12 +182,11 @@ enum cram_block_method {
     GZIP   = 1,
     BZIP2  = 2,
     LZMA   = 3,
-    ARITH0 = 4,
-    ARITH1 = 5,
-    RANS0  = 6,
-    RANS1  = 7,
-
-    GZIP_RLE = 8, // NB: not externalised in CRAM
+    RANS0  = 4,
+    RANS1  = 10,   // Not externalised; stored as RANS (generic)
+    GZIP_RLE = 11, // NB: not externalised in CRAM
+    ARITH0 = 16,   // unofficial & test only
+    ARITH1 = 17,
 };
 
 enum cram_content_type {
