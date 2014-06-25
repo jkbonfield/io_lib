@@ -909,7 +909,7 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     int method = 1<<GZIP | 1<<GZIP_RLE, methodF = method;
 
     /* Compress the CORE Block too, with minimal zlib level */
-    if (level > 5)
+    if (level > 5 && s->block[0]->uncomp_size > 500)
 	cram_compress_block(fd, s->block[0], NULL, GZIP, 1);
  
     if (fd->use_bz2)
