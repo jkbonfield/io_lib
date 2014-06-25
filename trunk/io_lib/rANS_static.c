@@ -317,11 +317,25 @@ static inline void RansDecRenorm(RansState* r, uint8_t** pptr)
 {
     // renormalize
     uint32_t x = *r;
-    if (x < RANS_BYTE_L) {
-        uint8_t* ptr = *pptr;
-        do x = (x << 8) | *ptr++; while (x < RANS_BYTE_L);
-        *pptr = ptr;
-    }
+
+//    if (x < RANS_BYTE_L) {
+//        uint8_t* ptr = *pptr;
+//        do x = (x << 8) | *ptr++; while (x < RANS_BYTE_L);
+//        *pptr = ptr;
+//    }
+
+    // Better form for icc, sometimes for gcc (sometimes not)
+    uint8_t *ptr = *pptr;
+
+    int z = (x < RANS_BYTE_L);
+    x <<= z*8;
+    x |= z * *ptr;
+    ptr+=z;
+
+    if (x < RANS_BYTE_L)
+	do x = (x << 8) | *ptr++; while (x < RANS_BYTE_L);
+
+    *pptr = ptr;
 
     *r = x;
 }
@@ -401,7 +415,7 @@ static inline void RansDecRenorm(RansState* r, uint8_t** pptr)
 
 unsigned char *rans_compress_O0(unsigned char *in, unsigned int in_size,
 				unsigned int *out_size) {
-    unsigned char *out_buf = malloc(1.05*in_size + 257*257*3 + 4);
+    unsigned char *out_buf = malloc(1.05*in_size + 257*257*3 + 5);
     unsigned char *cp, *out_end;
     RansEncSymbol syms[256];
     RansState rans0, rans1, rans2, rans3;
@@ -444,7 +458,7 @@ unsigned char *rans_compress_O0(unsigned char *in, unsigned int in_size,
     assert(F[M]>0);
 
     // Encode statistics.
-    cp = out_buf+4;
+    cp = out_buf+5;
 
     for (x = rle = j = 0; j < 256; j++) {
 	if (F[j]) {
@@ -511,6 +525,7 @@ unsigned char *rans_compress_O0(unsigned char *in, unsigned int in_size,
     *out_size = (out_end - ptr) + tab_size;
 
     cp = out_buf;
+    *cp++ = 0; // order
     *cp++ = (in_size>> 0) & 0xff;
     *cp++ = (in_size>> 8) & 0xff;
     *cp++ = (in_size>>16) & 0xff;
@@ -532,13 +547,16 @@ typedef struct {
 unsigned char *rans_uncompress_O0(unsigned char *in, unsigned int in_size,
 				  unsigned int *out_size) {
     /* Load in the static tables */
-    unsigned char *cp = in + 4;
+    unsigned char *cp = in + 5;
     int i, j, x, out_sz, rle;
     char *out_buf;
     ari_decoder D;
     RansDecSymbol syms[256];
 
     memset(&D, 0, sizeof(D));
+    
+    if (*in++ != 0) // Order-0 check
+	return NULL;
 
     out_sz = ((in[0])<<0) | ((in[1])<<8) | ((in[2])<<16) | ((in[3])<<24);
     out_buf = malloc(out_sz);
@@ -586,27 +604,52 @@ unsigned char *rans_uncompress_O0(unsigned char *in, unsigned int in_size,
     RansDecInit(&rans3, &ptr);
 
     int out_end = (out_sz&~3);
+
+    RansState R[4];
+    R[0] = rans0;
+    R[1] = rans1;
+    R[2] = rans2;
+    R[3] = rans3;
+    uint32_t mask = (1u << TF_SHIFT)-1;
+
     for (i=0; i < out_end; i+=4) {
-	unsigned char c0 = D.R[RansDecGet(&rans0, TF_SHIFT)];
-	unsigned char c1 = D.R[RansDecGet(&rans1, TF_SHIFT)];
-	unsigned char c2 = D.R[RansDecGet(&rans2, TF_SHIFT)];
-	unsigned char c3 = D.R[RansDecGet(&rans3, TF_SHIFT)];
+	uint32_t m[4] = {R[0] & mask,
+			 R[1] & mask,
+			 R[2] & mask,
+			 R[3] & mask};
+	uint8_t c[4] = {D.R[m[0]],
+			D.R[m[1]],
+			D.R[m[2]],
+			D.R[m[3]]};
+	out_buf[i+0] = c[0];
+	out_buf[i+1] = c[1];
+	out_buf[i+2] = c[2];
+	out_buf[i+3] = c[3];
 
-	out_buf[i+0] = c0;
-	out_buf[i+1] = c1;
-	out_buf[i+2] = c2;
-	out_buf[i+3] = c3;
+	// RansDecAdvanceSymbolStep(&R[0], &syms[c[0]], TF_SHIFT);
+	// RansDecAdvanceSymbolStep(&R[1], &syms[c[1]], TF_SHIFT);
+	// RansDecAdvanceSymbolStep(&R[2], &syms[c[2]], TF_SHIFT);
+	// RansDecAdvanceSymbolStep(&R[3], &syms[c[3]], TF_SHIFT);
+	R[0] = syms[c[0]].freq * (R[0]>>TF_SHIFT);
+	R[1] = syms[c[1]].freq * (R[1]>>TF_SHIFT);
+	R[2] = syms[c[2]].freq * (R[2]>>TF_SHIFT);
+	R[3] = syms[c[3]].freq * (R[3]>>TF_SHIFT);
 
-	RansDecAdvanceSymbolStep(&rans0, &syms[c0], TF_SHIFT);
-	RansDecAdvanceSymbolStep(&rans1, &syms[c1], TF_SHIFT);
-	RansDecAdvanceSymbolStep(&rans2, &syms[c2], TF_SHIFT);
-	RansDecAdvanceSymbolStep(&rans3, &syms[c3], TF_SHIFT);
+	R[0] += m[0] - syms[c[0]].start;
+	R[1] += m[1] - syms[c[1]].start;
+	R[2] += m[2] - syms[c[2]].start;
+	R[3] += m[3] - syms[c[3]].start;
 
-	RansDecRenorm(&rans0, &ptr);
-	RansDecRenorm(&rans1, &ptr);
-	RansDecRenorm(&rans2, &ptr);
-	RansDecRenorm(&rans3, &ptr);
+	RansDecRenorm(&R[0], &ptr);
+	RansDecRenorm(&R[1], &ptr);
+	RansDecRenorm(&R[2], &ptr);
+	RansDecRenorm(&R[3], &ptr);
     }
+
+    rans0 = R[0];
+    rans1 = R[1];
+    rans2 = R[2];
+    rans3 = R[3];
 
     switch(out_sz&3) {
 	unsigned char c;
@@ -652,7 +695,7 @@ unsigned char *rans_uncompress_O0(unsigned char *in, unsigned int in_size,
 
 unsigned char *rans_compress_O1(unsigned char *in, unsigned int in_size,
 				unsigned int *out_size) {
-    unsigned char *out_buf = malloc(1.05*in_size + 257*257*3 + 4);
+    unsigned char *out_buf = malloc(1.05*in_size + 257*257*3 + 5);
     unsigned char *cp = out_buf, *out_end;
     unsigned int last_i, tab_size, rle_i, rle_j;
     RansEncSymbol syms[256][256];
@@ -660,8 +703,8 @@ unsigned char *rans_compress_O1(unsigned char *in, unsigned int in_size,
     if (!out_buf)
 	return NULL;
 
-    out_end = out_buf + (int)(1.05*in_size) + 257*257*3 + 4;
-    cp = out_buf+4;
+    out_end = out_buf + (int)(1.05*in_size) + 257*257*3 + 5;
+    cp = out_buf+5;
 
     int F[256][256], T[256], i, j;
     unsigned char c;
@@ -828,6 +871,7 @@ unsigned char *rans_compress_O1(unsigned char *in, unsigned int in_size,
     *out_size = (out_end - ptr) + tab_size;
 
     cp = out_buf;
+    *cp++ = 1; // order
     *cp++ = (in_size>> 0) & 0xff;
     *cp++ = (in_size>> 8) & 0xff;
     *cp++ = (in_size>>16) & 0xff;
@@ -841,13 +885,16 @@ unsigned char *rans_compress_O1(unsigned char *in, unsigned int in_size,
 unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
 				  unsigned int *out_size) {
     /* Load in the static tables */
-    unsigned char *cp = in + 4;
+    unsigned char *cp = in + 5;
     int i, j = -999, x, out_sz, rle_i, rle_j;
     char *out_buf;
     ari_decoder D[256];
     RansDecSymbol syms[256][256];
     
     memset(D, 0, 256*sizeof(*D));
+
+    if (*in++ != 1) // Order-1 check
+	return NULL;
 
     out_sz = ((in[0])<<0) | ((in[1])<<8) | ((in[2])<<16) | ((in[3])<<24);
     out_buf = malloc(out_sz);
@@ -915,45 +962,69 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
     RansDecInit(&rans3, &ptr);
 
     int isz4 = out_sz>>2;
-    int i0 = 0*isz4;
-    int i1 = 1*isz4;
-    int i2 = 2*isz4;
-    int i3 = 3*isz4;
     int l0 = 0;
     int l1 = 0;
     int l2 = 0;
     int l3 = 0;
-    for (; i0 < isz4; i0++, i1++, i2++, i3++) {
-	unsigned char c0 = D[l0].R[RansDecGet(&rans0, TF_SHIFT)];
-	unsigned char c1 = D[l1].R[RansDecGet(&rans1, TF_SHIFT)];
-	unsigned char c2 = D[l2].R[RansDecGet(&rans2, TF_SHIFT)];
-	unsigned char c3 = D[l3].R[RansDecGet(&rans3, TF_SHIFT)];
+    int i4[] = {0*isz4, 1*isz4, 2*isz4, 3*isz4};
 
-	out_buf[i0] = c0;
-	out_buf[i1] = c1;
-	out_buf[i2] = c2;
-	out_buf[i3] = c3;
+    RansState R[4];
+    R[0] = rans0;
+    R[1] = rans1;
+    R[2] = rans2;
+    R[3] = rans3;
 
-	RansDecAdvanceSymbolStep(&rans0, &syms[l0][c0], TF_SHIFT);
-	RansDecAdvanceSymbolStep(&rans1, &syms[l1][c1], TF_SHIFT);
-	RansDecAdvanceSymbolStep(&rans2, &syms[l2][c2], TF_SHIFT);
-	RansDecAdvanceSymbolStep(&rans3, &syms[l3][c3], TF_SHIFT);
+    for (; i4[0] < isz4; i4[0]++, i4[1]++, i4[2]++, i4[3]++) {
+	uint32_t m[4] = {R[0] & (1u << TF_SHIFT)-1,
+			 R[1] & (1u << TF_SHIFT)-1,
+			 R[2] & (1u << TF_SHIFT)-1,
+			 R[3] & (1u << TF_SHIFT)-1};
 
-	RansDecRenorm(&rans0, &ptr);
-	RansDecRenorm(&rans1, &ptr);
-	RansDecRenorm(&rans2, &ptr);
-	RansDecRenorm(&rans3, &ptr);
+	uint8_t c[4] = {D[l0].R[m[0]],
+			D[l1].R[m[1]],
+			D[l2].R[m[2]],
+			D[l3].R[m[3]]};
 
-	l0 = c0;
-	l1 = c1;
-	l2 = c2;
-	l3 = c3;
+	out_buf[i4[0]] = c[0];
+	out_buf[i4[1]] = c[1];
+	out_buf[i4[2]] = c[2];
+	out_buf[i4[3]] = c[3];
+
+	//RansDecAdvanceSymbolStep(&R[0], &syms[l0][c[0]], TF_SHIFT);
+	//RansDecAdvanceSymbolStep(&R[1], &syms[l1][c[1]], TF_SHIFT);
+	//RansDecAdvanceSymbolStep(&R[2], &syms[l2][c[2]], TF_SHIFT);
+	//RansDecAdvanceSymbolStep(&R[3], &syms[l3][c[3]], TF_SHIFT);
+
+	R[0] = syms[l0][c[0]].freq * (R[0]>>TF_SHIFT);
+	R[1] = syms[l1][c[1]].freq * (R[1]>>TF_SHIFT);
+	R[2] = syms[l2][c[2]].freq * (R[2]>>TF_SHIFT);
+	R[3] = syms[l3][c[3]].freq * (R[3]>>TF_SHIFT);
+
+	R[0] += m[0] - syms[l0][c[0]].start;
+	R[1] += m[1] - syms[l1][c[1]].start;
+	R[2] += m[2] - syms[l2][c[2]].start;
+	R[3] += m[3] - syms[l3][c[3]].start;
+
+	RansDecRenorm(&R[0], &ptr);
+	RansDecRenorm(&R[1], &ptr);
+	RansDecRenorm(&R[2], &ptr);
+	RansDecRenorm(&R[3], &ptr);
+
+	l0 = c[0];
+	l1 = c[1];
+	l2 = c[2];
+	l3 = c[3];
     }
 
+    rans0 = R[0];
+    rans1 = R[1];
+    rans2 = R[2];
+    rans3 = R[3];
+
     // Remainder
-    for (; i3 < out_sz; i3++) {
+    for (; i4[3] < out_sz; i4[3]++) {
 	unsigned char c3 = D[l3].R[RansDecGet(&rans3, TF_SHIFT)];
-	out_buf[i3] = c3;
+	out_buf[i4[3]] = c3;
 	RansDecAdvanceSymbol(&rans3, &ptr, &syms[l3][c3], TF_SHIFT);
 	l3 = c3;
     }
@@ -977,8 +1048,8 @@ unsigned char *rans_compress(unsigned char *in, unsigned int in_size,
 }
 
 unsigned char *rans_uncompress(unsigned char *in, unsigned int in_size,
-			       unsigned int *out_size, int order) {
-    return order
+			       unsigned int *out_size) {
+    return in[0]
 	? rans_uncompress_O1(in, in_size, out_size)
 	: rans_uncompress_O0(in, in_size, out_size);
 }
@@ -1039,14 +1110,13 @@ int main(int argc, char **argv) {
 	    uint32_t in_size, out_size;
 	    unsigned char *out;
 
-	    order = fgetc(infp);
 	    if (4 != fread(&in_size, 1, 4, infp))
 		break;
 	    if (in_size != fread(in_buf, 1, in_size, infp)) {
 		fprintf(stderr, "Truncated input\n");
 		exit(1);
 	    }
-	    out = rans_uncompress(in_buf, in_size, &out_size, order);
+	    out = rans_uncompress(in_buf, in_size, &out_size);
 	    if (!out)
 		abort();
 
@@ -1066,7 +1136,6 @@ int main(int argc, char **argv) {
 
 	    out = rans_compress(in_buf, in_size, &out_size, order);
 
-	    fputc(order, outfp);
 	    fwrite(&out_size, 1, 4, outfp);
 	    fwrite(out, 1, out_size, outfp);
 	    free(out);
