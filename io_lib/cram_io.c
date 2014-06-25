@@ -1470,6 +1470,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		b->content_id, b->uncomp_size, b->comp_size,
 		cram_block_method2str(b->method));
 
+    if (b->method == RANS1)
+	b->method = RANS0; // Spec just has RANS (not 0/1) with auto-sensing
+
     return 0;
 }
 
