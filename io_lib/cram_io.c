@@ -759,6 +759,8 @@ cram_block *cram_new_block(enum cram_content_type content_type,
     b->alloc = 0;
     b->byte = 0;
     b->bit = 7; // MSB
+    b->ele = 0;
+    b->last = 0;
 
     return b;
 }

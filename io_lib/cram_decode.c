@@ -571,7 +571,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    free(m);
 	    return NULL;
 	}
-	
+
 	cp += size;
 
 	m->next = hdr->tag_encoding_map[CRAM_MAP(key[0],key[1])];

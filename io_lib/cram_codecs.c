@@ -63,6 +63,8 @@ static char *codec2str(enum cram_encoding codec) {
     case E_SUBEXP:          return "SUBEXP";
     case E_GOLOMB_RICE:     return "GOLOMB_RICE";
     case E_GAMMA:           return "GAMMA";
+    case E_INTERLEAVED:     return "INTERLEAVED";
+    case E_DEMULTIPLEXED:   return "DEMULTIPLEXED";
     }
 
     return "(unknown)";
@@ -433,9 +435,9 @@ static int cram_external_decode_block(cram_slice *slice, cram_codec *c,
     }
 
     c->external.b = b;
-    c->decode = cram_external_decode_block2;
-
-    return c->decode(slice, c, in, out_, out_size);
+    //c->decode = cram_external_decode_block2;
+    //return c->decode(slice, c, in, out_, out_size);
+    return cram_external_decode_block2(slice, c, in, out_, out_size);
 }
 
 void cram_external_decode_free(cram_codec *c) {
@@ -532,6 +534,423 @@ cram_codec *cram_external_encode_init(cram_stats *st,
     else
 	abort();
     c->store = cram_external_encode_store;
+
+    c->e_external.content_id = (size_t)dat;
+
+    return c;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * INTERLEAVED
+ */
+
+int cram_interleaved_decode_char(cram_slice *slice, cram_codec *c,
+				 cram_block *in, char *out,
+				 int *out_size) {
+    char *cp_i;
+    cram_block *b = NULL;
+    int i, idx;
+    int stride = c->interleaved.stride;
+    int offset = c->interleaved.offset;
+    int stop = c->interleaved.stop;
+    int len = 0;
+
+    /* Find the external block */
+    if (slice->block_by_id) {
+	if (!(b = slice->block_by_id[c->interleaved.content_id]))
+	    return *out_size?-1:0;
+    } else {
+	for (i = 0; i < slice->hdr->num_blocks; i++) {
+	    b = slice->block[i];
+	    if (b && b->content_type == E_INTERLEAVED &&
+		b->content_id == c->interleaved.content_id) {
+		break;
+	    }
+	}
+	if (i == slice->hdr->num_blocks || !b)
+	    return -1;
+    }
+
+    if (!b->ele || ((b->ele) & (1<<offset))) {
+	// new pair
+	b->last = b->idx;
+	b->ele = 0;
+    }
+    b->ele |= (1<<offset);
+
+    cp_i = b->data + b->last + offset;
+    while (*cp_i != stop) {
+	*out++ = *cp_i;
+	cp_i += stride;
+	len++;
+    }
+    *out_size = len;
+    b->idx = MAX(b->idx, (uc *)cp_i - b->data);
+    
+    return 0;
+}
+
+static int cram_interleaved_decode_block2(cram_slice *slice, cram_codec *c,
+					  cram_block *in, char *out_,
+					  int *out_size) {
+    char *cp_i, *cp_o;
+    cram_block *b = c->interleaved.b;
+    cram_block *out = (cram_block *)out_;
+    int i, idx;
+    int stride = c->interleaved.stride;
+    int offset = c->interleaved.offset;
+    int stop = c->interleaved.stop;
+    int len = 0;
+
+    if (!b->ele || ((b->ele) & (1<<offset))) {
+	// new pair
+	b->last = b->idx;
+	b->ele = 0;
+    }
+    b->ele |= (1<<offset);
+
+    cp_i = b->data + b->last + offset;
+    while (*cp_i != stop) {
+	BLOCK_APPEND_CHAR(out, *cp_i);
+	cp_i += stride;
+	len++;
+    }
+    *out_size = len;
+    b->idx = MAX(b->idx, (uc *)cp_i - b->data + 2-offset);
+
+    return 0;
+}
+
+static int cram_interleaved_decode_block(cram_slice *slice, cram_codec *c,
+					 cram_block *in, char *out_,
+					 int *out_size) {
+    int i;
+    cram_block *b = NULL;
+
+    /* Find the external block */
+    if (slice->block_by_id) {
+	if (!(b = slice->block_by_id[c->interleaved.content_id]))
+	    return *out_size?-1:0;
+    } else {
+	for (i = 0; i < slice->hdr->num_blocks; i++) {
+	    b = slice->block[i];
+	    if (b && b->content_type == E_INTERLEAVED &&
+		b->content_id == c->interleaved.content_id) {
+		break;
+	    }
+	}
+	if (i == slice->hdr->num_blocks || !b)
+	    return -1;
+    }
+
+    c->interleaved.b = b;
+    //c->decode = cram_interleaved_decode_block2;
+    //return c->decode(slice, c, in, out_, out_size);
+    return cram_interleaved_decode_block2(slice, c, in, out_, out_size);
+}
+
+void cram_interleaved_decode_free(cram_codec *c) {
+    if (c)
+	free(c);
+}
+
+cram_codec *cram_interleaved_decode_init(char *data, int size,
+					 enum cram_external_type option,
+					 int version) {
+    cram_codec *c;
+    char *cp = data;
+
+    if (!(c = malloc(sizeof(*c))))
+	return NULL;
+
+    c->codec  = E_INTERLEAVED;
+    if (option == E_INT || option == E_LONG)
+	c->decode = NULL;
+    else if (option == E_BYTE_ARRAY || option == E_BYTE)
+	c->decode = cram_interleaved_decode_char;
+    else
+	c->decode = cram_interleaved_decode_block;
+    c->free   = cram_interleaved_decode_free;
+    
+    cp += itf8_get(cp, &c->interleaved.stride);
+    cp += itf8_get(cp, &c->interleaved.offset);
+    c->interleaved.stop = *cp++;
+    cp += itf8_get(cp, &c->interleaved.content_id);
+
+    if (cp - data != size) {
+	fprintf(stderr, "Malformed interleaved header stream\n");
+	free(c);
+	return NULL;
+    }
+
+    c->interleaved.type = option;
+
+    return c;
+}
+
+int cram_interleaved_encode_char(cram_slice *slice, cram_codec *c,
+				 char *in, int in_size) {
+    return -1;
+}
+
+void cram_interleaved_encode_free(cram_codec *c) {
+    if (!c)
+	return;
+    free(c);
+}
+
+int cram_interleaved_encode_store(cram_codec *c, cram_block *b, char *prefix,
+				  int version) {
+    char tmp[99], *tp = tmp;
+    int len = 0;
+
+    if (prefix) {
+	size_t l = strlen(prefix);
+	BLOCK_APPEND(b, prefix, l);
+	len += l;
+    }
+
+    tp += itf8_put(tp, c->e_interleaved.content_id);
+    tp += itf8_put(tp, c->e_interleaved.stride);
+    tp += itf8_put(tp, c->e_interleaved.offset);
+    len += itf8_put_blk(b, c->codec);
+    len += itf8_put_blk(b, tp-tmp);
+    BLOCK_APPEND(b, tmp, tp-tmp);
+    len += tp-tmp;
+
+    return len;
+}
+
+cram_codec *cram_interleaved_encode_init(cram_stats *st,
+					 enum cram_external_type option,
+					 void *dat,
+					 int version) {
+    cram_codec *c;
+    int *i_dat = (int *)dat;
+
+    c = malloc(sizeof(*c));
+    if (!c)
+	return NULL;
+    c->codec = E_INTERLEAVED;
+    c->free = cram_interleaved_encode_free;
+    if (option == E_INT || option == E_LONG)
+	c->encode = NULL;
+    else if (option == E_BYTE_ARRAY || option == E_BYTE)
+	c->encode = cram_interleaved_encode_char;
+    else
+	abort();
+    c->store = cram_interleaved_encode_store;
+
+    c->e_interleaved.content_id = i_dat[0];
+    c->e_interleaved.stride     = i_dat[1];
+    c->e_interleaved.offset     = i_dat[2];
+    
+    return c;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * DEMULTIPLEXED
+ */
+int cram_demultiplexed_decode_int(cram_slice *slice, cram_codec *c,
+				  cram_block *in, char *out, int *out_size) {
+    int i;
+    char *cp;
+    cram_block *b = NULL;
+
+    /* Find the external block */
+    if (slice->block_by_id) {
+	if (!(b = slice->block_by_id[c->demultiplexed.content_id]))
+	    return *out_size?-1:0;
+    } else {
+	for (i = 0; i < slice->hdr->num_blocks; i++) {
+	    b = slice->block[i];
+	    if (b && b->content_type == E_DEMULTIPLEXED &&
+		b->content_id == c->demultiplexed.content_id) {
+		break;
+	    }
+	}
+	if (i == slice->hdr->num_blocks || !b)
+	    return -1;
+    }
+
+    cp = (char *)b->data + b->idx;
+    // E_INT and E_LONG are guaranteed single item queries
+    b->idx += itf8_get(cp, (int32_t *)out);
+    *out_size = 1;
+
+    return 0;
+}
+
+int cram_demultiplexed_decode_char(cram_slice *slice, cram_codec *c,
+				   cram_block *in, char *out,
+				   int *out_size) {
+    int i;
+    char *cp;
+    cram_block *b = NULL;
+
+    /* Find the external block */
+    if (slice->block_by_id) {
+	if (!(b = slice->block_by_id[c->demultiplexed.content_id]))
+	    return *out_size?-1:0;
+    } else {
+	for (i = 0; i < slice->hdr->num_blocks; i++) {
+	    b = slice->block[i];
+	    if (b && b->content_type == E_DEMULTIPLEXED &&
+		b->content_id == c->demultiplexed.content_id) {
+		break;
+	    }
+	}
+	if (i == slice->hdr->num_blocks || !b)
+	    return -1;
+    }
+
+    cp = cram_extract_block(b, *out_size);
+    if (!cp)
+	return -1;
+
+    memcpy(out, cp, *out_size);
+    return 0;
+}
+
+static int cram_demultiplexed_decode_block2(cram_slice *slice, cram_codec *c,
+					    cram_block *in, char *out_,
+					    int *out_size) {
+    char *cp;
+    cram_block *b = c->demultiplexed.b;
+    cram_block *out = (cram_block *)out_;
+
+    cp = cram_extract_block(b, *out_size);
+    if (!cp)
+	return -1;
+
+    BLOCK_APPEND(out, cp, *out_size);
+    return 0;
+}
+
+static int cram_demultiplexed_decode_block(cram_slice *slice, cram_codec *c,
+					   cram_block *in, char *out_,
+					   int *out_size) {
+    int i;
+    cram_block *b = NULL;
+
+    /* Find the external block */
+    if (slice->block_by_id) {
+	if (!(b = slice->block_by_id[c->demultiplexed.content_id]))
+	    return *out_size?-1:0;
+    } else {
+	for (i = 0; i < slice->hdr->num_blocks; i++) {
+	    b = slice->block[i];
+	    if (b && b->content_type == E_DEMULTIPLEXED &&
+		b->content_id == c->demultiplexed.content_id) {
+		break;
+	    }
+	}
+	if (i == slice->hdr->num_blocks || !b)
+	    return -1;
+    }
+
+    c->demultiplexed.b = b;
+    //c->decode = cram_demultiplexed_decode_block2;
+    //return c->decode(slice, c, in, out_, out_size);
+    return cram_demultiplexed_decode_block2(slice, c, in, out_, out_size);
+}
+
+void cram_demultiplexed_decode_free(cram_codec *c) {
+    if (c)
+	free(c);
+}
+
+cram_codec *cram_demultiplexed_decode_init(char *data, int size,
+					   enum cram_external_type option,
+					   int version) {
+    cram_codec *c;
+    char *cp = data;
+
+    if (!(c = malloc(sizeof(*c))))
+	return NULL;
+
+    c->codec  = E_DEMULTIPLEXED;
+    if (option == E_INT || option == E_LONG)
+	c->decode = cram_demultiplexed_decode_int;
+    else if (option == E_BYTE_ARRAY || option == E_BYTE)
+	c->decode = cram_demultiplexed_decode_char;
+    else
+	c->decode = cram_demultiplexed_decode_block;
+    c->free   = cram_demultiplexed_decode_free;
+    
+    cp += itf8_get(cp, &c->demultiplexed.content_id);
+
+    if (cp - data != size) {
+	fprintf(stderr, "Malformed demultiplexed header stream\n");
+	free(c);
+	return NULL;
+    }
+
+    c->demultiplexed.type = option;
+
+    return c;
+}
+
+int cram_demultiplexed_encode_int(cram_slice *slice, cram_codec *c,
+				  char *in, int in_size) {
+    uint32_t *i32 = (uint32_t *)in;
+
+    itf8_put_blk(c->out, *i32);
+    return 0;
+}
+
+int cram_demultiplexed_encode_char(cram_slice *slice, cram_codec *c,
+				   char *in, int in_size) {
+    BLOCK_APPEND(c->out, in, in_size);
+    return 0;
+}
+
+void cram_demultiplexed_encode_free(cram_codec *c) {
+    if (!c)
+	return;
+    free(c);
+}
+
+int cram_demultiplexed_encode_store(cram_codec *c, cram_block *b, char *prefix,
+				    int version) {
+    char tmp[99], *tp = tmp;
+    int len = 0;
+
+    if (prefix) {
+	size_t l = strlen(prefix);
+	BLOCK_APPEND(b, prefix, l);
+	len += l;
+    }
+
+    tp += itf8_put(tp, c->e_external.content_id);
+    len += itf8_put_blk(b, c->codec);
+    len += itf8_put_blk(b, tp-tmp);
+    BLOCK_APPEND(b, tmp, tp-tmp);
+    len += tp-tmp;
+
+    return len;
+}
+
+cram_codec *cram_demultiplexed_encode_init(cram_stats *st,
+					   enum cram_external_type option,
+					   void *dat,
+					   int version) {
+    cram_codec *c;
+
+    c = malloc(sizeof(*c));
+    if (!c)
+	return NULL;
+    c->codec = E_DEMULTIPLEXED;
+    c->free = cram_demultiplexed_encode_free;
+    if (option == E_INT || option == E_LONG)
+	c->encode = cram_demultiplexed_encode_int;
+    else if (option == E_BYTE_ARRAY || option == E_BYTE)
+	c->encode = cram_demultiplexed_encode_char;
+    else
+	abort();
+    c->store = cram_demultiplexed_encode_store;
 
     c->e_external.content_id = (size_t)dat;
 
@@ -1591,9 +2010,10 @@ static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
 	return -1;
 
     c->byte_array_stop.b = b;
-    c->decode = cram_byte_array_stop_decode_char2;
 
-    return c->decode(slice, c, in, out, out_size);
+    //c->decode = cram_byte_array_stop_decode_char2;
+    //return c->decode(slice, c, in, out, out_size);
+    return cram_byte_array_stop_decode_char2(slice, c, in, out, out_size);
 }
 
 int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
@@ -1765,6 +2185,8 @@ char *cram_encoding2str(enum cram_encoding t) {
     case E_SUBEXP:          return "SUBEXP";
     case E_GOLOMB_RICE:     return "GOLOMB_RICE";
     case E_GAMMA:           return "GAMMA";
+    case E_INTERLEAVED:     return "INTERLEAVED";
+    case E_DEMULTIPLEXED:   return "DEMULTIPLEXED";
     }
     return "?";
 }
@@ -1783,6 +2205,8 @@ static cram_codec *(*decode_init[])(char *data,
     cram_subexp_decode_init,
     NULL,
     cram_gamma_decode_init,
+    cram_interleaved_decode_init,
+    cram_demultiplexed_decode_init,
 };
 
 cram_codec *cram_decoder_init(enum cram_encoding codec,
@@ -1811,6 +2235,8 @@ static cram_codec *(*encode_init[])(cram_stats *stx,
     NULL, //cram_subexp_encode_init,
     NULL,
     NULL, //cram_gamma_encode_init,
+    cram_interleaved_encode_init,
+    cram_demultiplexed_encode_init,
 };
 
 cram_codec *cram_encoder_init(enum cram_encoding codec,
@@ -1863,6 +2289,9 @@ int cram_codec_to_id(cram_codec *c, int *id2) {
 	break;
     case E_NULL:
 	bnum1 = -2;
+	break;
+    case E_INTERLEAVED:
+	bnum1 = c->interleaved.content_id;
 	break;
     default:
 	fprintf(stderr, "Unknown codec type %d\n", c->codec);

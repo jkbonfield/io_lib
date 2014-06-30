@@ -95,6 +95,22 @@ typedef struct {
 } cram_external_decoder;
 
 typedef struct {
+    cram_block *b;
+    int32_t content_id;
+    int32_t stride;
+    int32_t offset;
+    unsigned char stop;
+    enum cram_external_type type;
+} cram_interleaved_codec;
+
+// TODO
+typedef struct {
+    cram_block *b;
+    int32_t content_id;
+    enum cram_external_type type;
+} cram_demultiplexed_codec;
+
+typedef struct {
     struct cram_codec *len_codec;
     struct cram_codec *value_codec;
 } cram_byte_array_len_decoder;
@@ -135,12 +151,16 @@ typedef struct cram_codec {
 	cram_subexp_decoder          subexp;
 	cram_byte_array_len_decoder  byte_array_len;
 	cram_byte_array_stop_decoder byte_array_stop;
+	cram_interleaved_codec       interleaved;
+	cram_demultiplexed_codec     demultiplexed;
 
 	cram_huffman_encoder         e_huffman;
 	cram_external_decoder        e_external;
 	cram_byte_array_stop_decoder e_byte_array_stop;
 	cram_byte_array_len_encoder  e_byte_array_len;
 	cram_beta_decoder            e_beta;
+	cram_interleaved_codec       e_interleaved;
+	cram_demultiplexed_codec     e_demultiplexed;
     };
 } cram_codec;
 
