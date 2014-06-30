@@ -113,7 +113,7 @@ enum cram_DS_ID {
     DS_aux_BQ = 3,
     DS_aux_BD = 4,
     DS_aux_BI = 5,
-    DS_aux_FZ = 6,
+    DS_aux_FZ = 6, // also ZM:B
     DS_aux_oq = 7, // other qualities
     DS_aux_os = 8, // other sequences
     DS_aux_oz = 9, // other strings
