@@ -495,14 +495,44 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 				     "\t"   // stop-byte is also SAM separator
 				     DS_aux_BQ_S,
 				     4);
-		    else if (hi->key[0] == 'B' && 
-			     (hi->key[1] == 'D' || hi->key[1] == 'I'))
-			BLOCK_APPEND(map,
-				     "\005" // BYTE_ARRAY_STOP
-				     "\002" // len
-				     "\t"   // stop-byte is also SAM separator
-				     DS_aux_BD_S,
-				     4);
+		    else if (hi->key[0] == 'B' && hi->key[1] == 'D')
+			if (CRAM_MAJOR_VERS(fd->version) >= 3 && 0) {
+			    BLOCK_APPEND(map,
+					 "\012" // INTERLEAVED
+					 "\004" // len
+					 "\002" // stride
+					 "\000" // offset
+					 "\t"   // stop byte
+					 DS_aux_BD_S,
+					 6);
+			} else {
+			    BLOCK_APPEND(map,
+					 "\005" // BYTE_ARRAY_STOP
+					 "\002" // len
+					 "\t"   // stop-byte is also SAM
+					        // separator
+					 DS_aux_BD_S,
+					 4);
+			}
+		    else if (hi->key[0] == 'B' && hi->key[1] == 'I')
+			if (CRAM_MAJOR_VERS(fd->version) >= 3 && 0) {
+			    BLOCK_APPEND(map,
+					 "\012" // INTERLEAVED
+					 "\004" // len
+					 "\002" // stride
+					 "\001" // offset
+					 "\t"   // stop byte
+					 DS_aux_BD_S, // with BD
+					 6);
+			} else {
+			    BLOCK_APPEND(map,
+					 "\005" // BYTE_ARRAY_STOP
+					 "\002" // len
+					 "\t"   // stop-byte is also SAM
+					        // separator
+					 DS_aux_BI_S,
+					 4);
+			}
 		    else if ((hi->key[0] == 'Q' && hi->key[1] == '2') ||
 			     (hi->key[0] == 'U' && hi->key[1] == '2') ||
 			     (hi->key[0] == 'Q' && hi->key[1] == 'T') ||
@@ -1168,6 +1198,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[DS_aux_OQ]= s->aux_OQ_blk;  s->aux_OQ_blk  = NULL;
     s->block[DS_aux_BQ]= s->aux_BQ_blk;  s->aux_BQ_blk  = NULL;
     s->block[DS_aux_BD]= s->aux_BD_blk;  s->aux_BD_blk  = NULL;
+    s->block[DS_aux_BI]= s->aux_BI_blk;  s->aux_BI_blk  = NULL;
     s->block[DS_aux_FZ]= s->aux_FZ_blk;  s->aux_FZ_blk  = NULL;
     s->block[DS_aux_oq]= s->aux_oq_blk;  s->aux_oq_blk  = NULL;
     s->block[DS_aux_os]= s->aux_os_blk;  s->aux_os_blk  = NULL;
@@ -2100,18 +2131,97 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    continue;
 	}
 
-	// BD:Z and BI:Z
-	if (aux[0] == 'B' && (aux[1]=='D' || aux[1]=='I') && aux[2] == 'Z') {
+	// BD:Z
+	if (aux[0] == 'B' && aux[1]=='D' && aux[2] == 'Z') {
 	    char *tmp;
-	    if (!s->aux_BD_blk)
+	    if (!s->aux_BD_blk) {
 		if (!(s->aux_BD_blk = cram_new_block(EXTERNAL, DS_aux_BD)))
 		    return NULL;
+		s->aux_BD_blk->last = 0;
+		s->aux_BD_blk->ele = 0;
+	    }
 	    BLOCK_GROW(s->aux_BD_blk, aux_size*1.34+1);
 	    tmp = (char *)BLOCK_END(s->aux_BD_blk);
 	    aux += 3;
-	    while ((*tmp++=*aux++));
-	    *tmp++ = '\t';
-	    BLOCK_SIZE(s->aux_BD_blk) = (uc *)tmp - BLOCK_DATA(s->aux_BD_blk);
+	    if (CRAM_MAJOR_VERS(fd->version) >= 3 && 0 ) {
+		int offset = (aux[-2] == 'I');
+		if (!s->aux_BD_blk->ele ||
+		    (s->aux_BD_blk->ele & (1<<offset))) {
+		    // new pair
+		    s->aux_BD_blk->last = BLOCK_SIZE(s->aux_BD_blk);
+		    s->aux_BD_blk->ele = 0;
+		} else {
+		    tmp = (char *)BLOCK_DATA(s->aux_BD_blk) +
+			s->aux_BD_blk->last;
+		}
+		s->aux_BD_blk->ele |= (1<<offset);
+		tmp += offset;
+		while (*tmp=*aux++)
+		    tmp += 2;
+		tmp += 2; *tmp = '\t';
+		tmp += 2 - offset;
+	    } else {
+		while ((*tmp++=*aux++));
+		*tmp++ = '\t';
+	    }
+	    BLOCK_SIZE(s->aux_BD_blk) =
+		MAX(BLOCK_SIZE(s->aux_BD_blk),
+		    (uc *)tmp - BLOCK_DATA(s->aux_BD_blk));
+	    continue;
+	}
+
+	// BI:Z
+	if (aux[0] == 'B' && aux[1]=='I' && aux[2] == 'Z') {
+	    char *tmp;
+	    if (CRAM_MAJOR_VERS(fd->version) >= 3 && 0 ) {
+		int offset = (aux[-2] == 'I');
+
+		if (!s->aux_BD_blk) {
+		    if (!(s->aux_BD_blk = cram_new_block(EXTERNAL, DS_aux_BD)))
+			return NULL;
+		    s->aux_BD_blk->last = 0;
+		    s->aux_BD_blk->ele = 0;
+		}
+		BLOCK_GROW(s->aux_BD_blk, aux_size*1.34+1);
+		tmp = (char *)BLOCK_END(s->aux_BD_blk);
+		aux += 3;
+
+		if (!s->aux_BD_blk->ele ||
+		    (s->aux_BD_blk->ele & (1<<offset))) {
+		    // new pair
+		    s->aux_BD_blk->last = BLOCK_SIZE(s->aux_BD_blk);
+		    s->aux_BD_blk->ele = 0;
+		} else {
+		    tmp = (char *)BLOCK_DATA(s->aux_BD_blk) +
+			s->aux_BD_blk->last;
+		}
+		s->aux_BD_blk->ele |= (1<<offset);
+		tmp += offset;
+		while (*tmp=*aux++)
+		    tmp += 2;
+		tmp += 2; *tmp = '\t';
+		tmp += 2 - offset;
+
+		BLOCK_SIZE(s->aux_BD_blk) =
+		    MAX(BLOCK_SIZE(s->aux_BD_blk),
+			(uc *)tmp - BLOCK_DATA(s->aux_BD_blk));
+	    } else {
+		if (!s->aux_BI_blk) {
+		    if (!(s->aux_BI_blk = cram_new_block(EXTERNAL, DS_aux_BI)))
+			return NULL;
+		    s->aux_BI_blk->last = 0;
+		    s->aux_BI_blk->ele = 0;
+		}
+		BLOCK_GROW(s->aux_BI_blk, aux_size*1.34+1);
+		tmp = (char *)BLOCK_END(s->aux_BI_blk);
+		aux += 3;
+
+		while ((*tmp++=*aux++));
+		*tmp++ = '\t';
+
+		BLOCK_SIZE(s->aux_BI_blk) =
+		    (uc *)tmp - BLOCK_DATA(s->aux_BI_blk);
+	    }
 	    continue;
 	}
 

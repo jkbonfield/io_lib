@@ -94,7 +94,9 @@ enum cram_encoding {
     E_BETA               = 6,
     E_SUBEXP             = 7,
     E_GOLOMB_RICE        = 8,
-    E_GAMMA              = 9
+    E_GAMMA              = 9,
+    E_INTERLEAVED        = 10,
+    E_DEMULTIPLEXED      = 11,
 };
 
 enum cram_external_type {
@@ -111,11 +113,12 @@ enum cram_DS_ID {
     DS_aux    = 1, // aux_blk
     DS_aux_OQ = 2,
     DS_aux_BQ = 3,
-    DS_aux_BD = 4, // BD & BI
-    DS_aux_FZ = 5,
-    DS_aux_oq = 6, // other qualities
-    DS_aux_os = 7, // other sequences
-    DS_aux_oz = 8, // other strings
+    DS_aux_BD = 4,
+    DS_aux_BI = 5,
+    DS_aux_FZ = 6,
+    DS_aux_oq = 7, // other qualities
+    DS_aux_os = 8, // other sequences
+    DS_aux_oz = 9, // other strings
     DS_ref,
     DS_RN, // name_blk
     DS_QS, // qual_blk
@@ -248,6 +251,10 @@ typedef struct {
     size_t alloc;
     size_t byte;
     int bit;
+
+    // For INTERLEAVED codec
+    int ele;  // bit-vector of which interleaved elements have been used
+    int last; // offset for the previous interleaved element.
 } cram_block;
 
 struct cram_codec; /* defined in cram_codecs.h */
@@ -554,6 +561,7 @@ typedef struct cram_slice {
     cram_block *aux_OQ_blk;
     cram_block *aux_BQ_blk;
     cram_block *aux_BD_blk;
+    cram_block *aux_BI_blk;
     cram_block *aux_FZ_blk;
     cram_block *aux_oq_blk;
     cram_block *aux_os_blk;
@@ -821,10 +829,11 @@ enum cram_option {
 #define DS_aux_OQ_S "\002"
 #define DS_aux_BQ_S "\003"
 #define DS_aux_BD_S "\004"
-#define DS_aux_FZ_S "\005"
-#define DS_aux_oq_S "\006"
-#define DS_aux_os_S "\007"
-#define DS_aux_oz_S "\010"
+#define DS_aux_BI_S "\005"
+#define DS_aux_FZ_S "\006"
+#define DS_aux_oq_S "\007"
+#define DS_aux_os_S "\010"
+#define DS_aux_oz_S "\011"
 
 #define CRAM_M_REVERSE  1
 #define CRAM_M_UNMAP    2
