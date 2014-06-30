@@ -115,10 +115,11 @@ enum cram_DS_ID {
     DS_aux_BQ = 3,
     DS_aux_BD = 4,
     DS_aux_BI = 5,
-    DS_aux_FZ = 6,
     DS_aux_oq = 7, // other qualities
     DS_aux_os = 8, // other sequences
     DS_aux_oz = 9, // other strings
+    DS_aux_FZ1= 10, // also ZM:B
+    DS_aux_FZ2= 11, // also ZM:B
     DS_ref,
     DS_RN, // name_blk
     DS_QS, // qual_blk
@@ -562,7 +563,8 @@ typedef struct cram_slice {
     cram_block *aux_BQ_blk;
     cram_block *aux_BD_blk;
     cram_block *aux_BI_blk;
-    cram_block *aux_FZ_blk;
+    cram_block *aux_FZ_blk1;
+    cram_block *aux_FZ_blk2;
     cram_block *aux_oq_blk;
     cram_block *aux_os_blk;
     cram_block *aux_oz_blk;
@@ -830,10 +832,11 @@ enum cram_option {
 #define DS_aux_BQ_S "\003"
 #define DS_aux_BD_S "\004"
 #define DS_aux_BI_S "\005"
-#define DS_aux_FZ_S "\006"
 #define DS_aux_oq_S "\007"
 #define DS_aux_os_S "\010"
 #define DS_aux_oz_S "\011"
+#define DS_aux_FZ1_S "\012"
+#define DS_aux_FZ2_S "\013"
 
 #define CRAM_M_REVERSE  1
 #define CRAM_M_UNMAP    2

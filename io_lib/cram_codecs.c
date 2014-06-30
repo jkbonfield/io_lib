@@ -580,42 +580,17 @@ int cram_interleaved_decode_char(cram_slice *slice, cram_codec *c,
     return 0;
 }
 
-static int cram_interleaved_decode_block2(cram_slice *slice, cram_codec *c,
-					  cram_block *in, char *out_,
-					  int *out_size) {
-    char *cp_i, *cp_o;
-    cram_block *b = c->interleaved.b;
-    cram_block *out = (cram_block *)out_;
+static int cram_interleaved_decode_block(cram_slice *slice, cram_codec *c,
+					 cram_block *in, char *out_,
+					 int *out_size) {
     int i, idx;
+    cram_block *b = NULL;
+    char *cp_i, *cp_o;
+    cram_block *out = (cram_block *)out_;
     int stride = c->interleaved.stride;
     int offset = c->interleaved.offset;
     int stop = c->interleaved.stop;
     int len = 0;
-
-    if (!b->ele || ((b->ele) & (1<<offset))) {
-	// new pair
-	b->last = b->idx;
-	b->ele = 0;
-    }
-    b->ele |= (1<<offset);
-
-    cp_i = b->data + b->last + offset;
-    while (*cp_i != stop) {
-	BLOCK_APPEND_CHAR(out, *cp_i);
-	cp_i += stride;
-	len++;
-    }
-    *out_size = len;
-    b->idx = MAX(b->idx, (uc *)cp_i - b->data + 2-offset);
-
-    return 0;
-}
-
-static int cram_interleaved_decode_block(cram_slice *slice, cram_codec *c,
-					 cram_block *in, char *out_,
-					 int *out_size) {
-    int i;
-    cram_block *b = NULL;
 
     /* Find the external block */
     if (slice->block_by_id) {
@@ -633,10 +608,23 @@ static int cram_interleaved_decode_block(cram_slice *slice, cram_codec *c,
 	    return -1;
     }
 
-    c->interleaved.b = b;
-    //c->decode = cram_interleaved_decode_block2;
-    //return c->decode(slice, c, in, out_, out_size);
-    return cram_interleaved_decode_block2(slice, c, in, out_, out_size);
+    if (!b->ele || ((b->ele) & (1<<offset))) {
+	// new pair
+	b->last = b->idx;
+	b->ele = 0;
+    }
+    b->ele |= (1<<offset);
+
+    cp_i = b->data + b->last + offset;
+    while (*cp_i != stop) {
+	BLOCK_APPEND_CHAR(out, *cp_i);
+	cp_i += stride;
+	len++;
+    }
+    *out_size = len;
+    b->idx = MAX(b->idx, (uc *)cp_i - b->data + 2-offset);
+    
+    return 0;
 }
 
 void cram_interleaved_decode_free(cram_codec *c) {
@@ -750,13 +738,13 @@ int cram_demultiplexed_decode_int(cram_slice *slice, cram_codec *c,
 
     /* Find the external block */
     if (slice->block_by_id) {
-	if (!(b = slice->block_by_id[c->demultiplexed.content_id]))
+	if (!(b = slice->block_by_id[c->demultiplexed.content_ids[0]]))
 	    return *out_size?-1:0;
     } else {
 	for (i = 0; i < slice->hdr->num_blocks; i++) {
 	    b = slice->block[i];
 	    if (b && b->content_type == E_DEMULTIPLEXED &&
-		b->content_id == c->demultiplexed.content_id) {
+		b->content_id == c->demultiplexed.content_ids[0]) {
 		break;
 	    }
 	}
@@ -781,13 +769,13 @@ int cram_demultiplexed_decode_char(cram_slice *slice, cram_codec *c,
 
     /* Find the external block */
     if (slice->block_by_id) {
-	if (!(b = slice->block_by_id[c->demultiplexed.content_id]))
+	if (!(b = slice->block_by_id[c->demultiplexed.content_ids[0]]))
 	    return *out_size?-1:0;
     } else {
 	for (i = 0; i < slice->hdr->num_blocks; i++) {
 	    b = slice->block[i];
 	    if (b && b->content_type == E_DEMULTIPLEXED &&
-		b->content_id == c->demultiplexed.content_id) {
+		b->content_id == c->demultiplexed.content_ids[0]) {
 		break;
 	    }
 	}
@@ -803,47 +791,50 @@ int cram_demultiplexed_decode_char(cram_slice *slice, cram_codec *c,
     return 0;
 }
 
-static int cram_demultiplexed_decode_block2(cram_slice *slice, cram_codec *c,
-					    cram_block *in, char *out_,
-					    int *out_size) {
-    char *cp;
-    cram_block *b = c->demultiplexed.b;
-    cram_block *out = (cram_block *)out_;
-
-    cp = cram_extract_block(b, *out_size);
-    if (!cp)
-	return -1;
-
-    BLOCK_APPEND(out, cp, *out_size);
-    return 0;
-}
-
 static int cram_demultiplexed_decode_block(cram_slice *slice, cram_codec *c,
 					   cram_block *in, char *out_,
 					   int *out_size) {
-    int i;
-    cram_block *b = NULL;
+    int i, j, n;
+    char *cp;
+    cram_block *out = (cram_block *)out_;
+    cram_block *b[8] = {NULL};
 
     /* Find the external block */
     if (slice->block_by_id) {
-	if (!(b = slice->block_by_id[c->demultiplexed.content_id]))
-	    return *out_size?-1:0;
+	for (j = 0; j < c->demultiplexed.num_ids; j++)
+	    if (!(b[j] = slice->block_by_id[c->demultiplexed.content_ids[j]]))
+		return *out_size?-1:0;
     } else {
-	for (i = 0; i < slice->hdr->num_blocks; i++) {
-	    b = slice->block[i];
-	    if (b && b->content_type == E_DEMULTIPLEXED &&
-		b->content_id == c->demultiplexed.content_id) {
-		break;
+	for (j = 0; j < c->demultiplexed.num_ids; j++) {
+	    for (i = 0; i < slice->hdr->num_blocks; i++) {
+		b[j] = slice->block[i];
+		if (b[j] && b[j]->content_type == E_DEMULTIPLEXED &&
+		    b[j]->content_id == c->demultiplexed.content_ids[j]) {
+		    break;
+		}
 	    }
 	}
 	if (i == slice->hdr->num_blocks || !b)
 	    return -1;
     }
 
-    c->demultiplexed.b = b;
-    //c->decode = cram_demultiplexed_decode_block2;
-    //return c->decode(slice, c, in, out_, out_size);
-    return cram_demultiplexed_decode_block2(slice, c, in, out_, out_size);
+    n = *out_size/c->demultiplexed.num_ids;
+    for (j = 0; j < c->demultiplexed.num_ids; j++) {
+	if (b[j]->idx + n > b[j]->uncomp_size)
+	    return -1;
+    }
+
+    BLOCK_GROW(out, *out_size);
+    cp = BLOCK_END(out);
+    
+    for (j = i = 0; i < *out_size; i++, j = (j+1)%c->demultiplexed.num_ids) {
+	*cp++ = *((char *)b[j]->data + b[j]->idx);
+	b[j]->idx++;
+    }
+
+    BLOCK_SIZE(out) = cp - (char *)BLOCK_DATA(out);
+
+    return 0;
 }
 
 void cram_demultiplexed_decode_free(cram_codec *c) {
@@ -856,6 +847,7 @@ cram_codec *cram_demultiplexed_decode_init(char *data, int size,
 					   int version) {
     cram_codec *c;
     char *cp = data;
+    int i;
 
     if (!(c = malloc(sizeof(*c))))
 	return NULL;
@@ -869,7 +861,11 @@ cram_codec *cram_demultiplexed_decode_init(char *data, int size,
 	c->decode = cram_demultiplexed_decode_block;
     c->free   = cram_demultiplexed_decode_free;
     
-    cp += itf8_get(cp, &c->demultiplexed.content_id);
+    cp += itf8_get(cp, &c->demultiplexed.num_ids);
+    c->demultiplexed.content_ids = malloc(c->demultiplexed.num_ids
+					  * sizeof(int32_t));
+    for (i = 0; i < c->demultiplexed.num_ids; i++)
+	cp += itf8_get(cp, &c->demultiplexed.content_ids[i]);
 
     if (cp - data != size) {
 	fprintf(stderr, "Malformed demultiplexed header stream\n");
@@ -892,20 +888,30 @@ int cram_demultiplexed_encode_int(cram_slice *slice, cram_codec *c,
 
 int cram_demultiplexed_encode_char(cram_slice *slice, cram_codec *c,
 				   char *in, int in_size) {
-    BLOCK_APPEND(c->out, in, in_size);
+    // Only support encoding to 2-way demultiplex.
+    int i;
+    for (i = 0; i < in_size&~1; i+=2) {
+	BLOCK_APPEND_CHAR(c->out,  in[i]);
+	BLOCK_APPEND_CHAR(c->out2, in[i+1]);
+    }
+    if (i < in_size)
+	BLOCK_APPEND_CHAR(c->out,  in[i]);
+
     return 0;
 }
 
 void cram_demultiplexed_encode_free(cram_codec *c) {
     if (!c)
 	return;
+    if (c->e_demultiplexed.content_ids)
+	free(c->e_demultiplexed.content_ids);
     free(c);
 }
 
 int cram_demultiplexed_encode_store(cram_codec *c, cram_block *b, char *prefix,
 				    int version) {
     char tmp[99], *tp = tmp;
-    int len = 0;
+    int len = 0, i;
 
     if (prefix) {
 	size_t l = strlen(prefix);
@@ -913,7 +919,9 @@ int cram_demultiplexed_encode_store(cram_codec *c, cram_block *b, char *prefix,
 	len += l;
     }
 
-    tp += itf8_put(tp, c->e_external.content_id);
+    tp += itf8_put(tp, c->e_demultiplexed.num_ids);
+    for (i = 0; i < c->e_demultiplexed.num_ids; i++)
+	tp += itf8_put(tp, c->e_demultiplexed.content_ids[i]);
     len += itf8_put_blk(b, c->codec);
     len += itf8_put_blk(b, tp-tmp);
     BLOCK_APPEND(b, tmp, tp-tmp);
@@ -927,6 +935,7 @@ cram_codec *cram_demultiplexed_encode_init(cram_stats *st,
 					   void *dat,
 					   int version) {
     cram_codec *c;
+    int32_t *ids = (int32_t *)dat, i;
 
     c = malloc(sizeof(*c));
     if (!c)
@@ -941,7 +950,10 @@ cram_codec *cram_demultiplexed_encode_init(cram_stats *st,
 	abort();
     c->store = cram_demultiplexed_encode_store;
 
-    c->e_external.content_id = (size_t)dat;
+    c->e_demultiplexed.num_ids = ids[0];
+    c->e_demultiplexed.content_ids = malloc(ids[0] * sizeof(ids[0]));
+    for (i = 0; i < ids[0]; i++)
+	c->e_demultiplexed.content_ids[i] = ids[i+1];
 
     return c;
 }

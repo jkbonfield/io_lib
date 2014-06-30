@@ -621,17 +621,20 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 		// after slice header construction). So we use
 		// BYTE_ARRAY_LEN with the length codec being external
 		// too.
-		if (hi->key[0] == 'F' && hi->key[1] == 'Z')
+		if ((hi->key[0] == 'F' && hi->key[1] == 'Z') |
+		    (hi->key[0] == 'Z' && hi->key[1] == 'M'))
 		    BLOCK_APPEND(map,
 				 "\004" // BYTE_ARRAY_LEN
-				 "\006" // length
+				 "\010" // length
 				 "\001" // EXTERNAL (len)
 				 "\001" // external-len
-				 DS_aux_S // content-id
-				 "\001" // EXTERNAL (val)
-				 "\001" // external-len
-				 DS_aux_FZ_S,// content-id
-				 8);
+				 DS_aux_FZ1_S // content-id
+				 "\013" // DEMULTIPLEXED (val)
+				 "\003" // demultiplexed len
+				 "\002" // no. content-ids
+				 DS_aux_FZ1_S // content-id 1
+				 DS_aux_FZ2_S,// content-id 2
+				 10);
 		else
 		    BLOCK_APPEND(map,
 				 "\004" // BYTE_ARRAY_LEN
@@ -978,8 +981,9 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
 	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS],
 				method, 1))
 	    return -1;
-	if (cram_compress_block(fd, s->block[DS_BA], fd->m[DS_BA],
-				method, 1))
+	if (s->block[DS_BA])
+	    if (cram_compress_block(fd, s->block[DS_BA], fd->m[DS_BA],
+				    method, 1))
 	    return -1;
 	if (s->block[DS_BB])
 	    if (cram_compress_block(fd, s->block[DS_BB], fd->m[DS_BB],
@@ -995,8 +999,9 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
 	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS],
 				method, level))
 	    return -1;
-	if (cram_compress_block(fd, s->block[DS_BA], fd->m[DS_BA],
-				method, level))
+	if (s->block[DS_BA])
+	    if (cram_compress_block(fd, s->block[DS_BA], fd->m[DS_BA],
+				    method, level))
 	    return -1;
 	if (s->block[DS_BB])
 	    if (cram_compress_block(fd, s->block[DS_BB], fd->m[DS_BB],
@@ -1108,10 +1113,9 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     /*
      * All the data-series blocks if appropriate. 
      */
+    int demultiplex = 0;
     for (id = DS_BF; id < DS_TN; id++) {
-	if (h->codecs[id] && (h->codecs[id]->codec == E_EXTERNAL ||
-			      h->codecs[id]->codec == E_BYTE_ARRAY_STOP ||
-			      h->codecs[id]->codec == E_BYTE_ARRAY_LEN)) {
+	if (h->codecs[id]) {
 	    switch (h->codecs[id]->codec) {
 	    case E_EXTERNAL:
 		if (!(s->block[id] = cram_new_block(EXTERNAL, id)))
@@ -1148,13 +1152,28 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 		}
 		break;
 	    }
+
+	    case E_DEMULTIPLEXED:
+		demultiplex = 2;
+		if (!(s->block[id] = cram_new_block(EXTERNAL, id)))
+		    return -1;
+		if (! (s->block[id+1] = cram_new_block(EXTERNAL, id+1)))
+		    return -1;
+		
+		h->codecs[id]->out2 = s->block[id+1];
+		break;
+
+	    default:
+		if (!(id == DS_BB && !h->codecs[DS_BB]) && demultiplex == 0)
+		    s->block[id] = s->block[0];
+		break;
 	    }
-	} else {
-	    if (!(id == DS_BB && !h->codecs[DS_BB]))
-		s->block[id] = s->block[0];
-	}
-	if (h->codecs[id])
+
 	    h->codecs[id]->out = s->block[id];
+	}
+
+	if (demultiplex)
+	    demultiplex--;
     }
 
 #if 0
@@ -1199,7 +1218,8 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[DS_aux_BQ]= s->aux_BQ_blk;  s->aux_BQ_blk  = NULL;
     s->block[DS_aux_BD]= s->aux_BD_blk;  s->aux_BD_blk  = NULL;
     s->block[DS_aux_BI]= s->aux_BI_blk;  s->aux_BI_blk  = NULL;
-    s->block[DS_aux_FZ]= s->aux_FZ_blk;  s->aux_FZ_blk  = NULL;
+    s->block[DS_aux_FZ1]=s->aux_FZ_blk1; s->aux_FZ_blk1 = NULL;
+    s->block[DS_aux_FZ2]=s->aux_FZ_blk2; s->aux_FZ_blk2 = NULL;
     s->block[DS_aux_oq]= s->aux_oq_blk;  s->aux_oq_blk  = NULL;
     s->block[DS_aux_os]= s->aux_os_blk;  s->aux_os_blk  = NULL;
     s->block[DS_aux_oz]= s->aux_oz_blk;  s->aux_oz_blk  = NULL;
@@ -2240,18 +2260,62 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    continue;
 	}
 
-	// FZ:B
-	if (aux[0] == 'F' && aux[1] == 'Z') {
-	    char *tmp;
-	    if (!s->aux_FZ_blk)
-		if (!(s->aux_FZ_blk = cram_new_block(EXTERNAL, DS_aux_FZ)))
+	// FZ:B or ZM:B
+	if ((aux[0] == 'F' && aux[1] == 'Z' && aux[2] == 'B') ||
+	    (aux[0] == 'Z' && aux[1] == 'M' && aux[2] == 'B')) {
+	    int type = aux[3], blen;
+	    uint32_t count = (uint32_t)((((unsigned char *)aux)[4]<< 0) +
+					(((unsigned char *)aux)[5]<< 8) +
+					(((unsigned char *)aux)[6]<<16) +
+					(((unsigned char *)aux)[7]<<24));
+	    char *tmp1, *tmp2;
+	    if (!s->aux_FZ_blk1)
+		if (!(s->aux_FZ_blk1 = cram_new_block(EXTERNAL, DS_aux_FZ1)))
 		    return NULL;
-	    BLOCK_GROW(s->aux_FZ_blk, aux_size*1.34+1);
-	    tmp = (char *)BLOCK_END(s->aux_FZ_blk);
-	    aux += 3;
-	    while ((*tmp++=*aux++));
-	    *tmp++ = '\t';
-	    BLOCK_SIZE(s->aux_FZ_blk) = (uc *)tmp - BLOCK_DATA(s->aux_FZ_blk);
+	    BLOCK_GROW(s->aux_FZ_blk1, aux_size*1.34+1);
+	    tmp1 = (char *)BLOCK_END(s->aux_FZ_blk1);
+
+	    if (!s->aux_FZ_blk2)
+		if (!(s->aux_FZ_blk2 = cram_new_block(EXTERNAL, DS_aux_FZ2)))
+		    return NULL;
+	    BLOCK_GROW(s->aux_FZ_blk2, aux_size*1.34+1);
+	    tmp2 = (char *)BLOCK_END(s->aux_FZ_blk2);
+
+	    // skip TN field
+	    aux+=3;
+
+	    // We use BYTE_ARRAY_LEN with external length, so store that first
+	    switch (type) {
+	    case 'c': case 'C':
+		blen = count;
+		break;
+	    case 's': case 'S':
+		blen = 2*count;
+		break;
+	    case 'i': case 'I': case 'f':
+		blen = 4*count;
+		break;
+	    default:
+		fprintf(stderr, "Unknown sub-type '%c' for aux type 'B'\n",
+			type);
+		return NULL;
+		    
+	    }
+
+	    blen += 5; // sub-type & length
+	    tmp1 += itf8_put(tmp1, blen);
+
+	    // The tag value itself
+	    while (blen >= 2) {
+		*tmp1++ = *aux++;
+		*tmp2++ = *aux++;
+		blen -= 2;
+	    }
+	    if (blen)
+		*tmp1++ = *aux++;
+
+	    BLOCK_SIZE(s->aux_FZ_blk1) = (uc *)tmp1-BLOCK_DATA(s->aux_FZ_blk1);
+	    BLOCK_SIZE(s->aux_FZ_blk2) = (uc *)tmp2-BLOCK_DATA(s->aux_FZ_blk2);
 	    continue;
 	}
 
@@ -2357,10 +2421,8 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		    
 	    }
 
-	    tmp += itf8_put(tmp, blen+5);
-
-	    *tmp++=*aux++; // sub-type & length
-	    *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
+	    blen += 5; // sub-type & length
+	    tmp += itf8_put(tmp, blen);
 
 	    // The tag data itself
 	    memcpy(tmp, aux, blen); tmp += blen; aux += blen;
