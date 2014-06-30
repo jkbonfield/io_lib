@@ -1557,9 +1557,6 @@ static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
     if (b->idx >= b->uncomp_size)
 	return -1;
 
-    if (b->idx >= b->uncomp_size)
-	return -1;
-
     cp = (char *)b->data + b->idx;
     while ((ch = *cp) != (char)c->byte_array_stop.stop) {
 	if (cp - (char *)b->data >= b->uncomp_size)
