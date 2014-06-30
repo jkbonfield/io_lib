@@ -103,7 +103,8 @@ typedef struct {
 
 // TODO
 typedef struct {
-    int32_t content_id;
+    int32_t num_ids;
+    int32_t *content_ids;
     enum cram_external_type type;
 } cram_demultiplexed_codec;
 
@@ -132,6 +133,7 @@ typedef struct {
 typedef struct cram_codec {
     enum cram_encoding codec;
     cram_block *out;
+    cram_block *out2; // for DEMULTIPLEXED
     void (*free)(struct cram_codec *codec);
     int (*decode)(cram_slice *slice, struct cram_codec *codec,
 		  cram_block *in, char *out, int *out_size);

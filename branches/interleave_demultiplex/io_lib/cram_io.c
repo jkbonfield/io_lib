@@ -3056,8 +3056,11 @@ void cram_free_slice(cram_slice *s) {
     if (s->aux_BQ_blk)
 	cram_free_block(s->aux_BQ_blk);
 
-    if (s->aux_FZ_blk)
-	cram_free_block(s->aux_FZ_blk);
+    if (s->aux_FZ_blk1)
+	cram_free_block(s->aux_FZ_blk1);
+
+    if (s->aux_FZ_blk2)
+	cram_free_block(s->aux_FZ_blk2);
 
     if (s->aux_oq_blk)
 	cram_free_block(s->aux_oq_blk);
@@ -3467,7 +3470,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
     }
 
     /* Fix M5 strings */
-    if (fd->refs) {
+    if (fd->refs && !fd->no_ref) {
 	int i;
 	for (i = 0; i < hdr->nref; i++) {
 	    SAM_hdr_type *ty;
