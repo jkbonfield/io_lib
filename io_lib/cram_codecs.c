@@ -397,25 +397,12 @@ int cram_external_decode_char(cram_slice *slice, cram_codec *c,
     return 0;
 }
 
-static int cram_external_decode_block2(cram_slice *slice, cram_codec *c,
+static int cram_external_decode_block(cram_slice *slice, cram_codec *c,
 				      cram_block *in, char *out_,
 				      int *out_size) {
-    char *cp;
-    cram_block *b = c->external.b;
-    cram_block *out = (cram_block *)out_;
-
-    cp = cram_extract_block(b, *out_size);
-    if (!cp)
-	return -1;
-
-    BLOCK_APPEND(out, cp, *out_size);
-    return 0;
-}
-
-static int cram_external_decode_block(cram_slice *slice, cram_codec *c,
-				       cram_block *in, char *out_,
-				       int *out_size) {
     int i;
+    char *cp;
+    cram_block *out = (cram_block *)out_;
     cram_block *b = NULL;
 
     /* Find the external block */
@@ -434,10 +421,12 @@ static int cram_external_decode_block(cram_slice *slice, cram_codec *c,
 	    return -1;
     }
 
-    c->external.b = b;
-    //c->decode = cram_external_decode_block2;
-    //return c->decode(slice, c, in, out_, out_size);
-    return cram_external_decode_block2(slice, c, in, out_, out_size);
+    cp = cram_extract_block(b, *out_size);
+    if (!cp)
+	return -1;
+
+    BLOCK_APPEND(out, cp, *out_size);
+    return 0;
 }
 
 void cram_external_decode_free(cram_codec *c) {
@@ -1962,33 +1951,11 @@ cram_codec *cram_byte_array_len_encode_init(cram_stats *st,
  * ---------------------------------------------------------------------------
  * BYTE_ARRAY_STOP
  */
-static int cram_byte_array_stop_decode_char2(cram_slice *slice, cram_codec *c,
-					     cram_block *in, char *out,
-					     int *out_size) {
-    cram_block *b = c->byte_array_stop.b;
-    char *cp, ch;
-
-    if (b->idx >= b->uncomp_size)
-	return -1;
-
-    cp = (char *)b->data + b->idx;
-    while ((ch = *cp) != (char)c->byte_array_stop.stop) {
-	if (cp - (char *)b->data >= b->uncomp_size)
-	    return -1;
-	*out++ = ch;
-	cp++;
-    }
-
-    *out_size = cp - (char *)(b->data + b->idx);
-    b->idx = cp - (char *)b->data + 1;
-
-    return 0;
-}
-
 static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
 					    cram_block *in, char *out,
 					    int *out_size) {
     int i;
+    char *cp, ch;
     cram_block *b = NULL;
 
     if (slice->block_by_id) {
@@ -2009,11 +1976,18 @@ static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
     if (b->idx >= b->uncomp_size)
 	return -1;
 
-    c->byte_array_stop.b = b;
+    cp = (char *)b->data + b->idx;
+    while ((ch = *cp) != (char)c->byte_array_stop.stop) {
+	if (cp - (char *)b->data >= b->uncomp_size)
+	    return -1;
+	*out++ = ch;
+	cp++;
+    }
 
-    //c->decode = cram_byte_array_stop_decode_char2;
-    //return c->decode(slice, c, in, out, out_size);
-    return cram_byte_array_stop_decode_char2(slice, c, in, out, out_size);
+    *out_size = cp - (char *)(b->data + b->idx);
+    b->idx = cp - (char *)b->data + 1;
+
+    return 0;
 }
 
 int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
