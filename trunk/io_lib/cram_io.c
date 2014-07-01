@@ -3606,9 +3606,10 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 
 	if (blank_block) {
 	    BLOCK_RESIZE(b, padded_length);
-	    memset(BLOCK_DATA(b), '#', padded_length);
+	    memset(BLOCK_DATA(b), 0, padded_length);
 	    BLOCK_SIZE(b) = padded_length;
 	    BLOCK_UPLEN(b);
+	    b->method = RAW;
 	    if (-1 == cram_write_block(fd, b)) {
 		cram_free_block(b);
 		cram_free_container(c);
