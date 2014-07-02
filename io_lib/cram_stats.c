@@ -253,7 +253,7 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 	 * With and without ITF8 incase we have a few discrete values but with
 	 * large magnitude.
 	 *
-	 * Note rans0/arith0 and Z_HUFFMAN_ONLY vs internal huffman can be
+	 * Note rans0 and Z_HUFFMAN_ONLY vs internal huffman can be
 	 * compared in this way, but order-1 (eg rans1) or maybe LZ77 modes
 	 * may detect the correlation of high bytes to low bytes in multi-
 	 * byte values. So this predictor breaks down.

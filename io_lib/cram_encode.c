@@ -922,7 +922,10 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
 
-    if (fd->use_arith)
+    if (fd->use_lz4)
+	method |= 1<<LZ4;
+
+    if (fd->use_rans)
 	method |= (1<<RANS0) | (1<<RANS1);
 
     if (fd->use_lzma)
@@ -932,7 +935,6 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
     if (level >= 6)
 	methodF = method;
-    
 
     /* Specific compression methods for certain block types */
     if (cram_compress_block(fd, s->block[DS_IN], fd->m[DS_IN], //IN (seq)

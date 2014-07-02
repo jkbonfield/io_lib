@@ -186,8 +186,7 @@ enum cram_block_method {
     RANS0  = 4,
     RANS1  = 10,   // Not externalised; stored as RANS (generic)
     GZIP_RLE = 11, // NB: not externalised in CRAM
-    ARITH0 = 16,   // unofficial & test only
-    ARITH1 = 17,
+    LZ4      = 16,   // unofficial & test only
 };
 
 enum cram_content_type {
@@ -211,6 +210,7 @@ typedef struct {
     int sz_rans0;
     int sz_rans1;
     int sz_bzip2;
+    int sz_lz4;
     int sz_lzma;
 
     // resultant method from trials
@@ -223,6 +223,7 @@ typedef struct {
     int rans0_cnt;
     int rans1_cnt;
     int bzip2_cnt;
+    int lz4_cnt;
     int lzma_cnt;
     int revised_method;
 
@@ -231,6 +232,7 @@ typedef struct {
     double rans0_extra;
     double rans1_extra;
     double bzip2_extra;
+    double lz4_extra;
     double lzma_extra;
 } cram_metrics;
 
@@ -687,7 +689,8 @@ typedef struct {
     int no_ref;
     int ignore_md5;
     int use_bz2;
-    int use_arith;
+    int use_rans;
+    int use_lz4;
     int use_lzma;
     int shared_ref;
     enum quality_binning binning;
@@ -798,12 +801,13 @@ enum cram_option {
     CRAM_OPT_MULTI_SEQ_PER_SLICE,
     CRAM_OPT_NO_REF,
     CRAM_OPT_USE_BZIP2,
+    CRAM_OPT_USE_RANS,
+    CRAM_OPT_USE_LZ4,
+    CRAM_OPT_USE_LZMA,
     CRAM_OPT_SHARED_REF,
     CRAM_OPT_NTHREADS,
     CRAM_OPT_THREAD_POOL,
     CRAM_OPT_BINNING,
-    CRAM_OPT_USE_ARITH,
-    CRAM_OPT_USE_LZMA,
     CRAM_OPT_REQUIRED_FIELDS,
 };
 

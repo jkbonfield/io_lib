@@ -74,7 +74,7 @@
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
 #include "io_lib/open_trace_file.h"
-#include "io_lib/arith_static.h"
+#include "io_lib/lz4.h"
 #include "io_lib/rANS_static.h"
 
 //#include "crc32c.c"
@@ -730,6 +730,48 @@ static char *lzma_mem_inflate(char *cdata, size_t csize, size_t *size) {
 }
 #endif
 
+unsigned char *lz4_compress(unsigned char *in, unsigned int in_size,
+			    unsigned int *out_size) {
+    char *dest = malloc(LZ4_compressBound(in_size)+4);
+    int len;
+
+    if (!dest)
+	return NULL;
+
+    if ((len = LZ4_compress((char *)in, dest+4, in_size)) == 0) {
+	free(dest);
+	return NULL;
+    }
+
+    dest[0] = (in_size>>24)&0xff;
+    dest[1] = (in_size>>16)&0xff;
+    dest[2] = (in_size>> 8)&0xff;
+    dest[3] =  in_size     &0xff;
+
+    *out_size = len+4;
+    return dest;
+}
+
+unsigned char *lz4_uncompress(unsigned char *in, unsigned int in_size,
+			      unsigned int *out_size) {
+    char *dest;
+    int len = (((unsigned char *)in)[0]<<24)
+	    + (((unsigned char *)in)[1]<<16)
+	    + (((unsigned char *)in)[2]<<8)
+	    + (((unsigned char *)in)[3]);
+
+    if (!(dest = malloc(len)))
+	return NULL;
+    if (len != LZ4_decompress_safe((char *)in+4, dest, in_size-4, len)) {
+	free(dest);
+	return NULL;
+    }
+
+    *out_size = len;
+
+    return dest;
+}
+
 /* ----------------------------------------------------------------------
  * CRAM blocks - the dynamically growable data block. We have code to
  * create, update, (un)compress and read/write.
@@ -969,22 +1011,9 @@ int cram_uncompress_block(cram_block *b) {
 	break;
 #endif
 
-    case ARITH0: {
+    case LZ4: {
 	unsigned int usize = b->uncomp_size, usize2;
-	uncomp = (char *)arith_uncompress(b->data, b->comp_size, &usize2, 0);
-	assert(usize == usize2);
-	free(b->data);
-	b->data = (unsigned char *)uncomp;
-	b->alloc = usize2;
-	b->method = RAW;
-	b->uncomp_size = usize2; // Just incase it differs
-	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
-	break;
-    }
-
-    case ARITH1: {
-	unsigned int usize = b->uncomp_size, usize2;
-	uncomp = (char *)arith_uncompress(b->data, b->comp_size, &usize2, 1);
+	uncomp = (char *)lz4_uncompress(b->data, b->comp_size, &usize2);
 	assert(usize == usize2);
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
@@ -1112,27 +1141,10 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 	return NULL;
 #endif
 
-    case ARITH0: {
+    case LZ4: {
 	unsigned int out_size_i;
 	unsigned char *cp;
-	cp = arith_compress((unsigned char *)in, in_size, &out_size_i, 0);
-	*out_size = out_size_i;
-	return (char *)cp;
-    }
-
-    case ARITH1: {
-	unsigned int out_size_i;
-	unsigned char *cp;
-	
-//	double e8  = entropy8(in, in_size);
-//	double e16 = entropy16((unsigned short *)in, in_size/2);
-//
-//	if (e8 / e16 < 1.02 || e8 - e16 < 512) {
-//	    return cram_compress_by_method(in, in_size, out_size,
-//					   ARITH0, level, strat);
-//	}
-
-	cp = arith_compress((unsigned char *)in, in_size, &out_size_i, 1);
+	cp = lz4_compress((unsigned char *)in, in_size, &out_size_i);
 	*out_size = out_size_i;
 	return (char *)cp;
     }
@@ -1188,14 +1200,15 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     if (metrics) {
 	pthread_mutex_lock(&fd->metrics_lock);
 	if (metrics->trial > 0 || --metrics->next_trial <= 0) {
-	    size_t sz_best = INT_MAX;
+	    size_t sz_best   = INT_MAX;
 	    size_t sz_gz_rle = 0;
 	    size_t sz_gz_def = 0;
-	    size_t sz_rans0 = 0;
-	    size_t sz_rans1 = 0;
-	    size_t sz_bzip2 = 0;
-	    size_t sz_lzma = 0;
-	    int method_best = 0;
+	    size_t sz_rans0  = 0;
+	    size_t sz_rans1  = 0;
+	    size_t sz_bzip2  = 0;
+	    size_t sz_lz4    = 0;
+	    size_t sz_lzma   = 0;
+	    int method_best  = 0;
 	    char *c_best = NULL, *c = NULL;
 
 	    if (metrics->revised_method)
@@ -1211,6 +1224,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		metrics->sz_rans0  /= 2;
 		metrics->sz_rans1  /= 2;
 		metrics->sz_bzip2  /= 2;
+		metrics->sz_lz4    /= 2;
 		metrics->sz_lzma   /= 2;
 	    }
 
@@ -1291,6 +1305,20 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		}
 	    }
 
+	    if (method & (1<<LZ4)) {
+		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
+					    &sz_lz4, LZ4, level, 0);
+		if (sz_best > sz_lz4) {
+		    sz_best = sz_lz4;
+		    method_best = LZ4;
+		    if (c_best)
+			free(c_best);
+		    c_best = c;
+		} else {
+		    free(c);
+		}
+	    }
+
 	    if (method & (1<<LZMA)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					    &sz_lzma, LZMA, level, 0);
@@ -1319,6 +1347,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    metrics->sz_rans0  += sz_rans0;
 	    metrics->sz_rans1  += sz_rans1;
 	    metrics->sz_bzip2  += sz_bzip2;
+	    metrics->sz_lz4    += sz_lz4;
 	    metrics->sz_lzma   += sz_lzma;
 	    if (--metrics->trial == 0) {
 		int best_method = RAW;
@@ -1351,6 +1380,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
 		if (method & (1<<BZIP2) && best_sz > metrics->sz_bzip2)
 		    best_sz = metrics->sz_bzip2, best_method = BZIP2;
+
+		if (method & (1<<LZ4) && best_sz > metrics->sz_lz4)
+		    best_sz = metrics->sz_lz4, best_method = LZ4;
 
 		if (method & (1<<LZMA) && best_sz > metrics->sz_lzma)
 		    best_sz = metrics->sz_lzma, best_method = LZMA;
@@ -1417,6 +1449,16 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    if (++metrics->bzip2_cnt >= MAXFAILS &&
 			(metrics->bzip2_extra += r) >= MAXDELTA)
 			method &= ~(1<<BZIP2);
+		}
+
+		if (best_method == LZ4) {
+		    metrics->lz4_cnt = 0;
+		    metrics->lz4_extra = 0;
+		} else if (best_sz < metrics->sz_lz4) {
+		    double r = (double)metrics->sz_lz4 / best_sz - 1;
+		    if (++metrics->lz4_cnt >= MAXFAILS &&
+			(metrics->lz4_extra += r) >= MAXDELTA)
+			method &= ~(1<<LZ4);
 		}
 
 		if (best_method == LZMA) {
@@ -1495,8 +1537,7 @@ char *cram_block_method2str(enum cram_block_method m) {
     case GZIP:	return "GZIP";
     case BZIP2:	return "BZIP2";
     case LZMA:  return "LZMA";
-    case ARITH0:return "ARITH0";
-    case ARITH1:return "ARITH1";
+    case LZ4:   return "LZ4";
     case RANS0: return "RANS0";
     case RANS1: return "RANS1";
     case GZIP_RLE: return "GZIP_RLE";
@@ -3540,6 +3581,8 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    int method = 1<<GZIP;
 	    if (fd->use_bz2)
 		method |= 1<<BZIP2;
+	    if (fd->use_lz4)
+		method |= 1<<LZ4;
 	    if (fd->use_lzma)
 		method |= 1<<LZMA;
 	    cram_compress_block(fd, b, NULL, method, fd->level);
@@ -3606,9 +3649,10 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 
 	if (blank_block) {
 	    BLOCK_RESIZE(b, padded_length);
-	    memset(BLOCK_DATA(b), '#', padded_length);
+	    memset(BLOCK_DATA(b), 0, padded_length);
 	    BLOCK_SIZE(b) = padded_length;
 	    BLOCK_UPLEN(b);
+	    b->method = RAW;
 	    if (-1 == cram_write_block(fd, b)) {
 		cram_free_block(b);
 		cram_free_container(c);
@@ -3816,7 +3860,8 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
     fd->use_bz2 = 0;
-    fd->use_arith = 0;
+    fd->use_rans = 0;
+    fd->use_lz4 = 0;
     fd->use_lzma = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
@@ -4061,8 +4106,12 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	fd->use_bz2 = va_arg(args, int);
 	break;
 
-    case CRAM_OPT_USE_ARITH:
-	fd->use_arith = va_arg(args, int);
+    case CRAM_OPT_USE_RANS:
+	fd->use_rans = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_LZ4:
+	fd->use_lz4 = va_arg(args, int);
 	break;
 
     case CRAM_OPT_USE_LZMA:
