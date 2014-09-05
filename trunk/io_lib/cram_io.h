@@ -261,6 +261,8 @@ int cram_load_reference(cram_fd *fd, char *fn);
  */
 int refs2id(refs_t *r, SAM_hdr *bfd);
 
+refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err);
+char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end);
 void refs_free(refs_t *r);
 
 /*! Returns a portion of a reference sequence from start to end inclusive.
