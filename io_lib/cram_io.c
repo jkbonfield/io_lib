@@ -1643,13 +1643,14 @@ static refs_t *refs_create(void) {
  * Returns the refs_t struct on success (maybe newly allocated);
  *         NULL on failure
  */
-static refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
+refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
     struct stat sb;
     FILE *fp = NULL;
     HashData hd;
     char fai_fn[PATH_MAX];
     char line[8192];
     refs_t *r = r_orig;
+    int id = 0, id_alloc = 0;
 
     RP("refs_load_fai %s\n", fn);
 
@@ -1749,6 +1750,18 @@ static refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
 		hi->data.p = e;
 	    }	    
 	}
+
+	if (id >= id_alloc) {
+	    int x;
+
+	    id_alloc = id_alloc ?id_alloc*2 : 16;
+	    r->ref_id = realloc(r->ref_id, id_alloc * sizeof(*r->ref_id));
+
+	    for (x = id; x < id_alloc; x++)
+		r->ref_id[x] = NULL;
+	}
+	r->ref_id[id] = e;
+	r->nref = ++id;
     }
 
     RP("refs_load_fai %s END (success)\n", fn);
@@ -2131,7 +2144,7 @@ void cram_ref_decr(refs_t *r, int id) {
  * Returns all or part of a reference sequence on success (malloced);
  *         NULL on failure.
  */
-static char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
+char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
     off_t offset, len;
     char *seq;
 
