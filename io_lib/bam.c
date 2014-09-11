@@ -2063,16 +2063,18 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
     cp += ncigar*4;
 
     /* Bin */
-    if (0 == end) { /* Calculate end from pos and cigar */
-	end = pos;
-	for (i = 0; i < ncigar; i++) {
-	    int op = cigar[i] & BAM_CIGAR_MASK;
-	    if (op == BAM_CMATCH || op == BAM_CDEL || op == BAM_CREF_SKIP)
-		end += cigar[i] >> BAM_CIGAR_SHIFT;
+    if (!((*b)->flag & BAM_CIGAR32)) {
+	if (0 == end) { /* Calculate end from pos and cigar */
+	    end = pos;
+	    for (i = 0; i < ncigar; i++) {
+		int op = cigar[i] & BAM_CIGAR_MASK;
+		if (op == BAM_CMATCH || op == BAM_CDEL || op == BAM_CREF_SKIP)
+		    end += cigar[i] >> BAM_CIGAR_SHIFT;
+	    }
 	}
-    }
 
-    bam_set_bin(*b, reg2bin(pos-1,end-1));
+	bam_set_bin(*b, reg2bin(pos-1,end-1));
+    }
 
     /* Seq */
     for (i = 0; i < len-1; i += 2) {

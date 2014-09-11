@@ -205,10 +205,10 @@ typedef struct {
 #define bam_mate_ref(b)  ((b)->mate_ref)
 #define bam_mate_pos(b)  ((b)->mate_pos)
 #define bam_ins_size(b)  ((b)->ins_size)
-#define bam_cigar_len(b) ((b)->cigar_len)
+#define bam_cigar_len(b) (((b)->flag & BAM_CIGAR32 ? ((b)->bin<<16) : 0) + (b)->cigar_len)
 #define bam_name_len(b)  ((b)->name_len)
 #define bam_map_qual(b)  ((b)->map_qual)
-#define bam_bin(b)       ((b)->bin)
+#define bam_bin(b)       ((b)->flag & BAM_CIGAR32 ? 0 : (b)->bin)
 #define bam_flag(b)      ((b)->flag)
 #define bam_seq_len(b)   ((b)->len)
 #define bam_strand(b)    ((bam_flag((b)) & BAM_FREVERSE) != 0)
@@ -219,12 +219,12 @@ typedef struct {
 #define bam_set_mate_ref(b,v)   ((b)->mate_ref = (v))
 #define bam_set_mate_pos(b,v)   ((b)->mate_pos = (v))
 #define bam_set_ins_size(b,v)   ((b)->ins_size = (v))
-#define bam_set_cigar_len(b, v) ((b)->cigar_len = (v))
+#define bam_set_cigar_len(b, v) (((v)>>16) ? (((b)->flag |= BAM_CIGAR32), (b)->bin = ((v)>>16), (b)->cigar_len = (v)&0xffff) : ((b)->cigar_len = (v)))
 #define bam_set_name_len(b,v)   ((b)->name_len = (v))
 #define bam_set_map_qual(b,v)   ((b)->map_qual = (v))
-#define bam_set_bin(b,v)        ((b)->bin = (v));
-#define bam_set_flag(b,v)       ((b)->flag = (v));
-#define bam_set_seq_len(b,v)    ((b)->len = (v));
+#define bam_set_bin(b,v)        (((b)->flag & BAM_CIGAR32) || ((b)->bin = (v)))
+#define bam_set_flag(b,v)       ((b)->flag = (v))
+#define bam_set_seq_len(b,v)    ((b)->len = (v))
 
 #define bam_name(b)      ((char *)(&(b)->data))
 #ifdef ALLOW_UAC
@@ -251,6 +251,8 @@ typedef struct {
 #define BAM_FSECONDARY   256
 #define BAM_FQCFAIL      512
 #define BAM_FDUP        1024
+
+#define BAM_CIGAR32    32768
 
 /* CIGAR operations, taken from samtools bam.h */
 #define BAM_CIGAR_SHIFT 4
