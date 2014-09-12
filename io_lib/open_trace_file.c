@@ -1246,15 +1246,10 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 		    free(newsearch);
 		    return fp;
 		}
-	    } else if (!strncmp(ele2, "http:", 5)) {
-		/* http compression best done via other means */
+	    } else if (!strncmp(ele2, "http:", 5) ||
+		       !strncmp(ele2, "ftp:", 4)) {
+		/* ftp/http compression best done via other means */
 		if (i == 0 && (fp = find_file_url(file2, ele2))) {
-		    free(newsearch);
-		    return fp;
-		}
-
-	    } else if (!strncmp(ele2, "ftp:", 4)) {
-		if ((fp = find_file_url(file2, ele2))) {
 		    free(newsearch);
 		    return fp;
 		}
