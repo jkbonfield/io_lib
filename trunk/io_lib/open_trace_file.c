@@ -160,6 +160,8 @@ char *tokenise_search_path(char *searchpath) {
 	    if ((i == 0 || (i > 0 && searchpath[i-1] == ':')) &&
 		(!strncmp(&searchpath[i], "http:",     5) ||
 		 !strncmp(&searchpath[i], "ftp:",      4) ||
+		 !strncmp(&searchpath[i], "|http:",    6) ||
+		 !strncmp(&searchpath[i], "|ftp:",     5) ||
 		 !strncmp(&searchpath[i], "URL=http:", 9) ||
 		 !strncmp(&searchpath[i], "URL=ftp:",  8))) {
 		do {
@@ -1205,7 +1207,6 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 	for (i = 0; i < 6; i++) {
 	    char file2[1024];
 	    char *ele2;
-	    int valid = 1;
 
 	    /*
 	     * '|' prefixing a path component indicates that we do not
@@ -1214,7 +1215,6 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 	     */
 	    if (*ele == '|') {
 		ele2 = ele+1;
-		valid = (i == 0);
 	    } else {
 		ele2 = ele;
 	    }
@@ -1222,19 +1222,19 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 	    sprintf(file2, "%s%s", file, suffix[i]);
 
 	    if (0 == strncmp(ele2, "TAR=", 4)) {
-		if (valid && (fp = find_file_tar(file2, ele2+4, 0))) {
+		if ((fp = find_file_tar(file2, ele2+4, 0))) {
 		    free(newsearch);
 		    return fp;
 		}
 
 	    } else if (0 == strncmp(ele2, "HASH=", 5)) {
-		if (valid && (fp = find_file_hash(file2, ele2+5))) {
+		if ((fp = find_file_hash(file2, ele2+5))) {
 		    free(newsearch);
 		    return fp;
 		}
 #ifdef TRACE_ARCHIVE
 	    } else if (0 == strncmp(ele2, "ARC=", 4)) {
-		if (valid && (fp = find_file_archive(file2, ele2+4))) {
+		if ((fp = find_file_archive(file2, ele2+4))) {
 		    free(newsearch);
 		    return fp;
 		}
@@ -1242,35 +1242,44 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 #ifndef SAMTOOLS
 #if defined(USE_WGET) || defined(HAVE_LIBCURL)
 	    } else if (0 == strncmp(ele2, "URL=", 4)) {
-		if (valid && (fp = find_file_url(file2, ele2+4))) {
+		if ((fp = find_file_url(file2, ele2+4))) {
 		    free(newsearch);
 		    return fp;
 		}
-	    } else if (!strncmp(ele2, "http:", 5) ||
-		       !strncmp(ele2, "ftp:", 4)) {
-		if (valid && (fp = find_file_url(file2, ele2))) {
+	    } else if (!strncmp(ele2, "http:", 5)) {
+		/* http compression best done via other means */
+		if (i == 0 && (fp = find_file_url(file2, ele2))) {
+		    free(newsearch);
+		    return fp;
+		}
+
+	    } else if (!strncmp(ele2, "ftp:", 4)) {
+		if ((fp = find_file_url(file2, ele2))) {
 		    free(newsearch);
 		    return fp;
 		}
 #endif
 	    } else if (0 == strncmp(ele2, "SFF=", 4)) {
-		if (valid && (fp = find_file_sff(file2, ele2+4))) {
+		if ((fp = find_file_sff(file2, ele2+4))) {
 		    free(newsearch);
 		    return fp;
 		}
 
 	    } else if (0 == strncmp(ele2, "SRF=", 4)) {
-		if (valid && (fp = find_file_srf(file2, ele2+4))) {
+		if ((fp = find_file_srf(file2, ele2+4))) {
 		    free(newsearch);
 		    return fp;
 		}
 #endif
 	    } else {
-		if (valid && (fp = find_file_dir(file2, ele2))) {
+		if ((fp = find_file_dir(file2, ele2))) {
 		    free(newsearch);
 		    return fp;
 		}
 	    }
+
+	    if (*ele == '|')
+		break;
 	}
     }
 
