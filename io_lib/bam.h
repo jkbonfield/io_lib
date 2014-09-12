@@ -270,6 +270,24 @@ enum cigar_op {
     BAM_CBASE_MISMATCH=8
 };
 
+/*
+ * Whether this cigar op marches along ref, seq or both
+ *
+ * Op   Ref   Seq
+ * M    1     1
+ * I    0     1
+ * D    1     0
+ * N    1     0
+ * S    0     1
+ * H    0     0
+ * P    0     0
+ * =    1     1
+ * X    1     1
+ */
+#define BAM_CONSUME_REF(op) ((0x18d>>(op))&1)
+#define BAM_CONSUME_SEQ(op) ((0x193>>(op))&1)
+
+
 /* ----------------------------------------------------------------------
  * Function prototypes
  * We only support reading, so basically we have open, read, close along
