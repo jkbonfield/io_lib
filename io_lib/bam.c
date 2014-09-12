@@ -2067,13 +2067,13 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
 	if (0 == end) { /* Calculate end from pos and cigar */
 	    end = pos;
 	    for (i = 0; i < ncigar; i++) {
-		int op = cigar[i] & BAM_CIGAR_MASK;
-		if (op == BAM_CMATCH || op == BAM_CDEL || op == BAM_CREF_SKIP)
+		if (BAM_CONSUME_REF(cigar[i] & BAM_CIGAR_MASK))
 		    end += cigar[i] >> BAM_CIGAR_SHIFT;
 	    }
 	}
 
-	bam_set_bin(*b, reg2bin(pos-1,end-1));
+	// range is [beg,end) and zero based.
+	bam_set_bin(*b, reg2bin(pos-1,end));
     }
 
     /* Seq */
