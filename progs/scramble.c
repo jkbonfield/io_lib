@@ -49,7 +49,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-#if defined(__MINGW32__)
+#if defined(__MINGW32__) || defined(__FreeBSD__)
 #   include <getopt.h>
 #endif
 
