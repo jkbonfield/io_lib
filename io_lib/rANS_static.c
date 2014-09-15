@@ -318,24 +318,11 @@ static inline void RansDecRenorm(RansState* r, uint8_t** pptr)
     // renormalize
     uint32_t x = *r;
 
-//    if (x < RANS_BYTE_L) {
-//        uint8_t* ptr = *pptr;
-//        do x = (x << 8) | *ptr++; while (x < RANS_BYTE_L);
-//        *pptr = ptr;
-//    }
-
-    // Better form for icc, sometimes for gcc (sometimes not)
-    uint8_t *ptr = *pptr;
-
-    int z = (x < RANS_BYTE_L);
-    x <<= z*8;
-    x |= z * *ptr;
-    ptr+=z;
-
-    if (x < RANS_BYTE_L)
-	do x = (x << 8) | *ptr++; while (x < RANS_BYTE_L);
-
-    *pptr = ptr;
+    if (x < RANS_BYTE_L) {
+        uint8_t* ptr = *pptr;
+        do x = (x << 8) | *ptr++; while (x < RANS_BYTE_L);
+        *pptr = ptr;
+    }
 
     *r = x;
 }
@@ -700,6 +687,9 @@ unsigned char *rans_compress_O1(unsigned char *in, unsigned int in_size,
     unsigned int last_i, tab_size, rle_i, rle_j;
     RansEncSymbol syms[256][256];
 
+    if (in_size < 4)
+	return rans_compress_O0(in, in_size, out_size);
+
     if (!out_buf)
 	return NULL;
 
@@ -975,10 +965,10 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
     R[3] = rans3;
 
     for (; i4[0] < isz4; i4[0]++, i4[1]++, i4[2]++, i4[3]++) {
-	uint32_t m[4] = {R[0] & (1u << TF_SHIFT)-1,
-			 R[1] & (1u << TF_SHIFT)-1,
-			 R[2] & (1u << TF_SHIFT)-1,
-			 R[3] & (1u << TF_SHIFT)-1};
+	uint32_t m[4] = {R[0] & ((1u << TF_SHIFT)-1),
+			 R[1] & ((1u << TF_SHIFT)-1),
+			 R[2] & ((1u << TF_SHIFT)-1),
+			 R[3] & ((1u << TF_SHIFT)-1)};
 
 	uint8_t c[4] = {D[l0].R[m[0]],
 			D[l1].R[m[1]],
