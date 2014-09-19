@@ -745,6 +745,14 @@ int bam_set_option(bam_file_t *fd, enum bam_option opt, ...);
  */
 int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args);
 
+
+
+/*
+ * Signed and unsigned fast functions to act as equiv to sprintf(cp, "%d", i)
+ */
+unsigned char *append_int(unsigned char *cp, int32_t i);
+unsigned char *append_uint(unsigned char *cp, uint32_t i);
+
 #ifdef __cplusplus
 }
 #endif

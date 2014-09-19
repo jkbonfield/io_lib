@@ -1166,8 +1166,9 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		    seq[pos-1] = c->comp_hdr->
 			substitution_matrix[ref_base][base];
 		    if (decode_md) {
-			BLOCK_APPENDF_2(s->aux_blk, buf, "%d%c", md_dist,
-					s->ref[ref_pos-s->ref_start +1]);
+                        BLOCK_APPEND_UINT(s->aux_blk, md_dist);
+                        BLOCK_APPEND_CHAR(s->aux_blk,
+                                          s->ref[ref_pos-s->ref_start +1]);
 			md_dist = 0;
 		    }
 		}
@@ -1192,7 +1193,8 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		                ->decode(s, c->comp_hdr->codecs[DS_DL], blk,
 					 (char *)&i32, &out_sz);
 		if (decode_md) {
-		    BLOCK_APPENDF_1(s->aux_blk, buf, "%d^", md_dist);
+                    BLOCK_APPEND_UINT(s->aux_blk, md_dist);
+                    BLOCK_APPEND_CHAR(s->aux_blk, '^');
 		    BLOCK_APPEND(s->aux_blk,
 				 &s->ref[ref_pos - s->ref_start +1],
 				 i32);
@@ -1441,7 +1443,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
  skip_cigar:
 
     if ((ds & CRAM_FN) && decode_md) {
-	BLOCK_APPENDF_1(s->aux_blk, buf, "%d", md_dist);
+        BLOCK_APPEND_UINT(s->aux_blk, md_dist);
     }
 
     if (cig_len) {
