@@ -654,6 +654,9 @@ int cram_dependent_data_series(cram_fd *fd,
 	if (fd->required_fields & SAM_AUX)
 	    hdr->data_series |= CRAM_RG | CRAM_TL | CRAM_aux;
 
+	if (fd->required_fields & SAM_RGAUX)
+	    hdr->data_series |= CRAM_RG;
+
 	// Always uncompress CORE block
 	if (cram_uncompress_block(s->block[0]))
 	    return -1;
