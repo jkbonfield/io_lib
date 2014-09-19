@@ -615,47 +615,7 @@ int pileup_loop(scram_fd *fp,
  */
 
 #include <ctype.h>
-
-static char *append_int(char *cp, int i) {
-    int j;
-
-    if (i < 0) {
-	*cp++ = '-';
-	i = -i;
-    } else if (i == 0) {
-	*cp++ = '0';
-	return cp;
-    }
-
-    if (i < 100)        goto b1;
-    if (i < 10000)      goto b3;
-    if (i < 1000000)    goto b5;
-    if (i < 100000000)  goto b7;
-
-     if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
-     if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
- b7: if ((j = i / 10000000))   {*cp++ = j + '0'; i -= j*10000000;   goto x6;}
-     if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
- b5: if ((j = i / 100000))     {*cp++ = j + '0', i -= j*100000;     goto x4;}
-     if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
- b3: if ((j = i / 1000))       {*cp++ = j + '0', i -= j*1000;       goto x2;}
-     if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
- b1: if ((j = i / 10))         {*cp++ = j + '0', i -= j*10;         goto x0;}
-     if (i)                     *cp++ = i + '0';
-    return cp;
-
- x8: *cp++ = i / 100000000 + '0', i %= 100000000;
- x7: *cp++ = i / 10000000  + '0', i %= 10000000;
- x6: *cp++ = i / 1000000   + '0', i %= 1000000;
- x5: *cp++ = i / 100000    + '0', i %= 100000;
- x4: *cp++ = i / 10000     + '0', i %= 10000;
- x3: *cp++ = i / 1000      + '0', i %= 1000;
- x2: *cp++ = i / 100       + '0', i %= 100;
- x1: *cp++ = i / 10        + '0', i %= 10;
- x0: *cp++ = i             + '0';
-
-    return cp;
-}
+#include <io_lib/bam.h>
 
 char strand_char[2][256];
 void strand_init(void) {

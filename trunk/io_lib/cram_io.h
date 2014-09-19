@@ -57,6 +57,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <io_lib/misc.h>
+#include <io_lib/bam.h>
 
 /**@{ ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
@@ -220,21 +221,16 @@ char *cram_content_type2str(enum cram_content_type t);
 	(b)->data[(b)->byte++] = (c);	  \
     } while (0)
 
-/* Append via sprintf with 1 arg */
-#define BLOCK_APPENDF_1(b,buf,fmt, a1)			\
-    do {						\
-	int l = sprintf((buf), (fmt), (a1));		\
-	BLOCK_APPEND((b), (buf), l);			\
+/* Append a single unsigned integer */
+#define BLOCK_APPEND_UINT(b,i)                       \
+    do {                                             \
+	unsigned char *cp;                           \
+	BLOCK_GROW((b),11);                          \
+	cp = &(b)->data[(b)->byte];                  \
+	(b)->byte += append_uint(cp, (i)) - cp;	     \
     } while (0)
 
-/* Append via sprintf with 2 args */
-#define BLOCK_APPENDF_2(b,buf,fmt, a1,a2)		\
-    do {						\
-	int l = sprintf((buf), (fmt), (a1), (a2));	\
-	BLOCK_APPEND((b), (buf), l);			\
-    } while (0)
-
-#define BLOCK_UPLEN(b) \
+#define BLOCK_UPLEN(b)			\
     (b)->comp_size = (b)->uncomp_size = BLOCK_SIZE((b))
 
 /**@}*/
