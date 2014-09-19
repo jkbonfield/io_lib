@@ -2600,7 +2600,7 @@ bam_seq_t *bam_dup(bam_seq_t *b) {
 }
 
 
-static unsigned char *append_int(unsigned char *cp, int32_t i) {
+unsigned char *append_int(unsigned char *cp, int32_t i) {
     int32_t j;
 
     if (i < 0) {
@@ -2656,7 +2656,7 @@ static unsigned char *append_int(unsigned char *cp, int32_t i) {
  * Unsigned version of above.
  * Only differs when the int has the top bit set (~2.15 billion and above).
  */
-static unsigned char *append_uint(unsigned char *cp, uint32_t i) {
+unsigned char *append_uint(unsigned char *cp, uint32_t i) {
     uint32_t j;
 
     if (i == 0) {
