@@ -259,6 +259,7 @@ typedef struct {
 #define BAM_CIGAR_MASK  ((1 << BAM_CIGAR_SHIFT) - 1)
 
 enum cigar_op {
+    BAM_UNKNOWN=-1,
     BAM_CMATCH=0,
     BAM_CINS=1,
     BAM_CDEL=2,

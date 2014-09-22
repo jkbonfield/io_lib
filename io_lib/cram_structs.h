@@ -179,6 +179,7 @@ typedef struct {
 struct cram_slice;
 
 enum cram_block_method {
+    BM_ERROR  = -1,
     RAW    = 0,
     GZIP   = 1,
     BZIP2  = 2,
@@ -191,6 +192,7 @@ enum cram_block_method {
 };
 
 enum cram_content_type {
+    CT_ERROR           = -1,
     FILE_HEADER        = 0,
     COMPRESSION_HEADER = 1,
     MAPPED_SLICE       = 2,
