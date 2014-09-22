@@ -1491,15 +1491,16 @@ cram_metrics *cram_new_metrics(void) {
 
 char *cram_block_method2str(enum cram_block_method m) {
     switch(m) {
-    case RAW:	return "RAW";
-    case GZIP:	return "GZIP";
-    case BZIP2:	return "BZIP2";
-    case LZMA:  return "LZMA";
-    case ARITH0:return "ARITH0";
-    case ARITH1:return "ARITH1";
-    case RANS0: return "RANS0";
-    case RANS1: return "RANS1";
+    case RAW:	   return "RAW";
+    case GZIP:	   return "GZIP";
+    case BZIP2:	   return "BZIP2";
+    case LZMA:     return "LZMA";
+    case ARITH0:   return "ARITH0";
+    case ARITH1:   return "ARITH1";
+    case RANS0:    return "RANS0";
+    case RANS1:    return "RANS1";
     case GZIP_RLE: return "GZIP_RLE";
+    case BM_ERROR: break;
     }
     return "?";
 }
@@ -1512,6 +1513,7 @@ char *cram_content_type2str(enum cram_content_type t) {
     case UNMAPPED_SLICE:      return "UNMAPPED_SLICE";
     case EXTERNAL:            return "EXTERNAL";
     case CORE:                return "CORE";
+    case CT_ERROR:            break;
     }
     return "?";
 }
