@@ -549,15 +549,23 @@ int main(int argc, char **argv) {
 				break;
 			    }
 
-			    case 'b': { // Read bases; BA
+			    case 'b': { // Read bases; BB
 				unsigned char l, cc;
 				int out_sz2;
 				char seq[256];
 
-				r  = c->comp_hdr->codecs[DS_BA]->decode(s,c->comp_hdr->codecs[DS_BA], b, &l, &out_sz);
-				out_sz2 = l;
-				r |= c->comp_hdr->codecs[DS_BA]->decode(s,c->comp_hdr->codecs[DS_BA], b, seq, &out_sz2);
-				printf("  %d: BA(b) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, seq, r, out_sz2);
+				r  = c->comp_hdr->codecs[DS_BB]->decode(s,c->comp_hdr->codecs[DS_BB], b, seq, &out_sz2);
+				printf("  %d: BB(b) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, seq, r, out_sz2);
+				break;
+			    }
+
+			    case 'q': { // Read bases; QQ
+				unsigned char l, cc;
+				int out_sz2;
+				char qual[256];
+
+				r  = c->comp_hdr->codecs[DS_QQ]->decode(s,c->comp_hdr->codecs[DS_QQ], b, qual, &out_sz2);
+				printf("  %d: QQ(b) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, qual, r, out_sz2);
 				break;
 			    }
 
