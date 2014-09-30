@@ -3106,8 +3106,10 @@ void cram_free_slice(cram_slice *s) {
 	free(s->TN);
 #endif
 
-    if (s->pair)
-	HashTableDestroy(s->pair, 0);
+    if (s->pair[0])
+	HashTableDestroy(s->pair[0], 0);
+    if (s->pair[1])
+	HashTableDestroy(s->pair[1], 0);
 
 //    {
 //	int i;
@@ -3161,7 +3163,8 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
 #endif
 
     // Volatile keys as we do realloc in dstring
-    if (!(s->pair = HashTableCreate(10000, HASH_DYNAMIC_SIZE)))   goto err;
+    if (!(s->pair[0] = HashTableCreate(10000, HASH_DYNAMIC_SIZE)))   goto err;
+    if (!(s->pair[1] = HashTableCreate(10000, HASH_DYNAMIC_SIZE)))   goto err;
     
 #ifdef BA_external
     s->BA_len = 0;

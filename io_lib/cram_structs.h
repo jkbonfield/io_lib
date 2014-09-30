@@ -563,7 +563,7 @@ typedef struct cram_slice {
     cram_block *aux_os_blk;
     cram_block *aux_oz_blk;
 
-    HashTable *pair;         // for identifying read-pairs in this slice.
+    HashTable *pair[2];      // for identifying read-pairs in this slice.
 
     char *ref;               // slice of current reference
     int ref_start;           // start position of current reference;
