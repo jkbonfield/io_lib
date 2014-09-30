@@ -2836,7 +2836,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	//fprintf(stderr, "Checking %"PRId64"/%.*s\t", hd.i,
 	//	cr->name_len, DSTRING_STR(s->name_ds)+cr->name);
 	if (cr->flags & BAM_FPAIRED) {
-	    hi = HashTableAdd(s->pair,
+	    hi = HashTableAdd(s->pair[(cr->flags & BAM_FSECONDARY) ? 1 : 0],
 			      (char *)BLOCK_DATA(s->name_blk)+cr->name,
 			      cr->name_len, hd, &new);
 	    if (!hi)
