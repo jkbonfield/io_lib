@@ -2424,8 +2424,11 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	}
     }
 
-    if ((s = c->slice))
+    if ((s = c->slice)) {
+	c->slice = NULL;
 	cram_free_slice(s);
+	s = NULL;
+    }
 
     if (c->curr_slice == c->max_slice) {
 	cram_free_container(c);
@@ -2463,12 +2466,18 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 
 		    if (c->ref_seq_id != fd->range.refid) {
 			fd->eof = 1;
-			return NULL;
+			cram_free_container(c);
+			fd->ctr = NULL;
+			fd->ooc = 1;
+			break;
 		    }
 
 		    if (c->ref_seq_start > fd->range.end) {
 			fd->eof = 1;
-			return NULL;
+			cram_free_container(c);
+			fd->ctr = NULL;
+			fd->ooc = 1;
+			break;
 		    }
 
 		    if (c->ref_seq_start + c->ref_seq_span-1 <
@@ -2581,6 +2590,8 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	j = (cram_decode_job *)res->data;
 	c = j->c;
 	s = j->s;
+
+	fd->ctr = c;
 
 	t_pool_delete_result(res, 1);
     }
