@@ -132,13 +132,20 @@ int cram_index_load(cram_fd *fd, char *fn) {
 
     while (zfgets(line, 1024, fp)) {
 	/* 1.1 layout */
-	sscanf(line, "%d\t%d\t%d\t%"PRId64"\t%d\t%d",
-	       &e.refid,
-	       &e.start,
-	       &e.end,
-	       &e.offset,
-	       &e.slice,
-	       &e.len);
+	char *cp = line;
+        errno = 0;
+        e.refid  = strtol (cp, &cp, 10);
+        e.start  = strtol (cp, &cp, 10);
+        e.end    = strtol (cp, &cp, 10);
+        e.offset = strtoll(cp, &cp, 10);
+        e.slice  = strtol (cp, &cp, 10);
+        e.len    = strtol (cp, &cp, 10);
+
+        if (errno == EINVAL || errno == ERANGE) {
+            free(idx_stack);
+            return -1;
+        }
+
 	e.end += e.start-1;
 	//printf("%d/%d..%d\n", e.refid, e.start, e.end);
 
@@ -289,6 +296,8 @@ cram_index *cram_index_query(cram_fd *fd, int refid, int pos,
  */
 int cram_seek(cram_fd *fd, off_t offset, int whence) {
     char buf[65536];
+
+    fd->ooc = 0;
 
     if (fseeko(fd->fp, offset, whence) == 0)
 	return 0;
