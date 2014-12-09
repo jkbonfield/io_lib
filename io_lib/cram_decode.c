@@ -1914,6 +1914,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    return -1;
     }
 
+    int last_ref_id = -9;
     for (rec = 0; rec < s->hdr->num_records; rec++) {
 	cram_record *cr = &s->crecs[rec];
 
@@ -1958,7 +1959,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		r |= c->comp_hdr->codecs[DS_RI]
 		                ->decode(s, c->comp_hdr->codecs[DS_RI], blk,
 					 (char *)&cr->ref_id, &out_sz);
-		if (cr->ref_id >= 0) {
+		if (cr->ref_id >= 0 && cr->ref_id != last_ref_id) {
 		    if (!fd->no_ref) {
 			if (!refs[cr->ref_id])
 			    refs[cr->ref_id] = cram_get_ref(fd, cr->ref_id,
@@ -1971,6 +1972,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		    s->ref_end = fd->refs->ref_id[cr->ref_id]->length;
 		    pthread_mutex_unlock(&fd->refs->lock);
 		    pthread_mutex_unlock(&fd->ref_lock);
+
+		    last_ref_id = cr->ref_id;
 		}
 	    }
 	} else {
