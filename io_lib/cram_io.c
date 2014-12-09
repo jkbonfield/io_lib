@@ -2636,14 +2636,19 @@ cram_container *cram_read_container(cram_fd *fd) {
     memset(&c2, 0, sizeof(c2));
     if (IS_CRAM_1_VERS(fd)) {
 	if ((s = itf8_decode(fd, &c2.length)) == -1) {
-	    fd->eof = fd->empty_container ? 1 : 2;
+	    fd->eof = 1;
 	    return NULL;
 	} else {
 	    rd+=s;
 	}
     } else {
 	if ((s = int32_decode(fd, &c2.length)) == -1) {
-	    fd->eof = fd->empty_container ? 1 : 2;
+	    fprintf(stderr, "eof; vers=%d\n", fd->version);
+	    if (CRAM_MAJOR_VERS(fd->version) == 2 &&
+		CRAM_MINOR_VERS(fd->version) == 0)
+		fd->eof = 1; // EOF blocks arrived in v2.1
+	    else
+		fd->eof = fd->empty_container ? 1 : 2;
 	    return NULL;
 	} else {
 	    rd+=s;
