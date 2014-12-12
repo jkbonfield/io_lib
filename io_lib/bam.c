@@ -1028,19 +1028,9 @@ static int bam_uncompress_input(bam_file_t *b) {
 #endif
 
 
-#define STRTOL(v,rv,b) ({			\
-	    int n = 0;				\
-	    while (*v > '\t')			\
-		n=n*10+*v++-'0';		\
-	    *rv=v;				\
-	    n;					\
-	})
-
-#undef STRTOL
-
 /* Custom strtol for aux tags, always base 10 */
-static long inline STRTOL(const char *v, const char **rv, int b) {
-    long n = 0;
+static int64_t inline STRTOL64(const char *v, const char **rv, int b) {
+    int64_t n = 0;
     int neg = 1;
     switch(*v) {
     case '-':
@@ -1368,6 +1358,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	*cpt++ = key[1];
 
 	switch(key[3]) {
+	    int64_t n;
 	case 'A':
 	    *cpt++ = 'A';
 	    *cpt++ = *value;
@@ -1375,7 +1366,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
 	case 'i':
 	    //n = atoi((char *)value);
-	    n = STRTOL((char *)value, (const char **)&value, 10);
+	    n = STRTOL64((char *)value, (const char **)&value, 10);
 	    if (n >= 0) {
 		if (n < 256) {
 		    *cpt++ = 'C';
@@ -1799,9 +1790,14 @@ char *bam_aux_Z(const uint8_t *dat) {
  * An iterator on bam aux fields. NB: This code is not reentrant or multi-
  * thread capable. The values returned are valid until the next call to
  * this function.
- * key:  points to an array of 2 characters (eg "RG", "NM")
- * type: points to an address of 1 character (eg 'Z', 'i')
+ * key:  points to an array of 3 characters (eg "RGi", "NMC")
+ * type: points to an address of 1 character (eg 'Z', 'i') for the SAM type
  * val:  points to an address of a bam_aux_t union.
+ *
+ * The first two bytes of key are the real key and the next byte is the
+ * BAM type field. Note that this may differ to the returned SAM type
+ * field. For example key[2] == 'S' for unsigned short while *type is
+ * set to 'i'.
  *
  * Pass in *iter_handle as NULL to initialise the search and then
  * pass in the modified value on each subsequent call to continue the search.
@@ -1809,8 +1805,8 @@ char *bam_aux_Z(const uint8_t *dat) {
  * Returns 0 if the next value is valid, setting key, type and val.
  *        -1 when no more found.
  */
-int bam_aux_iter(bam_seq_t *b, char **iter_handle,
-		 char *key, char *type, bam_aux_t *val) {
+int bam_aux_iter_full(bam_seq_t *b, char **iter_handle,
+		      char *key, char *type, bam_aux_t *val) {
     char *s;
 
     if (!iter_handle || !*iter_handle) {
@@ -1825,6 +1821,7 @@ int bam_aux_iter(bam_seq_t *b, char **iter_handle,
 
     key[0] = s[0];
     key[1] = s[1];
+    key[2] = s[2];
     
     switch (s[2]) {
     case 'A':
@@ -1949,6 +1946,24 @@ int bam_aux_iter(bam_seq_t *b, char **iter_handle,
 	*iter_handle = s;
 
     return 0;
+}
+
+/*
+ * As above, but only 2 characters of the key are returned so the
+ * original BAM type is not visible.
+ *
+ * Note this can cause ambiguities if you wish to distinguish between
+ * -1 billion and +3 billion.
+ */
+int bam_aux_iter(bam_seq_t *b, char **iter_handle,
+		 char *key, char *type, bam_aux_t *val) {
+    char k3[3];
+    int r = bam_aux_iter_full(b, iter_handle, k3, type, val);
+
+    key[0] = k3[0];
+    key[1] = k3[1];
+
+    return r;
 }
 
 static int reg2bin(int start, int end) {
@@ -2371,6 +2386,8 @@ int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam) {
 	*cpt++ = key[1];
 
 	switch(key[3]) {
+	    int64_t n;
+
 	case 'A':
 	    *cpt++ = 'A';
 	    *cpt++ = *value;
@@ -2378,7 +2395,7 @@ int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam) {
 
 	case 'i':
 	    //n = atoi((char *)value);
-	    n = STRTOL((char *)value, (const char **)&value, 10);
+	    n = STRTOL64((char *)value, (const char **)&value, 10);
 	    if (n >= 0) {
 		if (n < 256) {
 		    *cpt++ = 'C';
@@ -2885,7 +2902,7 @@ static int bgzf_flush(bam_file_t *bf) {
  *        -1 on failure
  */
 int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
-    char *auxh, aux_key[2], type;
+    char *auxh, aux_key[3], type;
     bam_aux_t val;
 
     /*
@@ -3156,7 +3173,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* Auxiliary tags */
 	auxh = NULL;
-	while (0 == bam_aux_iter(b, &auxh, aux_key, &type, &val)) {
+	while (0 == bam_aux_iter_full(b, &auxh, aux_key, &type, &val)) {
 	    if (end - fp->uncomp_p < 20) BF_FLUSH();
 	    *fp->uncomp_p++ = '\t';
 	    *fp->uncomp_p++ = aux_key[0];
@@ -3164,13 +3181,13 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    *fp->uncomp_p++ = ':';
 	    *fp->uncomp_p++ = type;
 	    *fp->uncomp_p++ = ':';
-	    switch(type) {
+	    switch(aux_key[2]) {
 	    case 'A':
 		*fp->uncomp_p++ = val.i;
 		break;
 
 	    case 'C':
-		fp->uncomp_p = append_int(fp->uncomp_p, (uint8_t)val.i);
+		fp->uncomp_p = append_uint(fp->uncomp_p, (uint8_t)val.i);
 		break;
 
 	    case 'c':
@@ -3178,7 +3195,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		break;
 
 	    case 'S':
-		fp->uncomp_p = append_int(fp->uncomp_p, (uint16_t)val.i);
+		fp->uncomp_p = append_uint(fp->uncomp_p, (uint16_t)val.i);
 		break;
 
 	    case 's':
@@ -3186,7 +3203,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		break;
 
 	    case 'I':
-		fp->uncomp_p = append_int(fp->uncomp_p, (uint32_t)val.i);
+		fp->uncomp_p = append_uint(fp->uncomp_p, (uint32_t)val.i);
 		break;
 
 	    case 'i':
