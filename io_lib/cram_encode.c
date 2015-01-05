@@ -1261,6 +1261,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	for (i = 0; i < nref; i++) {
 	    if (c->refs_used[i]) {	
 		cram_get_ref(fd, i, 1, 0);
+		cram_ref_incr(fd->refs, i);
 	    }
 	}
     }
