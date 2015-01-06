@@ -1349,6 +1349,11 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	s->hdr->num_records = r2;
     }
 
+    if (c->multi_seq && !fd->no_ref) {
+	if (c->ref_seq_id >= 0)
+	    cram_ref_decr(fd->refs, c->ref_seq_id);
+    }
+
     /* Link our bams[] array onto the spare bam list for reuse */
     spares = malloc(sizeof(*spares));
     pthread_mutex_lock(&fd->bam_list_lock);
