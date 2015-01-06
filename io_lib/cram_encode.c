@@ -1262,10 +1262,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     if (!fd->no_ref && c->refs_used) {
 	for (i = 0; i < nref; i++) {
-	    if (c->refs_used[i]) {	
+	    if (c->refs_used[i])
 		cram_get_ref(fd, i, 1, 0);
-		cram_ref_incr(fd->refs, i);
-	    }
 	}
     }
     /* To create M5 strings */
@@ -3009,7 +3007,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
 	// Have we seen this reference before?
 	if (bam_ref(b) >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref &&
-	    !fd->unsorted) {
+	    !fd->unsorted && multi_seq) {
 	    
 	    if (!c->refs_used) {
 		pthread_mutex_lock(&fd->ref_lock);
