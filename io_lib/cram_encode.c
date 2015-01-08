@@ -1134,27 +1134,6 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	    h->codecs[id]->out = s->block[id];
     }
 
-#if 0
-    // RANDOMISER
-    {
-	cram_block *bb[5] = {0};
-	int id, j;
-
-	for (id = DS_BF; id < DS_TN; id++) {
-	    if (!h->codecs[id] || h->codecs[id]->codec != E_EXTERNAL)
-		continue;
-	    if (s->block[id] != s->block[0]) {
-		free(s->block[id]);
-		j = random()%5;
-		if (!bb[j])
-		    bb[j] = cram_new_block(EXTERNAL, j+55);
-		s->block[id] = bb[j];
-		h->codecs[id]->external.content_id = j+55;
-	    }
-	}
-    }
-#endif
-
     /* Encode reads */
     last_pos = s->hdr->ref_seq_start;
     for (rec = 0; rec < s->hdr->num_records; rec++) {
@@ -1194,28 +1173,6 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     if (cram_compress_slice(fd, s) == -1)
 	return -1;
 
-#if 0
-    // RANDOMISER
-    {
-	int i, j;
-	int b_used[100] = {0};
-	for (i = j = 1; i < DS_END; i++) {
-	    if (!s->block[i] || s->block[i] == s->block[0])
-		continue;
-	    s->block[j] = s->block[i];
-	    s->hdr->block_content_ids[j-1] = s->block[i]->content_id;
-	    if (!b_used[s->block[i]->content_id]) {
-		b_used[s->block[i]->content_id] = 1;
-		j++;
-	    }
-	}
-	s->hdr->num_content_ids = j-1;
-	s->hdr->num_blocks = j;
-
-	if (!(s->hdr_block = cram_encode_slice_header(fd, s)))
-	    return -1;
-    }
-#else
     // Collapse empty blocks and create hdr_block
     {
 	int i, j;
@@ -1237,7 +1194,6 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	if (!(s->hdr_block = cram_encode_slice_header(fd, s)))
 	    return -1;
     }
-#endif
 
     return r ? -1 : 0;
 }

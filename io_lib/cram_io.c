@@ -2643,7 +2643,6 @@ cram_container *cram_read_container(cram_fd *fd) {
 	}
     } else {
 	if ((s = int32_decode(fd, &c2.length)) == -1) {
-	    fprintf(stderr, "eof; vers=%d\n", fd->version);
 	    if (CRAM_MAJOR_VERS(fd->version) == 2 &&
 		CRAM_MINOR_VERS(fd->version) == 0)
 		fd->eof = 1; // EOF blocks arrived in v2.1
@@ -3040,10 +3039,6 @@ void cram_free_slice(cram_slice *s) {
 
 	if (s->hdr) {
 	    for (i = 0; i < s->hdr->num_blocks; i++) {
-#if 0
-		//RANDOMISER - leaks memory, but it's debug only
-		break;
-#endif
 		cram_free_block(s->block[i]);
 	    }
 	}
