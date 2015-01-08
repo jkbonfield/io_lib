@@ -209,7 +209,7 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
     st->nvals = nvals;
     assert(ntot == st->nsamp);
 
-#if 0
+#ifdef RANDOMISER
     // RANDOMISER
     switch(random()%10) {
     case 0:  return E_HUFFMAN;
