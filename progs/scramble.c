@@ -88,7 +88,7 @@ static char *detect_format(char *fn) {
 
 static void usage(FILE *fp) {
     fprintf(fp, "  -=- sCRAMble -=-     version %s\n", PACKAGE_VERSION);
-    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013\n\n");
+    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2015\n\n");
 
     fprintf(fp, "Usage:    scramble [options] [input_file [output_file]]\n");
 
@@ -125,17 +125,22 @@ int main(int argc, char **argv) {
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
-    int use_bz2 = 0, use_arith = 0, use_lzma = 0;
+    int use_bz2 = 0, use_rans = 0, use_lzma = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
     t_pool *p = NULL;
     int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
+    int sam_fields = 0; // all
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:")) != -1) {
 	switch (c) {
+	case 'F':
+	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
+	    break;
+
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
 	    level = c;
@@ -232,7 +237,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'J':
-	    use_arith = 1;
+	    use_rans = 1;
 	    break;
 
 	case 'Z':
@@ -334,8 +339,8 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_USE_BZIP2, use_bz2))
 	    return 1;
 
-    if (use_arith)
-	if (scram_set_option(out, CRAM_OPT_USE_ARITH, use_arith))
+    if (use_rans)
+	if (scram_set_option(out, CRAM_OPT_USE_RANS, use_rans))
 	    return 1;
 
     if (use_lzma)
@@ -377,6 +382,8 @@ int main(int argc, char **argv) {
 	if (scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5))
 	    return 1;
     
+    if (sam_fields)
+	scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS, sam_fields);
 
     /* Copy header and refs from in to out, for writing purposes */
     scram_set_header(out, scram_get_header(in));
