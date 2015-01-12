@@ -3835,7 +3835,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
     fd->use_bz2 = 0;
-    fd->use_arith = 0;
+    fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
@@ -4081,7 +4081,8 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	break;
 
     case CRAM_OPT_USE_ARITH:
-	fd->use_arith = va_arg(args, int);
+    case CRAM_OPT_USE_RANS:
+	fd->use_rans = va_arg(args, int);
 	break;
 
     case CRAM_OPT_USE_LZMA:
