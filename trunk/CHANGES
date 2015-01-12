@@ -1,3 +1,79 @@
+version 1.13.8 (12th Jan 2015)
+--------------
+
+* The REF_PATH and RAWDATA variable expansion can now handle URLs
+  without an explicit URL= component.  It also understands the format
+  of URLs and doesn't require a double colon (::) to escape a single
+  colon any more.
+
+* Removed a few compiler warnings.
+
+* CRAM: Improved test harness to test Scramble -e and -x.  Fixed an
+  issue related to -x not setting RI data series in some cases.
+
+* CRAM: BS:Z and BI:Z now go to separate external blocks, for
+  (usually) improved compression.  Also added special blocks for
+  IonTorrent ZM:B and FZ:B tags.
+
+* CRAM: Reading CRAM indices is now much faster.  Also fixed a bug
+  when doing multiple range queries that fell exactly on CRAM
+  container boundaries.
+
+* CRAM: Bug fixes and efficiency improvements to the logic to work out
+  which data-series to decode.
+
+* CRAM: Better handling of MD and NM tags when using non-reference
+  encoding. Also sped up the MD string generation.
+
+* CRAM: Improved support for dealing with both primary and secondary
+  alignments.
+
+* CRAM: Better support for name-sorted data. It worked before, but we
+  had too many re-loads of the reference sequence.  Similarly removed
+  pointless reference sequence loads when encoding with scramble -x.
+
+* CRAM: Various minor memory leaks removed.
+
+* CRAM: Multi-threading updates.
+  Fixed some uninitialised memory accesses causing crashes on
+  SPARC/Solaris.  Also fixed issues when using range-requests while
+  multi-threading.  Less mutex locking when using name-sorted data.
+
+* CRAM: Removed spurious warnings about lack of EOF block when reading
+  older format CRAM files.
+
+* CRAM: Bug fix to the (undocumented) SAM 'd' aux type. Only used here
+  because samtools supports it.
+
+* CRAM: Bug fix when attempting to decode 0 bytes from an external
+  block.
+
+* CRAM: More support for version 3.0.  The 'b' and 'q' CRAM feature
+  codes have been implemented along with better support for the old
+  BYTE_ARRAY_LEN encoder.  Support for compressed SAM headers.
+  Unified RANS0/RANS1 codecs to RANS (switches order itself).
+
+  EXPERIMENTAL: enable using "scramble -V3.0".
+
+  This has now been cross-validated against Java cram_tools 3.0
+  format.  (Note this is incompatible with the v3.0 files produced
+  from earlier Scramble.)
+
+* BAM: Added support for CIGAR strings above 65535 elements long. See
+  http://sourceforge.net/p/samtools/mailman/message/30672431/
+
+* BAM: Removed buffer overrun in records with no auxiliary data and a
+  record length of 1024 or a higher power of 2.
+
+* BAM: Handle newline/carriage-return format files.
+
+* BAM: Bug fixed the bin/index calculation; Now [beg,end) instead of
+  [beg,end].
+
+* BAM: Fixed the SAM parser to handle integers between -2billion and
+  +4billion. (Incoming change to the SAM spec.)
+
+
 Version 1.13.7 (30th May 2014)
 --------------
 

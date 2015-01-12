@@ -1,4 +1,566 @@
 ===============================================================================
+2014-05-30: RELEASE 1.13.8
+
+------------------------------------------------------------------------
+r3784 | jkbonfield | 2015-01-12 12:16:55 +0000 (Mon, 12 Jan 2015) | 6
+lines
+
+Renamed the use_arith options to be use_rans, as this is strictly the
+correct name. (We just repurposed the old code.)
+
+Also automatically enable RANS codec when asking for version 3.0
+files.
+
+------------------------------------------------------------------------
+r3783 | jkbonfield | 2015-01-08 17:03:56 +0000 (Thu, 08 Jan 2015) | 20 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Overhauled the cram_dependent_data_series function and associated
+code.
+
+Previously it contained
+
+    if (hdr->data_series & CRAM_SEQ) hdr->data_series |= CRAM_CIGAR
+
+but this is too permissive as it means even something like CRAM_BF (in
+the CRAM_SEQ expansion) would cause all over members of CRAM_SEQ to be
+brought in when they are not strictly needed by the code path.
+
+Instead these have been replaced by more explicit dependencies,
+analysed from the source code. This has been tested by producing
+CRAM files with random mixing of data series and then explicitly
+requesting single columns vs all columns to compare the results.
+
+In doing so found and fixed a few other long standing data-series bugs
+too, such as a dependence on CRAM_BF for more fields that it would
+appear obviously necessary.
+
+------------------------------------------------------------------------
+r3782 | jkbonfield | 2015-01-08 16:58:29 +0000 (Thu, 08 Jan 2015) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_stats.c
+
+Tidied up the CRAM randomiser code. This was originally some #if 0-ed
+out code to mix data series together in random manners. Somewhere
+along the ling it broke.
+
+The new code (unused unless RANDOMISER is defined) is simpler, using
+solely the CORE huffman block as a means to mix data series together.
+This is still sufficient mixing to test the dependent_data_series
+functions.
+
+------------------------------------------------------------------------
+r3781 | jkbonfield | 2015-01-06 17:13:36 +0000 (Tue, 06 Jan 2015) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Fixed ref count leak in cram_encode_container caused by not
+decrementing the final sequence we ended up processing. (It has a
+decr/incr loop every time we switch from one seq to the next, to cope
+with packed chr-pos-sorted slices.)
+
+------------------------------------------------------------------------
+r3780 | jkbonfield | 2015-01-06 16:41:13 +0000 (Tue, 06 Jan 2015) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Reverted the cram_encode_container change to call cram_ref_incr and
+added a ref incr in cram_get_ref instead. This better fixes the issue
+of sharing references between containers, fixing decoding as well as
+encoding.
+
+Also prevented encoding from creating c->refs_used when multi_seq
+isn't set.
+
+------------------------------------------------------------------------
+r3779 | jkbonfield | 2015-01-06 12:03:15 +0000 (Tue, 06 Jan 2015) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed a logic error in the cram_ref_decr_locked function. It shouldn't
+set r->last_id to -1 ever, as with containers large enough to fit the
+entire reference this caused it to end up alternating between free and
+non-free of reference.
+
+The set of -1 in cram_ref_incr_locked was already sufficient to
+prevent repeated incr#1/decr#1/incr#1/decr#1 from freeing and reloading.
+
+------------------------------------------------------------------------
+r3777 | jkbonfield | 2015-01-05 14:54:27 +0000 (Mon, 05 Jan 2015) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Fixed a small memory leak where we didn't deallocate a cram_block that
+we had created but later culled due to containing zero bytes.
+
+------------------------------------------------------------------------
+r3776 | jkbonfield | 2015-01-05 14:53:56 +0000 (Mon, 05 Jan 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+
+Fixed a memory leak when destroying a BYTE_ARRAY_LEN encoder.
+
+------------------------------------------------------------------------
+r3775 | jkbonfield | 2015-01-05 14:53:28 +0000 (Mon, 05 Jan 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/rANS_static.c
+
+Fixed memory leak when trying to O1 compress a block <= 4 bytes long.
+
+------------------------------------------------------------------------
+r3774 | jkbonfield | 2015-01-05 12:22:21 +0000 (Mon, 05 Jan 2015) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+cram_encode_container for multi-ref containers pre-caches all the
+references in memory, and then decrements the ref count at the end to
+(potentially) free them again.  Unfortunately it didn't do an explicit
+cram_ref_incr at the start meaning it caused the refs to be
+repopulated for each and every container rather than honouring the
+fd->shared_ref variable.
+
+------------------------------------------------------------------------
+r3773 | jkbonfield | 2015-01-05 11:44:32 +0000 (Mon, 05 Jan 2015) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Remove pointless thrashing of reference sequence fetching when running
+in "-x" mode.
+
+------------------------------------------------------------------------
+r3771 | jkbonfield | 2014-12-12 17:27:38 +0000 (Fri, 12 Dec 2014) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+
+Fixed SAM parsing code to handle integer values from -2billion to
++4billion, for proper BAM generation.
+
+Fixed BAM to SAM conversion to correctly track whether the bam aux
+item is signed or unsigned.  To do this the old bam_aux_iter has been
+updated to become bam_aux_iter_full (the old one being a wrapper
+around the new).  The full version also now returns the original bam
+format code instead of the generic sam 'i' code for all integers.
+
+------------------------------------------------------------------------
+r3770 | jkbonfield | 2014-12-12 15:09:13 +0000 (Fri, 12 Dec 2014) | 10 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/rANS_static.c
+
+Added in the compressed length field to the rANS codec header.
+
+Technically this isn't needed, but it adds a very small extra amount
+of space and it allows for the internal rANS codec to be the same
+format as an external block-based rANS codec, or to allow the rANS
+codec internally to compress very large buffers using a smaller block
+size.
+
+This now brings this code into line with the Java cramtools
+
+------------------------------------------------------------------------
+r3769 | jkbonfield | 2014-12-09 17:07:06 +0000 (Tue, 09 Dec 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Removed the spurious warning about lack of EOF when running on a CRAM
+v2.0 or v1.0 file as the EOF blocks were not generated back then.
+
+------------------------------------------------------------------------
+r3768 | jkbonfield | 2014-12-09 17:06:23 +0000 (Tue, 09 Dec 2014) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Avoid excessive mutex locking when processing a slice with mixed
+reference IDs. If the record level reference ID doesn't change from
+one record to the next, don't attempt to query the new reference.
+
+------------------------------------------------------------------------
+r3763 | jkbonfield | 2014-11-06 17:17:42 +0000 (Thu, 06 Nov 2014) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_index.c
+
+Fixed a case where seeking to multiple ranges could cause a query to
+fail is the previous range ended precisely on a container boundary.
+(See https://github.com/samtools/htslib/commit/b96a302071ae05c1cf3e58a897d0e7f5d994ac58)
+
+Replaced sscanf with strtol for CRAM index parsing. This avoids avoids
+a subtle bug where I was using PRId64 instead of SCNd64 in my sscanf
+format string too.  Strtol works out about 15% faster.
+
+------------------------------------------------------------------------
+r3746 | jkbonfield | 2014-10-02 11:54:00 +0100 (Thu, 02 Oct 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Fixed memory leak, caused by duplicate creation of SC block.
+
+------------------------------------------------------------------------
+r3745 | jkbonfield | 2014-10-01 18:09:29 +0100 (Wed, 01 Oct 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_index.c
+
+Fixes for handling range requests while also multi-threading.
+
+------------------------------------------------------------------------
+r3744 | jkbonfield | 2014-09-30 16:35:49 +0100 (Tue, 30 Sep 2014) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Do not attempt to link primary and secondary alignments together when
+working out if the mate is downstream.  This was causing
+SAM->CRAM->SAM errors.
+
+------------------------------------------------------------------------
+r3742 | jkbonfield | 2014-09-22 15:23:26 +0100 (Mon, 22 Sep 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.h
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Fixed a few clang enum warnings.
+
+------------------------------------------------------------------------
+r3738 | jkbonfield | 2014-09-19 15:31:20 +0100 (Fri, 19 Sep 2014) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Added SAM_RGAUX as an additional required field type. This is useful
+for when we need the RG:Z: auxiliary tag without also needing to
+decode all the other aux data.
+
+------------------------------------------------------------------------
+r3737 | jkbonfield | 2014-09-19 15:28:56 +0100 (Fri, 19 Sep 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/bam.h
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/progs/scram_pileup.c
+
+Replaced BLOCK_APPENDF with BLOCK_APPEND_UINT and use the append_int
+function that already exists in bam.h for faster encoding.
+
+This saves ~3/4trs of the time added by DECODE_MD option.
+
+------------------------------------------------------------------------
+r3736 | jkbonfield | 2014-09-18 14:42:15 +0100 (Thu, 18 Sep 2014) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Fixed generation of MD and NM tags in cram_decode_seq() when using a
+non-reference encoding. These cannot be stored or regenerated in such
+cases.
+
+(Question: should we therefore explicitly store any MD and NM tags
+when generating the CRAM if using non-reference encoding? Probably
+yes.)
+
+
+------------------------------------------------------------------------
+r3734 | jkbonfield | 2014-09-15 09:56:21 +0100 (Mon, 15 Sep 2014) | 10 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/rANS_static.c
+
+Fixed a buffer read-overrun in my latest optimisation of
+RansDecRenorm().  Now using the original.
+
+Tidy up the bracketting to make gcc happier (no change to compiled
+output).
+
+Protected against attempting to do order-1 compressio of data < 4
+bytes long. The 4-way unrolling caused this to fail, but it is a
+pointless thing to try anyway so it now uses order-0 for that case.
+
+------------------------------------------------------------------------
+r3733 | jkbonfield | 2014-09-12 12:32:12 +0100 (Fri, 12 Sep 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/open_trace_file.c
+
+Change of heart - also block ftp:// URLs from auto-decompression too.
+
+------------------------------------------------------------------------
+r3732 | jkbonfield | 2014-09-12 12:30:04 +0100 (Fri, 12 Sep 2014) | 13 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/open_trace_file.c
+
+Improvements to the search path code.
+
+1) Elements of |http and |ftp no longer cause it to fail the : vs ::
+shenanigans.
+
+2) Removed the valid variable and checks. Instead it is done with a
+far simpler break statement at the end of the loop to bail out if we
+requested it via "|ele".
+
+3) Force http:// queries to only check once, regardless of whether it
+is preceeded by |.  This is because data-compression is better handled
+by the server already.
+
+------------------------------------------------------------------------
+r3731 | jkbonfield | 2014-09-12 11:18:54 +0100 (Fri, 12 Sep 2014) | 12 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/bam.h
+
+Added BAM_CONSUME_REF(op) and BAM_CONSUME_SEQ(op) macros to help catch
+all types of cigar operations that step along the reference and/or
+sequence.
+
+Added uses of these in bam_construct_seq() which wasn't correctly
+handling the X and = cigar codes (not that we ever generate these in
+our own code, but someone else may be using this as a library).
+
+Finally fixed a bug in the interpretation of beg,end for the bin
+calculation.  It was being used as [beg,end] instead of [beg,end),
+causing bins to change in specific locations.
+
+------------------------------------------------------------------------
+r3728 | jkbonfield | 2014-09-11 14:19:27 +0100 (Thu, 11 Sep 2014) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/bam.h
+
+Implements the change proposed in
+http://sourceforge.net/p/samtools/mailman/message/30672431/
+
+We use the bam_seq_t->bin field to hold the top 16 bits of the
+cigar_len field when it is above 65535, also setting flags 0x8000 bit
+to indicate this repurposing of bin.
+
+------------------------------------------------------------------------
+r3720 | jkbonfield | 2014-09-05 12:15:07 +0100 (Fri, 05 Sep 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+
+Made load_ref_portion and refs_load_fai external rather than static,
+as we are using them inside Gap5 now.
+
+------------------------------------------------------------------------
+r3693 | jkbonfield | 2014-07-01 17:33:39 +0100 (Tue, 01 Jul 2014) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed the compressed header. The second block is now correctly
+labelled as using method RAW not GZIP, and also uses \0 instead of #
+as the padding byte.
+
+------------------------------------------------------------------------
+r3691 | jkbonfield | 2014-06-30 11:11:01 +0100 (Mon, 30 Jun 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Added ZM:B: to the FZ:B: special block as IonTorrent uses this too.
+
+Also bug fixed the FZ:B: encoding as it was just doing string handling
+before which is incorrect for the B type.
+
+------------------------------------------------------------------------
+r3690 | jkbonfield | 2014-06-30 09:44:21 +0100 (Mon, 30 Jun 2014) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Reverted r3669.
+
+While technically correct to fill out M5 fields, it is useless and
+blocks genuinely desired behaviour (ie how to produce a CRAM file when
+we have no idea what the ref seq is).
+
+I believe in v3.0 the spec will be changed to permit this behaviour.
+
+------------------------------------------------------------------------
+r3689 | jkbonfield | 2014-06-30 09:43:04 +0100 (Mon, 30 Jun 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+
+Removed a duplicate piece of code, probably added in the previous
+fix to the block-caching issue.
+
+------------------------------------------------------------------------
+r3687 | jkbonfield | 2014-06-30 08:26:29 +0100 (Mon, 30 Jun 2014) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_codecs.h
+
+Revert a partial change introduced in #3627.
+
+We cannot cache the cram_block pointer and use ..decode_char2() and
+..decode_block2() functions to avoid looking up the block as this
+breaks multi-slice containers.
+
+The speed gains in doing this were marginal at best; 1% or so.
+
+------------------------------------------------------------------------
+r3686 | jkbonfield | 2014-06-30 07:52:30 +0100 (Mon, 30 Jun 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Put BD:Z and BI:Z into separate external blocks instead of merging
+together as on the files I've tested it seems to work better. Is this
+normal? I wonder what file I looked at that initially lead me to
+believe the opposite now.
+
+------------------------------------------------------------------------
+r3682 | jkbonfield | 2014-06-25 12:24:03 +0100 (Wed, 25 Jun 2014) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/io_lib/rANS_static.c
+
+Replaced RANS0 and RANS1 codec identifiers with a single RANS
+codec.  Internally we still call them RANS0 and RANS1 methods so it
+can auto-tune to order-0 or order-1 in the statistics, but before
+writing out we force both to be RANS/RANS0 identifier.
+
+The rANS implementation has therefore added an extra byte (order) to
+the data stream.  I also tweaked the efficiency of decoding a bit more
+so it's now faster.
+
+------------------------------------------------------------------------
+r3681 | jkbonfield | 2014-06-25 12:12:16 +0100 (Wed, 25 Jun 2014) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Added support for compressed SAM headers.
+
+This involved removing the various #ifdefs for different types of
+padding and instead coding it up with a variable that changes
+depending on CRAM v2.1 or v3.0. (Cramtools doesn't allow for a second
+padding block in 2.1, although technically it could fit within the
+existing spec.)
+
+
+------------------------------------------------------------------------
+r3680 | jkbonfield | 2014-06-25 09:29:43 +0100 (Wed, 25 Jun 2014) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Small speed increase - only attempt to compress the CORE block when it
+is of sufficient size to make it worth while.
+
+------------------------------------------------------------------------
+r3678 | jkbonfield | 2014-06-20 17:37:48 +0100 (Fri, 20 Jun 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/open_trace_file.c
+
+Improved open_trace_file (RAWDATA, REF_PATH, etc) to handle URLs
+without the URL= component and to also gloss over the : vs :: issue in
+http://server:port/foo/bar.
+
+
+------------------------------------------------------------------------
+r3677 | jkbonfield | 2014-06-20 17:17:19 +0100 (Fri, 20 Jun 2014) | 20 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_codecs.h
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/progs/cram_dump.c
+
+A mishmash of changes for CRAM v3.0 (not yet the default output
+format). Sorry it's munged together.
+
+The 'b' and 'q' feature types have been implemented, allowing multiple
+bases and qualities to be stored as a single feature. This greatly
+speeds up scramble -x mode (referenceless) while also reducing the
+file size.
+
+Added support for the BYTE_ARRAY_LEN encoder. It already existed in
+decoder, but it is optimal for some cases to use as encoder instead of
+the usual BYTE_ARRAY_STOP.
+
+Bug fix to the external decoders. If there is an attempt to decode 0
+bytes then it no longer matters if the block does not exist. (This
+comes about when faced with silly CIGAR strings like "0S".) Changed
+scramble to no longer output empty blocks.
+
+Cram_dump: this now outputs the compression types used for each
+external block as g(gzip), b(bzip2), l(lzma), r(rANS0) and R(rANS1).
+
+------------------------------------------------------------------------
+r3675 | jkbonfield | 2014-06-12 15:30:37 +0100 (Thu, 12 Jun 2014) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Bug fix to cram_dependent_data_series - it needs to always decompress
+the CORE block. This didn't used to be compressed normally, but now
+can be more easily.
+
+------------------------------------------------------------------------
+r3673 | jkbonfield | 2014-06-10 17:46:48 +0100 (Tue, 10 Jun 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+
+Handle \r\n in SAM files as well as \n.
+
+------------------------------------------------------------------------
+r3672 | jkbonfield | 2014-06-10 17:10:55 +0100 (Tue, 10 Jun 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+
+Fixed a buffer read-overrun in COPY_CPF_TO_CPTM macro when there are
+no auxiliary tags and the quality string ends at just below 1024 or a
+higher power of two.  The macro reads 8 bytes at a time, but we needed
+to ensure the buffer is large enough to cope.
+
+------------------------------------------------------------------------
+r3671 | jkbonfield | 2014-06-10 16:41:00 +0100 (Tue, 10 Jun 2014) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/thread_pool.c
+
+Removed tiny memory leak of t_stack in thread pool.
+
+------------------------------------------------------------------------
+r3670 | jkbonfield | 2014-06-10 16:31:35 +0100 (Tue, 10 Jun 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/tests/scram.test
+
+Fixed the test harness to run with -e and -x scramble parameters.
+
+Bug fixed scramble -x as it was not correctly setting the RI data
+series for some tests.
+
+------------------------------------------------------------------------
+r3669 | jkbonfield | 2014-06-10 16:30:26 +0100 (Tue, 10 Jun 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+cram_write_SAM_hdr() now generates M5 strings even when -x (no_ref) is
+defined.  This is because although we don't need the MD5 strings when
+-x is present for decoding the CRAM, the presence of the M5 tag is
+mandatory.
+
+------------------------------------------------------------------------
+r3668 | jkbonfield | 2014-06-06 16:50:17 +0100 (Fri, 06 Jun 2014) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Bug fix to encoding the 'd' (double) aux data type.  We've never tested
+this as it's not even in the SAM spec, but I added it anyway as
+samtools seems to include it.
+
+------------------------------------------------------------------------
+r3667 | jkbonfield | 2014-06-04 17:27:13 +0100 (Wed, 04 Jun 2014) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/thread_pool.c
+
+Removed uninitialised memory behaviour (worse, freeing an
+uninitialised pointer). This triggered crashes on SPARC/Solaris when
+testing in multi-threading, but bizarrely never fired on intel/linux
+not even under valgrind.
+
+===============================================================================
 2014-05-30: RELEASE 1.13.7
 
 ------------------------------------------------------------------------
