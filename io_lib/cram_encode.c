@@ -922,7 +922,7 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
 
-    if (fd->use_arith)
+    if (fd->use_rans)
 	method |= (1<<RANS0) | (1<<RANS1);
 
     if (fd->use_lzma)

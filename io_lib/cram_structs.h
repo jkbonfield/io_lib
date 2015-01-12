@@ -689,7 +689,7 @@ typedef struct {
     int no_ref;
     int ignore_md5;
     int use_bz2;
-    int use_arith;
+    int use_rans;
     int use_lzma;
     int shared_ref;
     enum quality_binning binning;
@@ -808,6 +808,7 @@ enum cram_option {
     CRAM_OPT_USE_ARITH,
     CRAM_OPT_USE_LZMA,
     CRAM_OPT_REQUIRED_FIELDS,
+    CRAM_OPT_USE_RANS,
 };
 
 /* BF bitfields */
