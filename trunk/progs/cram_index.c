@@ -54,8 +54,8 @@ int main(int argc, char **argv) {
     zfp *fp;
     char fn[PATH_MAX];
 
-    if (argc != 2) {
-	fprintf(stderr, "Usage: cram_index filename.cram\n");
+    if (argc != 2 && argc != 3) {
+	fprintf(stderr, "Usage: cram_index filename.cram [filename.cram.crai]\n");
 	return 1;
     }
 
@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
     cram_set_option(fd, CRAM_OPT_REQUIRED_FIELDS,
 		    SAM_RNAME | SAM_POS | SAM_CIGAR);
 
-    if (cram_index_build(fd, argv[1]) == -1) {
+    if (cram_index_build(fd, argv[argc-1]) == -1) {
 	cram_close(fd);
 	return 1;
     }

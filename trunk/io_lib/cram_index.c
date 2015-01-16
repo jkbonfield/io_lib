@@ -418,17 +418,28 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
     off_t cpos, spos, hpos;
     zfp *fp;
     char fn_idx[PATH_MAX];
+    int seekable;
+    size_t len;
 
-    if (strlen(fn_base) > PATH_MAX-6)
+    if ((len=strlen(fn_base)) > PATH_MAX-6)
 	return -1;
 
-    sprintf(fn_idx, "%s.crai", fn_base);
+    if (len >= 5 && strcmp(&fn_base[len-5], ".crai") == 0)
+	strcpy(fn_idx, fn_base);
+    else
+	sprintf(fn_idx, "%s.crai", fn_base);
     if (!(fp = zfopen(fn_idx, "wz"))) {
         perror(fn_idx);
         return -1;
     }
 
     cpos = ftello(fd->fp);
+    if (cpos >= 0) {
+	seekable = 1;
+    } else {
+	seekable = 0;
+	cpos = fd->first_container;
+    }
     while ((c = cram_read_container(fd))) {
         int j;
 
@@ -437,7 +448,12 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
             return 1;
         }
 
-        hpos = ftello(fd->fp);
+	if (seekable) {
+	    hpos = ftello(fd->fp);
+	    assert(hpos == cpos + c->offset);
+	} else {
+	    hpos = cpos + c->offset;
+	}
 
         if (!(c->comp_hdr_block = cram_read_block(fd)))
             return 1;
@@ -453,15 +469,25 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
             cram_slice *s;
             int sz;
 
-            spos = ftello(fd->fp);
-            assert(spos - cpos - c->offset == c->landmark[j]);
+	    if (seekable) {
+		spos = ftello(fd->fp);
+		assert(spos - cpos - c->offset == c->landmark[j]);
+	    } else {
+		spos = cpos + c->offset + c->landmark[j];
+	    }
 
             if (!(s = cram_read_slice(fd))) {
 		zfclose(fp);
 		return -1;
 	    }
 
-            sz = (int)(ftello(fd->fp) - spos);
+	    if (seekable) {
+		sz = (int)(ftello(fd->fp) - spos);
+	    } else {
+		sz = j+1 < c->num_landmarks
+		    ? c->landmark[j+1] - c->landmark[j]
+		    : c->length - c->landmark[c->num_landmarks-1];
+	    }
 
 	    if (s->hdr->ref_seq_id == -2) {
 		cram_index_build_multiref(fd, c, s, fp,
@@ -476,9 +502,13 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
 
             cram_free_slice(s);
         }
-
-        cpos = ftello(fd->fp);
-        assert(cpos == hpos + c->length);
+	
+	if (seekable) {
+	    cpos = ftello(fd->fp);
+	    assert(cpos == hpos + c->length);
+	} else {
+	    cpos = hpos + c->length;
+	}
 
         cram_free_container(c);
     }
