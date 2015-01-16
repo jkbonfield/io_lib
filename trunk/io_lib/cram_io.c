@@ -3364,6 +3364,8 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	cram_block *b;
 	int i, len;
 
+	fd->first_container += c->length + c->offset;
+
 	if (!c)
 	    return NULL;
 
