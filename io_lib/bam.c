@@ -2901,6 +2901,14 @@ static int bgzf_flush(bam_file_t *bf) {
  * Returns 0 on success
  *        -1 on failure
  */
+#if defined(__GNUC__) && !(defined(__clang__) || defined(__ICC))
+// On later gcc releases the ALLOW_UAC code causes the vectorizor to
+// use SIMD instructions on unaligned memory access.  This is due to
+// our own abuse of char to int aliasing, but doing things the legal
+// way is still slower overall (5-14% depending on system and
+// compiler).
+__attribute__((optimize("no-tree-vectorize")))
+#endif
 int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
     char *auxh, aux_key[3], type;
     bam_aux_t val;
