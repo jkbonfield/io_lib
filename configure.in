@@ -155,6 +155,9 @@ if test ${custombuffering} = "yes" ; then
     SET_CRAM_IO_CUSTOM_BUFFERING="#define CRAM_IO_CUSTOM_BUFFERING"
 fi
 
+AC_CHECK_FUNCS(fileno)
+AC_CHECK_FUNCS(fstat)
+
 dnl Large file support
 AC_SYS_LARGEFILE
 AC_FUNC_FSEEKO
