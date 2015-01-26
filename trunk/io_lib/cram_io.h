@@ -488,6 +488,21 @@ int cram_set_option(cram_fd *fd, enum cram_option opt, ...);
  */
 int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args);
 
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+/*
+ * Opens a CRAM file for input via callbacks
+ *
+ * Returns file handle on success
+ *         NULL on failure.
+ */
+extern cram_fd *cram_open_by_callbacks(
+    char const * filename,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize
+);
+#endif
+
 /**@}*/
 
 #ifdef __cplusplus

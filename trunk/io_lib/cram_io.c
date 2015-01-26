@@ -93,6 +93,270 @@
 #define TRIAL_SPAN 50
 #define NTRIALS 3
 
+/*
+ * custom buffering helper routines
+ */
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+static size_t cram_io_C_FILE_fread(void *ptr, size_t size, size_t nmemb, void *stream)
+{
+    return fread(ptr,size,nmemb,(FILE *)stream);
+}
+
+static int cram_io_C_FILE_fseek(void * fd, off_t offset, int whence)
+{
+    return fseeko((FILE *)fd,offset,whence);
+}
+
+static off_t cram_io_C_FILE_ftell(void * fd)
+{
+    return ftello((FILE *)fd);
+}
+
+/* fill empty buffer */
+static void cram_io_fill_input_buffer(cram_fd * fd)
+{
+    /* buffer need to be empty */
+    assert ( fd->fp_in_buffer->fp_in_buf_pc == fd->fp_in_buffer->fp_in_buf_pe ); 
+    
+    /* read up to buffer size bytes */
+    do {
+        /* C-IO fread */
+        size_t const r =
+	    (fd->fp_in_callbacks->fread_callback)(fd->fp_in_buffer->fp_in_buf_pa,
+						  1,
+						  fd->fp_in_buffer->fp_in_buf_size,
+						  fd->fp_in_callbacks->user_data); 
+        /* move offset */
+        fd->fp_in_buffer->fp_in_buf_start += (fd->fp_in_buffer->fp_in_buf_pe -
+					      fd->fp_in_buffer->fp_in_buf_pa);
+        /* set end of window */
+        fd->fp_in_buffer->fp_in_buf_pe = fd->fp_in_buffer->fp_in_buf_pa + r;
+        /* set current input */
+        fd->fp_in_buffer->fp_in_buf_pc = fd->fp_in_buffer->fp_in_buf_pa;
+    }
+    while ( 0 ) ;
+}
+
+/* fill buffer and return next byte or EOF */
+static int cram_io_input_buffer_underflow(cram_fd * fd)
+{
+    cram_io_fill_input_buffer(fd);
+    
+    if ( fd->fp_in_buffer->fp_in_buf_pc == fd->fp_in_buffer->fp_in_buf_pe )
+        return EOF;
+    else
+        return (int)((unsigned char )(*(fd->fp_in_buffer->fp_in_buf_pc++)));	
+}
+
+/* integer minimum */
+static inline size_t imin(size_t const a, size_t const b)
+{
+    return (a<b)?a:b;
+}
+
+/* fread simulation */
+size_t cram_io_input_buffer_read(void *ptr, size_t size, size_t nmemb, cram_fd * fd)
+{
+    size_t toread = size * nmemb; /* number of bytes still to be read */
+    size_t r = 0; /* number of bytes copied to ptr */    
+    size_t inbuf = fd->fp_in_buffer->fp_in_buf_pe -
+	           fd->fp_in_buffer->fp_in_buf_pc; /* number of bytes in buffer */
+    size_t tocopy = imin(toread,inbuf); /* number of bytes to be copied from buffer */
+    size_t blockread = 0;
+    
+    /* copy bytes still in buffer and update values */
+    memcpy(ptr,fd->fp_in_buffer->fp_in_buf_pc,tocopy);
+    toread -= tocopy;
+    r += tocopy;
+    ptr += tocopy;
+    fd->fp_in_buffer->fp_in_buf_pc += tocopy;
+    
+    /* read whole blocks without copying to buffer first, C-IO fread */
+    while ( (toread >= fd->fp_in_buffer->fp_in_buf_size) &&
+	    ((blockread = ((fd->fp_in_callbacks->
+			    fread_callback))(ptr,
+					     1,
+					     fd->fp_in_buffer->fp_in_buf_size,
+					     fd->fp_in_callbacks->user_data))!=0) ) {
+        toread -= blockread;
+        r += blockread;
+        ptr += blockread;
+        fd->fp_in_buffer->fp_in_buf_start += blockread;
+    }
+
+    /* read rest of bytes using buffer */
+    while ( toread ) {
+        /* buffer should be empty */
+        assert ( fd->fp_in_buffer->fp_in_buf_pc == fd->fp_in_buffer->fp_in_buf_pe );
+        /* fill buffer */
+        cram_io_fill_input_buffer(fd);
+        /* number of bytes in buffer after filling */
+        inbuf = fd->fp_in_buffer->fp_in_buf_pe-fd->fp_in_buffer->fp_in_buf_pc;
+        /* number of bytes to copy */
+        tocopy = imin(toread,inbuf);
+        
+        /* break if there is no more data */
+        if ( ! inbuf )
+            break;
+
+        memcpy(ptr,fd->fp_in_buffer->fp_in_buf_pc,tocopy);
+        toread -= tocopy;
+        r += tocopy;
+        ptr += tocopy;
+        fd->fp_in_buffer->fp_in_buf_pc += tocopy;
+    }
+        
+    return r / size;
+}
+
+int cram_io_input_buffer_seek(cram_fd * fd, off_t offset, int whence)
+{
+    int r = -1;
+
+    if ( whence == SEEK_CUR )
+    {
+        /* current absolute input position in buffer */
+        uint64_t const curpos = fd->fp_in_buffer->fp_in_buf_start +
+	                       (fd->fp_in_buffer->fp_in_buf_pc -
+				fd->fp_in_buffer->fp_in_buf_pa);
+        /* absolute buffer low */
+        uint64_t const bufferlow = fd->fp_in_buffer->fp_in_buf_start;
+        /* absolute buffer high */
+        uint64_t const bufferhigh = fd->fp_in_buffer->fp_in_buf_start +
+	                           (fd->fp_in_buffer->fp_in_buf_pe -
+				    fd->fp_in_buffer->fp_in_buf_pa);
+        /* absolute seek target position */
+        int64_t const abstarget = ((int64_t)curpos) + offset;
+
+        /* if target is inside buffer, then just adjust the current pointer */
+        if ( abstarget >= bufferlow && abstarget <= bufferhigh ) {
+            /* update current pointer */
+            fd->fp_in_buffer->fp_in_buf_pc += offset;
+            assert ( fd->fp_in_buffer->fp_in_buf_pc >= fd->fp_in_buffer->fp_in_buf_pa );
+            assert ( fd->fp_in_buffer->fp_in_buf_pc <= fd->fp_in_buffer->fp_in_buf_pe );
+            /* seek successful */
+            return 0;
+        }
+        else {
+            /* current position of underlying input stream */
+            int64_t const filepos = fd->fp_in_buffer->fp_in_buf_start +
+		                   (fd->fp_in_buffer->fp_in_buf_pe -
+				    fd->fp_in_buffer->fp_in_buf_pa);
+            int64_t const seekoffset = abstarget - filepos;
+
+            /* perform seek */
+            r = fd->fp_in_callbacks->fseek_callback(fd->fp_in_callbacks->user_data,
+						    seekoffset, SEEK_CUR);
+            
+            /* seek successful */
+            if ( ! r ) {
+                /* mark buffer as empty */
+                fd->fp_in_buffer->fp_in_buf_pc = fd->fp_in_buffer->fp_in_buf_pa;
+                fd->fp_in_buffer->fp_in_buf_pe = fd->fp_in_buffer->fp_in_buf_pa;
+                /* set new buffer start offset */
+                fd->fp_in_buffer->fp_in_buf_start = abstarget;
+                return 0;
+            } else {
+                return -1;
+            }
+        }                 	
+    }
+    
+    /* mark buffer as empty */
+    fd->fp_in_buffer->fp_in_buf_pc = fd->fp_in_buffer->fp_in_buf_pa;
+    fd->fp_in_buffer->fp_in_buf_pe = fd->fp_in_buffer->fp_in_buf_pa;
+
+    /* perform seek, C-IO fseek */
+    r = fd->fp_in_callbacks->fseek_callback(fd->fp_in_callbacks->user_data,
+					    offset, whence);
+
+    /* get new offset if seek was successful */
+    if ( !r )
+        /* C-IO ftell */
+        fd->fp_in_buffer->fp_in_buf_start =
+	    fd->fp_in_callbacks->ftell_callback(fd->fp_in_callbacks->user_data);
+    
+    return r;
+}
+
+static cram_io_input_t *
+cram_IO_deallocate_cram_io_input(cram_io_input_t * obj)
+{
+    if ( obj ) {
+        free(obj);
+        obj = NULL;
+    }
+    
+    return obj;
+}
+
+static cram_io_input_t *
+cram_IO_allocate_cram_io_input()
+{
+    cram_io_input_t * obj = (cram_io_input_t *)malloc(sizeof(cram_io_input_t));
+    if ( ! obj ) {
+        return cram_IO_deallocate_cram_io_input(obj);
+    }
+    obj->user_data = NULL;
+    obj->fread_callback = NULL;
+    obj->fseek_callback = NULL;
+    obj->ftell_callback = NULL;
+    return obj;
+}
+
+static cram_io_input_t *
+cram_IO_allocate_cram_io_input_from_C_FILE(FILE * file)
+{
+    cram_io_input_t * obj = cram_IO_allocate_cram_io_input();
+    if ( ! obj ) {
+        return cram_IO_deallocate_cram_io_input(obj);
+    }
+    obj->user_data = file;
+    obj->fread_callback = cram_io_C_FILE_fread;
+    obj->fseek_callback = cram_io_C_FILE_fseek;
+    obj->ftell_callback = cram_io_C_FILE_ftell;
+    return obj;
+}
+
+static cram_fd_input_buffer *
+cram_io_deallocate_input_buffer(cram_fd_input_buffer * buffer)
+{
+    if ( buffer ) {
+        if ( buffer->fp_in_buffer ) {
+            free(buffer->fp_in_buffer);
+            buffer->fp_in_buffer = NULL;
+        }
+        free(buffer);
+        buffer = NULL;
+    }
+    return buffer;
+}
+
+static cram_fd_input_buffer *
+cram_io_allocate_input_buffer(size_t const bufsize)
+{
+    cram_fd_input_buffer * buffer =
+	(cram_fd_input_buffer *)malloc(sizeof(cram_fd_input_buffer));
+    
+    if ( ! buffer )
+        return cram_io_deallocate_input_buffer(buffer);
+    
+    memset(buffer,0,sizeof(cram_fd_input_buffer));
+
+    buffer->fp_in_buf_size = bufsize;
+    buffer->fp_in_buffer   = (char *)malloc(buffer->fp_in_buf_size);
+    
+    if ( ! buffer->fp_in_buffer ) {
+        return cram_io_deallocate_input_buffer(buffer);
+    }
+    
+    buffer->fp_in_buf_pa   = buffer->fp_in_buffer;
+    buffer->fp_in_buf_pc   = buffer->fp_in_buffer;
+    buffer->fp_in_buf_pe   = buffer->fp_in_buffer;
+
+    return buffer;
+}
+#endif
 
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
@@ -124,7 +388,7 @@ int itf8_decode(cram_fd *fd, int32_t *val_p) {
 	0x0f,                                           // 1111xxxx
     };
 
-    int32_t val = getc(fd->fp);
+    int32_t val = CRAM_IO_GETC(fd);
     if (val == -1)
 	return -1;
 
@@ -137,28 +401,28 @@ int itf8_decode(cram_fd *fd, int32_t *val_p) {
 	return 1;
 
     case 1:
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val;
 	return 2;
 
     case 2:
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val;
 	return 3;
 
     case 3:
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val;
 	return 4;
 
     case 4: // really 3.5 more, why make it different?
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<4) | (((unsigned char)getc(fd->fp)) & 0x0f);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<4) | (((unsigned char)CRAM_IO_GETC(fd)) & 0x0f);
 	*val_p = val;
     }
 
@@ -173,7 +437,7 @@ int itf8_decode(cram_fd *fd, int32_t *val_p) {
 int itf8_encode(cram_fd *fd, int32_t val) {
     char buf[5];
     int len = itf8_put(buf, val);
-    return fwrite(buf, 1, len, fd->fp) == len ? 0 : -1;
+    return CRAM_IO_WRITE(buf, 1, len, fd) == len ? 0 : -1;
 }
 
 #ifndef ITF8_MACROS
@@ -373,7 +637,7 @@ int ltf8_get(char *cp, int64_t *val_p) {
 }
 
 int ltf8_decode(cram_fd *fd, int64_t *val_p) {
-    int c = getc(fd->fp);
+    int c = CRAM_IO_GETC(fd);
     int64_t val = (unsigned char)c;
     if (c == -1)
 	return -1;
@@ -383,70 +647,70 @@ int ltf8_decode(cram_fd *fd, int64_t *val_p) {
 	return 1;
 
     } else if (val < 0xc0) {
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val & (((1LL<<(6+8)))-1);
 	return 2;
 
     } else if (val < 0xe0) {
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val & ((1LL<<(5+2*8))-1);
 	return 3;
 
     } else if (val < 0xf0) {
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val & ((1LL<<(4+3*8))-1);
 	return 4;
 
     } else if (val < 0xf8) {
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val & ((1LL<<(3+4*8))-1);
 	return 5;
 
     } else if (val < 0xfc) {
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val & ((1LL<<(2+5*8))-1);
 	return 6;
 
     } else if (val < 0xfe) {
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val & ((1LL<<(1+6*8))-1);
 	return 7;
 
     } else if (val < 0xff) {
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val & ((1LL<<(7*8))-1);
 	return 8;
 
     } else {
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
-	val = (val<<8) | (unsigned char)getc(fd->fp);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
+	val = (val<<8) | (unsigned char)CRAM_IO_GETC(fd);
 	*val_p = val;
     }
 
@@ -477,7 +741,7 @@ int itf8_put_blk(cram_block *blk, int val) {
  */
 int int32_decode(cram_fd *fd, int32_t *val) {
     int32_t i;
-    if (1 != fread(&i, 4, 1, fd->fp))
+    if (1 != CRAM_IO_READ(&i, 4, 1, fd))
 	return -1;
 
     *val = le_int4(i);
@@ -492,7 +756,7 @@ int int32_decode(cram_fd *fd, int32_t *val) {
  */
 int int32_encode(cram_fd *fd, int32_t val) {
     val = le_int4(val);
-    if (1 != fwrite(&val, 4, 1, fd->fp))
+    if (1 != CRAM_IO_WRITE(&val, 4, 1, fd))
 	return -1;
 
     return 4;
@@ -775,8 +1039,8 @@ cram_block *cram_read_block(cram_fd *fd) {
 
     //fprintf(stderr, "Block at %d\n", (int)ftell(fd->fp));
 
-    if (-1 == (b->method       = getc(fd->fp))) { free(b); return NULL; }
-    if (-1 == (b->content_type = getc(fd->fp))) { free(b); return NULL; }
+    if (-1 == (b->method       = CRAM_IO_GETC(fd))) { free(b); return NULL; }
+    if (-1 == (b->content_type = CRAM_IO_GETC(fd))) { free(b); return NULL; }
     if (-1 == itf8_decode(fd, &b->content_id))  { free(b); return NULL; }
     if (-1 == itf8_decode(fd, &b->comp_size))   { free(b); return NULL; }
     if (-1 == itf8_decode(fd, &b->uncomp_size)) { free(b); return NULL; }
@@ -787,7 +1051,7 @@ cram_block *cram_read_block(cram_fd *fd) {
     if (b->method == RAW) {
 	b->alloc = b->uncomp_size;
 	if (!(b->data = malloc(b->uncomp_size))){ free(b); return NULL; }
-	if (b->uncomp_size != fread(b->data, 1, b->uncomp_size, fd->fp)) {
+	if (b->uncomp_size != CRAM_IO_READ(b->data, 1, b->uncomp_size, fd)) {
 	    free(b->data);
 	    free(b);
 	    return NULL;
@@ -795,7 +1059,7 @@ cram_block *cram_read_block(cram_fd *fd) {
     } else {
 	b->alloc = b->comp_size;
 	if (!(b->data = malloc(b->comp_size)))  { free(b); return NULL; }
-	if (b->comp_size != fread(b->data, 1, b->comp_size, fd->fp)) {
+	if (b->comp_size != CRAM_IO_READ(b->data, 1, b->comp_size, fd)) {
 	    free(b->data);
 	    free(b);
 	    return NULL;
@@ -844,17 +1108,17 @@ cram_block *cram_read_block(cram_fd *fd) {
 int cram_write_block(cram_fd *fd, cram_block *b) {
     assert(b->method != RAW || (b->comp_size == b->uncomp_size));
 
-    if (putc(b->method,       fd->fp)   == EOF) return -1;
-    if (putc(b->content_type, fd->fp)   == EOF) return -1;
+    if (CRAM_IO_PUTC(b->method,       fd)   == EOF) return -1;
+    if (CRAM_IO_PUTC(b->content_type, fd)   == EOF) return -1;
     if (itf8_encode(fd, b->content_id)  ==  -1) return -1;
     if (itf8_encode(fd, b->comp_size)   ==  -1) return -1;
     if (itf8_encode(fd, b->uncomp_size) ==  -1) return -1;
 
     if (b->method == RAW) {
-	if (b->uncomp_size != fwrite(b->data, 1, b->uncomp_size, fd->fp)) 
+	if (b->uncomp_size != CRAM_IO_WRITE(b->data, 1, b->uncomp_size, fd)) 
 	    return -1;
     } else {
-	if (b->comp_size != fwrite(b->data, 1, b->comp_size, fd->fp)) 
+	if (b->comp_size != CRAM_IO_WRITE(b->data, 1, b->comp_size, fd)) 
 	    return -1;
     }
 
@@ -2808,7 +3072,7 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
 	cp += 4;
     }
 
-    if (cp-buf != fwrite(buf, 1, cp-buf, fd->fp)) {
+    if (cp-buf != CRAM_IO_WRITE(buf, 1, cp-buf, fd)) {
 	if (buf != buf_a)
 	    free(buf);
 	return -1;
@@ -2847,7 +3111,7 @@ static int cram_flush_container2(cram_fd *fd, cram_container *c) {
 	}
     }
 
-    return fflush(fd->fp) == 0 ? 0 : -1;
+    return CRAM_IO_FLUSH(fd) == 0 ? 0 : -1;
 }
 
 /*
@@ -2913,7 +3177,7 @@ static int cram_flush_result(cram_fd *fd) {
 
 	cram_free_container(c);
 
-	ret |= fflush(fd->fp) == 0 ? 0 : -1;
+	ret |= CRAM_IO_FLUSH(fd) == 0 ? 0 : -1;
 
 	t_pool_delete_result(r, 1);
     }
@@ -3289,7 +3553,7 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
     if (!def)
 	return NULL;
 
-    if (26 != fread(&def->magic[0], 1, 26, fd->fp)) {
+    if (26 != CRAM_IO_READ(&def->magic[0], 1, 26, fd)) {
 	free(def);
 	return NULL;
     }
@@ -3319,7 +3583,7 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
  *        -1 on failure
  */
 int cram_write_file_def(cram_fd *fd, cram_file_def *def) {
-    return (fwrite(&def->magic[0], 1, 26, fd->fp) == 26) ? 0 : -1;
+    return (CRAM_IO_WRITE(&def->magic[0], 1, 26, fd) == 26) ? 0 : -1;
 }
 
 void cram_free_file_def(cram_file_def *def) {
@@ -3355,7 +3619,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    return NULL;
 
 	*header = 0;
-	if (header_len != fread(header, 1, header_len, fd->fp))
+	if (header_len != CRAM_IO_READ(header, 1, header_len, fd))
 	    return NULL;
 
 	fd->first_container += 4 + header_len;
@@ -3421,7 +3685,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 		return NULL;
 	    }
 
-	    if (c->length - len != fread(pads, 1, c->length - len, fd->fp)) {
+	    if (c->length - len != CRAM_IO_READ(pads, 1, c->length - len, fd)) {
 		cram_free_container(c);
 		return NULL;
 	    }
@@ -3536,7 +3800,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    return -1;
 
 	/* Text data */
-	if (header_len != fwrite(sam_hdr_str(hdr), 1, header_len, fd->fp))
+	if (header_len != CRAM_IO_WRITE(sam_hdr_str(hdr), 1, header_len, fd))
 	    return -1;
     } else {
 	/* Create block(s) inside a container */
@@ -3646,7 +3910,7 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
     if (-1 == refs2id(fd->refs, fd->header))
 	return -1;
 
-    fflush(fd->fp);
+    CRAM_IO_FLUSH(fd);
 
     RP("=== Finishing saving header ===\n");
 
@@ -3747,6 +4011,152 @@ static void cram_init_tables(cram_fd *fd) {
 static int major_version = 2;
 static int minor_version = 1;
 
+static cram_fd * cram_io_close(cram_fd * fd, int * fclose_result)
+{
+    if ( fd ) {
+        if ( fd->fp_in ) {
+            fclose(fd->fp_in);
+            fd->fp_in = NULL;
+        }
+        if ( fd->fp_out ) {
+            int const r = paranoid_fclose(fd->fp_out);
+            if ( fclose_result )
+                *fclose_result = r;
+            fd->fp_out = NULL;
+        }
+        
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+        if ( fd->fp_in_callbacks ) {
+            fd->fp_in_callbacks = fd->fp_in_callback_deallocate_function(fd->fp_in_callbacks);
+        }
+        if ( fd->fp_in_buffer ) {
+            fd->fp_in_buffer = cram_io_deallocate_input_buffer(fd->fp_in_buffer);
+        }
+#endif
+        
+        free(fd);
+        fd = NULL;
+    }
+    return fd;
+}
+
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+static cram_fd * cram_io_open_by_callbacks(
+    char const * filename,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize
+)
+{
+    cram_fd * fd = (cram_fd *)malloc(sizeof(cram_fd));
+
+    if ( ! fd )
+       return cram_io_close(fd,0);
+    
+    memset(fd,0,sizeof(cram_fd));
+
+    fd->fp_in_callback_allocate_function   = callback_allocate_function;
+    fd->fp_in_callback_deallocate_function = callback_deallocate_function;
+
+    fd->fp_in_callbacks = fd->fp_in_callback_allocate_function(filename);
+    if ( ! fd->fp_in_callbacks )
+        return cram_io_close(fd,0);
+
+    fd->fp_in_buffer = cram_io_allocate_input_buffer(bufsize);
+    if ( ! fd->fp_in_buffer ) {
+        return cram_io_close(fd,0);
+    }
+    
+    return fd;
+}
+#endif // CRAM_IO_CUSTOM_BUFFERING
+
+static cram_fd * cram_io_open(
+	char const * filename, 
+	char const * mode, 
+	char const * fmode
+)
+{
+    cram_fd * fd = (cram_fd *)malloc(sizeof(cram_fd));
+    if ( ! fd )
+       return cram_io_close(fd,0);
+    
+    memset(fd,0,sizeof(cram_fd));
+
+    fd->fp_in_callback_allocate_function = NULL;
+    fd->fp_in_callback_deallocate_function = cram_IO_deallocate_cram_io_input;
+        
+    if ( *mode == 'r' ) {
+        size_t bufsize = 0;
+        
+    	if ( strcmp(filename,"-") == 0 ) {
+	    fd->fp_in = stdin;
+	}
+	else {
+	    fd->fp_in = fopen(filename, fmode);
+	}
+	
+	if ( ! fd->fp_in )
+	    return cram_io_close(fd,0);
+
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+
+#if defined(HAVE_STDIO_EXT_H)
+        /* get input buffer size */
+        do {
+            /* read one character to force buffer to be set up */
+            int const c = fgetc(fd->fp_in);
+            /* EOF? */
+            if ( c != EOF ) {
+            	/* get buffer size */
+		int cc;
+            	bufsize = __fbufsize(fd->fp_in);
+            	/* put character back (C standard says this is guaranteed to
+		 * work for a single character)
+		 */
+            	cc = ungetc(c,fd->fp_in);
+            	/* check result anyway */
+		if ( cc == EOF ) {
+                    return cram_io_close(fd,0);
+		}
+            }
+	} while ( 0 );
+#endif // HAVE_STDIO_EXT_H
+	
+        fd->fp_in_callbacks = cram_IO_allocate_cram_io_input_from_C_FILE(fd->fp_in);
+	if ( ! fd->fp_in_callbacks )
+	    return cram_io_close(fd,0);
+
+	if ( !bufsize )
+	    bufsize = 32*1024;
+
+	do {
+	    fd->fp_in_buffer = cram_io_allocate_input_buffer(bufsize);
+	    if ( ! fd->fp_in_buffer ) {
+                return cram_io_close(fd,0);
+	    }
+	    else {
+	        setvbuf(fd->fp_in, NULL, _IONBF, 0);
+	    }
+	} while ( 0 );
+
+#endif // CRAM_IO_CUSTOM_BUFFERING
+    }
+    else {
+    	if ( strcmp(filename,"-") == 0 ) {
+	    fd->fp_out = stdout;
+	}
+	else {
+	    fd->fp_out = fopen(filename, fmode);
+        }
+        
+        if ( ! fd->fp_out )
+            return cram_io_close(fd,0);
+    }
+    
+    return fd;
+}
+
 /*
  * Opens a CRAM file for read (mode "rb") or write ("wb").
  * The filename may be "-" to indicate stdin or stdout.
@@ -3758,26 +4168,20 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     int i;
     char *cp;
     char fmode[3]= { mode[0], '\0', '\0' };
-    cram_fd *fd = calloc(1, sizeof(*fd));
-    if (!fd)
-	return NULL;
+    cram_fd *fd = NULL;
 
     if (strlen(mode) > 1 && (mode[1] == 'b' || mode[1] == 'c')) {
 	fmode[1] = 'b';
     }
 
+    fd = cram_io_open(filename,mode,fmode);
+    if (!fd)
+	return cram_io_close(fd,0);
+
     fd->level = 5;
     if (strlen(mode) > 2 && mode[2] >= '0' && mode[2] <= '9')
 	fd->level = mode[2] - '0';
 
-    if (strcmp(filename, "-") == 0) {
-	fd->fp = (*mode == 'r') ? stdin : stdout;
-    } else {
-	fd->fp = fopen(filename, fmode);
-    }
-
-    if (!fd->fp)
-	goto err;
     fd->mode = *mode;
     fd->first_container = 0;
 
@@ -3868,13 +4272,107 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     return fd;
 
  err:
-    if (fd->fp)
-	fclose(fd->fp);
-    if (fd)
-	free(fd);
+    fd = cram_io_close(fd,0);
 
     return NULL;
 }
+
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+/*
+ * Opens a CRAM file for input via callbacks
+ *
+ * Returns file handle on success
+ *         NULL on failure.
+ */
+cram_fd *cram_open_by_callbacks(
+    char const * filename,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize
+) {
+    int i;
+    char *cp;
+    cram_fd *fd = NULL;
+
+    fd = cram_io_open_by_callbacks(filename,callback_allocate_function,callback_deallocate_function,bufsize);
+    if (!fd)
+	return cram_io_close(fd,0);
+
+    fd->level = 5;
+
+    fd->mode = 'r';
+    fd->first_container = 0;
+
+    /* Reader */
+    if (!(fd->file_def = cram_read_file_def(fd)))
+        goto err;
+
+    fd->version = fd->file_def->major_version * 256 +
+        fd->file_def->minor_version;
+
+    if (!(fd->header = cram_read_SAM_hdr(fd)))
+        goto err;
+
+    cram_init_tables(fd);
+
+    fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
+    if (!fd->prefix)
+	goto err;
+    fd->slice_num = 0;
+    fd->first_base = fd->last_base = -1;
+    fd->record_counter = 0;
+
+    fd->ctr = NULL;
+    fd->refs  = refs_create();
+    if (!fd->refs)
+	goto err;
+    fd->ref_id = -2;
+    fd->ref = NULL;
+
+    fd->decode_md = 0;
+    fd->verbose = 0;
+    fd->seqs_per_slice = SEQS_PER_SLICE;
+    fd->slices_per_container = SLICE_PER_CNT;
+    fd->embed_ref = 0;
+    fd->no_ref = 0;
+    fd->ignore_md5 = 0;
+    fd->use_bz2 = 0;
+    fd->use_rans = IS_CRAM_3_VERS(fd);
+    fd->use_lzma = 0;
+    fd->multi_seq = 0;
+    fd->unsorted   = 0;
+    fd->shared_ref = 0;
+
+    fd->index       = NULL;
+    fd->own_pool    = 0;
+    fd->pool        = NULL;
+    fd->rqueue      = NULL;
+    fd->job_pending = NULL;
+    fd->ooc         = 0;
+    fd->binning     = BINNING_NONE;
+    fd->required_fields = INT_MAX;
+
+    for (i = 0; i < DS_END; i++)
+	fd->m[i] = cram_new_metrics();
+
+    fd->range.refid = -2; // no ref.
+    fd->eof = 1;
+    fd->ref_fn = NULL;
+
+    fd->bl = NULL;
+
+    /* Initialise dummy refs from the @SQ headers */
+    if (-1 == refs_from_header(fd->refs, fd, fd->header))
+	goto err;
+
+    return fd;
+
+ err:
+    fd = cram_io_close(fd,0);
+
+    return NULL;
+}
+#endif
 
 /*
  * Flushes a CRAM file.
@@ -3905,22 +4403,29 @@ int cram_flush(cram_fd *fd) {
 int cram_close(cram_fd *fd) {
     spare_bams *bl, *next;
     int i;
+    int rclose = 0;
 	
-    if (!fd)
+    if (!fd) {
+	fd = cram_io_close(fd,0);
 	return -1;
+    }
 
     if (fd->mode == 'w' && fd->ctr) {
 	if(fd->ctr->slice)
 	    fd->ctr->curr_slice++;
-	if (-1 == cram_flush_container_mt(fd, fd->ctr))
+	if (-1 == cram_flush_container_mt(fd, fd->ctr)) {
+	    fd = cram_io_close(fd,0);
 	    return -1;
+	}
     }
 
     if (fd->pool) {
 	t_pool_flush(fd->pool);
 
-	if (0 != cram_flush_result(fd))
+	if (0 != cram_flush_result(fd)) {
+	    fd = cram_io_close(fd,0);
 	    return -1;
+	}
 
 	pthread_mutex_destroy(&fd->metrics_lock);
 	pthread_mutex_destroy(&fd->ref_lock);
@@ -3936,7 +4441,8 @@ int cram_close(cram_fd *fd) {
     if (fd->mode == 'w') {
 	/* Write EOF block */
 	if (IS_CRAM_3_VERS(fd)) {
-	    if (1 != fwrite("\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
+	    if (1 != CRAM_IO_WRITE(
+			    "\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
 			    "\x0f\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
 			    "\x00\x01\x00"                     // Cont HDR
 			    "\x05\xbd\xd9\x4f"                 // CRC32
@@ -3945,14 +4451,18 @@ int cram_close(cram_fd *fd) {
 			    "\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
 			    "\xee\x63\x01\x4b",                // CRC32
 			  //"\xe9\x70\xd3\x86",                // CRC32C
-			    38, 1, fd->fp))
+			    38, 1, fd)) {
+	        fd = cram_io_close(fd,0);
 		return -1;
+	    }
 	} else { 
-	    if (1 != fwrite("\x0b\x00\x00\x00\xff\xff\xff\xff"
-			    "\x0f\xe0\x45\x4f\x46\x00\x00\x00"
-			    "\x00\x01\x00\x00\x01\x00\x06\x06"
-			    "\x01\x00\x01\x00\x01\x00", 30, 1, fd->fp))
+	    if (1 != CRAM_IO_WRITE("\x0b\x00\x00\x00\xff\xff\xff\xff"
+				   "\x0f\xe0\x45\x4f\x46\x00\x00\x00"
+				   "\x00\x01\x00\x00\x01\x00\x06\x06"
+				   "\x01\x00\x01\x00\x01\x00", 30, 1, fd)) {
+	        fd = cram_io_close(fd,0);
 		return -1;
+	    }
 	}		
 
 //	if (1 != fwrite("\x00\x00\x00\x00\xff\xff\xff\xff"
@@ -3972,9 +4482,6 @@ int cram_close(cram_fd *fd) {
 	free(bl->bams);
 	free(bl);
     }
-
-    if (paranoid_fclose(fd->fp) != 0)
-	return -1;
 
     if (fd->file_def)
 	cram_free_file_def(fd->file_def);
@@ -4002,9 +4509,12 @@ int cram_close(cram_fd *fd) {
     if (fd->own_pool && fd->pool)
 	t_pool_destroy(fd->pool, 0);
 
-    free(fd);
-    return 0;
+    /* rclose == return value for flush and close in case of CRAM output */
+    fd = cram_io_close(fd, &rclose);
+
+    return rclose;
 }
+
 
 /*
  * Returns 1 if we hit an EOF while reading.
@@ -4179,3 +4689,4 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     return 0;
 }
+
