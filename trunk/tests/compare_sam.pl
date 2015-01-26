@@ -7,7 +7,7 @@ use strict;
 use Getopt::Long;
 
 my %opts;
-GetOptions(\%opts, 'noqual', 'noaux', 'notemplate', 'unknownrg', 'nomd', 'template-1', 'noflag');
+GetOptions(\%opts, 'noqual', 'noaux', 'notemplate', 'unknownrg', 'nomd', 'template-1', 'noflag', 'all');
 
 my ($fn1, $fn2) = @ARGV;
 open(my $fd1, "<", $fn1) || die $!;
@@ -125,7 +125,7 @@ while ($ln1 && $ln2) {
 	    }
 	}
 	print "1\t@ln1\n2\t@ln2\n\t$ptr^\n\n";
-	exit(1);
+	exit(1) unless exists $opts{all};
     }
 
     $ln1 = <$fd1>;
