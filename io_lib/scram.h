@@ -121,6 +121,20 @@ typedef struct {
  */
 scram_fd *scram_open(const char *filename, const char *mode);
 
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+/*
+ * Open CRAM file for reading via callbacks
+ *
+ * Returns scram pointer on success
+ *         NULL on failure
+ */
+scram_fd *scram_open_cram_via_callbacks(
+    char const * filename,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize            
+);
+#endif
 
 /*! Closes a scram_fd handle
  *

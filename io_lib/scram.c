@@ -246,6 +246,47 @@ scram_fd *scram_open(const char *filename, const char *mode) {
     return fd;
 }
 
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+/*
+ * Open CRAM file for reading via callbacks
+ *
+ * Returns scram pointer on success
+ *         NULL on failure
+ */
+scram_fd *scram_open_cram_via_callbacks(
+    char const * filename,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize            
+)
+{
+    char mode2[10];
+    scram_fd *fd = calloc(1, sizeof(*fd));
+    if (!fd)
+	return NULL;
+
+    fd->eof = 0;
+
+    /* I/O buffer */
+    fd->fp = NULL;
+    fd->buf = NULL;
+    fd->alloc = fd->used = 0;
+    fd->pool = NULL;
+
+    if ((fd->c = cram_open_by_callbacks(filename,
+					callback_allocate_function,
+					callback_deallocate_function,
+					bufsize))) 
+    {
+	cram_load_reference(fd->c, NULL);
+	fd->is_bam = 0;
+	return fd;
+    }
+
+    return NULL;
+}
+#endif
+
 int scram_close(scram_fd *fd) {
     int r;
 

@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
 	   sam_hdr_length(fd->header),
 	   sam_hdr_str(fd->header));
 
-    pos = ftello(fd->fp);
+    pos = CRAM_IO_TELLO(fd);
     while ((c = cram_read_container(fd))) {
 	int i, j;
 
@@ -225,11 +225,11 @@ int main(int argc, char **argv) {
 	}
 	printf("}\n");
 
-	hpos = ftello(fd->fp);
+	hpos = CRAM_IO_TELLO(fd);
 
 	if (!c->length) {
 	    //printf("\n    EMPTY BLOCK\n");
-	    pos = ftello(fd->fp);
+	    pos = CRAM_IO_TELLO(fd);
 	    continue;
 	}
 	printf("\n    Container_header block pos %"PRId64"\n", (int64_t)hpos);
@@ -262,7 +262,7 @@ int main(int argc, char **argv) {
 	    cram_slice *s;
 	    int id;
 	    
-	    pos2 = ftello(fd->fp);
+	    pos2 = CRAM_IO_TELLO(fd);
 	    assert(pos2 - pos - c->offset == c->landmark[j]);
 
 	    s = cram_read_slice(fd);
@@ -720,7 +720,7 @@ int main(int argc, char **argv) {
 	    cram_free_slice(s);
 	}
 
-	pos = ftello(fd->fp);
+	pos = CRAM_IO_TELLO(fd);
 	assert(pos == hpos + c->length);
 
 	cram_free_container(c);

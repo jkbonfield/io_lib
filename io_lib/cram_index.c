@@ -299,7 +299,7 @@ int cram_seek(cram_fd *fd, off_t offset, int whence) {
 
     fd->ooc = 0;
 
-    if (fseeko(fd->fp, offset, whence) == 0)
+    if (CRAM_IO_SEEK(fd, offset, whence) == 0)
 	return 0;
 
     if (!(whence == SEEK_CUR && offset >= 0))
@@ -308,7 +308,7 @@ int cram_seek(cram_fd *fd, off_t offset, int whence) {
     /* Couldn't fseek, but we're in SEEK_CUR mode so read instead */
     while (offset > 0) {
 	int len = MIN(65536, offset);
-	if (len != fread(buf, 1, len, fd->fp))
+	if (len != CRAM_IO_READ(buf, 1, len, fd))
 	    return -1;
 	offset -= len;
     }
@@ -433,7 +433,7 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
         return -1;
     }
 
-    cpos = ftello(fd->fp);
+    cpos = CRAM_IO_TELLO(fd);
     if (cpos >= 0) {
 	seekable = 1;
     } else {
@@ -449,7 +449,7 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
         }
 
 	if (seekable) {
-	    hpos = ftello(fd->fp);
+	    hpos = CRAM_IO_TELLO(fd);
 	    assert(hpos == cpos + c->offset);
 	} else {
 	    hpos = cpos + c->offset;
@@ -470,7 +470,7 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
             int sz;
 
 	    if (seekable) {
-		spos = ftello(fd->fp);
+		spos = CRAM_IO_TELLO(fd);
 		assert(spos - cpos - c->offset == c->landmark[j]);
 	    } else {
 		spos = cpos + c->offset + c->landmark[j];
@@ -482,7 +482,7 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
 	    }
 
 	    if (seekable) {
-		sz = (int)(ftello(fd->fp) - spos);
+		sz = (int)(CRAM_IO_TELLO(fd) - spos);
 	    } else {
 		sz = j+1 < c->num_landmarks
 		    ? c->landmark[j+1] - c->landmark[j]
@@ -504,7 +504,7 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
         }
 	
 	if (seekable) {
-	    cpos = ftello(fd->fp);
+	    cpos = CRAM_IO_TELLO(fd);
 	    assert(cpos == hpos + c->length);
 	} else {
 	    cpos = hpos + c->length;

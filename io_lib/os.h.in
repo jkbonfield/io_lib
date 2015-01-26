@@ -30,6 +30,9 @@ extern "C" {
 /* Set by autoconf */
 @SET_ENDIAN@
 
+@SET_STDIO_EXT@
+@SET_CRAM_IO_CUSTOM_BUFFERING@
+
 /* Mac FAT binaries or unknown. Auto detect based on CPU type */
 #if !defined(SP_BIG_ENDIAN) && !defined(SP_LITTLE_ENDIAN)
 
