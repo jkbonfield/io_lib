@@ -2829,8 +2829,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    }
 
 	    // This vs p: tlen, matepos, flags
-	    //if (bam_ins_size(b) != -(cr->aend - p->apos + 1)) {
 	    if (bam_ins_size(b) != sign*(aright-aleft+1))
+	    //if (ABS(bam_ins_size(b) - sign*(aright-aleft+1)) > 1)
 		goto detached;
 
 	    if (MAX(bam_mate_pos(b)+1, 0) != p->apos)
@@ -2846,8 +2846,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
 
 	    // p vs this: tlen, matepos, flags
-	    //if (p->tlen != cr->aend - p->apos + 1) {
 	    if (p->tlen != -sign*(aright-aleft+1))
+	    //if (ABS(p->tlen - -sign*(aright-aleft+1)) > 1)
 		goto detached;
 
 	    if (p->mate_pos != cr->apos)
