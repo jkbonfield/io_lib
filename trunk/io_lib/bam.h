@@ -240,17 +240,18 @@ typedef struct {
 #define round4(v) (((v-1)&~3)+4)
 
 /* BAM flags */
-#define BAM_FPAIRED        1
-#define BAM_FPROPER_PAIR   2
-#define BAM_FUNMAP         4
-#define BAM_FMUNMAP        8
-#define BAM_FREVERSE      16
-#define BAM_FMREVERSE     32
-#define BAM_FREAD1        64
-#define BAM_FREAD2       128
-#define BAM_FSECONDARY   256
-#define BAM_FQCFAIL      512
-#define BAM_FDUP        1024
+#define BAM_FPAIRED           1
+#define BAM_FPROPER_PAIR      2
+#define BAM_FUNMAP            4
+#define BAM_FMUNMAP           8
+#define BAM_FREVERSE         16
+#define BAM_FMREVERSE        32
+#define BAM_FREAD1           64
+#define BAM_FREAD2          128
+#define BAM_FSECONDARY      256
+#define BAM_FQCFAIL         512
+#define BAM_FDUP           1024
+#define BAM_FSUPPLEMENTARY 2048
 
 #define BAM_CIGAR32    32768
 
