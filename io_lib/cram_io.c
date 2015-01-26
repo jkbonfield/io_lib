@@ -134,7 +134,7 @@ static void cram_io_fill_input_buffer(cram_fd * fd)
         /* set current input */
         fd->fp_in_buffer->fp_in_buf_pc = fd->fp_in_buffer->fp_in_buf_pa;
     }
-    while ( 0 ) ;
+    while ( 0 ) ;    
 }
 
 /* fill buffer and return next byte or EOF */
@@ -4088,6 +4088,7 @@ static cram_fd * cram_io_open(
         
     if ( *mode == 'r' ) {
         size_t bufsize = 0;
+        int isreg = 0;
         
     	if ( strcmp(filename,"-") == 0 ) {
 	    fd->fp_in = stdin;
@@ -4102,8 +4103,18 @@ static cram_fd * cram_io_open(
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
 
 #if defined(HAVE_STDIO_EXT_H)
-        /* get input buffer size */
+
+#if defined(HAVE_FILENO) && defined(HAVE_FSTAT)
         do {
+            int const filedesc = fileno(fd->fp_in);
+            struct stat sb;
+            int const fdret = fstat(filedesc,&sb);
+            isreg = (fdret == 0) && S_ISREG(sb.st_mode);
+        } while ( 0 );
+#endif
+
+        /* get input buffer size */
+        if ( isreg ) {
             /* read one character to force buffer to be set up */
             int const c = fgetc(fd->fp_in);
             /* EOF? */
@@ -4187,7 +4198,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
 
     if (fd->mode == 'r') {
 	/* Reader */
-
+	
 	if (!(fd->file_def = cram_read_file_def(fd)))
 	    goto err;
 
