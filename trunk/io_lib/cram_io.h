@@ -503,6 +503,20 @@ extern cram_fd *cram_open_by_callbacks(
 );
 #endif
 
+#if defined(CRAM_IO_TEST)
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+cram_fd * cram_io_open_by_callbacks(
+    char const * filename,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize
+);
+#endif
+cram_fd * cram_io_open(char const * filename, char const * mode, char const * fmode);
+cram_fd * cram_io_close(cram_fd * fd, int * fclose_result);
+int cram_io_input_buffer_underflow(cram_fd * fd);
+#endif
+
 /**@}*/
 
 #ifdef __cplusplus
