@@ -2830,7 +2830,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
 	    // This vs p: tlen, matepos, flags
 	    if (bam_ins_size(b) != sign*(aright-aleft+1))
-	    //if (ABS(bam_ins_size(b) - sign*(aright-aleft+1)) > 1)
 		goto detached;
 
 	    if (MAX(bam_mate_pos(b)+1, 0) != p->apos)
@@ -2847,7 +2846,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
 	    // p vs this: tlen, matepos, flags
 	    if (p->tlen != -sign*(aright-aleft+1))
-	    //if (ABS(p->tlen - -sign*(aright-aleft+1)) > 1)
 		goto detached;
 
 	    if (p->mate_pos != cr->apos)
@@ -2866,35 +2864,38 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		(p->flags & BAM_FSUPPLEMENTARY))
 		goto detached;
 
-	    // copy from p to cr
+	    /*
+	     * The fields below are unused when encoding this read as it is
+	     * no longer detached.  In theory they may get referred to when
+	     * processing a 3rd or 4th read in this template?, so we set them
+	     * here just to be sure.
+	     *
+	     * They do not need cram_stats_add() calls those as they are
+	     * not emitted.
+	     */
 	    cr->mate_pos = p->apos;
-	    cram_stats_add(c->stats[DS_NP], cr->mate_pos);
-
-	    cr->tlen = cr->aend - p->apos;
-	    cram_stats_add(c->stats[DS_TS], cr->tlen);
-
+	    cr->tlen = sign*(aright-aleft+1);
 	    cr->mate_flags =
-		((p->flags & BAM_FMUNMAP)   == BAM_FMUNMAP)   * CRAM_M_UNMAP +
-		((p->flags & BAM_FMREVERSE) == BAM_FMREVERSE) * CRAM_M_REVERSE;
-	    cram_stats_add(c->stats[DS_MF], cr->mate_flags);
+	    	((p->flags & BAM_FMUNMAP)   == BAM_FMUNMAP)   * CRAM_M_UNMAP +
+	    	((p->flags & BAM_FMREVERSE) == BAM_FMREVERSE) * CRAM_M_REVERSE;
 
-	    // copy from cr to p
+	    // Decrement statistics aggregated earlier
 	    cram_stats_del(c->stats[DS_NP], p->mate_pos);
-	    p->mate_pos = cr->apos;
-	    cram_stats_add(c->stats[DS_NP], p->mate_pos);
-
 	    cram_stats_del(c->stats[DS_MF], p->mate_flags);
-	    p->mate_flags =
-		((cr->flags & BAM_FMUNMAP)   == BAM_FMUNMAP)  * CRAM_M_UNMAP +
-		((cr->flags & BAM_FMREVERSE) == BAM_FMREVERSE)* CRAM_M_REVERSE;
-	    cram_stats_add(c->stats[DS_MF], p->mate_flags);
-
 	    cram_stats_del(c->stats[DS_TS], p->tlen);
-	    //p->tlen = p->apos - cr->aend;               // why?
-	    //cram_stats_add(c->stats[DS_TS], p->tlen);   // why?
+	    cram_stats_del(c->stats[DS_NS], p->mate_ref_id);
+
+	    /* Similarly we could correct the p-> values too, but these will no
+	     * longer have any code that refers back to them as the new 'p'
+	     * for this template is our current 'cr'.
+	     */
+	    //p->mate_pos = cr->apos;
+	    //p->mate_flags =
+	    //	((cr->flags & BAM_FMUNMAP)   == BAM_FMUNMAP)  * CRAM_M_UNMAP +
+	    //	((cr->flags & BAM_FMREVERSE) == BAM_FMREVERSE)* CRAM_M_REVERSE;
+	    //p->tlen = p->apos - cr->aend;
 
 	    // Clear detached from cr flags
-	    //cram_stats_del(c->stats[DS_CF], cr->cram_flags);
 	    cr->cram_flags &= ~CRAM_FLAG_DETACHED;
 	    cram_stats_add(c->stats[DS_CF], cr->cram_flags);
 
@@ -2930,6 +2931,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
 	    cr->cram_flags |= CRAM_FLAG_DETACHED;
 	    cram_stats_add(c->stats[DS_CF], cr->cram_flags);
+	    cram_stats_add(c->stats[DS_NS], bam_mate_ref(b));
 	}
     }
 
@@ -2937,7 +2939,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     cram_stats_add(c->stats[DS_MQ], cr->mqual);
 
     cr->mate_ref_id = bam_mate_ref(b);
-    cram_stats_add(c->stats[DS_NS], cr->mate_ref_id);
 
     if (!(bam_flag(b) & BAM_FUNMAP)) {
 	if (c->first_base > cr->apos)
