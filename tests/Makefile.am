@@ -31,8 +31,10 @@
 # 
 ## Makefile.am -- Process this file with automake to produce Makefile.in
 
-EXTRA_DIST              = $(TESTS) data compare_sam.pl generate_data.pl
+EXTRA_DIST              = $(TESTS) data compare_sam.pl generate_data.pl cram_io_test.c
 MAINTAINERCLEANFILES    = Makefile.in
+
+noinst_PROGRAMS = cram_io_test
 
 test_outdir              = test.out
 
@@ -47,7 +49,13 @@ TESTS                   = \
 			srf_filter.test \
 			srf_index.test \
 			scram.test \
-			scram_mt.test
+			scram_mt.test \
+			cram_io.test
+
+cram_io_test_SOURCES = cram_io_test.c
+cram_io_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
+
+INCLUDES= -I${top_srcdir}
 
 dist-hook:
 	rm -rf `find $(distdir)/data -name .svn`
