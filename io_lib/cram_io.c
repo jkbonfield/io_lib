@@ -138,7 +138,7 @@ static void cram_io_fill_input_buffer(cram_fd * fd)
 }
 
 /* fill buffer and return next byte or EOF */
-static int cram_io_input_buffer_underflow(cram_fd * fd)
+int cram_io_input_buffer_underflow(cram_fd * fd)
 {
     cram_io_fill_input_buffer(fd);
     
@@ -206,7 +206,7 @@ size_t cram_io_input_buffer_read(void *ptr, size_t size, size_t nmemb, cram_fd *
         fd->fp_in_buffer->fp_in_buf_pc += tocopy;
     }
         
-    return r / size;
+    return size ? (r / size) : r;
 }
 
 int cram_io_input_buffer_seek(cram_fd * fd, off_t offset, int whence)
@@ -4011,7 +4011,7 @@ static void cram_init_tables(cram_fd *fd) {
 static int major_version = 2;
 static int minor_version = 1;
 
-static cram_fd * cram_io_close(cram_fd * fd, int * fclose_result)
+cram_fd * cram_io_close(cram_fd * fd, int * fclose_result)
 {
     if ( fd ) {
         if ( fd->fp_in ) {
@@ -4041,7 +4041,7 @@ static cram_fd * cram_io_close(cram_fd * fd, int * fclose_result)
 }
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
-static cram_fd * cram_io_open_by_callbacks(
+cram_fd * cram_io_open_by_callbacks(
     char const * filename,
     cram_io_allocate_read_input_t   callback_allocate_function,
     cram_io_deallocate_read_input_t callback_deallocate_function,
@@ -4071,7 +4071,7 @@ static cram_fd * cram_io_open_by_callbacks(
 }
 #endif // CRAM_IO_CUSTOM_BUFFERING
 
-static cram_fd * cram_io_open(
+cram_fd * cram_io_open(
 	char const * filename, 
 	char const * mode, 
 	char const * fmode
