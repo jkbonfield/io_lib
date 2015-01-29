@@ -1,5 +1,168 @@
 ===============================================================================
-2014-05-30: RELEASE 1.13.8
+2015-01-29: RELEASE 1.13.9
+
+------------------------------------------------------------------------
+r3800 | jkbonfield | 2015-01-29 09:43:04 +0000 (Thu, 29 Jan 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/tests/cram_io_test.c
+
+Fixed test build on i686 platforms.
+
+------------------------------------------------------------------------
+r3799 | jkbonfield | 2015-01-28 18:04:27 +0000 (Wed, 28 Jan 2015) | 12 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Improved the CRAM stats array usage.
+
+Read-pair detection during encoding now has a saner view, with
+better commenting, of the hoops to go through to keep the cram_stats
+arrays up to date.  A few bugs were detected here, potentially leading
+to suboptimal Huffman trees, by instrumenting the ->encode() calls
+and comparing them to cram_dump_stats() outputs.
+
+Passes tests, real world data files and struggled to find manually
+constructed torture cases that cause it to fail.  It's still hairy and
+complex though!
+
+------------------------------------------------------------------------
+r3798 | jkbonfield | 2015-01-28 14:52:20 +0000 (Wed, 28 Jan 2015) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/tests/Makefile.am
+   A /io_lib/trunk/tests/cram_io.test
+   A /io_lib/trunk/tests/cram_io_test.c
+
+Patch supplied by German Tischler. Small amendments by me.
+
+Adds a short test program for the new buffering. It only tests
+absolute seeks and relative seeks to the end, but it is better than
+nothing.  Also fixes a division by zero bug occurring when the read
+routine was called with a size parameter of zero.
+
+------------------------------------------------------------------------
+r3797 | jkbonfield | 2015-01-26 17:02:45 +0000 (Mon, 26 Jan 2015) | 4 lines
+Changed paths:
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Correction to the CRAM_IO_CUSTOM_BUFFERING code when given a
+non-seekable stream (eg a pipe).  It no longer calls setvbuf if it
+knows it would fail.
+
+------------------------------------------------------------------------
+r3796 | jkbonfield | 2015-01-26 12:04:12 +0000 (Mon, 26 Jan 2015) | 7 lines
+Changed paths:
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/io_lib/cram_index.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/io_lib/os.h.in
+   M /io_lib/trunk/io_lib/scram.c
+   M /io_lib/trunk/io_lib/scram.h
+   M /io_lib/trunk/progs/cram_dump.c
+
+Patch supplied by German Tischler.
+
+Addition of a scram_open_cram_via_callbacks() interface to allow the
+low level I/O operations to be externally defined.  This is used
+within Biobambam to replace stdio with custom code supporting an iRODS
+backend.
+
+------------------------------------------------------------------------
+r3795 | jkbonfield | 2015-01-26 10:29:43 +0000 (Mon, 26 Jan 2015) | 13 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Overhauled the pnext/tlen/flags for detached reads.
+
+Now when we find a second (or more) copy of a read within a slice, we
+do not automatically mark is as non-detached.  We check whether the
+derived fields match those found in the file and if not we emit a
+"detached" read causing these fields to be written verbatim.  We also
+do this if the data is supplementary, as the meaning of that flag is
+poorly defined.
+
+This is particularly useful on bwa-mem output where there is currently
+a disparity between bwa and io_lib on the interpretation of
+supplementary/primary.
+
+------------------------------------------------------------------------
+r3794 | jkbonfield | 2015-01-26 10:26:52 +0000 (Mon, 26 Jan 2015) | 3 lines
+Changed paths:
+   M /io_lib/trunk/tests/compare_sam.pl
+
+Added a --all flag to keep dumping out every difference rather than
+terminating on the first one.
+
+------------------------------------------------------------------------
+r3793 | jkbonfield | 2015-01-26 10:26:04 +0000 (Mon, 26 Jan 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.h
+
+Added supplementary flag
+
+------------------------------------------------------------------------
+r3792 | jkbonfield | 2015-01-26 10:25:43 +0000 (Mon, 26 Jan 2015) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Bug fix the TLEN decoding sign.  It wasn't correctly handling the case
+when two reads start at the same coordinate.
+
+------------------------------------------------------------------------
+r3791 | jkbonfield | 2015-01-19 11:56:18 +0000 (Mon, 19 Jan 2015) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+
+Disabled -ftree-vectorize for bam_put_seq() function under gcc.
+
+With -O3 this is enabled by default and causes the unaligned memory
+accesses (with ALLOW_UAC defined) to be vectorised into SIMD, yielding
+crashes.
+
+Under icc and clang this doesn't happen.
+
+------------------------------------------------------------------------
+r3790 | jkbonfield | 2015-01-16 17:20:36 +0000 (Fri, 16 Jan 2015) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_index.c
+   M /io_lib/trunk/progs/cram_index.c
+
+Made cram_index work via a pipe by specifying "-" as the input
+filename.
+
+To enable this it has an extra argument for the filename to write to,
+this is obviously mandatory for stdin unless you want "-.crai" as the
+index filename.
+
+------------------------------------------------------------------------
+r3789 | jkbonfield | 2015-01-16 17:08:32 +0000 (Fri, 16 Jan 2015) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed a bug where we weren't setting fd->first_container on V2.x or
+V3.x files.
+
+(This hasn't been used until my next commit.)
+
+
+===============================================================================
+2015-01-12: RELEASE 1.13.8
+
+------------------------------------------------------------------------
+r3785 | jkbonfield | 2015-01-12 12:49:32 +0000 (Mon, 12 Jan 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/progs/scramble.c
+
+Updates to publish release 1.13.8
 
 ------------------------------------------------------------------------
 r3784 | jkbonfield | 2015-01-12 12:16:55 +0000 (Mon, 12 Jan 2015) | 6
