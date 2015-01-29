@@ -1,3 +1,32 @@
+version 1.13.9 (29th Jan 2015)
+--------------
+
+* Improved CRAM stats array usage. Previously it could create
+  sub-optimal HUFFMAN trees in rare situations. Harmless, but larger
+  output than necessary.
+
+* The "configure --enable-custom-buffering" (or --disable-) mode, on
+  by default, adds an additional scram_open interface to allow low
+  level I/O operations to be externally defined.  This is used within
+  Biobambam to replace stdio with custom code supporting an iRODS
+  backend. See scram_open_cram_via_callbacks().
+
+* CRAM should now be 100% lossless, barring a few specific broken
+  inputs (eg CIGAR strings on unaligned data). If it detects flags,
+  pnext or tlen fields that would differ if decoded using the
+  read-pairing algorithm built in to scramble's cram decoder then it
+  stores the read verbatim to avoid deduplicathing these fields. It
+  also has better support for the Supplementary flag.
+
+* Improved support for the Supplementary flags when auto-generating
+  SAM flags.
+
+* Fixed an issue where new gcc with -O3 could crash in processing SAM
+  due to SIMD vectorisation and unaligned memory accesses.
+
+* Cram_index now works via a pipe, by specifying "-" as the input filename.
+
+
 version 1.13.8 (12th Jan 2015)
 --------------
 
