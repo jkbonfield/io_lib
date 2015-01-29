@@ -2,6 +2,30 @@
 2015-01-29: RELEASE 1.13.9
 
 ------------------------------------------------------------------------
+r3802 | jkbonfield | 2015-01-29 16:34:05 +0000 (Thu, 29 Jan 2015) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Patch by German Tischler,
+
+This adds an integer argument to the callback allocation function. If
+set to non-zero it requests on the fly decompression (which I don't
+implement or use yet, but will do when submitting a patch for loading
+CRAM indexes via the callbacks).
+
+------------------------------------------------------------------------
+r3801 | jkbonfield | 2015-01-29 14:40:53 +0000 (Thu, 29 Jan 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Updates for pending 1.13.9 release.
+
+------------------------------------------------------------------------
 r3800 | jkbonfield | 2015-01-29 09:43:04 +0000 (Thu, 29 Jan 2015) | 2 lines
 Changed paths:
    M /io_lib/trunk/tests/cram_io_test.c
