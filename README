@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.13.8
+			IO_LIB VERSION 1.13.9
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -25,6 +25,26 @@ These link together to form a single "libstaden-read" library supporting
 all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
+
+What's new in 1.13.9
+====================
+
+Mostly more bug fixes with CRAM.  This version of Scramble should be
+essentially 100% lossless too (there may be exceptions in the case of
+broken input data).  If it detects flags, pnext or tlen fields that
+would differ if decoded using the read-pairing algorithm built in to
+scramble's cram decoder then it stores the read verbatim to avoid
+deduplicathing these fields. It also has better support for
+the Supplementary flag.
+
+Cram_index can now work via a pipe by specifying "-" as the input
+filename.
+
+There is an additional API for opening CRAM files by providing it an
+series of I/O function pointers: scram_open_cram_via_callbacks().
+This has no impact on the command line tool, but permits programs that
+use Io_lib to handle non-POSIX file-systems.
+
 
 What's new in 1.13.8
 ====================
