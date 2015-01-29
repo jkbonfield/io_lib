@@ -4058,7 +4058,7 @@ cram_fd * cram_io_open_by_callbacks(
     fd->fp_in_callback_allocate_function   = callback_allocate_function;
     fd->fp_in_callback_deallocate_function = callback_deallocate_function;
 
-    fd->fp_in_callbacks = fd->fp_in_callback_allocate_function(filename);
+    fd->fp_in_callbacks = fd->fp_in_callback_allocate_function(filename,0 /* decompress */);
     if ( ! fd->fp_in_callbacks )
         return cram_io_close(fd,0);
 
