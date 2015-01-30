@@ -43,7 +43,22 @@ extern "C" {
  * Returns 0 for success
  *        -1 for failure
  */
-int cram_index_load(cram_fd *fd, char *fn);
+int cram_index_load(cram_fd *fd, char const * fn);
+
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+/*
+ * Loads a CRAM .crai index into memory using callbacks. fn denotes the name of the cram file.
+ * The suffix .crai will be appended to obtain the name of the index.
+ *
+ * Returns 0 for success
+ *        -1 for failure
+ */
+extern int cram_index_load_via_callbacks(
+    cram_fd *fd, char const * fn,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function        
+);
+#endif
 
 void cram_index_free(cram_fd *fd);
 

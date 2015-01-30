@@ -353,8 +353,34 @@ cram_io_allocate_input_buffer(size_t const bufsize)
     buffer->fp_in_buf_pa   = buffer->fp_in_buffer;
     buffer->fp_in_buf_pc   = buffer->fp_in_buffer;
     buffer->fp_in_buf_pe   = buffer->fp_in_buffer;
-
+    
     return buffer;
+}
+
+char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd)
+{
+     int linelen = 0;
+
+     while ( linelen < size-1 ) {
+         int const c = CRAM_IO_GETC(fd);
+
+         if ( c == EOF ) {
+             break;
+         }
+         else {
+             s[linelen++] = c;
+         }
+         
+         if ( c == '\n' )
+             break;
+     }
+     
+     if ( ! linelen )
+         return NULL;
+
+     s[linelen++] = 0;
+     
+     return s;
 }
 #endif
 
@@ -4045,7 +4071,8 @@ cram_fd * cram_io_open_by_callbacks(
     char const * filename,
     cram_io_allocate_read_input_t   callback_allocate_function,
     cram_io_deallocate_read_input_t callback_deallocate_function,
-    size_t const bufsize
+    size_t const bufsize,
+    int const decompress
 )
 {
     cram_fd * fd = (cram_fd *)malloc(sizeof(cram_fd));
@@ -4058,7 +4085,7 @@ cram_fd * cram_io_open_by_callbacks(
     fd->fp_in_callback_allocate_function   = callback_allocate_function;
     fd->fp_in_callback_deallocate_function = callback_deallocate_function;
 
-    fd->fp_in_callbacks = fd->fp_in_callback_allocate_function(filename,0 /* decompress */);
+    fd->fp_in_callbacks = fd->fp_in_callback_allocate_function(filename,decompress);
     if ( ! fd->fp_in_callbacks )
         return cram_io_close(fd,0);
 
@@ -4305,7 +4332,7 @@ cram_fd *cram_open_by_callbacks(
     char *cp;
     cram_fd *fd = NULL;
 
-    fd = cram_io_open_by_callbacks(filename,callback_allocate_function,callback_deallocate_function,bufsize);
+    fd = cram_io_open_by_callbacks(filename,callback_allocate_function,callback_deallocate_function,bufsize,0);
     if (!fd)
 	return cram_io_close(fd,0);
 

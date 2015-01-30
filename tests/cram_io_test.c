@@ -1,6 +1,7 @@
 #define CRAM_IO_TEST
 #include <io_lib/scram.h>
 #include <assert.h>
+#include <string.h>
 
 int main(int argc, char *argv[])
 {
@@ -15,6 +16,8 @@ int main(int argc, char *argv[])
         size_t o = 0;
         size_t p = 0;
         int r = -1;
+        char linebuf0[32];
+        char linebuf1[32];
 
         if ( ! fp ) {
             fprintf(stderr,"Cannot open file %s\n",argv[i]);
@@ -102,6 +105,18 @@ int main(int argc, char *argv[])
             assert ( getc(fp) == EOF );
             assert ( CRAM_IO_GETC(cramfd) == EOF );
 	}
+
+        /* run fgets type test */
+        r = fseeko(fp,0,SEEK_SET);
+        assert ( r == 0 );
+        r = CRAM_IO_SEEK(cramfd,0,SEEK_SET);
+        assert ( r == 0 );
+        while ( fgets(&linebuf0[0],sizeof(linebuf0),fp) ) {
+            assert ( CRAM_IO_FGETS(&linebuf1[0],sizeof(linebuf1),cramfd) == &linebuf1[0] );
+            assert ( strlen(&linebuf0[0]) == strlen(&linebuf1[0]) );
+            assert ( strcmp(&linebuf0[0],&linebuf1[0]) == 0 );
+        }
+        assert ( CRAM_IO_FGETS(&linebuf1[0],sizeof(linebuf1),cramfd) == NULL );
         
         cleanup:
         if ( Bb ) {
