@@ -763,19 +763,25 @@ typedef struct {
     int ooc;                            // out of containers.
 } cram_fd;
 
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
 extern size_t cram_io_input_buffer_read(void *ptr, size_t size, size_t nmemb, cram_fd * fd);
 extern int cram_io_input_buffer_seek(cram_fd * fd, off_t offset, int whence);
+extern int cram_io_input_buffer_underflow(cram_fd * fd);
+extern char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd);
+#endif
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
 #define CRAM_IO_GETC(fd) ((fd->fp_in_buffer->fp_in_buf_pc!=fd->fp_in_buffer->fp_in_buf_pe) ? ((int)((unsigned char)(*(fd->fp_in_buffer->fp_in_buf_pc++)))) : cram_io_input_buffer_underflow(fd))
 #define CRAM_IO_READ(ptr, size, nmemb, fd) cram_io_input_buffer_read(ptr,size,nmemb,fd)
 #define CRAM_IO_SEEK(fd, offset, whence) cram_io_input_buffer_seek(fd, offset, whence)
 #define CRAM_IO_TELLO(fd) (fd->fp_in_buffer->fp_in_buf_start +(fd->fp_in_buffer->fp_in_buf_pc-fd->fp_in_buffer->fp_in_buf_pa))
+#define CRAM_IO_FGETS(s,size,fd) cram_io_input_buffer_fgets(s,size,fd)
 #else // ! CRAM_IO_CUSTOM_BUFFERING
 #define CRAM_IO_GETC(fd) getc(fd->fp_in)
 #define CRAM_IO_READ(ptr, size, nmemb, fd) fread(ptr,size,nmemb,fd->fp_in)
 #define CRAM_IO_TELLO(fd) ftello(fd->fp_in)
 #define CRAM_IO_SEEK(fd, offset, whence) fseeko(fd->fp_in,offset,whence)
+#define CRAM_IO_FGETS(s,size,fd) fgets(s,size,fd->fp_in)
 #endif // end CRAM_IO_CUSTOM_BUFFERING
 
 #define CRAM_IO_PUTC(c,fd) putc(c,fd->fp_out)

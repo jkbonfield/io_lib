@@ -94,22 +94,26 @@ static void dump_index(cram_fd *fd) {
 }
 #endif
 
-/*
- * Loads a CRAM .crai index into memory.
- *
- * Returns 0 for success
- *        -1 for failure
- */
-int cram_index_load(cram_fd *fd, char *fn) {
-    char line[1024], fn2[PATH_MAX];
-    zfp *fp;
-    cram_index *idx;
+typedef char * (*fgets_functions)(char * s, int size, void * fp);
+
+static char * zfgets_func(char * s, int size, void * fp)
+{
+    return zfgets(s,size,(zfp *)fp);
+}
+
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+static char * cram_io_input_buffer_fgets_func(char * s, int size, void * fp)
+{
+    return cram_io_input_buffer_fgets(s,size,fp);
+}
+#endif
+
+static int cram_index_load_private(cram_fd *fd, void * fp, fgets_functions fgets_func)
+{
+    char line[1024];
+    cram_index *idx = NULL;
     cram_index **idx_stack = NULL, *ep, e;
     int idx_stack_alloc = 0, idx_stack_ptr = 0;
-
-    /* Check if already loaded */
-    if (fd->index)
-	return 0;
 
     fd->index = calloc((fd->index_sz = 1), sizeof(*fd->index));
     if (!fd->index)
@@ -123,14 +127,7 @@ int cram_index_load(cram_fd *fd, char *fn) {
     idx_stack = calloc(++idx_stack_alloc, sizeof(*idx_stack));
     idx_stack[idx_stack_ptr] = idx;
 
-    sprintf(fn2, "%s.crai", fn);
-    if (!(fp = zfopen(fn2, "r"))) {
-	perror(fn2);
-	free(idx_stack);
-	return -1; 
-    }
-
-    while (zfgets(line, 1024, fp)) {
+    while (fgets_func(line, 1024, fp)) {
 	/* 1.1 layout */
 	char *cp = line;
         errno = 0;
@@ -192,12 +189,92 @@ int cram_index_load(cram_fd *fd, char *fn) {
 	}
 	idx_stack[idx_stack_ptr] = idx;
     }
-    zfclose(fp);
     free(idx_stack);
 
     // dump_index(fd);
 
     return 0;
+}
+
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+/*
+ * Loads a CRAM .crai index into memory.
+ *
+ * Returns 0 for success
+ *        -1 for failure
+ */
+int cram_index_load_via_callbacks(
+    cram_fd *fd, char const * fn,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function        
+) {
+    cram_fd * input = NULL;
+    int r = -1;
+    static char const * indexsuffix = ".crai";
+    char * indexfn = NULL;
+    size_t const fnsize = strlen(fn);
+    size_t const suffixsize = strlen(indexsuffix);
+    size_t const indexfnsize = fnsize+suffixsize+1;
+    
+    if ( !(indexfn = (char *)malloc(indexfnsize)) ) {
+        r = -1;
+        goto cleanup;
+    }
+    
+    memcpy(indexfn,       fn,         fnsize);
+    memcpy(indexfn+fnsize,indexsuffix,suffixsize);
+    indexfn[fnsize+suffixsize] = 0;
+    
+    if ( ! (input = cram_io_open_by_callbacks(indexfn,callback_allocate_function,callback_deallocate_function,32*1024,1/* decompress */)) ) {
+        r = -1;
+        goto cleanup;
+    }
+
+    r = cram_index_load_private(fd,input,cram_io_input_buffer_fgets_func);
+    
+    cleanup:
+    if ( input ) {
+        cram_io_close(input,NULL);
+        input = NULL;
+    }
+    if ( indexfn ) {
+        free(indexfn);
+        indexfn = NULL;
+    }
+    
+    return r;
+}
+#endif
+
+/*
+ * Loads a CRAM .crai index into memory.
+ *
+ * Returns 0 for success
+ *        -1 for failure
+ */
+int cram_index_load(cram_fd *fd, char const *fn) {
+    zfp *fp = NULL;
+    char fn2[PATH_MAX];
+    int r = -1;
+    
+    /* Check if already loaded */
+    if (fd->index)
+	return 0;
+
+    /* copy filename */
+    sprintf(fn2, "%s.crai", fn);
+    
+    /* open index file */
+    if (!(fp = zfopen(fn2, "r"))) {
+	perror(fn2);
+	return -1; 
+    }
+    
+    r = cram_index_load_private(fd,fp,zfgets_func);
+
+    zfclose(fp);
+    
+    return r;
 }
 
 static void cram_index_free_recurse(cram_index *e) {
