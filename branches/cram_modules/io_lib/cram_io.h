@@ -157,30 +157,6 @@ int cram_write_block(cram_fd *fd, cram_block *b);
  */
 void cram_free_block(cram_block *b);
 
-/*! Uncompresses a CRAM block, if compressed.
- *
- * @return
- * Returns 0 on success;
- *        -1 on failure
- */
-int cram_uncompress_block(cram_block *b);
-
-/*! Compresses a block.
- *
- * Compresses a block using one of two different zlib strategies. If we only
- * want one choice set strat2 to be -1.
- *
- * The logic here is that sometimes Z_RLE does a better job than Z_FILTERED
- * or Z_DEFAULT_STRATEGY on quality data. If so, we'd rather use it as it is
- * significantly faster.
- *
- * @return
- * Returns 0 on success;
- *        -1 on failure
- */
-int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
-			int method, int level);
-
 cram_metrics *cram_new_metrics(void);
 char *cram_block_method2str(enum cram_block_method m);
 char *cram_content_type2str(enum cram_content_type t);

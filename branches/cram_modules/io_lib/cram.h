@@ -61,6 +61,7 @@ extern "C" {
 #include "cram_stats.h"
 #include "cram_codecs.h"
 #include "cram_index.h"
+#include "cram_block_compression.h"
 
 #endif
 
