@@ -651,8 +651,8 @@ int main(int argc, char **argv) {
 		printf("\n\tBlock %d/%d\n", id+1, s->hdr->num_blocks);
 		printf("\t    Size:         %d comp / %d uncomp\n",
 		       b->comp_size, b->uncomp_size);
-		printf("\t    Method:       %s\n",
-		       cram_block_method2str(b->orig_method));
+		printf("\t    Method:       %s %d\n",
+		       cram_block_method2str(b->orig_method), b->orig_method);
 		struct {
 		    int id;
 		    enum cram_block_method method;
