@@ -894,7 +894,7 @@ int cram_compression_codec_init(void) {
         cram_compressor *(*codec_init)(void);
 	HashData hd;
 
-        if (ent->d_type != DT_REG)
+        if (ent->d_type != DT_REG && ent->d_type != DT_UNKNOWN)
             continue;
 
         len = strlen(ent->d_name);
