@@ -278,7 +278,6 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    if (codecs[m]->content_ids &&
 			!(codecs[m]->content_ids & b->id_bits))
 			continue;
-
 		    c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 						&sz[m], m, level, strat);
 		    if (sz_best > sz[m]) {
@@ -875,8 +874,12 @@ int cram_compression_codec_init(void) {
     ncodecs = BLOCK_METHOD_END;
 
     codecs[GZIP]     = &gzip_codec;
+#ifdef HAVE_LIBBZ2
     codecs[BZIP2]    = &bzip2_codec;
+#endif
+#ifdef HAVE_LIBLZMA
     codecs[LZMA]     = &lzma_codec;
+#endif
     codecs[RANS0]    = &rans0_codec;
     codecs[RANS1]    = &rans1_codec;
     codecs[GZIP_RLE] = &gzip_rle_codec;
