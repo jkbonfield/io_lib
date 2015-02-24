@@ -62,9 +62,8 @@ char *string_alloc(string_alloc_t *a_str, size_t length);
 char *string_dup(string_alloc_t *a_str, char *instr);
 char *string_ndup(string_alloc_t *a_str, char *instr, size_t len);
 
-#endif
-
 #ifdef __cplusplus
 }
 #endif
 
+#endif /* _STRING_ALLOC_H_ */
