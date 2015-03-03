@@ -1,4 +1,93 @@
 ===============================================================================
+2015-03-02: RELEASE 1.13.10
+
+------------------------------------------------------------------------
+r3834 | jkbonfield | 2015-03-03 10:09:28 +0000 (Tue, 03 Mar 2015) | 13 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/sam_header.c
+   M /io_lib/trunk/io_lib/sam_header.h
+
+Check for the @HD SO:sort-order field, with new parse function in
+sam_header.c.
+
+We now use this when setting fd->unsorted so that a packed slice with
+multiple references in it is not always considered unsorted.  If the
+file claims to be sorted then it'll incr/decr refs internal to the
+slice as it progresses.
+
+This avoids an issue with high memory usage on very small files where
+all data is packed into one slice.  Previously it remembered all
+references used as it assumed they'd be reused again very soon
+(unsorted mode).
+
+------------------------------------------------------------------------
+r3833 | jkbonfield | 2015-02-24 12:32:08 +0000 (Tue, 24 Feb 2015) | 3 lines
+Changed paths:
+   M /io_lib/trunk/tests/data/c1#pad2.sam
+   M /io_lib/trunk/tests/data/c1#pad3.sam
+   M /io_lib/trunk/tests/data/ce#1.sam
+   M /io_lib/trunk/tests/data/ce#2.sam
+   M /io_lib/trunk/tests/data/ce#5.sam
+   M /io_lib/trunk/tests/data/ce#5b.sam
+   M /io_lib/trunk/tests/data/ce#large_seq.sam
+   M /io_lib/trunk/tests/data/ce#tag_depadded.sam
+   M /io_lib/trunk/tests/data/ce#tag_padded.sam
+   M /io_lib/trunk/tests/data/ce#unmap1.sam
+   M /io_lib/trunk/tests/data/ce#unmap2.sam
+   M /io_lib/trunk/tests/data/xx#large_aux.sam
+   M /io_lib/trunk/tests/data/xx#large_aux2.sam
+   M /io_lib/trunk/tests/data/xx#minimal.sam
+   M /io_lib/trunk/tests/data/xx#pair.sam
+   M /io_lib/trunk/tests/data/xx#rg.sam
+   M /io_lib/trunk/tests/data/xx#triplet.sam
+   M /io_lib/trunk/tests/data/xx#unsorted.sam
+
+Modified test data so that the change applied in r3816 doesn't emit
+(harmless) warning messages.
+
+------------------------------------------------------------------------
+r3832 | jkbonfield | 2015-02-24 10:24:17 +0000 (Tue, 24 Feb 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/string_alloc.h
+
+Fixed c++ guard vs double #include guard order.
+
+------------------------------------------------------------------------
+r3817 | jkbonfield | 2015-02-13 15:13:55 +0000 (Fri, 13 Feb 2015) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+MD and NM tags now handle the cases where edits are off the end of
+a reference.  SAM is undefined in this situation, but these should be
+operating in the same manner as samtools calmd.
+
+------------------------------------------------------------------------
+r3816 | jkbonfield | 2015-02-13 15:09:45 +0000 (Fri, 13 Feb 2015) | 6 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Added a function to compare @SQ headers against the .fai file.
+
+If the @SQ lines differ in length, then use the .fai ones in
+preference as it is the actual .fa file which we use for performing
+delta encoding. This avoids reading off the end of buffers.
+
+------------------------------------------------------------------------
+r3805 | jkbonfield | 2015-01-30 14:14:33 +0000 (Fri, 30 Jan 2015) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_index.c
+   M /io_lib/trunk/io_lib/cram_index.h
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/tests/cram_io_test.c
+
+Adds fgets type functionality for the custom buffering and introduces
+a function for loading a CRAM index via the same callback system as
+used for reading CRAM files.  Also extended the test program.
+
+===============================================================================
 2015-01-29: RELEASE 1.13.9
 
 ------------------------------------------------------------------------
