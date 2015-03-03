@@ -161,6 +161,15 @@ typedef struct {
     int prev_id;      // -1 if none
 } SAM_PG;
 
+/*! Sort order parsed from @HD line */
+enum sam_sort_order {
+    ORDER_UNKNOWN  =-1,
+    ORDER_UNSORTED = 0,
+    ORDER_NAME     = 1,
+    ORDER_COORD    = 2,
+  //ORDER_COLLATE  = 3 // maybe one day!
+};
+
 /*! Primary structure for header manipulation
  *
  * The initial header text is held in the text dstring_t, but is also
@@ -197,6 +206,9 @@ typedef struct {
     SAM_PG *pg;		      //!< Array of parsed \@PG lines
     HashTable *pg_hash;	      //!< Hash table indexed by ID: field
     int *pg_end;              //!< \@PG chain termination IDs
+
+    // @HD data
+    enum sam_sort_order sort_order; //!< @HD SO: field
 
     // @cond internal
     char ID_buf[1024];  // temporary buffer
@@ -374,6 +386,9 @@ SAM_hdr_tag *sam_hdr_find_key(SAM_hdr *sh,
  *        -1 on failure
  */
 int sam_hdr_update(SAM_hdr *hdr, SAM_hdr_type *type, ...);
+
+/*! Returns the sort order from the @HD SO: field */
+enum sam_sort_order sam_hdr_sort_order(SAM_hdr *hdr);
 
 /*! Reconstructs the dstring from the header hash table.
  * @return
