@@ -1083,7 +1083,7 @@ int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
     int i, code, len, r = 0;
     unsigned char *syms = (unsigned char *)in;
 
-    do {
+    while (in_size--) {
 	int sym = *syms++;
 	if (sym >= -1 && sym < MAX_HUFF) {
 	    i = c->e_huffman.val2code[sym+1];
@@ -1104,7 +1104,7 @@ int cram_huffman_encode_char(cram_slice *slice, cram_codec *c,
 	}
 
 	r |= store_bits_MSB(c->out, code, len);
-    } while (--in_size);
+    }
 
     return r;
 }

@@ -2310,7 +2310,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	    if (ds & CRAM_CF && cf & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
 		out_sz2 = cr->len;
-		if (ds & CRAM_QS) {
+		if (ds & CRAM_QS && cr->len >= 0) {
 		    if (!c->comp_hdr->codecs[DS_QS]) return -1;
 		    r |= c->comp_hdr->codecs[DS_QS]
 			            ->decode(s, c->comp_hdr->codecs[DS_QS],
