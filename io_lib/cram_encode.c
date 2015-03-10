@@ -2039,7 +2039,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 
 	// MD:Z
 	if (aux[0] == 'M' && aux[1] == 'D' && aux[2] == 'Z') {
-	    if (!fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
+	    if (cr->len && !fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
 		while (*aux++);
 		continue;
 	    }
@@ -2047,7 +2047,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 
 	// NM:i
 	if (aux[0] == 'N' && aux[1] == 'M') {
-	    if (!fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
+	    if (cr->len && !fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
 		switch(aux[2]) {
 		case 'A': case 'C': case 'c': aux+=4; break;
 		case 'S': case 's':           aux+=5; break;
