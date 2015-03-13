@@ -57,6 +57,7 @@ extern "C" {
 
 #include "io_lib/hash_table.h"       // From io_lib aka staden-read
 #include "io_lib/thread_pool.h"
+#include "io_lib/mFILE.h"
 
 #ifdef SAMTOOLS
 // From within samtools/HTSlib
@@ -584,6 +585,7 @@ typedef struct ref_entry {
     int line_length;
     int64_t count;	   // for shared references so we know to dealloc seq
     char *seq;
+    mFILE *mf;
 } ref_entry;
 
 // References structure.
