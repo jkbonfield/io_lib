@@ -162,6 +162,9 @@ dnl Large file support
 AC_SYS_LARGEFILE
 AC_FUNC_FSEEKO
 
+dnl Mmap is used for CRAM reference files
+AC_FUNC_MMAP
+
 dnl Checks for library functions.
 AC_SEARCH_LIBS([pthread_join], [pthread])
 AC_SEARCH_LIBS(cos, m)
