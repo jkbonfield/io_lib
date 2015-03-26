@@ -385,6 +385,30 @@ static int load_sam_header(bam_file_t *b) {
 #    define O_BINARY 0
 #endif
 
+static void bam_file_init(bam_file_t *b) {
+    b->comp_p     = b->comp;
+    b->comp_sz    = 0;
+    b->uncomp_p    = b->uncomp;
+    b->uncomp_sz   = 0;
+    b->next_len = -1;
+    b->bs       = NULL;
+    b->bs_size  = 0;
+    b->z_finish = 1;
+    b->bgzf     = 0;
+    b->no_aux   = 0;
+    b->line     = 0;
+    b->binary   = 0;
+    b->level    = Z_DEFAULT_COMPRESSION;
+    b->sam_str  = NULL;
+    b->pool     = NULL;
+    b->equeue   = NULL;
+    b->dqueue   = NULL;
+    b->job_pending = NULL;
+    b->eof      = 0;
+    b->nd_jobs    = 0;
+    b->ne_jobs    = 0;
+}
+
 /*! Opens a SAM or BAM file.
  *
  * The mode parameter indicates the file
@@ -407,27 +431,7 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
     if (!b)
 	return NULL;
 
-    b->comp_p     = b->comp;
-    b->comp_sz    = 0;
-    b->uncomp_p    = b->uncomp;
-    b->uncomp_sz   = 0;
-    b->next_len = -1;
-    b->bs       = NULL;
-    b->bs_size  = 0;
-    b->z_finish = 1;
-    b->bgzf     = 0;
-    b->no_aux   = 0;
-    b->line     = 0;
-    b->binary   = 0;
-    b->level    = Z_DEFAULT_COMPRESSION;
-    b->sam_str  = NULL;
-    b->pool     = NULL;
-    b->equeue   = NULL;
-    b->dqueue   = NULL;
-    b->job_pending = NULL;
-    b->eof      = 0;
-    b->nd_jobs    = 0;
-    b->ne_jobs    = 0;
+    bam_file_init(b);
 
     /* Creation */
     if (*mode == 'w') {
@@ -516,6 +520,28 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 
     return NULL;
 }
+
+bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh) {
+    bam_file_t *b = calloc(1, sizeof *b);
+    
+    if (!b)
+	return NULL;
+
+    bam_file_init(b);
+
+    b->fp = NULL; // forces bam_more_input() to fail
+    b->bam = 1;
+    b->gzip = 0;
+    b->comp_sz = 0;
+    b->uncomp_p = blk;
+    b->uncomp_sz = blk_size;
+    b->header = sh;
+
+    sam_hdr_incr_ref(sh);
+
+    return b;
+}
+
 
 int bam_close(bam_file_t *b) {
     int r = 0;
