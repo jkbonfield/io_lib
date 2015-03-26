@@ -93,13 +93,18 @@
 #define TRIAL_SPAN 50
 #define NTRIALS 3
 
-/*
+/* ----------------------------------------------------------------------
  * custom buffering helper routines
  */
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
 static size_t cram_io_C_FILE_fread(void *ptr, size_t size, size_t nmemb, void *stream)
 {
     return fread(ptr,size,nmemb,(FILE *)stream);
+}
+
+static size_t cram_io_C_FILE_fwrite(void *ptr, size_t size, size_t nmemb, void *stream)
+{
+    return fwrite(ptr,size,nmemb,(FILE *)stream);
 }
 
 static int cram_io_C_FILE_fseek(void * fd, off_t offset, int whence)
@@ -111,6 +116,10 @@ static off_t cram_io_C_FILE_ftell(void * fd)
 {
     return ftello((FILE *)fd);
 }
+
+/* ----------------------------------------------------------------------
+ * Input buffering
+ */
 
 /* fill empty buffer */
 static void cram_io_fill_input_buffer(cram_fd * fd)
@@ -382,6 +391,215 @@ char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd)
      
      return s;
 }
+
+/* ----------------------------------------------------------------------
+ * Output buffering
+ */
+
+/*
+ * Flush buffer.
+ *
+ * Returns 0 on success,
+ *        -1 on failure.
+ */
+static int cram_io_flush_output_buffer(cram_fd * fd)
+{
+    size_t r;
+    char *dat   = fd->fp_out_buffer->fp_out_buf_pa;
+    size_t olen = fd->fp_out_buffer->fp_out_buf_size;
+    size_t len  = fd->fp_out_buffer->fp_out_buf_size;
+
+    /* write up to buffer size bytes */
+    /* C-IO fwrite */
+    while (len) {
+	r = fd->fp_out_callbacks->fwrite_callback
+	    (dat, 1, len, fd->fp_out_callbacks->user_data);   
+
+	if (r >= 0) {
+	    dat += r;
+	    len -= r;
+	}
+
+	if (r < 0) {
+	    /* Write failed, possible partial */
+	    memmove(fd->fp_out_buffer->fp_out_buf_pa, dat, len);
+	    fd->fp_out_buffer->fp_out_buf_pc
+		= fd->fp_out_buffer->fp_out_buf_pa;
+
+	    fd->fp_out_buffer->fp_out_buf_start
+		+= fd->fp_out_buffer->fp_out_buf_size - len;
+
+	    return -1;
+	}
+    }
+
+    /* move offset */
+    fd->fp_out_buffer->fp_out_buf_start += olen;
+
+    /* reset current output */
+    fd->fp_out_buffer->fp_out_buf_pc = fd->fp_out_buffer->fp_out_buf_pa;
+
+    return 0;
+}
+
+/* Buffer too full, so flush the data. */
+int cram_io_output_buffer_overflow(cram_fd * fd)
+{
+    return cram_io_flush_output_buffer(fd);
+}
+
+/* fwrite simulation */
+size_t cram_io_output_buffer_write(void *ptr, size_t size, size_t nmemb,
+				   cram_fd *fd)
+{
+    size_t towrite = size * nmemb; /* number of bytes still to be written */
+    size_t r = 0;                  /* number of bytes copied to ptr */    
+
+    /* number of bytes in buffer */
+    size_t outbuf = fd->fp_out_buffer->fp_out_buf_pe -
+	            fd->fp_out_buffer->fp_out_buf_pc;
+
+    /* number of bytes to be copied from buffer */
+    size_t tocopy = imin(towrite, outbuf);
+    size_t blockwrite = 0;
+    
+    /* place as many bytes in out_buffer as will fit */
+    memcpy(fd->fp_out_buffer->fp_out_buf_pc, ptr, tocopy);
+    towrite -= tocopy;
+    r += tocopy;
+    ptr += tocopy;
+    fd->fp_out_buffer->fp_out_buf_pc += tocopy;
+
+    if (towrite) /* Still some left over */
+        if (cram_io_flush_output_buffer(fd) < 0)
+	    goto partial_write;
+
+    /* Write any remaining whole blocks without buffer copy, C-IO fwrite */
+    while (towrite >= fd->fp_out_buffer->fp_out_buf_size) {
+	blockwrite = fd->fp_out_callbacks->fwrite_callback
+	    (ptr,
+	     1,
+	     fd->fp_out_buffer->fp_out_buf_size,
+	     fd->fp_out_callbacks->user_data);
+	if (blockwrite < 0)
+	    break;
+
+	towrite -= blockwrite;
+	ptr += blockwrite;
+        r += blockwrite;
+	fd->fp_out_buffer->fp_out_buf_start += blockwrite;
+    }
+
+    if (blockwrite < 0)
+	goto partial_write;
+
+    /* Push any remaining bytes into the output buffer */
+    if (towrite) {
+        /* buffer should be empty */
+        assert(fd->fp_out_buffer->fp_out_buf_pc ==
+	       fd->fp_out_buffer->fp_out_buf_pa);
+
+	/* buffer should be large enough */
+	assert(towrite <= fd->fp_out_buffer->fp_out_buf_size);
+
+	memcpy(fd->fp_out_buffer->fp_out_buf_pc, ptr, towrite);
+        r += towrite;
+        fd->fp_out_buffer->fp_out_buf_pc += towrite;
+    }
+
+ partial_write:
+    return size ? (r / size) : r;
+}
+
+static cram_io_output_t *
+cram_IO_deallocate_cram_io_output(cram_io_output_t * obj)
+{
+    if ( obj ) {
+        free(obj);
+        obj = NULL;
+    }
+    
+    return obj;
+}
+
+static cram_io_output_t *
+cram_IO_allocate_cram_io_output()
+{
+    cram_io_output_t *obj
+	= (cram_io_output_t *)malloc(sizeof(cram_io_output_t));
+
+    if ( ! obj ) {
+        return cram_IO_deallocate_cram_io_output(obj);
+    }
+    obj->user_data = NULL;
+    obj->fwrite_callback = NULL;
+    obj->ftell_callback = NULL;
+    return obj;
+}
+
+static cram_io_output_t *
+cram_IO_allocate_cram_io_output_from_C_FILE(FILE * file)
+{
+    cram_io_output_t *obj = cram_IO_allocate_cram_io_output();
+    if ( ! obj ) {
+        return cram_IO_deallocate_cram_io_output(obj);
+    }
+    obj->user_data = file;
+    obj->fwrite_callback = cram_io_C_FILE_fwrite;
+    obj->ftell_callback  = cram_io_C_FILE_ftell;
+    return obj;
+}
+
+static cram_fd_output_buffer *
+cram_io_deallocate_output_buffer(cram_fd_output_buffer * buffer)
+{
+    if ( buffer ) {
+        if ( buffer->fp_out_buffer ) {
+            free(buffer->fp_out_buffer);
+            buffer->fp_out_buffer = NULL;
+        }
+        free(buffer);
+        buffer = NULL;
+    }
+    return buffer;
+}
+
+static cram_fd_output_buffer *
+cram_io_allocate_output_buffer(size_t const bufsize)
+{
+    cram_fd_output_buffer * buffer =
+	(cram_fd_output_buffer *)malloc(sizeof(cram_fd_output_buffer));
+    
+    if ( ! buffer )
+        return cram_io_deallocate_output_buffer(buffer);
+    
+    memset(buffer,0,sizeof(cram_fd_output_buffer));
+
+    buffer->fp_out_buf_size = bufsize;
+    buffer->fp_out_buffer   = (char *)malloc(buffer->fp_out_buf_size);
+    
+    if ( ! buffer->fp_out_buffer ) {
+        return cram_io_deallocate_output_buffer(buffer);
+    }
+    
+    buffer->fp_out_buf_pa   = buffer->fp_out_buffer;
+    buffer->fp_out_buf_pc   = buffer->fp_out_buffer;
+    buffer->fp_out_buf_pe   = buffer->fp_out_buffer + bufsize;
+    
+    return buffer;
+}
+
+// FIXME: Currently inefficient
+int cram_io_output_buffer_putc(int c, cram_fd * fd)
+{
+    char cc = c;
+
+    if (cram_io_output_buffer_write(&cc, 1, 1, fd) == 1)
+	return c;
+    else
+	return EOF;
+}
+
 #endif
 
 /* ----------------------------------------------------------------------
@@ -3198,7 +3416,7 @@ static int cram_flush_container2(cram_fd *fd, cram_container *c) {
 		return -1;
 	}
     }
-
+    
     return CRAM_IO_FLUSH(fd) == 0 ? 0 : -1;
 }
 
@@ -4120,6 +4338,12 @@ cram_fd * cram_io_close(cram_fd * fd, int * fclose_result)
         if ( fd->fp_in_buffer ) {
             fd->fp_in_buffer = cram_io_deallocate_input_buffer(fd->fp_in_buffer);
         }
+        if ( fd->fp_out_callbacks ) {
+            fd->fp_out_callbacks = fd->fp_out_callback_deallocate_function(fd->fp_out_callbacks);
+        }
+        if ( fd->fp_out_buffer ) {
+            fd->fp_out_buffer = cram_io_deallocate_output_buffer(fd->fp_out_buffer);
+        }
 #endif
         
         free(fd);
@@ -4174,6 +4398,8 @@ cram_fd * cram_io_open(
 
     fd->fp_in_callback_allocate_function = NULL;
     fd->fp_in_callback_deallocate_function = cram_IO_deallocate_cram_io_input;
+    fd->fp_out_callback_allocate_function = NULL;
+    fd->fp_out_callback_deallocate_function = cram_IO_deallocate_cram_io_output;
         
     if ( *mode == 'r' ) {
         size_t bufsize = 0;
@@ -4241,17 +4467,33 @@ cram_fd * cram_io_open(
 	} while ( 0 );
 
 #endif // CRAM_IO_CUSTOM_BUFFERING
-    }
-    else {
+    } else {
     	if ( strcmp(filename,"-") == 0 ) {
 	    fd->fp_out = stdout;
-	}
-	else {
+	} else {
 	    fd->fp_out = fopen(filename, fmode);
         }
         
         if ( ! fd->fp_out )
             return cram_io_close(fd,0);
+
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+        fd->fp_out_callbacks
+	    = cram_IO_allocate_cram_io_output_from_C_FILE(fd->fp_out);
+
+	if ( ! fd->fp_out_callbacks )
+	    return cram_io_close(fd,0);
+
+	int bufsize = 32*1024; // FIXME: use same bufsize calc as above
+	fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
+	if ( ! fd->fp_out_buffer ) {
+	    return cram_io_close(fd,0);
+	} else {
+	    setvbuf(fd->fp_out, NULL, _IONBF, 0);
+	}
+	
+#endif // CRAM_IO_CUSTOM_BUFFERING
+
     }
     
     return fd;
