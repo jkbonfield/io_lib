@@ -650,6 +650,7 @@ typedef struct spare_bams {
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
 typedef size_t (*cram_io_C_FILE_fread_t)(void *ptr, size_t size, size_t nmemb, void *stream);
+typedef size_t (*cram_io_C_FILE_fwrite_t)(void *ptr, size_t size, size_t nmemb, void *stream);
 typedef int    (*cram_io_C_FILE_fseek_t)(void * fd, off_t offset, int whence);
 typedef off_t  (*cram_io_C_FILE_ftell_t)(void * fd);
 
@@ -660,8 +661,22 @@ typedef struct {
     cram_io_C_FILE_ftell_t  ftell_callback;
 } cram_io_input_t;
 
+typedef struct {
+    void                   *user_data;
+    cram_io_C_FILE_fwrite_t fwrite_callback;
+    cram_io_C_FILE_ftell_t  ftell_callback;
+} cram_io_output_t;
+
 typedef cram_io_input_t * (*cram_io_allocate_read_input_t)(char const * filename, int const decompress);
 typedef cram_io_input_t * (*cram_io_deallocate_read_input_t)(cram_io_input_t * obj);
+
+typedef cram_io_output_t * (*cram_io_allocate_write_output_t)(char const * filename, int const compress);
+typedef cram_io_output_t * (*cram_io_deallocate_write_output_t)(cram_io_output_t * obj);
+
+
+
+// FIXME: make cram_fd_input_buffer and cram_fd_input_buffer the same thing.
+// Ie cram_fd_io_buffer and internals fp_io_*.
 
 typedef struct {
     /* input buffer size */
@@ -670,23 +685,43 @@ typedef struct {
     char          *fp_in_buffer;
     /* position of buffer start in file */
     uint64_t       fp_in_buf_start;
-    /* start of window pointer */
+    /* start of window pointer; same as fp_in_buffer */
     char          *fp_in_buf_pa;
     /* window current pointer */
     char          *fp_in_buf_pc;
-    /* window end pointer */
+    /* window end pointer;  same as fp_in_buffer + fp_in_buf_size (no seeks) */
     char          *fp_in_buf_pe;    
 } cram_fd_input_buffer;
+
+typedef struct {
+    /* output buffer size */
+    size_t         fp_out_buf_size;
+    /* output buffer base pointer */
+    char          *fp_out_buffer;
+    /* position of buffer start in file */
+    uint64_t       fp_out_buf_start;
+    /* start of window pointer; same as fp_out_buffer */
+    char          *fp_out_buf_pa;
+    /* window current pointer */
+    char          *fp_out_buf_pc;
+    /* window end pointer */
+    char          *fp_out_buf_pe;    
+} cram_fd_output_buffer;
 #endif
 
 typedef struct {
     FILE                 *fp_in;
-    #if defined(CRAM_IO_CUSTOM_BUFFERING)
-    cram_fd_input_buffer *fp_in_buffer;
-    cram_io_input_t      *fp_in_callbacks;
-    cram_io_allocate_read_input_t   fp_in_callback_allocate_function;
-    cram_io_deallocate_read_input_t fp_in_callback_deallocate_function;
-    #endif
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+    cram_fd_input_buffer            *fp_in_buffer;
+    cram_io_input_t                 *fp_in_callbacks;
+    cram_io_allocate_read_input_t    fp_in_callback_allocate_function;
+    cram_io_deallocate_read_input_t  fp_in_callback_deallocate_function;
+
+    cram_fd_output_buffer            *fp_out_buffer;
+    cram_io_output_t                 *fp_out_callbacks;
+    cram_io_allocate_write_output_t   fp_out_callback_allocate_function;
+    cram_io_deallocate_write_output_t fp_out_callback_deallocate_function;
+#endif
     
     FILE          *fp_out;
     int            mode;     // 'r' or 'w'
@@ -763,6 +798,10 @@ typedef struct {
     pthread_mutex_t bam_list_lock;
     void *job_pending;
     int ooc;                            // out of containers.
+
+    // aids for libmaus threading
+    // FIXME: replace with generic CRAM_IO_CUSTOM_BUFFERING code
+    void *workpackage;
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -778,17 +817,21 @@ extern char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd);
 #define CRAM_IO_SEEK(fd, offset, whence) cram_io_input_buffer_seek(fd, offset, whence)
 #define CRAM_IO_TELLO(fd) (fd->fp_in_buffer->fp_in_buf_start +(fd->fp_in_buffer->fp_in_buf_pc-fd->fp_in_buffer->fp_in_buf_pa))
 #define CRAM_IO_FGETS(s,size,fd) cram_io_input_buffer_fgets(s,size,fd)
+#define CRAM_IO_PUTC(c,fd) cram_io_output_buffer_putc(c,fd)
+#define CRAM_IO_WRITE(ptr, size, nmemb, fd) cram_io_output_buffer_write(ptr,size,nmemb,fd)
+#define CRAM_IO_FLUSH(fd) (0)
+
 #else // ! CRAM_IO_CUSTOM_BUFFERING
 #define CRAM_IO_GETC(fd) getc(fd->fp_in)
 #define CRAM_IO_READ(ptr, size, nmemb, fd) fread(ptr,size,nmemb,fd->fp_in)
 #define CRAM_IO_TELLO(fd) ftello(fd->fp_in)
 #define CRAM_IO_SEEK(fd, offset, whence) fseeko(fd->fp_in,offset,whence)
 #define CRAM_IO_FGETS(s,size,fd) fgets(s,size,fd->fp_in)
-#endif // end CRAM_IO_CUSTOM_BUFFERING
-
 #define CRAM_IO_PUTC(c,fd) putc(c,fd->fp_out)
 #define CRAM_IO_WRITE(ptr, size, nmemb, fd) fwrite(ptr,size,nmemb,fd->fp_out)
 #define CRAM_IO_FLUSH(fd) (fd->fp_out ? fflush(fd->fp_out) : 0)
+
+#endif // end CRAM_IO_CUSTOM_BUFFERING
 
 // REQUIRED_FIELDS
 enum sam_fields {
