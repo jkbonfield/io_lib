@@ -1,0 +1,623 @@
+This is a branch of the io_lib CRAM code to handle plugins/modules for
+compression codecs.
+
+See the io_lib/cram_codec_* files for example API.
+
+Some basic ideas follow.
+
+
+Read names
+==========
+
+
+String delta
+------------
+
+The most simplest reading name compression is a string delta,
+comparing against the previous name.  This can be trivial (N bytes
+prefix and/or postfixed followed by the middle portion) or some more
+complex alignment strategy on metacharacter (eg :). 
+
+Simple example:
+
+Previous name: HS25_09827:2:2111:9986:9980#49
+New name:      HS25_09827:2:2111:12096:9901#49
+
+=>
+store 18 ("HS25_09827:2:2111:" length),
+store "12096:9901"
+store 3 ("#49" length)
+
+
+Name LZ
+-------
+
+A custom form of LZ.  We'd want something similar for string delta
+anyway to handle name dups.
+
+LZ distances are in numbers of names not number of bytes.  So we can
+say that this sequence matches 5 names ago, not 162 bytes ago.  This
+keeps the distance code down.  Distances may need to be + or - for
+matching from name start/end, or have two distinct match types.
+
+The benefit is it'll do efficient compression of data sets with mixed
+runs and it can also entirely dedup the name for read pairs.
+
+Care needs to be taken to ensure that variable length matches are
+avoided if they are due to chance.  Eg perhaps the first 20 characters
+are always the same, but 1 in 10 times (as it's a numerical number) we
+see the first 21 matching.  In this case it is usually smaller to
+indicate the first 20 match still and store the 21st as per normal.
+
+
+Encoding with previous name as context
+--------------------------------------
+
+This is how fqzcomp works, both in a simple form (-n1) and complex one
+(-n2).  Simplest is to just use char from the same location in the
+previous name. On meta-characters we stall until both have been
+found. Eg:
+
+Previous name: HS25_09827:2:2111:9986:9980#49
+New name:      HS25_09827:2:2111:12096:9901#49
+
+
+=>
+H H
+S S
+2 2
+...
+1 1
+: : (these and above are all identical and encoded with extreme high
+     probability, so they're tiny).
+9 1 (now we get genuine differences, but number vs number only)
+9 2
+8 0
+6 9
+: 6 (this is because the previous name was shorter, but we don't
+    advance the pointer on previous name yet)
+: : (now meta-chars match, so we can advance both)
+9 9
+9 9
+8 0
+0 1
+# #
+4 4
+9 9 (end)
+
+
+
+Encoding with previous name tokenised
+-------------------------------------
+
+Like above, but we tokenise the name:
+
+Previous name: HS25_09827:2:2111:9986:9980#49
+New name:      HS25_09827:2:2111:12096:9901#49
+
+<HS25_09827><:><2><:><2111><:><9986><:><9980><#><49>
+<HS25_09827><:><2><:><2111><:><12096><:><9901><#><49>
+
+Then output things like MATCH (string or number), IDELTA (integer
+delta, store this_value - last_value), INT (integer, store as is),
+etc.
+
+See fqzcomp -n2.
+
+
+
+Sequence
+========
+
+Could reorder the sequence data into pileup orientation so we have all
+data per column.  Then encode a column at a time.  The data per column
+constructs a model of likelihoods for all other data in that column.
+Then the reference is simply a set of priors.  See samcomp program for
+an implementation.
+
+
+It's possible we could also use CRAM as-is, but take ideas from Deez.
+Specifically it computes a consensus and then stores the delta between
+consensus + reference as well as delta between SAM sequences and their
+consensus.  This two phase approach avoids issues of the reference
+being incorrect or highly divergent.  It'll also work much better for
+indels.
+
+
+May wish to do denovo assembly of soft-clips to compress those too, or
+at least a context model (as per fqzcomp).
+
+
+
+Qualities
+=========
+
+
+Duplications
+------------
+
+As per read names, we may need a special symbol to indicate that the
+whole or portion of this quality string matches a previously stored
+quality string.  This can happen if we are storing secondary matches
+or supplementary matches.
+
+
+Spatial analysis
+----------------
+
+Cluster sequences by tile,cycle,x,y location (per read-group) to
+compute a quality distribution per small physical region.  This copes
+with quality degredation caused by tile edge effects or slide
+artifacts such as bubbles.
+
+We could either have a fully stored quality frequency distribution at
+each site, or instead use the average and delta to that.  Somewhere
+inbetween is probably ideal - an average quality distribution for a
+large region of the tile along with deltas to that per small tile
+region so we get fine grained frequency distributions.  Alternatively
+we could construct a dictionary of standard frequency distributions that
+we wish to reference, given they are likely duplicated many times
+across the tile.
+
+Experiments show cycle is the most significant.
+
+See appendix 1.
+
+At a very basic approach, we can have a special order-1+ rANS codec
+that has an additional context for first few / last few cycles.
+
+
+Sequence analysis
+-----------------
+
+The sequence context for a specific quality may have an impact on that
+quality.  By using a kmer of sequence; so many bases before and after
+the quality site in question, we could try and compute any sequence
+specific motifs that give rise to abnormal quality values (hence
+correctly encoding their entropy).
+
+Appendix 2 has an example of a static version of this, but it could
+instead be dynamic where these distributions get amended while
+encoding/decoding, avoiding the need to store the frequency tables
+themselves.
+
+
+Genome coordinates
+------------------
+
+There may also be genome specific contexts, but this is perhaps just a
+special case of Sequence analysis above.
+
+
+
+Match vs mismatch
+-----------------
+
+If we are encoding sequence as a delta to the reference, then we can
+also split the quality values into two sets: those that match the
+reference and those that do not.  These two sets should have their own
+distinct distributions.
+
+
+Higher order models
+-------------------
+
+See fqzcomp, quip, scalce, etc.
+
+
+Combinations of all of the above
+--------------------------------
+
+See fastqz, ieeta sequencesqueeze entry, etc.  The idea here is to
+have all of the above as potential quality contexts and then to use an
+adaptive context mixing algorithm to merge all context predictions
+into a single probability distribution.
+
+
+
+=============================================================================
+
+Appendix 1
+----------
+
+/*
+ * A no error checking quick hack to extract X,Y location and correlate
+ * it with quality values
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <inttypes.h>
+#include <stdlib.h>
+
+/* Tokenise the first 11 fields */
+char **tokenise(char *line) {
+    int i;
+    static char *tokens[11];
+
+    for (i = 0; i < 11; i++) {
+	tokens[i] = line;
+	while (*line > '\t')
+	    line++;
+
+	if (*line == '\n' || *line == '\0')
+	    break;
+	*line++ = 0;
+    }
+    return tokens;
+}
+
+// x == 1..22000
+// y == 1..110000
+
+#define MAX_CYCLES 101
+#define MAX_X 22000
+#define MAX_Y 101000
+#define MAX_Q 50
+
+#define BIN (1<<8)
+
+static int qcnt3[MAX_CYCLES][MAX_X/BIN][MAX_Y/BIN][MAX_Q];
+static int ncnt3[MAX_CYCLES][MAX_X/BIN][MAX_Y/BIN];
+
+static int qcnt2[MAX_CYCLES][MAX_Q];
+static int ncnt2[MAX_CYCLES];
+
+static int64_t qcnt1[MAX_Q];
+static int64_t ncnt1;
+
+void process(char *qual, int lane, int tile, int x, int y) {
+    size_t len = strlen(qual), i;
+    if (len > MAX_CYCLES)
+	len = MAX_CYCLES;
+
+    for (i = 0; i < len; i++) {
+	char q = qual[i] - '!';
+
+	if (x/BIN >= MAX_X/BIN) continue;
+	if (y/BIN >= MAX_Y/BIN) continue;
+	if (q >= MAX_Q) continue;
+
+	qcnt3[i][x/BIN][y/BIN][q]++;
+	ncnt3[i][x/BIN][y/BIN]++;
+
+	qcnt2[i][q]++;
+	ncnt2[i]++;
+
+	qcnt1[q]++;
+	ncnt1++;
+    }
+}
+
+// #define EBASE2 256
+// double entropy8(unsigned char *data, int len) {
+//     int F[EBASE2];
+//     double e = 0;
+//     int i;
+//     
+//     for (i = 0; i < EBASE2; i++)
+//         F[i] = 0;
+// 
+//     for (i = 0; i < len; i++)
+//         F[data[i]]++;
+// 
+//     for (i = 0; i < EBASE2; i++) {
+//         if (F[i]) {
+// 	    e += -log((double)F[i]/len) * F[i];
+//         }
+//     }
+// 
+//     return e / log(EBASE2);
+// }
+
+void dump_quals(void) {
+    int i, x, y, q;
+
+    double per_qual = 0;
+    double per_qual_cycle = 0;
+    double per_qual_cycle_xy = 0;
+    int64_t nq;
+
+#if 0
+    // debug
+    i = 50;
+    x = 40;
+    y = 100;
+    for (y = 0; y < MAX_Y/BIN; y++) {
+	for (x = 0; x < MAX_X/BIN; x++) {
+	    for (q = 0; q < MAX_Q; q++) {
+		printf("%d ", qcnt3[i][x][y][q]);
+	    }
+	    printf("\n");
+	}
+    }
+#endif
+
+
+    // Per cycle,x,y
+    nq = 0;
+    for (i = 0; i < MAX_CYCLES; i++) {
+	for (y = 0; y < MAX_Y/BIN; y++) {
+	    for (x = 0; x < MAX_X/BIN; x++) {
+		int n = ncnt3[i][x][y];
+		nq += n;
+		for (q = 0; q < MAX_Q; q++) {
+		    int f = qcnt3[i][x][y][q];
+
+		    if (!f) continue;
+		    per_qual_cycle_xy += -log((double)f/n)*f;
+		    //per_qual_cycle_xy +=2; // estimate of encoding f,n table itself
+
+		    // 6 bits of q, but can delta so maybe only 2-3 bits
+		    // or even 0 if all values represented.
+		    // => 14-16 bits of quantised frequency
+		}
+	    }
+	}
+    }
+    per_qual_cycle_xy /= log(256);
+    printf("Cycle,x,y entropy = %f %"PRId64"\n", per_qual_cycle_xy, nq);
+
+    // Per cycle
+    nq = 0;
+    for (i = 0; i < MAX_CYCLES; i++) {
+	int n = ncnt2[i];
+	nq += n;
+	for (q = 0; q < MAX_Q; q++) {
+	    int f = qcnt2[i][q];
+	    
+	    if (!f) continue;
+	    per_qual_cycle += -log((double)f/n)*f;
+	    //per_qual_cycle +=2; // estimate of encoding f,n table itself
+	}
+    }
+    per_qual_cycle /= log(256);
+    printf("Cycle     entropy = %f %"PRId64"\n", per_qual_cycle, nq);
+
+    // Overall
+    int64_t n = ncnt1;
+    nq = n;
+    for (q = 0; q < MAX_Q; q++) {
+	int64_t f = qcnt1[q];
+
+	if (!f) continue;
+	per_qual += -log((double)f/n)*f;
+	//per_qual +=2; // estimate of encoding f,n table itself
+    }
+    per_qual /= log(256);
+    printf("          Entropy = %f %"PRId64"\n", per_qual, nq);
+
+    puts("");
+}
+
+int main(void) {
+    char line[8192];
+    int n;
+    int64_t nb = 0;
+
+    while (fgets(line, 8192, stdin)) {
+	if (*line != '@')
+	    break;
+    }
+
+    do {
+	char prefix[8192];
+	int lane, tile, x, y;
+
+	char **tokens = tokenise(line);
+	// extract lane,tile,X,Y from name
+	// HS25_09827:2:2308:9088:53281#49
+	sscanf(strchr(line, ':'), ":%d:%d:%d:%d", &lane, &tile, &x, &y);
+
+	// build an image up
+	process(tokens[10], lane,tile,x,y);
+
+	nb += strlen(tokens[9]);
+
+//	if (n++ == 10000000) {
+//	    n = 0;
+//	    dump_quals();
+//	    memset(qcnt3, 0, MAX_CYCLES*(MAX_X/BIN)*(MAX_Y/BIN)*MAX_Q*sizeof(int));
+//	    memset(ncnt3, 0, MAX_CYCLES*(MAX_X/BIN)*(MAX_Y/BIN)*sizeof(int));
+//	    memset(qcnt2, 0, MAX_CYCLES*MAX_Q*sizeof(int));
+//	    memset(ncnt2, 0, MAX_CYCLES*sizeof(int));
+//	    memset(qcnt1, 0, MAX_Q*sizeof(int64_t));
+//	    ncnt1 = 0;
+//	}
+    } while (fgets(line, 8192, stdin));
+
+    dump_quals();
+    printf("nbases=%"PRId64"\n", nb);
+    printf("ncnt1 =%"PRId64"\n", ncnt1);
+
+    return 0;
+}
+
+
+=============================================================================
+
+Appendix 2
+----------
+
+/*
+ * Quality entropy calculation using sequence as context
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <inttypes.h>
+#include <stdlib.h>
+
+/* Tokenise the first 11 fields */
+char **tokenise(char *line) {
+    int i;
+    static char *tokens[11];
+
+    for (i = 0; i < 11; i++) {
+	tokens[i] = line;
+	while (*line > '\t')
+	    line++;
+
+	if (*line == '\n' || *line == '\0')
+	    break;
+	*line++ = 0;
+    }
+    return tokens;
+}
+
+// x == 1..22000
+// y == 1..110000
+
+#define KMER 8
+#define KSHIFT 2
+#define KIDX (2<<KMER)
+#define KMASK (KIDX-1)
+#define MAX_Q 50
+
+#define BIN (1<<8)
+
+static int64_t qcnt2[KIDX][MAX_Q];
+static int64_t ncnt2[KIDX];
+
+static int64_t qcnt1[MAX_Q];
+static int64_t ncnt1;
+
+static int lookup[256];
+void init_lookup(void) {
+    lookup['A'] = lookup['a'] = 0;
+    lookup['C'] = lookup['c'] = 1;
+    lookup['G'] = lookup['g'] = 2;
+    lookup['T'] = lookup['t'] = 3;
+    // What to do about N?
+    // ignore for now as prevalence is low so it won't bias stats much
+}
+
+void process(char *qual, char *seq) {
+    size_t len = strlen(qual), i;
+    unsigned int k = 0;
+
+    for (i = 0; i < KMER; i++) {
+	k <<= 2;
+	k |= lookup[seq[i+KSHIFT]];
+    }
+    k &= KMASK;
+
+    for (i = KMER; i < len-KSHIFT; i++) {
+	char q = qual[i] - '!';
+
+	k = ((k<<2) | lookup[seq[i+KSHIFT]]) & KMASK;
+
+	qcnt2[k][q]++;
+	ncnt2[k]++;
+
+	qcnt1[q]++;
+	ncnt1++;
+    }
+}
+
+// #define EBASE2 256
+// double entropy8(unsigned char *data, int len) {
+//     int F[EBASE2];
+//     double e = 0;
+//     int i;
+//     
+//     for (i = 0; i < EBASE2; i++)
+//         F[i] = 0;
+// 
+//     for (i = 0; i < len; i++)
+//         F[data[i]]++;
+// 
+//     for (i = 0; i < EBASE2; i++) {
+//         if (F[i]) {
+// 	    e += -log((double)F[i]/len) * F[i];
+//         }
+//     }
+// 
+//     return e / log(EBASE2);
+// }
+
+void dump_quals(void) {
+    int i, x, y, q;
+
+    double per_qual = 0;
+    double per_qual_seq = 0;
+    int64_t nq;
+
+    // With seq context
+    nq = 0;
+    for (i = 0; i < KIDX; i++) {
+	nq += ncnt2[i];
+	for (q = 0; q < MAX_Q; q++) {
+	    int v = qcnt2[i][q];
+	    int n = ncnt2[i];
+	    
+	    if (!v) continue;
+	    per_qual_seq += -log((double)v/n)*v;
+	    //per_qual_seq +=2; // estimate of encoding v,n table itself
+	}
+    }
+    per_qual_seq /= log(256);
+    printf("Seq entropy = %f %"PRId64"\n", per_qual_seq, nq);
+
+    // Overall
+    nq = ncnt1;
+    for (q = 0; q < MAX_Q; q++) {
+	int64_t v = qcnt1[q];
+	int64_t n = ncnt1;
+
+	if (!v) continue;
+	per_qual += -log((double)v/n)*v;
+	//per_qual +=2; // estimate of encoding v,n table itself
+    }
+    per_qual /= log(256);
+    printf("    Entropy = %f %"PRId64"\n", per_qual, nq);
+
+    puts("");
+}
+
+int main(void) {
+    char line[8192];
+    int n;
+    int64_t nb = 0;
+
+    init_lookup();
+
+    while (fgets(line, 8192, stdin)) {
+	if (*line != '@')
+	    break;
+    }
+
+    do {
+	char prefix[8192];
+	int lane, tile, x, y;
+
+	char **tokens = tokenise(line);
+
+	// top strand only
+	if (atoi(tokens[1]) & 0x10)
+	    continue;
+
+	nb += strlen(tokens[9]);
+
+	// build an image up
+	process(tokens[10], tokens[9]);
+
+//	if (n++ == 1000000) {
+//	    n = 0;
+//	    dump_quals();
+//	    memset(qcnt2, 0, KIDX*MAX_Q*sizeof(int64_t));
+//	    memset(ncnt2, 0, KIDX*sizeof(int64_t));
+//	    memset(qcnt1, 0, MAX_Q*sizeof(int64_t));
+//	    ncnt1 = 0;
+//	}
+    } while (fgets(line, 8192, stdin));
+
+    dump_quals();
+    printf("nbases=%"PRId64"\n", nb);
+    printf("ncnt1 =%"PRId64"\n", ncnt1);
+
+    return 0;
+}
+
