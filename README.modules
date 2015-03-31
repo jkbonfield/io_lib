@@ -205,6 +205,23 @@ Higher order models
 See fqzcomp, quip, scalce, etc.
 
 
+Clustering & orientation
+------------------------
+
+We should always orient by sequencing direction.  Right now CRAM
+stores as-is instead of using the FLAG & 0x10 to reverse.  This will
+save us ~2%.
+
+We can also try treating the block of 10,000 reads of, say, 100 bases
+long as a matrix of 10000 x 100.  In *some* data sets transposing this
+to 100x10000 and using order-0 encoding is better than an order-1
+encoding of the original 10000x100, but not in most.
+
+Finally we can cluster sequences into good and bad sets and compress
+independently, or at least to use this as a context. It saves around
+1-2%.
+
+
 Combinations of all of the above
 --------------------------------
 
