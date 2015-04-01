@@ -402,12 +402,12 @@ char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd)
  * Returns 0 on success,
  *        -1 on failure.
  */
-static int cram_io_flush_output_buffer(cram_fd * fd)
+int cram_io_flush_output_buffer(cram_fd *fd)
 {
     size_t r;
     char *dat   = fd->fp_out_buffer->fp_out_buf_pa;
-    size_t olen = fd->fp_out_buffer->fp_out_buf_size;
-    size_t len  = fd->fp_out_buffer->fp_out_buf_size;
+    size_t olen = fd->fp_out_buffer->fp_out_buf_pc - dat;
+    size_t len  = olen;
 
     /* write up to buffer size bytes */
     /* C-IO fwrite */
@@ -442,11 +442,6 @@ static int cram_io_flush_output_buffer(cram_fd * fd)
     return 0;
 }
 
-/* Buffer too full, so flush the data. */
-int cram_io_output_buffer_overflow(cram_fd * fd)
-{
-    return cram_io_flush_output_buffer(fd);
-}
 
 /* fwrite simulation */
 size_t cram_io_output_buffer_write(void *ptr, size_t size, size_t nmemb,
@@ -564,7 +559,7 @@ cram_io_deallocate_output_buffer(cram_fd_output_buffer * buffer)
     return buffer;
 }
 
-static cram_fd_output_buffer *
+cram_fd_output_buffer *
 cram_io_allocate_output_buffer(size_t const bufsize)
 {
     cram_fd_output_buffer * buffer =
@@ -573,6 +568,7 @@ cram_io_allocate_output_buffer(size_t const bufsize)
     if ( ! buffer )
         return cram_io_deallocate_output_buffer(buffer);
     
+    // FIXME: is memset really needed here? I suspect pa/pc is sufficient.
     memset(buffer,0,sizeof(cram_fd_output_buffer));
 
     buffer->fp_out_buf_size = bufsize;
@@ -4371,13 +4367,47 @@ cram_fd * cram_io_open_by_callbacks(
     fd->fp_in_callback_allocate_function   = callback_allocate_function;
     fd->fp_in_callback_deallocate_function = callback_deallocate_function;
 
-    fd->fp_in_callbacks = fd->fp_in_callback_allocate_function(filename,decompress);
+    fd->fp_in_callbacks =
+	fd->fp_in_callback_allocate_function(filename,decompress);
+
     if ( ! fd->fp_in_callbacks )
-        return cram_io_close(fd,0);
+	return cram_io_close(fd,0);
 
     fd->fp_in_buffer = cram_io_allocate_input_buffer(bufsize);
     if ( ! fd->fp_in_buffer ) {
-        return cram_io_close(fd,0);
+	return cram_io_close(fd,0);
+    }
+    
+    return fd;
+}
+
+// FIXME: make a shared interface with cram_io_open_by_callbacks above
+cram_fd * cram_io_openw_by_callbacks(
+    char const * filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
+    size_t const bufsize
+)
+{
+    cram_fd * fd = (cram_fd *)malloc(sizeof(cram_fd));
+
+    if ( ! fd )
+       return cram_io_close(fd,0);
+    
+    memset(fd,0,sizeof(cram_fd));
+
+    fd->fp_out_callback_allocate_function   = callback_allocate_function;
+    fd->fp_out_callback_deallocate_function = callback_deallocate_function;
+
+    fd->fp_out_callbacks =
+	fd->fp_out_callback_allocate_function(filename);
+
+    if ( ! fd->fp_out_callbacks )
+	return cram_io_close(fd,0);
+
+    fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
+    if ( ! fd->fp_out_buffer ) {
+	return cram_io_close(fd,0);
     }
     
     return fd;
@@ -4636,7 +4666,11 @@ cram_fd *cram_open_by_callbacks(
     char *cp;
     cram_fd *fd = NULL;
 
-    fd = cram_io_open_by_callbacks(filename,callback_allocate_function,callback_deallocate_function,bufsize,0);
+    fd = cram_io_open_by_callbacks(filename,
+				   callback_allocate_function,
+				   callback_deallocate_function,
+				   bufsize,
+				   0);
     if (!fd)
 	return cram_io_close(fd,0);
 
@@ -4654,6 +4688,116 @@ cram_fd *cram_open_by_callbacks(
 
     if (!(fd->header = cram_read_SAM_hdr(fd)))
         goto err;
+
+    cram_init_tables(fd);
+
+    fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
+    if (!fd->prefix)
+	goto err;
+    fd->slice_num = 0;
+    fd->first_base = fd->last_base = -1;
+    fd->record_counter = 0;
+
+    fd->ctr = NULL;
+    fd->refs  = refs_create();
+    if (!fd->refs)
+	goto err;
+    fd->ref_id = -2;
+    fd->ref = NULL;
+
+    fd->decode_md = 0;
+    fd->verbose = 0;
+    fd->seqs_per_slice = SEQS_PER_SLICE;
+    fd->slices_per_container = SLICE_PER_CNT;
+    fd->embed_ref = 0;
+    fd->no_ref = 0;
+    fd->ignore_md5 = 0;
+    fd->use_bz2 = 0;
+    fd->use_rans = IS_CRAM_3_VERS(fd);
+    fd->use_lzma = 0;
+    fd->multi_seq = 0;
+    fd->unsorted   = 0;
+    fd->shared_ref = 0;
+
+    fd->index       = NULL;
+    fd->own_pool    = 0;
+    fd->pool        = NULL;
+    fd->rqueue      = NULL;
+    fd->job_pending = NULL;
+    fd->ooc         = 0;
+    fd->binning     = BINNING_NONE;
+    fd->required_fields = INT_MAX;
+
+    for (i = 0; i < DS_END; i++)
+	fd->m[i] = cram_new_metrics();
+
+    fd->range.refid = -2; // no ref.
+    fd->eof = 1;
+    fd->ref_fn = NULL;
+
+    fd->bl = NULL;
+
+    /* Initialise dummy refs from the @SQ headers */
+    if (-1 == refs_from_header(fd->refs, fd, fd->header))
+	goto err;
+
+    return fd;
+
+ err:
+    fd = cram_io_close(fd,0);
+
+    return NULL;
+}
+
+/*
+ * FIXME: make shared interface with code above.
+ *
+ * Opens a CRAM file for write via callbacks
+ *
+ * Returns file handle on success
+ *         NULL on failure.
+ */
+cram_fd *cram_openw_by_callbacks(
+    char const * filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
+    size_t const bufsize
+) {
+    int i;
+    char *cp;
+    cram_fd *fd = NULL;
+
+    fd = cram_io_openw_by_callbacks(filename,
+				    callback_allocate_function,
+				    callback_deallocate_function,
+				    bufsize);
+    if (!fd)
+	return cram_io_close(fd,0);
+
+    fd->level = 5;
+
+    fd->mode = 'w';
+    fd->first_container = 0;
+
+    {
+	/* Writer */
+	cram_file_def def;
+
+	def.magic[0] = 'C';
+	def.magic[1] = 'R';
+	def.magic[2] = 'A';
+	def.magic[3] = 'M';
+	def.major_version = major_version;
+	def.minor_version = minor_version;
+	memset(def.file_id, 0, 20);
+	strncpy(def.file_id, filename, 20);
+	if (0 != cram_write_file_def(fd, &def))
+	    goto err;
+
+	fd->version = def.major_version * 256 + def.minor_version;
+
+	/* SAM header written later */
+    }
 
     cram_init_tables(fd);
 
