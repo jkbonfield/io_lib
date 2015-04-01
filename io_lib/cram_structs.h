@@ -670,7 +670,7 @@ typedef struct {
 typedef cram_io_input_t * (*cram_io_allocate_read_input_t)(char const * filename, int const decompress);
 typedef cram_io_input_t * (*cram_io_deallocate_read_input_t)(cram_io_input_t * obj);
 
-typedef cram_io_output_t * (*cram_io_allocate_write_output_t)(char const * filename, int const compress);
+typedef cram_io_output_t * (*cram_io_allocate_write_output_t)(char const * filename);
 typedef cram_io_output_t * (*cram_io_deallocate_write_output_t)(cram_io_output_t * obj);
 
 
@@ -798,10 +798,6 @@ typedef struct {
     pthread_mutex_t bam_list_lock;
     void *job_pending;
     int ooc;                            // out of containers.
-
-    // aids for libmaus threading
-    // FIXME: replace with generic CRAM_IO_CUSTOM_BUFFERING code
-    void *workpackage;
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -809,6 +805,7 @@ extern size_t cram_io_input_buffer_read(void *ptr, size_t size, size_t nmemb, cr
 extern int cram_io_input_buffer_seek(cram_fd * fd, off_t offset, int whence);
 extern int cram_io_input_buffer_underflow(cram_fd * fd);
 extern char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd);
+extern int cram_io_flush_output_buffer(cram_fd *fd);
 #endif
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -819,7 +816,7 @@ extern char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd);
 #define CRAM_IO_FGETS(s,size,fd) cram_io_input_buffer_fgets(s,size,fd)
 #define CRAM_IO_PUTC(c,fd) cram_io_output_buffer_putc(c,fd)
 #define CRAM_IO_WRITE(ptr, size, nmemb, fd) cram_io_output_buffer_write(ptr,size,nmemb,fd)
-#define CRAM_IO_FLUSH(fd) (0)
+#define CRAM_IO_FLUSH(fd) cram_io_flush_output_buffer((fd))
 
 #else // ! CRAM_IO_CUSTOM_BUFFERING
 #define CRAM_IO_GETC(fd) getc(fd->fp_in)
