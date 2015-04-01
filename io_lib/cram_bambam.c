@@ -229,7 +229,7 @@ void *cram_allocate_encoder(void *userdata,
 
     fd->header = hdr;
     sam_hdr_incr_ref(hdr);
-    if (cram_write_SAM_header(fd, hdr) != 0)
+    if (cram_write_SAM_hdr(fd, hdr) != 0)
 	goto err;
 
     cram_io_flush_output_buffer(fd);

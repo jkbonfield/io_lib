@@ -545,7 +545,7 @@ cram_IO_allocate_cram_io_output_from_C_FILE(FILE * file)
     return obj;
 }
 
-static cram_fd_output_buffer *
+cram_fd_output_buffer *
 cram_io_deallocate_output_buffer(cram_fd_output_buffer * buffer)
 {
     if ( buffer ) {
