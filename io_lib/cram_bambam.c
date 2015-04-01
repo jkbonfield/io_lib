@@ -219,10 +219,10 @@ void *cram_allocate_encoder(void *userdata,
     if (!(fd = cram_io_open(NULL, "w", NULL)))
 	goto err;
 
-    fd = cram_io_openw_by_callbacks(NULL,
-				    cram_callback_allocate_func,
-				    cram_callback_deallocate_func,
-				    1024*1024);
+    fd = cram_openw_by_callbacks(NULL,
+				 cram_callback_allocate_func,
+				 cram_callback_deallocate_func,
+				 1024*1024);
 
     //fd->inblockid = 0;
     //fd->outblockid = 0;
@@ -253,7 +253,7 @@ void *cram_allocate_encoder(void *userdata,
     return NULL;
 }
 
-void cram_decallocate_encoder(void *context) {
+void cram_deallocate_encoder(void *context) {
     cram_enc_context *c = (cram_enc_context *)context;
 
     if (!c)

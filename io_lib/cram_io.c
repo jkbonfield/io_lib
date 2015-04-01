@@ -4498,14 +4498,19 @@ cram_fd * cram_io_open(
 
 #endif // CRAM_IO_CUSTOM_BUFFERING
     } else {
-    	if ( strcmp(filename,"-") == 0 ) {
-	    fd->fp_out = stdout;
-	} else {
-	    fd->fp_out = fopen(filename, fmode);
-        }
+	if (filename) {
+	    if ( strcmp(filename,"-") == 0 ) {
+		fd->fp_out = stdout;
+	    } else {
+		fd->fp_out = fopen(filename, fmode);
+	    }
         
-        if ( ! fd->fp_out )
-            return cram_io_close(fd,0);
+	    if ( ! fd->fp_out )
+		return cram_io_close(fd,0);
+	} else {
+	    // E.g. opening a CRAM in-memory file.
+	    fd->fp_out = NULL;
+	}
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
         fd->fp_out_callbacks
@@ -4518,7 +4523,7 @@ cram_fd * cram_io_open(
 	fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
 	if ( ! fd->fp_out_buffer ) {
 	    return cram_io_close(fd,0);
-	} else {
+	} else if (fd->fp_out) {
 	    setvbuf(fd->fp_out, NULL, _IONBF, 0);
 	}
 	
@@ -4790,7 +4795,8 @@ cram_fd *cram_openw_by_callbacks(
 	def.major_version = major_version;
 	def.minor_version = minor_version;
 	memset(def.file_id, 0, 20);
-	strncpy(def.file_id, filename, 20);
+	if (filename)
+	    strncpy(def.file_id, filename, 20);
 	if (0 != cram_write_file_def(fd, &def))
 	    goto err;
 
@@ -4801,9 +4807,13 @@ cram_fd *cram_openw_by_callbacks(
 
     cram_init_tables(fd);
 
-    fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
-    if (!fd->prefix)
-	goto err;
+    if (filename) {
+	fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
+	if (!fd->prefix)
+	    goto err;
+    } else {
+	fd->prefix = strdup("");
+    }
     fd->slice_num = 0;
     fd->first_base = fd->last_base = -1;
     fd->record_counter = 0;
