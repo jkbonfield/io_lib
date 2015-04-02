@@ -109,16 +109,17 @@ extern void *cram_allocate_encoder(void *userdata,
 				   cram_data_write_function_t write_func);
 extern void cram_deallocate_encoder(void *context);
 extern int cram_enque_compression_block(
-					void *userdata,
-					void *context,
-					size_t const inblockid,
-					char const **block,
-					size_t const *blocksize,
-					size_t const numblocks,
-					int const final,
-					cram_enque_compression_work_package_function_t workenqueuefunction,
-					cram_data_write_function_t writefunction,
-					cram_compression_work_package_finished_t workfinishedfunction);
+	void *userdata,
+	void *context,
+	size_t const inblockid,
+	char const **block,
+	size_t const *blocksize,
+	size_t const *blockelements,
+	size_t const numblocks,
+	int const final,
+	cram_enque_compression_work_package_function_t workenqueuefunction,
+	cram_data_write_function_t writefunction,
+	cram_compression_work_package_finished_t workfinishedfunction);
 extern int cram_process_work_package(void *workpackage);
 
 
@@ -259,14 +260,6 @@ void cram_deallocate_encoder(void *context) {
     if (!c)
 	return;
 
-    // Mark the final block
-    c->write_func(c->userdata, 
-		  0, // FIXME: inblockid
-		  0, // FIXME: outblockid
-		  NULL,
-		  0,
-		  cram_data_write_block_type_file_final);
-
     if (c->fd)
 	cram_io_close(c->fd, NULL);
 }
@@ -297,6 +290,7 @@ int cram_enque_compression_block(
 	size_t const inblockid,
 	char const **block,
 	size_t const *blocksize,
+	size_t const *blockelements,
 	size_t const numblocks,
 	int const final,
 	cram_enque_compression_work_package_function_t workenqueuefunction,
@@ -362,7 +356,7 @@ int cram_process_work_package(void *workpackage) {
     fd->fp_out_callbacks = cram_callback_allocate_func(NULL);
 
     fd->fp_out = NULL;
-    fd->record_counter = 666; // FIXME;
+    fd->record_counter = 666; // FIXME, use blockelements array;
     fd->slice_num = 0;
 
     // We create a fake bam_file_t containing the entire BAM block and
@@ -370,7 +364,7 @@ int cram_process_work_package(void *workpackage) {
     // sequences within the BAM block.
     for (bnum = 0; bnum < pkg->num_blocks; bnum++) {
 	bam_file_t *bf;
-	bam_seq_t *bsp;
+	bam_seq_t *bsp = NULL;
 
 	bf = bam_open_block(pkg->block[bnum],
 			    pkg->blocksize[bnum],
@@ -378,8 +372,14 @@ int cram_process_work_package(void *workpackage) {
 	if (!bf)
 	    return -1;
 
-	while (bam_get_seq(bf, &bsp))
-	    cram_put_bam_seq(fd, bsp);
+	while (bam_get_seq(bf, &bsp)) {
+	    if (cram_put_bam_seq(fd, bsp) != 0) {
+		fprintf(stderr, "Failed to write CRAM record\n");
+		bam_close(bf);
+		// FIXME: more leak in this error case
+		return -1;
+	    }
+	}
 
 	bam_close(bf);
     }
@@ -399,7 +399,12 @@ int cram_process_work_package(void *workpackage) {
 		    pkg->outblockid++,
 		    NULL,
 		    0,
-		    cram_data_write_block_type_block_final);
+		    pkg->final
+		    ? cram_data_write_block_type_file_final
+		    : cram_data_write_block_type_block_final);
+
+    if (pkg->final)
+	pkg->finished_func(pkg->userdata, pkg->inblockid, pkg->final);
 
     // Free the work package
     free(pkg);
