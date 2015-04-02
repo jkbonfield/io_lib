@@ -423,6 +423,8 @@ int cram_process_work_package(void *workpackage) {
 	bam_close(bf);
     }
 
+    cram_flush(fd);
+
     // Write the block
     dstring_t *ds = (dstring_t *)fd->fp_out_callbacks->user_data;
     fprintf(stderr, "Writing work package %d,%d "
