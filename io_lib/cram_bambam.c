@@ -126,6 +126,7 @@ extern int cram_process_work_package(void *workpackage);
 //-----------------------------------------------------------------------------
 // Internally used structures
 
+// A work package is a series of BAM blocks for conversion to CRAM
 typedef struct {
     // encoder context
     cram_fd *fd;
@@ -146,6 +147,11 @@ typedef struct {
     cram_compression_work_package_finished_t finished_func;
 } cram_enc_work_package;
 
+// The cram_enc_context is the primary encoder context used by
+// libmaus.  It is allocated once and passed into all subsequent calls
+// by libmaus.  We use it to track the total number of records so far
+// (for the CRAM container header) and our CRAM in-memory file
+// descriptor.
 typedef struct {
     cram_fd *fd;
     void *userdata; // supplied by caller, pass back into write_func
@@ -154,6 +160,9 @@ typedef struct {
     pthread_mutex_t context_lock;
 } cram_enc_context;
 
+
+//-----------------------------------------------------------------------------
+// The callbacks for making CRAM write to an in-memory data block.
 
 /* Cram buffered I/O writer */
 size_t cram_mem_write_callback(void *ptr,
@@ -194,6 +203,9 @@ cram_callback_deallocate_func(cram_io_output_t *io) {
 
     return NULL;
 }
+
+//-----------------------------------------------------------------------------
+// The libmaus threading interface itself.
 
 /**
  * Allocate cram encoder and return compression context
@@ -331,7 +343,7 @@ int cram_enque_compression_block(
 
     {
 	fprintf(stderr, "Enqueue block %d, rec_start %d+%d, final %d\n",
-		inblockid, (int)pkg->num_records, (int)numrecs, final);
+		(int)inblockid, (int)pkg->num_records, (int)numrecs, final);
 	fprintf(stderr, "blocksize[]={");
 	int tot;
 	for (tot = n = 0; n < numblocks; n++) {
@@ -425,11 +437,16 @@ int cram_process_work_package(void *workpackage) {
 
     cram_flush(fd);
 
+    if (pkg->final) {
+	// The final package needs the EOF block adding too.
+	cram_write_eof_block(fd);
+    }
+
     // Write the block
     dstring_t *ds = (dstring_t *)fd->fp_out_callbacks->user_data;
     fprintf(stderr, "Writing work package %d,%d "
 	    "from rec %d, length %d, final %d\n",
-	    pkg->inblockid, pkg->outblockid,
+	    (int)pkg->inblockid, (int)pkg->outblockid,
 	    (int)pkg->num_records,
 	    (int)DSTRING_LEN(ds),
 	    pkg->final);
