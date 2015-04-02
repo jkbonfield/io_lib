@@ -405,9 +405,16 @@ char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd)
 int cram_io_flush_output_buffer(cram_fd *fd)
 {
     size_t r;
-    char *dat   = fd->fp_out_buffer->fp_out_buf_pa;
-    size_t olen = fd->fp_out_buffer->fp_out_buf_pc - dat;
-    size_t len  = olen;
+    char  *dat;
+    size_t olen;
+    size_t len;
+
+    if (!fd->fp_out_buffer)
+	return 0;
+
+    dat  = fd->fp_out_buffer->fp_out_buf_pa;
+    olen = fd->fp_out_buffer->fp_out_buf_pc - dat;
+    len  = olen;
 
     /* write up to buffer size bytes */
     /* C-IO fwrite */
@@ -4892,6 +4899,42 @@ int cram_flush(cram_fd *fd) {
 }
 
 /*
+ * Writes an EOF block to a CRAM file.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_write_eof_block(cram_fd *fd) {
+    if (IS_CRAM_3_VERS(fd)) {
+	if (1 != CRAM_IO_WRITE(
+		"\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
+		"\x0f\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
+		"\x00\x01\x00"                     // Cont HDR
+		"\x05\xbd\xd9\x4f"                 // CRC32
+		//"\xa8\x2a\x1b\xb9"		   // CRC32C
+		"\x00\x01\x00\x06\x06"             // Comp.HDR blk
+		"\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
+		"\xee\x63\x01\x4b",                // CRC32
+		//"\xe9\x70\xd3\x86",              // CRC32C
+		38, 1, fd)) {
+	    fd = cram_io_close(fd,0);
+	    return -1;
+	}
+    } else { 
+	if (1 != CRAM_IO_WRITE("\x0b\x00\x00\x00\xff\xff\xff\xff"
+			       "\x0f\xe0\x45\x4f\x46\x00\x00\x00"
+			       "\x00\x01\x00\x00\x01\x00\x06\x06"
+			       "\x01\x00\x01\x00\x01\x00", 30, 1, fd)) {
+	    fd = cram_io_close(fd,0);
+	    return -1;
+	}
+    }		
+
+    cram_io_flush_output_buffer(fd);
+}
+
+
+/*
  * Closes a CRAM file.
  * Returns 0 on success
  *        -1 on failure
@@ -4936,30 +4979,8 @@ int cram_close(cram_fd *fd) {
 
     if (fd->mode == 'w') {
 	/* Write EOF block */
-	if (IS_CRAM_3_VERS(fd)) {
-	    if (1 != CRAM_IO_WRITE(
-			    "\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
-			    "\x0f\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
-			    "\x00\x01\x00"                     // Cont HDR
-			    "\x05\xbd\xd9\x4f"                 // CRC32
-			  //"\xa8\x2a\x1b\xb9"		       // CRC32C
-			    "\x00\x01\x00\x06\x06"             // Comp.HDR blk
-			    "\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
-			    "\xee\x63\x01\x4b",                // CRC32
-			  //"\xe9\x70\xd3\x86",                // CRC32C
-			    38, 1, fd)) {
-	        fd = cram_io_close(fd,0);
-		return -1;
-	    }
-	} else { 
-	    if (1 != CRAM_IO_WRITE("\x0b\x00\x00\x00\xff\xff\xff\xff"
-				   "\x0f\xe0\x45\x4f\x46\x00\x00\x00"
-				   "\x00\x01\x00\x00\x01\x00\x06\x06"
-				   "\x01\x00\x01\x00\x01\x00", 30, 1, fd)) {
-	        fd = cram_io_close(fd,0);
-		return -1;
-	    }
-	}		
+	if (0 != cram_write_eof_block(fd))
+	    return -1;
 
 //	if (1 != fwrite("\x00\x00\x00\x00\xff\xff\xff\xff"
 //			"\xff\xe0\x45\x4f\x46\x00\x00\x00"
