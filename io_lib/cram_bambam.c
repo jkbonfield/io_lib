@@ -244,6 +244,11 @@ void *cram_allocate_encoder(void *userdata,
     c->write_func = write_func;
     c->num_records = 0;
 
+    dstring_t *ds = (dstring_t *)fd->fp_out_callbacks->user_data;
+    write_func(userdata, -1, 0,
+	       DSTRING_STR(ds), DSTRING_LEN(ds),
+	       cram_data_write_block_type_block_final);
+
     pthread_mutex_init(&c->context_lock, NULL);
 
     return c;
