@@ -323,7 +323,21 @@ int cram_enque_compression_block(
     pkg->num_records = c->num_records;
     c->num_records += numrecs;
     pthread_mutex_unlock(&c->context_lock);
-    
+
+    {
+	fprintf(stderr, "Enqueue block %d, rec_start %d+%d, final %d\n",
+		inblockid, (int)pkg->num_records, (int)numrecs, final);
+	fprintf(stderr, "blocksize[]={");
+	int tot;
+	for (tot = n = 0; n < numblocks; n++) {
+	    fprintf(stderr, "%d%c", 
+		    (int)blocksize[n],
+		    "},"[n < numblocks-1]);
+	    tot += blocksize[n];
+	}
+	fprintf(stderr, "; // sum %d\n", tot);
+    }
+
     pkg->fd            = c->fd;
     pkg->block         = block;
     pkg->blocksize     = blocksize;
@@ -355,7 +369,6 @@ int cram_process_work_package(void *workpackage) {
     cram_enc_work_package *pkg = (cram_enc_work_package *)workpackage;
     cram_fd *fd;
     size_t bnum;
-    int final = pkg->final;
     int bufsize = 65536; // FIXME
 
     if (!pkg)
@@ -407,9 +420,11 @@ int cram_process_work_package(void *workpackage) {
 
     // Write the block
     dstring_t *ds = (dstring_t *)fd->fp_out_callbacks->user_data;
-    fprintf(stderr, "Writing work package from rec %d, length %d, final %d\n",
+    fprintf(stderr, "Writing work package %d,%d "
+	    "from rec %d, length %d, final %d\n",
+	    pkg->inblockid, pkg->outblockid,
 	    (int)pkg->num_records,
-	    DSTRING_LEN(ds),
+	    (int)DSTRING_LEN(ds),
 	    pkg->final);
     pkg->write_func(pkg->userdata, 
 		    pkg->inblockid,
