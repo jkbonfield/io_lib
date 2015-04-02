@@ -138,6 +138,8 @@ typedef struct {
     size_t outblockid;
     int final;
 
+    size_t num_records;
+
     // Libmaus callback functions
     void *userdata;
     cram_data_write_function_t write_func;
@@ -148,6 +150,8 @@ typedef struct {
     cram_fd *fd;
     void *userdata; // supplied by caller, pass back into write_func
     cram_data_write_function_t write_func;
+    size_t num_records;
+    pthread_mutex_t context_lock;
 } cram_enc_context;
 
 
@@ -238,6 +242,9 @@ void *cram_allocate_encoder(void *userdata,
     c->fd = fd;
     c->userdata = userdata;
     c->write_func = write_func;
+    c->num_records = 0;
+
+    pthread_mutex_init(&c->context_lock, NULL);
 
     return c;
 
@@ -262,6 +269,10 @@ void cram_deallocate_encoder(void *context) {
 
     if (c->fd)
 	cram_io_close(c->fd, NULL);
+
+    pthread_mutex_destroy(&c->context_lock);
+
+    free(c);
 }
 
 
@@ -299,10 +310,20 @@ int cram_enque_compression_block(
 {
     cram_enc_context *c = (cram_enc_context *)context;
     cram_enc_work_package *pkg = malloc(sizeof(*pkg));
+    size_t n, numrecs;
 
     if (!pkg)
 	return -1;
 
+    numrecs = 0;
+    for (n = 0; n < numblocks; n++)
+	numrecs += blockelements[n];
+
+    pthread_mutex_lock(&c->context_lock);
+    pkg->num_records = c->num_records;
+    c->num_records += numrecs;
+    pthread_mutex_unlock(&c->context_lock);
+    
     pkg->fd            = c->fd;
     pkg->block         = block;
     pkg->blocksize     = blocksize;
@@ -356,7 +377,7 @@ int cram_process_work_package(void *workpackage) {
     fd->fp_out_callbacks = cram_callback_allocate_func(NULL);
 
     fd->fp_out = NULL;
-    fd->record_counter = 666; // FIXME, use blockelements array;
+    fd->record_counter = pkg->num_records;
     fd->slice_num = 0;
 
     // We create a fake bam_file_t containing the entire BAM block and
@@ -391,14 +412,6 @@ int cram_process_work_package(void *workpackage) {
 		    pkg->outblockid++,
 		    DSTRING_STR(ds),
 		    DSTRING_LEN(ds),
-		    cram_data_write_block_type_internal);
-
-    // Mark the final block
-    pkg->write_func(pkg->userdata, 
-		    pkg->inblockid,
-		    pkg->outblockid++,
-		    NULL,
-		    0,
 		    pkg->final
 		    ? cram_data_write_block_type_file_final
 		    : cram_data_write_block_type_block_final);
