@@ -407,6 +407,10 @@ int cram_process_work_package(void *workpackage) {
 
     // Write the block
     dstring_t *ds = (dstring_t *)fd->fp_out_callbacks->user_data;
+    fprintf(stderr, "Writing work package from rec %d, length %d, final %d\n",
+	    (int)pkg->num_records,
+	    DSTRING_LEN(ds),
+	    pkg->final);
     pkg->write_func(pkg->userdata, 
 		    pkg->inblockid,
 		    pkg->outblockid++,
@@ -416,8 +420,7 @@ int cram_process_work_package(void *workpackage) {
 		    ? cram_data_write_block_type_file_final
 		    : cram_data_write_block_type_block_final);
 
-    if (pkg->final)
-	pkg->finished_func(pkg->userdata, pkg->inblockid, pkg->final);
+    pkg->finished_func(pkg->userdata, pkg->inblockid, pkg->final);
 
     // Free the work package
     free(pkg);
