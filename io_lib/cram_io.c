@@ -1697,7 +1697,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     }
 
     if (metrics) {
-	pthread_mutex_lock(&fd->metrics_lock);
+	if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
 	if (metrics->trial > 0 || --metrics->next_trial <= 0) {
 	    size_t sz_best = INT_MAX;
 	    size_t sz_gz_rle = 0;
@@ -1725,7 +1725,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		metrics->sz_lzma   /= 2;
 	    }
 
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    
 	    if (method & (1<<GZIP_RLE)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
@@ -1824,7 +1824,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    b->method = method_best == GZIP_RLE ? GZIP : method_best;
 	    b->comp_size = sz_best;
 
-	    pthread_mutex_lock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
 	    metrics->sz_gz_rle += sz_gz_rle;
 	    metrics->sz_gz_def += sz_gz_def;
 	    metrics->sz_rans0  += sz_rans0;
@@ -1945,12 +1945,12 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		//	    b->content_id, metrics->revised_method, method);
 		metrics->revised_method = method;
 	    }
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	} else {
 	    strat = metrics->strat;
 	    method = metrics->method;
 
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					   &comp_size, method,
 					   level, strat);
@@ -2886,7 +2886,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     //fd->shared_ref = 1; // hard code for now to simplify things
 
-    pthread_mutex_lock(&fd->ref_lock);
+    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
 
     RP("%d cram_get_ref on fd %p, id %d, range %d..%d\n", gettid(), fd, id, start, end);
 
@@ -2902,19 +2902,19 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     /* Sanity checking: does this ID exist? */
     if (id >= fd->refs->nref) {
 	fprintf(stderr, "No reference found for id %d\n", id);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
     if (!fd->refs || !fd->refs->ref_id[id]) {
 	fprintf(stderr, "No reference found for id %d\n", id);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
     if (!(r = fd->refs->ref_id[id])) {
 	fprintf(stderr, "No reference found for id %d\n", id);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
@@ -2935,7 +2935,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	if (cram_populate_ref(fd, id, r) == -1) {
 	    fprintf(stderr, "Failed to populate reference for id %d\n", id);
 	    pthread_mutex_unlock(&fd->refs->lock);
-	    pthread_mutex_unlock(&fd->ref_lock);
+	    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	    return NULL;
 	}
 	r = fd->refs->ref_id[id];
@@ -2978,7 +2978,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 		ref_entry *e;
 		if (!(e = cram_ref_load(fd->refs, id))) {
 		    pthread_mutex_unlock(&fd->refs->lock);
-		    pthread_mutex_unlock(&fd->ref_lock);
+		    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 		    return NULL;
 		}
 
@@ -3003,7 +3003,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	RP("%d cram_get_ref returning for id %d, count %d\n", gettid(), id, (int)r->count);
 
 	pthread_mutex_unlock(&fd->refs->lock);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return cp;
     }
 
@@ -3024,7 +3024,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	fd->ref = NULL;
 	fd->ref_id = id;
 	pthread_mutex_unlock(&fd->refs->lock);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
@@ -3036,14 +3036,14 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	if (!(fd->refs->fp = fopen(fd->refs->fn, "r"))) {
 	    perror(fd->refs->fn);
 	    pthread_mutex_unlock(&fd->refs->lock);
-	    pthread_mutex_unlock(&fd->ref_lock);
+	    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	    return NULL;
 	}
     }
 
     if (!(fd->ref = load_ref_portion(fd->refs->fp, r, start, end))) {
 	pthread_mutex_unlock(&fd->refs->lock);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
@@ -3057,7 +3057,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     seq = fd->ref;
 
     pthread_mutex_unlock(&fd->refs->lock);
-    pthread_mutex_unlock(&fd->ref_lock);
+    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 
     return seq + ostart - start;
 }
@@ -4969,9 +4969,12 @@ int cram_close(cram_fd *fd) {
 	    return -1;
 	}
 
-	pthread_mutex_destroy(&fd->metrics_lock);
-	pthread_mutex_destroy(&fd->ref_lock);
-	pthread_mutex_destroy(&fd->bam_list_lock);
+	pthread_mutex_destroy(fd->metrics_lock);
+	pthread_mutex_destroy(fd->ref_lock);
+	pthread_mutex_destroy(fd->bam_list_lock);
+	free(fd->metrics_lock);
+	free(fd->ref_lock);
+	free(fd->bam_list_lock);
 
 	fd->ctr = NULL; // prevent double freeing
 
@@ -5169,9 +5172,12 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
                 return -1;
 
 	    fd->rqueue = t_results_queue_init();
-	    pthread_mutex_init(&fd->metrics_lock, NULL);
-	    pthread_mutex_init(&fd->ref_lock, NULL);
-	    pthread_mutex_init(&fd->bam_list_lock, NULL);
+	    fd->metrics_lock = malloc(sizeof(pthread_mutex_t));
+	    fd->ref_lock = malloc(sizeof(pthread_mutex_t));
+	    fd->bam_list_lock = malloc(sizeof(pthread_mutex_t));
+	    pthread_mutex_init(fd->metrics_lock, NULL);
+	    pthread_mutex_init(fd->ref_lock, NULL);
+	    pthread_mutex_init(fd->bam_list_lock, NULL);
 	    fd->shared_ref = 1;
 	    fd->own_pool = 1;
         }
@@ -5182,9 +5188,12 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	fd->pool = va_arg(args, t_pool *);
 	if (fd->pool) {
 	    fd->rqueue = t_results_queue_init();
-	    pthread_mutex_init(&fd->metrics_lock, NULL);
-	    pthread_mutex_init(&fd->ref_lock, NULL);
-	    pthread_mutex_init(&fd->bam_list_lock, NULL);
+	    fd->metrics_lock = malloc(sizeof(pthread_mutex_t));
+	    fd->ref_lock = malloc(sizeof(pthread_mutex_t));
+	    fd->bam_list_lock = malloc(sizeof(pthread_mutex_t));
+	    pthread_mutex_init(fd->metrics_lock, NULL);
+	    pthread_mutex_init(fd->ref_lock, NULL);
+	    pthread_mutex_init(fd->bam_list_lock, NULL);
 	}
 	fd->shared_ref = 1; // Needed to avoid clobbering ref between threads
 	fd->own_pool = 0;

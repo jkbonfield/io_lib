@@ -126,10 +126,25 @@ extern int cram_process_work_package(void *workpackage);
 //-----------------------------------------------------------------------------
 // Internally used structures
 
+
+// The cram_enc_context is the primary encoder context used by
+// libmaus.  It is allocated once and passed into all subsequent calls
+// by libmaus.  We use it to track the total number of records so far
+// (for the CRAM container header) and our CRAM in-memory file
+// descriptor.
+typedef struct {
+    cram_fd *fd;
+    void *userdata; // supplied by caller, pass back into write_func
+    cram_data_write_function_t write_func;
+    size_t num_records;
+    pthread_mutex_t context_lock; // a lock for manipulating this struct
+    pthread_mutex_t header_lock;  // a lock on fd->header
+} cram_enc_context;
+
 // A work package is a series of BAM blocks for conversion to CRAM
 typedef struct {
     // encoder context
-    cram_fd *fd;
+    cram_enc_context *context;
 
     // BAM block
     char const **block;
@@ -146,19 +161,6 @@ typedef struct {
     cram_data_write_function_t write_func;
     cram_compression_work_package_finished_t finished_func;
 } cram_enc_work_package;
-
-// The cram_enc_context is the primary encoder context used by
-// libmaus.  It is allocated once and passed into all subsequent calls
-// by libmaus.  We use it to track the total number of records so far
-// (for the CRAM container header) and our CRAM in-memory file
-// descriptor.
-typedef struct {
-    cram_fd *fd;
-    void *userdata; // supplied by caller, pass back into write_func
-    cram_data_write_function_t write_func;
-    size_t num_records;
-    pthread_mutex_t context_lock;
-} cram_enc_context;
 
 
 //-----------------------------------------------------------------------------
@@ -256,12 +258,24 @@ void *cram_allocate_encoder(void *userdata,
     c->write_func = write_func;
     c->num_records = 0;
 
+    // While the cram_fd itself does not have its own internal
+    // multithreading, we manually create the mutexes it would use
+    // to ensure that this cram_fd running in our own separate
+    // threads can handle locking correctly.
+    fd->metrics_lock = malloc(sizeof(pthread_mutex_t));
+    fd->ref_lock = malloc(sizeof(pthread_mutex_t));
+    fd->bam_list_lock = malloc(sizeof(pthread_mutex_t));
+    pthread_mutex_init(fd->metrics_lock, NULL);
+    pthread_mutex_init(fd->ref_lock, NULL);
+    pthread_mutex_init(fd->bam_list_lock, NULL);
+
     dstring_t *ds = (dstring_t *)fd->fp_out_callbacks->user_data;
     write_func(userdata, -1, 0,
 	       DSTRING_STR(ds), DSTRING_LEN(ds),
 	       cram_data_write_block_type_block_final);
 
     pthread_mutex_init(&c->context_lock, NULL);
+    pthread_mutex_init(&c->header_lock, NULL);
 
     return c;
 
@@ -288,6 +302,7 @@ void cram_deallocate_encoder(void *context) {
 	cram_io_close(c->fd, NULL);
 
     pthread_mutex_destroy(&c->context_lock);
+    pthread_mutex_destroy(&c->header_lock);
 
     free(c);
 }
@@ -355,7 +370,7 @@ int cram_enque_compression_block(
 	fprintf(stderr, "; // sum %d\n", tot);
     }
 
-    pkg->fd            = c->fd;
+    pkg->context       = c;
     pkg->block         = block;
     pkg->blocksize     = blocksize;
     pkg->num_blocks    = numblocks;
@@ -384,11 +399,15 @@ int cram_enque_compression_block(
  **/
 int cram_process_work_package(void *workpackage) {
     cram_enc_work_package *pkg = (cram_enc_work_package *)workpackage;
+    cram_enc_context *c;
     cram_fd *fd;
     size_t bnum;
     int bufsize = 65536; // FIXME
 
     if (!pkg)
+	return -1;
+
+    if (!(c = pkg->context))
 	return -1;
 
     // Each work package can be running in a separate thread, so we
@@ -402,13 +421,15 @@ int cram_process_work_package(void *workpackage) {
     //
     // FIXME: consider having a free-list of previously used cram_fd.
     fd = malloc(sizeof(*fd));
-    memcpy(fd, pkg->fd, sizeof(*fd));
+    pthread_mutex_lock(&c->context_lock);
+    memcpy(fd, c->fd, sizeof(*fd));
     fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
     fd->fp_out_callbacks = cram_callback_allocate_func(NULL);
 
     fd->fp_out = NULL;
     fd->record_counter = pkg->num_records;
     fd->slice_num = 0;
+    pthread_mutex_unlock(&c->context_lock);
 
     // We create a fake bam_file_t containing the entire BAM block and
     // then use the standard bam_get_seq() API to iterate over
@@ -417,22 +438,31 @@ int cram_process_work_package(void *workpackage) {
 	bam_file_t *bf;
 	bam_seq_t *bsp = NULL;
 
+	pthread_mutex_lock(&c->header_lock);
 	bf = bam_open_block(pkg->block[bnum],
 			    pkg->blocksize[bnum],
 			    fd->header);
+	pthread_mutex_unlock(&c->header_lock);
 	if (!bf)
 	    return -1;
 
 	while (bam_get_seq(bf, &bsp)) {
 	    if (cram_put_bam_seq(fd, bsp) != 0) {
 		fprintf(stderr, "Failed to write CRAM record\n");
+		pthread_mutex_lock(&c->header_lock);
 		bam_close(bf);
-		// FIXME: more leak in this error case
+		pthread_mutex_unlock(&c->header_lock);
+
+		cram_io_deallocate_output_buffer(fd->fp_out_buffer);
+		cram_callback_deallocate_func(fd->fp_out_callbacks);
+		free(fd);
 		return -1;
 	    }
 	}
 
+	pthread_mutex_lock(&c->header_lock);
 	bam_close(bf);
+	pthread_mutex_unlock(&c->header_lock);
     }
 
     cram_flush(fd);
