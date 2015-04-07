@@ -792,11 +792,12 @@ typedef struct {
     int own_pool;
     t_pool *pool;
     t_results_queue *rqueue;
-    pthread_mutex_t metrics_lock;
-    pthread_mutex_t ref_lock;
+    pthread_mutex_t *metrics_lock;
+    pthread_mutex_t *ref_lock;
     spare_bams *bl;
-    pthread_mutex_t bam_list_lock;
+    pthread_mutex_t *bam_list_lock;
     void *job_pending;
+
     int ooc;                            // out of containers.
 } cram_fd;
 

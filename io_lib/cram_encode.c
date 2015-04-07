@@ -1212,9 +1212,9 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     spare_bams *spares;
 
     /* Cache references up-front if we have unsorted access patterns */
-    pthread_mutex_lock(&fd->ref_lock);
+    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
     nref = fd->refs->nref;
-    pthread_mutex_unlock(&fd->ref_lock);
+    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 
     if (!fd->no_ref && c->refs_used) {
 	for (i = 0; i < nref; i++) {
@@ -1313,11 +1313,11 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     /* Link our bams[] array onto the spare bam list for reuse */
     spares = malloc(sizeof(*spares));
-    pthread_mutex_lock(&fd->bam_list_lock);
+    if (fd->bam_list_lock) pthread_mutex_lock(fd->bam_list_lock);
     spares->bams = c->bams;
     spares->next = fd->bl;
     fd->bl = spares;
-    pthread_mutex_unlock(&fd->bam_list_lock);
+    if (fd->bam_list_lock) pthread_mutex_unlock(fd->bam_list_lock);
     c->bams = NULL;
 
     /* Detect if a multi-seq container */
@@ -3031,9 +3031,9 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    c->pos_sorted = 0; // required atm for multi_seq slices
 
 	    if (!c->refs_used) {
-		pthread_mutex_lock(&fd->ref_lock);
+		if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
 		c->refs_used = calloc(fd->refs->nref, sizeof(int));
-		pthread_mutex_unlock(&fd->ref_lock);
+		if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 		if (!c->refs_used)
 		    return -1;
 	    }
@@ -3047,16 +3047,16 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    !fd->unsorted && multi_seq) {
 	    
 	    if (!c->refs_used) {
-		pthread_mutex_lock(&fd->ref_lock);
+		if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
 		c->refs_used = calloc(fd->refs->nref, sizeof(int));
-		pthread_mutex_unlock(&fd->ref_lock);
+		if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 		if (!c->refs_used)
 		    return -1;
 	    } else if (c->refs_used && c->refs_used[bam_ref(b)]) {
 		fprintf(stderr, "Unsorted mode enabled\n");
-		pthread_mutex_lock(&fd->ref_lock);
+		if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
 		fd->unsorted = 1;
-		pthread_mutex_unlock(&fd->ref_lock);
+		if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 		fd->multi_seq = 1;
 	    }
 	}
@@ -3067,7 +3067,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     if (!c->bams) {
 	/* First time through, allocate a set of bam pointers */
-	pthread_mutex_lock(&fd->bam_list_lock);
+	if (fd->bam_list_lock) pthread_mutex_lock(fd->bam_list_lock);
 	if (fd->bl) {
 	    spare_bams *spare = fd->bl;
 	    c->bams = spare->bams;
@@ -3078,7 +3078,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    if (!c->bams)
 		return -1;
 	}
-	pthread_mutex_unlock(&fd->bam_list_lock);
+	if (fd->bam_list_lock) pthread_mutex_unlock(fd->bam_list_lock);
     }
 
     /* Copy or alloc+copy the bam record, for later encoding */
