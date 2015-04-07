@@ -457,6 +457,14 @@ int cram_close(cram_fd *fd);
  */
 int cram_flush(cram_fd *fd);
 
+/*
+ * Writes an EOF block to a CRAM file.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_write_eof_block(cram_fd *fd);
+
 /*! Checks for end of file on a cram_fd stream.
  *
  * @return
