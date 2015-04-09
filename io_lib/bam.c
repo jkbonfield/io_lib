@@ -241,8 +241,6 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 		used_l = to-buf;
 		b->uncomp_p++;
 		buf[used_l] = 0;
-		*str = buf;
-		*len = alloc_l;
 		b->uncomp_sz -= (tmp - next_condition);
 		return used_l;
 	    }
@@ -258,6 +256,8 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 	    // COPY_CPF_TO_CPTM macro.
 	    if (NULL == (buf = realloc(buf, alloc_l+8)))
 		return -1;
+	    *str = buf;
+	    *len = alloc_l;
 	}
     }
 
