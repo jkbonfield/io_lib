@@ -622,12 +622,12 @@ int main(int argc, char **argv) {
 			char dat[1024];
 			int len = rl;
 
-			do {
+			while (len > 0) {
 			    int32_t out_sz2 = len > 1024 ? 1024 : len;
 			    r = c->comp_hdr->codecs[DS_BA]->decode(s, c->comp_hdr->codecs[DS_BA], b, dat, &out_sz2);
 			    printf("SQ = %.*s (out_sz %d)\n", out_sz2, dat, out_sz2);
 			    len -= 1024;
-			} while (len > 0);
+			}
 
 			if (cf & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
 			    int len = rl, i;
