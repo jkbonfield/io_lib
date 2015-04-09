@@ -233,15 +233,12 @@ void *cram_allocate_encoder(void *userdata,
     if (!(hdr = sam_hdr_parse(sam_header, sam_headerlength)))
 	goto err;
 
-    // TODO: cram_io_open filename NULL indicates no open; handled by
-    // caller.  TODO: update cram_io_open code.
-    if (!(fd = cram_io_open(NULL, "w", NULL)))
-	goto err;
-
     fd = cram_openw_by_callbacks(NULL,
 				 cram_callback_allocate_func,
 				 cram_callback_deallocate_func,
 				 1024*1024);
+    if (!fd)
+	goto err;
 
     //fd->inblockid = 0;
     //fd->outblockid = 0;
@@ -284,7 +281,7 @@ void *cram_allocate_encoder(void *userdata,
 	free(c);
 
     if (fd)
-	cram_io_close(fd, NULL);
+	cram_close(fd);
 
     if (hdr)
 	sam_hdr_free(hdr);
@@ -294,15 +291,28 @@ void *cram_allocate_encoder(void *userdata,
 
 void cram_deallocate_encoder(void *context) {
     cram_enc_context *c = (cram_enc_context *)context;
+    cram_fd *fd;
 
     if (!c)
 	return;
 
-    if (c->fd)
-	cram_io_close(c->fd, NULL);
+    fd = c->fd;
 
     pthread_mutex_destroy(&c->context_lock);
     pthread_mutex_destroy(&c->header_lock);
+
+    pthread_mutex_destroy(fd->metrics_lock);
+    pthread_mutex_destroy(fd->ref_lock);
+    pthread_mutex_destroy(fd->bam_list_lock);
+    free(fd->metrics_lock);
+    free(fd->ref_lock);
+    free(fd->bam_list_lock);
+
+    if (fd->header)
+	sam_hdr_free(fd->header);
+
+    if (fd)
+	cram_close(fd);
 
     free(c);
 }
@@ -387,6 +397,55 @@ int cram_enque_compression_block(
     return 0;
 }
 
+static cram_fd *cram_dup_fd(cram_fd *orig) {
+    int bufsize = 65536; // FIXME
+    cram_fd *fd = malloc(sizeof(*fd));
+
+    if (!fd)
+	return NULL;
+
+    memcpy(fd, orig, sizeof(*fd));
+    fd->ctr = NULL;
+
+    fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
+    fd->fp_out_callbacks = cram_callback_allocate_func(NULL);
+
+    fd->fp_out = NULL;
+    fd->slice_num = 0;
+
+    return fd;
+}
+
+static void cram_dup_close(cram_fd *fd) {
+    spare_bams *bl, *next;
+
+    if (!fd)
+	return;
+
+    if (fd->fp_out_buffer)
+	cram_io_deallocate_output_buffer(fd->fp_out_buffer);
+
+    if (fd->fp_out_callbacks)
+	cram_callback_deallocate_func(fd->fp_out_callbacks);
+
+    for (bl = fd->bl; bl; bl = next) {
+	int i, max_rec = fd->seqs_per_slice * fd->slices_per_container;
+
+	next = bl->next;
+	for (i = 0; i < max_rec; i++) {
+	    if (bl->bams[i])
+		free(bl->bams[i]);
+	}
+	free(bl->bams);
+	free(bl);
+    }
+
+    if (fd->ctr)
+	cram_free_container(fd->ctr);
+
+    free(fd);
+}
+
 
 /**
  * Work package dispatch function for cram encoding
@@ -402,7 +461,6 @@ int cram_process_work_package(void *workpackage) {
     cram_enc_context *c;
     cram_fd *fd;
     size_t bnum;
-    int bufsize = 65536; // FIXME
 
     if (!pkg)
 	return -1;
@@ -420,16 +478,12 @@ int cram_process_work_package(void *workpackage) {
     // as we can.
     //
     // FIXME: consider having a free-list of previously used cram_fd.
-    fd = malloc(sizeof(*fd));
     pthread_mutex_lock(&c->context_lock);
-    memcpy(fd, c->fd, sizeof(*fd));
-    fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
-    fd->fp_out_callbacks = cram_callback_allocate_func(NULL);
-
-    fd->fp_out = NULL;
-    fd->record_counter = pkg->num_records;
-    fd->slice_num = 0;
+    fd = cram_dup_fd(c->fd);
     pthread_mutex_unlock(&c->context_lock);
+
+    fd->record_counter = pkg->num_records;
+
 
     // We create a fake bam_file_t containing the entire BAM block and
     // then use the standard bam_get_seq() API to iterate over
@@ -453,9 +507,7 @@ int cram_process_work_package(void *workpackage) {
 		bam_close(bf);
 		pthread_mutex_unlock(&c->header_lock);
 
-		cram_io_deallocate_output_buffer(fd->fp_out_buffer);
-		cram_callback_deallocate_func(fd->fp_out_callbacks);
-		free(fd);
+		cram_dup_close(fd);
 		return -1;
 	    }
 	}
@@ -463,6 +515,9 @@ int cram_process_work_package(void *workpackage) {
 	pthread_mutex_lock(&c->header_lock);
 	bam_close(bf);
 	pthread_mutex_unlock(&c->header_lock);
+
+	if (bsp)
+	    free(bsp);
     }
 
     cram_flush(fd);
@@ -495,9 +550,7 @@ int cram_process_work_package(void *workpackage) {
     free(pkg);
 
     // FIXME: do we also need to do something to decr reference seqs?
-    cram_io_deallocate_output_buffer(fd->fp_out_buffer);
-    cram_callback_deallocate_func(fd->fp_out_callbacks);
-    free(fd);
+    cram_dup_close(fd);
 
     return 0;
 }
