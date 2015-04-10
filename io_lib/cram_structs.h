@@ -319,6 +319,9 @@ typedef struct {
     int32_t *block_content_ids;
     int32_t ref_base_id;    /* if content_type == MAPPED_SLICE */
     unsigned char md5[16];
+    HashTable *tags;        /* hash of optional tags */
+    uint32_t BD_crc;        /* base call digest */
+    uint32_t SD_crc;        /* quality score digest */
 } cram_block_slice_hdr;
 
 struct ref_entry;
@@ -379,9 +382,10 @@ typedef struct {
     HashTable *tags_used; // hash of tag types in use, for tag encoding map
     int *refs_used;       // array of frequency of ref seq IDs
 
+    // For experimental name delta
     char *last_name;
 
-    uint32_t crc32;       // CRC32
+    uint32_t crc32;       // Raw container bytes CRC
 } cram_container;
 
 /*
@@ -570,6 +574,9 @@ typedef struct cram_slice {
     int ref_start;           // start position of current reference;
     int ref_end;             // end position of current reference;
     int ref_id;
+
+    uint32_t BD_crc;         // base call digest
+    uint32_t SD_crc;         // quality score digest
 } cram_slice;
 
 /*-----------------------------------------------------------------------------
@@ -763,6 +770,7 @@ typedef struct {
     pthread_mutex_t bam_list_lock;
     void *job_pending;
     int ooc;                            // out of containers.
+    int ignore_chksum;
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -875,6 +883,7 @@ enum cram_option {
     CRAM_OPT_USE_LZMA,
     CRAM_OPT_REQUIRED_FIELDS,
     CRAM_OPT_USE_RANS,
+    CRAM_OPT_IGNORE_CHKSUM,
 };
 
 /* BF bitfields */

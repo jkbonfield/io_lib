@@ -924,7 +924,8 @@ int cram_dependent_data_series(cram_fd *fd,
  */
 cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     cram_block_slice_hdr *hdr;
-    char *cp = (char *)b->data;
+    unsigned char *cp = (unsigned char *)BLOCK_DATA(b);
+    unsigned char *cp_end = cp + b->uncomp_size;
     int i;
 
     if (b->content_type != MAPPED_SLICE &&
@@ -937,16 +938,16 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     hdr->content_type = b->content_type;
 
     if (b->content_type == MAPPED_SLICE) {
-	cp += itf8_get(cp, &hdr->ref_seq_id);
-	cp += itf8_get(cp, &hdr->ref_seq_start);
-	cp += itf8_get(cp, &hdr->ref_seq_span);
+	cp += itf8_get((char *)cp, &hdr->ref_seq_id);
+	cp += itf8_get((char *)cp, &hdr->ref_seq_start);
+	cp += itf8_get((char *)cp, &hdr->ref_seq_span);
     }
-    cp += itf8_get(cp, &hdr->num_records);
+    cp += itf8_get((char *)cp, &hdr->num_records);
     if (!IS_CRAM_1_VERS(fd))
-	cp += itf8_get(cp, &hdr->record_counter);
-    cp += itf8_get(cp, &hdr->num_blocks);
+	cp += itf8_get((char *)cp, &hdr->record_counter);
+    cp += itf8_get((char *)cp, &hdr->num_blocks);
 
-    cp += itf8_get(cp, &hdr->num_content_ids);
+    cp += itf8_get((char *)cp, &hdr->num_content_ids);
     hdr->block_content_ids = malloc(hdr->num_content_ids * sizeof(int32_t));
     if (!hdr->block_content_ids) {
 	free(hdr);
@@ -954,18 +955,129 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     }
 
     for (i = 0; i < hdr->num_content_ids; i++) {
-	cp += itf8_get(cp, &hdr->block_content_ids[i]);
+	cp += itf8_get((char *)cp, &hdr->block_content_ids[i]);
     }
 
     if (b->content_type == MAPPED_SLICE) {
-	cp += itf8_get(cp, &hdr->ref_base_id);
+	cp += itf8_get((char *)cp, &hdr->ref_base_id);
     }
 
     if (!IS_CRAM_1_VERS(fd)) {
 	memcpy(hdr->md5, cp, 16);
+	cp += 16;
     } else {
 	memset(hdr->md5, 0, 16);
     }
+
+    // Decode any optional tag:type:value fields
+    if (cp == cp_end)
+	return hdr;
+
+    hdr->tags = HashTableCreate(4, HASH_FUNC_TCL);
+    while (cp <= cp_end) {
+	unsigned int sub_len;
+	unsigned char id[3];
+	HashData hd;
+
+	if (cp_end - cp < 3)
+	    return hdr;
+
+	id[0] = cp[0];
+	id[1] = cp[1];
+
+	switch (cp[2]) {
+	case 'c':
+	    id[2] = 'i';
+	    hd.i = (int8_t)(cp[3]);
+	    cp += 4;
+	    break;
+
+	case 'C':
+	    id[2] = 'i';
+	    hd.i = (uint8_t)(cp[3]);
+	    cp += 4;
+	    break;
+
+	case 's':
+	    id[2] = 'i';
+	    hd.i = (int16_t)(cp[3] + (cp[4]<<8));
+	    cp += 4;
+	    break;
+
+	case 'S':
+	    id[2] = 'i';
+	    hd.i = (uint16_t)(cp[3] + (cp[4]<<8));
+	    cp += 5;
+	    break;
+
+	case 'i':
+	    id[2] = 'i';
+	    hd.i = (int32_t)(cp[3] + (cp[4]<<8) + (cp[5]<<16) + cp[6]<<24);
+	    cp += 7;
+	    break;
+
+	case 'I':
+	    id[2] = 'i';
+	    hd.i = (uint32_t)(cp[3] + (cp[4]<<8) + (cp[5]<<16) + cp[6]<<24);
+	    cp += 7;
+	    break;
+
+	case 'f':
+	    id[2] = cp[2];
+	    hd.f = bam_aux_f(cp+2);
+	    cp += 7;
+	    break;
+
+	case 'A':
+	    id[2] = cp[2];
+	    hd.i = cp[3];
+	    cp += 4;
+	    break;
+
+	case 'Z': case 'H':
+	    id[2] = cp[2];
+	    hd.p = &cp[3];
+	    cp += strlen(cp)+1;
+	    break;
+
+	case 'B':
+	    // <type>B<code><4-len><...>
+	    id[2] = cp[2];
+	    hd.p = &cp[3];
+	    sub_len = cp[4] + (cp[5]<<8) + (cp[6]<<16) + (cp[7]<<24);
+	    switch (cp[3]) {
+	    case 'c': case 'C':
+		cp += 8 + sub_len;
+		break;
+	    case 's': case 'S':
+		cp += 8 + 2*sub_len;
+		break;
+	    case 'i': case 'I': case 'f':
+		cp += 8 + 4*sub_len;
+		break;
+	    default:
+		fprintf(stderr, "Unknown aux type 'B' sub-code.\n");
+		cp = cp_end;
+	    }
+	    break;
+
+        default:
+	    fprintf(stderr, "Unknown aux type.\n");
+	    cp = cp_end;
+	}
+
+	HashTableAdd(hdr->tags, (char *)id, 3, hd, NULL);
+ 
+	if (id[0] == 'B' && id[1] == 'D' && id[2] == 'B') {
+	    unsigned char *p = hd.p;
+	    hdr->BD_crc =  p[5] | (p[6]<<8) | (p[7]<<16) | (p[8]<<24);
+	}
+
+	if (id[0] == 'S' && id[1] == 'D' && id[2] == 'B') {
+	    unsigned char *p = hd.p;
+	    hdr->SD_crc =  p[5] | (p[6]<<8) | (p[7]<<16) | (p[8]<<24);
+	}
+   }
 
     return hdr;
 }
@@ -1021,8 +1133,8 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
     uint32_t nm = 0;
     int32_t md_dist = 0;
     int orig_aux = 0;
-   int decode_md = fd->decode_md && s->ref && !has_MD;
-   int decode_nm = fd->decode_md && s->ref && !has_NM;
+    int decode_md = fd->decode_md && s->ref && !has_MD;
+    int decode_nm = fd->decode_md && s->ref && !has_NM;
     char buf[20];
     uint32_t ds = c->comp_hdr->data_series;
 
@@ -2347,6 +2459,14 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		    memset(qual, 30, cr->len);
 	    }
 	}
+
+	if (!fd->ignore_chksum) {
+	    if (s->hdr->BD_crc && ds & CRAM_BA && s->ref)
+		s->BD_crc += crc32(0L, seq, cr->len);
+	    
+	    if (s->hdr->SD_crc & ds & CRAM_QS)
+		s->SD_crc += crc32(0L, qual, cr->len);
+	}
     }
 
     pthread_mutex_lock(&fd->ref_lock);
@@ -2364,6 +2484,25 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
     /* Resolve mate pair cross-references between recs within this slice */
     cram_decode_slice_xref(s, fd->required_fields);
+
+    /* Checksum */
+    if (CRAM_MAJOR_VERS(fd->version) >= 3) {
+	if (ds & CRAM_BA && s->BD_crc && s->hdr->BD_crc) {
+	    if (s->BD_crc != s->hdr->BD_crc) {
+		fprintf(stderr, "BD checksum failure: %08x vs %08x\n",
+			(uint32_t)s->BD_crc, (uint32_t)s->hdr->BD_crc);
+		r |= -1;
+	    }
+	}
+
+	if (ds & CRAM_QS && s->SD_crc && s->hdr->SD_crc) {
+	    if (s->SD_crc != s->hdr->SD_crc) {
+		fprintf(stderr, "SD checksum failure: %08x vs %08x\n",
+			(uint32_t)s->SD_crc, (uint32_t)s->hdr->SD_crc);
+		r |= -1;
+	    }
+	}
+    }
 
     return r;
 }
@@ -2715,6 +2854,7 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	    fprintf(stderr, "Failure to decode slice\n");
 	    cram_free_slice(s);
 	    c->slice = NULL;
+	    fd->eof = 0;
 	    return NULL;
 	}
 
@@ -2742,12 +2882,19 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 
 	if (!res || !res->data) {
 	    fprintf(stderr, "t_pool_next_result failure\n");
+	    fd->eof = 0;
 	    return NULL;
 	}
 
 	j = (cram_decode_job *)res->data;
 	c = j->c;
 	s = j->s;
+
+	if (j->exit_code != 0) {
+	    fprintf(stderr, "Slice decode failure\n");
+	    fd->eof = 0;
+	    return NULL;
+	}
 
 	fd->ctr = c;
 

@@ -2923,6 +2923,8 @@ cram_container *cram_new_container(int nrec, int nslice) {
 
     c->last_name = "";
 
+    c->crc32 = 0;
+
     return c;
 
  err:
@@ -3374,6 +3376,9 @@ void cram_free_slice_header(cram_block_slice_hdr *hdr) {
     if (hdr->block_content_ids)
 	free(hdr->block_content_ids);
 
+    if (hdr->tags)
+	HashTableDestroy(hdr->tags, 0);
+
     free(hdr);
 
     return;
@@ -3527,6 +3532,9 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     //if (!(s->blocks[ID("RN")] = cram_new_block(EXTERNAL, ID("RN")))) goto err;
     //if (!(s->blocks[ID("IN")] = cram_new_block(EXTERNAL, ID("IN")))) goto err;
     //if (!(s->blocks[ID("SC")] = cram_new_block(EXTERNAL, ID("SC")))) goto err;
+
+    s->BD_crc = 0;
+    s->SD_crc = 0;
 
     return s;
 
@@ -4340,6 +4348,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->embed_ref = 0;
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
+    fd->ignore_chksum = 0;
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
@@ -4436,6 +4445,7 @@ cram_fd *cram_open_by_callbacks(
     fd->embed_ref = 0;
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
+    fd->ignore_chksum = 0;
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
@@ -4686,6 +4696,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_IGNORE_MD5:
 	fd->ignore_md5 = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_IGNORE_CHKSUM:
+	fd->ignore_chksum = va_arg(args, int);
 	break;
 
     case CRAM_OPT_USE_BZIP2:
