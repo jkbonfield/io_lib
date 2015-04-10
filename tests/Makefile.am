@@ -50,6 +50,7 @@ TESTS                   = \
 			srf_index.test \
 			scram.test \
 			scram_mt.test \
+			scram_v3.test \
 			cram_io.test
 
 cram_io_test_SOURCES = cram_io_test.c
