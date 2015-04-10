@@ -378,9 +378,14 @@ int main(int argc, char **argv) {
 	    return 1;
     }
 
-    if (ignore_md5)
+    if (ignore_md5) {
 	if (scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5))
 	    return 1;
+	if (scram_set_option(in, CRAM_OPT_IGNORE_CHKSUM, ignore_md5))
+	    return 1;
+	if (scram_set_option(out, CRAM_OPT_IGNORE_CHKSUM, ignore_md5))
+	    return 1;
+    }
     
     if (sam_fields)
 	scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS, sam_fields);

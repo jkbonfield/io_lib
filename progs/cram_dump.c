@@ -291,6 +291,53 @@ int main(int argc, char **argv) {
 	    if (s->hdr->content_type == MAPPED_SLICE) {
 		printf("\tRef base id:     %d\n", s->hdr->ref_base_id);
 	    }
+
+	    if (s->hdr->tags) {
+		HashIter *iter;
+		HashItem *hi;
+
+		iter = HashTableIterCreate();
+		while ((hi = HashTableIterNext(s->hdr->tags, iter))) {
+		    printf("\tOptional tag %c%c:%c:",
+			   hi->key[0], hi->key[1], hi->key[2]);
+
+		    switch(hi->key[2]) {
+			uint32_t len;
+			unsigned char *dat;
+		    case 'i':
+			printf("%"PRId64"\n", hi->data.i);
+			break;
+		    case 'f':
+			printf("%f\n", hi->data.f);
+			break;
+		    case 'Z': case 'H':
+			printf("%s\n", (char *)hi->data.p);
+			break;
+		    case 'A':
+			printf("<%d>\n", (unsigned char)hi->data.i);
+			break;
+		    case 'B':
+			dat = hi->data.p;
+			len = dat[1] | (dat[2]<<8) | (dat[3]<<16)| (dat[4]<<24);
+			switch(dat[0]) {
+			case 's': case 'S':
+			    len *= 2;
+			    break;
+			case 'i': case 'I': case 'f':
+			    len *= 4;
+			    break;
+			default:
+			    break;
+			}
+			putchar(dat[0]);
+			dat += 5;
+			while (len--) {
+			    printf(",%02x", *dat++);
+			}
+			putchar('\n');
+		    }
+		}
+	    }
 	
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
 		HashItem *hi;

@@ -207,9 +207,12 @@ int main(int argc, char **argv) {
 	if (scram_set_option(in,  CRAM_OPT_NTHREADS, nthreads))
 	    return 1;
 
-    if (ignore_md5)
+    if (ignore_md5) {
 	if (scram_set_option(in, CRAM_OPT_IGNORE_MD5, ignore_md5))
 	    return 1;
+	if (scram_set_option(in, CRAM_OPT_IGNORE_CHKSUM, ignore_md5))
+	    return 1;
+    }
 
     if (!benchmark)
 	scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS,
