@@ -1,0 +1,23 @@
+staden-io-lib-current (1.13.4) unstable; urgency=low
+
+  * update to version 1.13.4
+
+ -- German Tischler <gt1@sanger.ac.uk>  Mon, 19 Feb 2014 10:00:00 +0000
+
+staden-io-lib-current (1.13.3) unstable; urgency=low
+
+  * update to version 1.13.3
+
+ -- German Tischler <gt1@sanger.ac.uk>  Mon, 28 Oct 2013 10:00:00 +0000
+
+staden-io-lib-current (1.13.1) unstable; urgency=low
+
+  * update to version 1.13.1
+
+ -- German Tischler <gt1@sanger.ac.uk>  Tue, 25 Jun 2013 18:28:00 +0000
+
+staden-io-lib-current (1.13.0) unstable; urgency=low
+
+  * initial build
+
+ -- German Tischler <gt1@sanger.ac.uk>  Tue, 19 Mar 2013 10:43:37 +0000
