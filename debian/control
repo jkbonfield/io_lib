@@ -1,23 +1,23 @@
-Source: staden-io-lib-current
-Maintainer: German Tischler <gt1@sanger.ac.uk>
+Source: staden-io-lib-trunk
+Maintainer: James Bonfield <jkb@sanger.ac.uk>
 Section: universe/libs
 Priority: optional
 Standards-Version: 3.9.2
 Build-Depends: debhelper (>= 7),  autoconf (>= 2.61), automake (>= 1.10), libtool (>= 2.2.6), zlib1g-dev (>= 1.2.3), libcurl4-openssl-dev
 
-Package: staden-io-lib-current
+Package: staden-io-lib-trunk
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: runtime libraries for staden io_lib
 
-Package: staden-io-lib-current-tools
+Package: staden-io-lib-trunk-tools
 Section: universe/science
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, staden-io-lib-current (= ${binary:Version})
+Depends: ${shlibs:Depends}, ${misc:Depends}, staden-io-lib-trunk (= ${binary:Version})
 Description: tools in staden io_lib
 
-Package: staden-io-lib-current-dev
+Package: staden-io-lib-trunk-dev
 Section: universe/libdevel
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, staden-io-lib-current (= ${binary:Version}), libcurl4-openssl-dev
+Depends: ${shlibs:Depends}, ${misc:Depends}, staden-io-lib-trunk (= ${binary:Version}), libcurl4-openssl-dev
 Description: Development files for staden-io-lib
