@@ -2,8 +2,8 @@ Source: staden-io-lib-trunk
 Maintainer: James Bonfield <jkb@sanger.ac.uk>
 Section: universe/libs
 Priority: optional
-Standards-Version: 3.9.2
-Build-Depends: debhelper (>= 7),  autoconf (>= 2.61), automake (>= 1.10), libtool (>= 2.2.6), zlib1g-dev (>= 1.2.3), libcurl4-openssl-dev
+Standards-Version: 3.9.5
+Build-Depends: debhelper (>= 7),  autoconf (>= 2.61), automake (>= 1.10), libtool (>= 2.2.6), zlib1g-dev (>= 1.2.3), libcurl4-openssl-dev | libcurl4-gnutls-dev
 
 Package: staden-io-lib-trunk
 Architecture: any
@@ -19,5 +19,5 @@ Description: tools in staden io_lib
 Package: staden-io-lib-trunk-dev
 Section: universe/libdevel
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, staden-io-lib-trunk (= ${binary:Version}), libcurl4-openssl-dev
+Depends: ${shlibs:Depends}, ${misc:Depends}, staden-io-lib-trunk (= ${binary:Version}), libcurl4-openssl-dev | libcurl4-gnutls-dev
 Description: Development files for staden-io-lib
