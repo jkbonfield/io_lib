@@ -1262,7 +1262,8 @@ int cram_uncompress_block(cram_block *b) {
     case ARITH0: {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)arith_uncompress(b->data, b->comp_size, &usize2, 0);
-	assert(usize == usize2);
+	if (usize != usize2)
+	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
@@ -1275,7 +1276,8 @@ int cram_uncompress_block(cram_block *b) {
     case ARITH1: {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)arith_uncompress(b->data, b->comp_size, &usize2, 1);
-	assert(usize == usize2);
+	if (usize != usize2)
+	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
@@ -1288,7 +1290,8 @@ int cram_uncompress_block(cram_block *b) {
     case RANS0: {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 0);
-	assert(usize == usize2);
+	if (usize != usize2)
+	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
@@ -1301,7 +1304,8 @@ int cram_uncompress_block(cram_block *b) {
     case RANS1: {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 1);
-	assert(usize == usize2);
+	if (usize != usize2)
+	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
@@ -2732,7 +2736,8 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	end = r->length;
     if (end >= r->length)
 	end  = r->length; 
-    assert(start >= 1);
+    if (start < 1)
+	return NULL;
 
     if (end - start >= 0.5*r->length || fd->shared_ref) {
 	start = 1;

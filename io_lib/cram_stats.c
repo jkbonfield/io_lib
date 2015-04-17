@@ -60,8 +60,6 @@ cram_stats *cram_stats_create(void) {
 void cram_stats_add(cram_stats *st, int32_t val) {
     st->nsamp++;
 
-    //assert(val >= 0);
-
     if (val < MAX_STAT_VAL && val >= 0) {
 	st->freqs[val]++;
     } else {
@@ -83,8 +81,6 @@ void cram_stats_add(cram_stats *st, int32_t val) {
 
 void cram_stats_del(cram_stats *st, int32_t val) {
     st->nsamp--;
-
-    //assert(val >= 0);
 
     if (val < MAX_STAT_VAL && val >= 0) {
 	st->freqs[val]--;
