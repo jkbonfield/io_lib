@@ -4893,7 +4893,7 @@ int cram_write_eof_block(cram_fd *fd) {
 	}
     }		
 
-    cram_io_flush_output_buffer(fd);
+    return cram_io_flush_output_buffer(fd);
 }
 
 
