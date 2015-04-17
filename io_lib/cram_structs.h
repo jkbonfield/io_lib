@@ -188,8 +188,6 @@ enum cram_block_method {
     RANS0  = 4,
     RANS1  = 10,   // Not externalised; stored as RANS (generic)
     GZIP_RLE = 11, // NB: not externalised in CRAM
-    ARITH0 = 16,   // unofficial & test only
-    ARITH1 = 17,
 };
 
 enum cram_content_type {
