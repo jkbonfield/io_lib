@@ -572,6 +572,9 @@ unsigned char *rans_uncompress_O0(unsigned char *in, unsigned int in_size,
 	}
 	D.fc[j].C = x;
 
+	if (x+D.fc[j].F > TOTFREQ)
+	    return NULL;
+
 	RansDecSymbolInit(&syms[j], D.fc[j].C, D.fc[j].F);
 
 	/* Build reverse lookup table */
@@ -931,6 +934,9 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
 
 	    if (!D[i].fc[j].F)
 		D[i].fc[j].F = TOTFREQ;
+
+	    if (x+D[i].fc[j].F > TOTFREQ)
+		return NULL;
 
 	    RansDecSymbolInit(&syms[i][j], D[i].fc[j].C, D[i].fc[j].F);
 

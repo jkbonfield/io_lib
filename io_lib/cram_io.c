@@ -1480,34 +1480,6 @@ int cram_uncompress_block(cram_block *b) {
 	break;
 #endif
 
-    case ARITH0: {
-	unsigned int usize = b->uncomp_size, usize2;
-	uncomp = (char *)arith_uncompress(b->data, b->comp_size, &usize2, 0);
-	if (usize != usize2)
-	    return -1;
-	free(b->data);
-	b->data = (unsigned char *)uncomp;
-	b->alloc = usize2;
-	b->method = RAW;
-	b->uncomp_size = usize2; // Just incase it differs
-	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
-	break;
-    }
-
-    case ARITH1: {
-	unsigned int usize = b->uncomp_size, usize2;
-	uncomp = (char *)arith_uncompress(b->data, b->comp_size, &usize2, 1);
-	if (usize != usize2)
-	    return -1;
-	free(b->data);
-	b->data = (unsigned char *)uncomp;
-	b->alloc = usize2;
-	b->method = RAW;
-	b->uncomp_size = usize2; // Just incase it differs
-	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
-	break;
-    }
-
     case RANS0: {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 0);
@@ -1626,31 +1598,6 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 #else
 	return NULL;
 #endif
-
-    case ARITH0: {
-	unsigned int out_size_i;
-	unsigned char *cp;
-	cp = arith_compress((unsigned char *)in, in_size, &out_size_i, 0);
-	*out_size = out_size_i;
-	return (char *)cp;
-    }
-
-    case ARITH1: {
-	unsigned int out_size_i;
-	unsigned char *cp;
-	
-//	double e8  = entropy8(in, in_size);
-//	double e16 = entropy16((unsigned short *)in, in_size/2);
-//
-//	if (e8 / e16 < 1.02 || e8 - e16 < 512) {
-//	    return cram_compress_by_method(in, in_size, out_size,
-//					   ARITH0, level, strat);
-//	}
-
-	cp = arith_compress((unsigned char *)in, in_size, &out_size_i, 1);
-	*out_size = out_size_i;
-	return (char *)cp;
-    }
 
     case RANS0: {
 	unsigned int out_size_i;
@@ -2010,8 +1957,6 @@ char *cram_block_method2str(enum cram_block_method m) {
     case GZIP:	   return "GZIP";
     case BZIP2:	   return "BZIP2";
     case LZMA:     return "LZMA";
-    case ARITH0:   return "ARITH0";
-    case ARITH1:   return "ARITH1";
     case RANS0:    return "RANS0";
     case RANS1:    return "RANS1";
     case GZIP_RLE: return "GZIP_RLE";
