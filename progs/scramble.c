@@ -475,10 +475,14 @@ int main(int argc, char **argv) {
     }
 
     /* Finally tidy up and close files */
-    if (scram_close(in))
+    if (scram_close(in)) {
+	fprintf(stderr, "Failed in scram_close(in)\n");
 	return 1;
-    if (scram_close(out))
+    }
+    if (scram_close(out)) {
+	fprintf(stderr, "Failed in scram_close(out)\n");
 	return 1;
+    }
 
     if (p)
 	t_pool_destroy(p, 0);
