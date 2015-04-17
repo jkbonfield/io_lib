@@ -457,6 +457,14 @@ int cram_close(cram_fd *fd);
  */
 int cram_flush(cram_fd *fd);
 
+/*
+ * Writes an EOF block to a CRAM file.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_write_eof_block(cram_fd *fd);
+
 /*! Checks for end of file on a cram_fd stream.
  *
  * @return
@@ -502,6 +510,13 @@ extern cram_fd *cram_open_by_callbacks(
     size_t const bufsize
 );
 
+extern cram_fd * cram_openw_by_callbacks(
+    char const * filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
+    size_t const bufsize
+);
+
 extern cram_fd * cram_io_open(
 	char const * filename, 
 	char const * mode, 
@@ -514,7 +529,18 @@ extern cram_fd * cram_io_open_by_callbacks(
     size_t const bufsize,
     int const decompress
 );
+
+extern cram_fd * cram_io_openw_by_callbacks(
+    char const * filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
+    size_t const bufsize
+);
+
 extern cram_fd * cram_io_close(cram_fd * fd, int * fclose_result);
+
+extern cram_fd_output_buffer *
+cram_io_allocate_output_buffer(size_t const bufsize);
 #endif
 
 /**@}*/
