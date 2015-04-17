@@ -314,6 +314,8 @@ enum cigar_op {
  */
 bam_file_t *bam_open(const char *fn, const char *mode);
 
+bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh);
+
 /*! Closes a SAM or BAM file.
  * 
  * @param b The file to close.

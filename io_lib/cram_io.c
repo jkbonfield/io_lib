@@ -93,13 +93,18 @@
 #define TRIAL_SPAN 50
 #define NTRIALS 3
 
-/*
+/* ----------------------------------------------------------------------
  * custom buffering helper routines
  */
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
 static size_t cram_io_C_FILE_fread(void *ptr, size_t size, size_t nmemb, void *stream)
 {
     return fread(ptr,size,nmemb,(FILE *)stream);
+}
+
+static size_t cram_io_C_FILE_fwrite(void *ptr, size_t size, size_t nmemb, void *stream)
+{
+    return fwrite(ptr,size,nmemb,(FILE *)stream);
 }
 
 static int cram_io_C_FILE_fseek(void * fd, off_t offset, int whence)
@@ -111,6 +116,10 @@ static off_t cram_io_C_FILE_ftell(void * fd)
 {
     return ftello((FILE *)fd);
 }
+
+/* ----------------------------------------------------------------------
+ * Input buffering
+ */
 
 /* fill empty buffer */
 static void cram_io_fill_input_buffer(cram_fd * fd)
@@ -382,6 +391,218 @@ char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd)
      
      return s;
 }
+
+/* ----------------------------------------------------------------------
+ * Output buffering
+ */
+
+/*
+ * Flush buffer.
+ *
+ * Returns 0 on success,
+ *        -1 on failure.
+ */
+int cram_io_flush_output_buffer(cram_fd *fd)
+{
+    size_t r;
+    char  *dat;
+    size_t olen;
+    size_t len;
+
+    if (!fd->fp_out_buffer)
+	return 0;
+
+    dat  = fd->fp_out_buffer->fp_out_buf_pa;
+    olen = fd->fp_out_buffer->fp_out_buf_pc - dat;
+    len  = olen;
+
+    /* write up to buffer size bytes */
+    /* C-IO fwrite */
+    while (len) {
+	r = fd->fp_out_callbacks->fwrite_callback
+	    (dat, 1, len, fd->fp_out_callbacks->user_data);   
+
+	if (r >= 0) {
+	    dat += r;
+	    len -= r;
+	}
+
+	if (r < 0) {
+	    /* Write failed, possible partial */
+	    memmove(fd->fp_out_buffer->fp_out_buf_pa, dat, len);
+	    fd->fp_out_buffer->fp_out_buf_pc
+		= fd->fp_out_buffer->fp_out_buf_pa;
+
+	    fd->fp_out_buffer->fp_out_buf_start
+		+= fd->fp_out_buffer->fp_out_buf_size - len;
+
+	    return -1;
+	}
+    }
+
+    /* move offset */
+    fd->fp_out_buffer->fp_out_buf_start += olen;
+
+    /* reset current output */
+    fd->fp_out_buffer->fp_out_buf_pc = fd->fp_out_buffer->fp_out_buf_pa;
+
+    return 0;
+}
+
+
+/* fwrite simulation */
+size_t cram_io_output_buffer_write(void *ptr, size_t size, size_t nmemb,
+				   cram_fd *fd)
+{
+    size_t towrite = size * nmemb; /* number of bytes still to be written */
+    size_t r = 0;                  /* number of bytes copied to ptr */    
+
+    /* number of bytes in buffer */
+    size_t outbuf = fd->fp_out_buffer->fp_out_buf_pe -
+	            fd->fp_out_buffer->fp_out_buf_pc;
+
+    /* number of bytes to be copied from buffer */
+    size_t tocopy = imin(towrite, outbuf);
+    size_t blockwrite = 0;
+    
+    /* place as many bytes in out_buffer as will fit */
+    memcpy(fd->fp_out_buffer->fp_out_buf_pc, ptr, tocopy);
+    towrite -= tocopy;
+    r += tocopy;
+    ptr += tocopy;
+    fd->fp_out_buffer->fp_out_buf_pc += tocopy;
+
+    if (towrite) /* Still some left over */
+        if (cram_io_flush_output_buffer(fd) < 0)
+	    goto partial_write;
+
+    /* Write any remaining whole blocks without buffer copy, C-IO fwrite */
+    while (towrite >= fd->fp_out_buffer->fp_out_buf_size) {
+	blockwrite = fd->fp_out_callbacks->fwrite_callback
+	    (ptr,
+	     1,
+	     fd->fp_out_buffer->fp_out_buf_size,
+	     fd->fp_out_callbacks->user_data);
+	if (blockwrite < 0)
+	    break;
+
+	towrite -= blockwrite;
+	ptr += blockwrite;
+        r += blockwrite;
+	fd->fp_out_buffer->fp_out_buf_start += blockwrite;
+    }
+
+    if (blockwrite < 0)
+	goto partial_write;
+
+    /* Push any remaining bytes into the output buffer */
+    if (towrite) {
+        /* buffer should be empty */
+        assert(fd->fp_out_buffer->fp_out_buf_pc ==
+	       fd->fp_out_buffer->fp_out_buf_pa);
+
+	/* buffer should be large enough */
+	assert(towrite <= fd->fp_out_buffer->fp_out_buf_size);
+
+	memcpy(fd->fp_out_buffer->fp_out_buf_pc, ptr, towrite);
+        r += towrite;
+        fd->fp_out_buffer->fp_out_buf_pc += towrite;
+    }
+
+ partial_write:
+    return size ? (r / size) : r;
+}
+
+static cram_io_output_t *
+cram_IO_deallocate_cram_io_output(cram_io_output_t * obj)
+{
+    if ( obj ) {
+        free(obj);
+        obj = NULL;
+    }
+    
+    return obj;
+}
+
+static cram_io_output_t *
+cram_IO_allocate_cram_io_output()
+{
+    cram_io_output_t *obj
+	= (cram_io_output_t *)malloc(sizeof(cram_io_output_t));
+
+    if ( ! obj ) {
+        return cram_IO_deallocate_cram_io_output(obj);
+    }
+    obj->user_data = NULL;
+    obj->fwrite_callback = NULL;
+    obj->ftell_callback = NULL;
+    return obj;
+}
+
+static cram_io_output_t *
+cram_IO_allocate_cram_io_output_from_C_FILE(FILE * file)
+{
+    cram_io_output_t *obj = cram_IO_allocate_cram_io_output();
+    if ( ! obj ) {
+        return cram_IO_deallocate_cram_io_output(obj);
+    }
+    obj->user_data = file;
+    obj->fwrite_callback = cram_io_C_FILE_fwrite;
+    obj->ftell_callback  = cram_io_C_FILE_ftell;
+    return obj;
+}
+
+cram_fd_output_buffer *
+cram_io_deallocate_output_buffer(cram_fd_output_buffer * buffer)
+{
+    if ( buffer ) {
+        if ( buffer->fp_out_buffer ) {
+            free(buffer->fp_out_buffer);
+            buffer->fp_out_buffer = NULL;
+        }
+        free(buffer);
+        buffer = NULL;
+    }
+    return buffer;
+}
+
+cram_fd_output_buffer *
+cram_io_allocate_output_buffer(size_t const bufsize)
+{
+    cram_fd_output_buffer * buffer =
+	(cram_fd_output_buffer *)malloc(sizeof(cram_fd_output_buffer));
+    
+    if ( ! buffer )
+        return cram_io_deallocate_output_buffer(buffer);
+    
+    // FIXME: is memset really needed here? I suspect pa/pc is sufficient.
+    memset(buffer,0,sizeof(cram_fd_output_buffer));
+
+    buffer->fp_out_buf_size = bufsize;
+    buffer->fp_out_buffer   = (char *)malloc(buffer->fp_out_buf_size);
+    
+    if ( ! buffer->fp_out_buffer ) {
+        return cram_io_deallocate_output_buffer(buffer);
+    }
+    
+    buffer->fp_out_buf_pa   = buffer->fp_out_buffer;
+    buffer->fp_out_buf_pc   = buffer->fp_out_buffer;
+    buffer->fp_out_buf_pe   = buffer->fp_out_buffer + bufsize;
+    
+    return buffer;
+}
+
+// FIXME: Currently inefficient
+int cram_io_output_buffer_putc(int c, cram_fd * fd)
+{
+    char cc = c;
+
+    if (cram_io_output_buffer_write(&cc, 1, 1, fd) == 1)
+	return c;
+    else
+	return EOF;
+}
+
 #endif
 
 /* ----------------------------------------------------------------------
@@ -1480,7 +1701,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     }
 
     if (metrics) {
-	pthread_mutex_lock(&fd->metrics_lock);
+	if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
 	if (metrics->trial > 0 || --metrics->next_trial <= 0) {
 	    size_t sz_best = INT_MAX;
 	    size_t sz_gz_rle = 0;
@@ -1508,7 +1729,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		metrics->sz_lzma   /= 2;
 	    }
 
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    
 	    if (method & (1<<GZIP_RLE)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
@@ -1607,7 +1828,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    b->method = method_best == GZIP_RLE ? GZIP : method_best;
 	    b->comp_size = sz_best;
 
-	    pthread_mutex_lock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
 	    metrics->sz_gz_rle += sz_gz_rle;
 	    metrics->sz_gz_def += sz_gz_def;
 	    metrics->sz_rans0  += sz_rans0;
@@ -1728,12 +1949,12 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		//	    b->content_id, metrics->revised_method, method);
 		metrics->revised_method = method;
 	    }
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	} else {
 	    strat = metrics->strat;
 	    method = metrics->method;
 
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					   &comp_size, method,
 					   level, strat);
@@ -2669,7 +2890,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 
     //fd->shared_ref = 1; // hard code for now to simplify things
 
-    pthread_mutex_lock(&fd->ref_lock);
+    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
 
     RP("%d cram_get_ref on fd %p, id %d, range %d..%d\n", gettid(), fd, id, start, end);
 
@@ -2685,19 +2906,19 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     /* Sanity checking: does this ID exist? */
     if (id >= fd->refs->nref) {
 	fprintf(stderr, "No reference found for id %d\n", id);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
     if (!fd->refs || !fd->refs->ref_id[id]) {
 	fprintf(stderr, "No reference found for id %d\n", id);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
     if (!(r = fd->refs->ref_id[id])) {
 	fprintf(stderr, "No reference found for id %d\n", id);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
@@ -2718,7 +2939,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	if (cram_populate_ref(fd, id, r) == -1) {
 	    fprintf(stderr, "Failed to populate reference for id %d\n", id);
 	    pthread_mutex_unlock(&fd->refs->lock);
-	    pthread_mutex_unlock(&fd->ref_lock);
+	    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	    return NULL;
 	}
 	r = fd->refs->ref_id[id];
@@ -2762,7 +2983,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 		ref_entry *e;
 		if (!(e = cram_ref_load(fd->refs, id))) {
 		    pthread_mutex_unlock(&fd->refs->lock);
-		    pthread_mutex_unlock(&fd->ref_lock);
+		    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 		    return NULL;
 		}
 
@@ -2787,7 +3008,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	RP("%d cram_get_ref returning for id %d, count %d\n", gettid(), id, (int)r->count);
 
 	pthread_mutex_unlock(&fd->refs->lock);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return cp;
     }
 
@@ -2808,7 +3029,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	fd->ref = NULL;
 	fd->ref_id = id;
 	pthread_mutex_unlock(&fd->refs->lock);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
@@ -2820,14 +3041,14 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
 	if (!(fd->refs->fp = fopen(fd->refs->fn, "r"))) {
 	    perror(fd->refs->fn);
 	    pthread_mutex_unlock(&fd->refs->lock);
-	    pthread_mutex_unlock(&fd->ref_lock);
+	    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	    return NULL;
 	}
     }
 
     if (!(fd->ref = load_ref_portion(fd->refs->fp, r, start, end))) {
 	pthread_mutex_unlock(&fd->refs->lock);
-	pthread_mutex_unlock(&fd->ref_lock);
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	return NULL;
     }
 
@@ -2841,7 +3062,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     seq = fd->ref;
 
     pthread_mutex_unlock(&fd->refs->lock);
-    pthread_mutex_unlock(&fd->ref_lock);
+    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 
     return seq + ostart - start;
 }
@@ -3205,7 +3426,7 @@ static int cram_flush_container2(cram_fd *fd, cram_container *c) {
 		return -1;
 	}
     }
-
+    
     return CRAM_IO_FLUSH(fd) == 0 ? 0 : -1;
 }
 
@@ -3864,6 +4085,9 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 		int j, rlen;
 		MD5_CTX md5;
 
+		if (!fd->refs->ref_id || !fd->refs->ref_id[i])
+		    return -1;
+
 		rlen = fd->refs->ref_id[i]->length;
 		MD5_Init(&md5);
 		ref = cram_get_ref(fd, i, 1, rlen);
@@ -4133,6 +4357,12 @@ cram_fd * cram_io_close(cram_fd * fd, int * fclose_result)
         if ( fd->fp_in_buffer ) {
             fd->fp_in_buffer = cram_io_deallocate_input_buffer(fd->fp_in_buffer);
         }
+        if ( fd->fp_out_callbacks ) {
+            fd->fp_out_callbacks = fd->fp_out_callback_deallocate_function(fd->fp_out_callbacks);
+        }
+        if ( fd->fp_out_buffer ) {
+            fd->fp_out_buffer = cram_io_deallocate_output_buffer(fd->fp_out_buffer);
+        }
 #endif
         
         free(fd);
@@ -4160,13 +4390,47 @@ cram_fd * cram_io_open_by_callbacks(
     fd->fp_in_callback_allocate_function   = callback_allocate_function;
     fd->fp_in_callback_deallocate_function = callback_deallocate_function;
 
-    fd->fp_in_callbacks = fd->fp_in_callback_allocate_function(filename,decompress);
+    fd->fp_in_callbacks =
+	fd->fp_in_callback_allocate_function(filename,decompress);
+
     if ( ! fd->fp_in_callbacks )
-        return cram_io_close(fd,0);
+	return cram_io_close(fd,0);
 
     fd->fp_in_buffer = cram_io_allocate_input_buffer(bufsize);
     if ( ! fd->fp_in_buffer ) {
-        return cram_io_close(fd,0);
+	return cram_io_close(fd,0);
+    }
+    
+    return fd;
+}
+
+// FIXME: make a shared interface with cram_io_open_by_callbacks above
+cram_fd * cram_io_openw_by_callbacks(
+    char const * filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
+    size_t const bufsize
+)
+{
+    cram_fd * fd = (cram_fd *)malloc(sizeof(cram_fd));
+
+    if ( ! fd )
+       return cram_io_close(fd,0);
+    
+    memset(fd,0,sizeof(cram_fd));
+
+    fd->fp_out_callback_allocate_function   = callback_allocate_function;
+    fd->fp_out_callback_deallocate_function = callback_deallocate_function;
+
+    fd->fp_out_callbacks =
+	fd->fp_out_callback_allocate_function(filename);
+
+    if ( ! fd->fp_out_callbacks )
+	return cram_io_close(fd,0);
+
+    fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
+    if ( ! fd->fp_out_buffer ) {
+	return cram_io_close(fd,0);
     }
     
     return fd;
@@ -4187,6 +4451,8 @@ cram_fd * cram_io_open(
 
     fd->fp_in_callback_allocate_function = NULL;
     fd->fp_in_callback_deallocate_function = cram_IO_deallocate_cram_io_input;
+    fd->fp_out_callback_allocate_function = NULL;
+    fd->fp_out_callback_deallocate_function = cram_IO_deallocate_cram_io_output;
         
     if ( *mode == 'r' ) {
         size_t bufsize = 0;
@@ -4254,17 +4520,38 @@ cram_fd * cram_io_open(
 	} while ( 0 );
 
 #endif // CRAM_IO_CUSTOM_BUFFERING
-    }
-    else {
-    	if ( strcmp(filename,"-") == 0 ) {
-	    fd->fp_out = stdout;
-	}
-	else {
-	    fd->fp_out = fopen(filename, fmode);
-        }
+    } else {
+	if (filename) {
+	    if ( strcmp(filename,"-") == 0 ) {
+		fd->fp_out = stdout;
+	    } else {
+		fd->fp_out = fopen(filename, fmode);
+	    }
         
-        if ( ! fd->fp_out )
-            return cram_io_close(fd,0);
+	    if ( ! fd->fp_out )
+		return cram_io_close(fd,0);
+	} else {
+	    // E.g. opening a CRAM in-memory file.
+	    fd->fp_out = NULL;
+	}
+
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+        fd->fp_out_callbacks
+	    = cram_IO_allocate_cram_io_output_from_C_FILE(fd->fp_out);
+
+	if ( ! fd->fp_out_callbacks )
+	    return cram_io_close(fd,0);
+
+	int bufsize = 32*1024; // FIXME: use same bufsize calc as above
+	fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
+	if ( ! fd->fp_out_buffer ) {
+	    return cram_io_close(fd,0);
+	} else if (fd->fp_out) {
+	    setvbuf(fd->fp_out, NULL, _IONBF, 0);
+	}
+	
+#endif // CRAM_IO_CUSTOM_BUFFERING
+
     }
     
     return fd;
@@ -4408,7 +4695,11 @@ cram_fd *cram_open_by_callbacks(
     char *cp;
     cram_fd *fd = NULL;
 
-    fd = cram_io_open_by_callbacks(filename,callback_allocate_function,callback_deallocate_function,bufsize,0);
+    fd = cram_io_open_by_callbacks(filename,
+				   callback_allocate_function,
+				   callback_deallocate_function,
+				   bufsize,
+				   0);
     if (!fd)
 	return cram_io_close(fd,0);
 
@@ -4487,6 +4778,121 @@ cram_fd *cram_open_by_callbacks(
 
     return NULL;
 }
+
+/*
+ * FIXME: make shared interface with code above.
+ *
+ * Opens a CRAM file for write via callbacks
+ *
+ * Returns file handle on success
+ *         NULL on failure.
+ */
+cram_fd *cram_openw_by_callbacks(
+    char const * filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
+    size_t const bufsize
+) {
+    int i;
+    char *cp;
+    cram_fd *fd = NULL;
+
+    fd = cram_io_openw_by_callbacks(filename,
+				    callback_allocate_function,
+				    callback_deallocate_function,
+				    bufsize);
+    if (!fd)
+	return cram_io_close(fd,0);
+
+    fd->level = 5;
+
+    fd->mode = 'w';
+    fd->first_container = 0;
+
+    {
+	/* Writer */
+	cram_file_def def;
+
+	def.magic[0] = 'C';
+	def.magic[1] = 'R';
+	def.magic[2] = 'A';
+	def.magic[3] = 'M';
+	def.major_version = major_version;
+	def.minor_version = minor_version;
+	memset(def.file_id, 0, 20);
+	if (filename)
+	    strncpy(def.file_id, filename, 20);
+	if (0 != cram_write_file_def(fd, &def))
+	    goto err;
+
+	fd->version = def.major_version * 256 + def.minor_version;
+
+	/* SAM header written later */
+    }
+
+    cram_init_tables(fd);
+
+    if (filename) {
+	fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
+	if (!fd->prefix)
+	    goto err;
+    } else {
+	fd->prefix = strdup("");
+    }
+    fd->slice_num = 0;
+    fd->first_base = fd->last_base = -1;
+    fd->record_counter = 0;
+
+    fd->ctr = NULL;
+    fd->refs  = refs_create();
+    if (!fd->refs)
+	goto err;
+    fd->ref_id = -2;
+    fd->ref = NULL;
+
+    fd->decode_md = 0;
+    fd->verbose = 0;
+    fd->seqs_per_slice = SEQS_PER_SLICE;
+    fd->slices_per_container = SLICE_PER_CNT;
+    fd->embed_ref = 0;
+    fd->no_ref = 0;
+    fd->ignore_md5 = 0;
+    fd->use_bz2 = 0;
+    fd->use_rans = IS_CRAM_3_VERS(fd);
+    fd->use_lzma = 0;
+    fd->multi_seq = 0;
+    fd->unsorted   = 0;
+    fd->shared_ref = 0;
+
+    fd->index       = NULL;
+    fd->own_pool    = 0;
+    fd->pool        = NULL;
+    fd->rqueue      = NULL;
+    fd->job_pending = NULL;
+    fd->ooc         = 0;
+    fd->binning     = BINNING_NONE;
+    fd->required_fields = INT_MAX;
+
+    for (i = 0; i < DS_END; i++)
+	fd->m[i] = cram_new_metrics();
+
+    fd->range.refid = -2; // no ref.
+    fd->eof = 1;
+    fd->ref_fn = NULL;
+
+    fd->bl = NULL;
+
+    /* Initialise dummy refs from the @SQ headers */
+    if (-1 == refs_from_header(fd->refs, fd, fd->header))
+	goto err;
+
+    return fd;
+
+ err:
+    fd = cram_io_close(fd,0);
+
+    return NULL;
+}
 #endif
 
 /*
@@ -4509,6 +4915,42 @@ int cram_flush(cram_fd *fd) {
 
     return 0;
 }
+
+/*
+ * Writes an EOF block to a CRAM file.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_write_eof_block(cram_fd *fd) {
+    if (IS_CRAM_3_VERS(fd)) {
+	if (1 != CRAM_IO_WRITE(
+		"\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
+		"\x0f\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
+		"\x00\x01\x00"                     // Cont HDR
+		"\x05\xbd\xd9\x4f"                 // CRC32
+		//"\xa8\x2a\x1b\xb9"		   // CRC32C
+		"\x00\x01\x00\x06\x06"             // Comp.HDR blk
+		"\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
+		"\xee\x63\x01\x4b",                // CRC32
+		//"\xe9\x70\xd3\x86",              // CRC32C
+		38, 1, fd)) {
+	    fd = cram_io_close(fd,0);
+	    return -1;
+	}
+    } else { 
+	if (1 != CRAM_IO_WRITE("\x0b\x00\x00\x00\xff\xff\xff\xff"
+			       "\x0f\xe0\x45\x4f\x46\x00\x00\x00"
+			       "\x00\x01\x00\x00\x01\x00\x06\x06"
+			       "\x01\x00\x01\x00\x01\x00", 30, 1, fd)) {
+	    fd = cram_io_close(fd,0);
+	    return -1;
+	}
+    }		
+
+    cram_io_flush_output_buffer(fd);
+}
+
 
 /*
  * Closes a CRAM file.
@@ -4542,9 +4984,12 @@ int cram_close(cram_fd *fd) {
 	    return -1;
 	}
 
-	pthread_mutex_destroy(&fd->metrics_lock);
-	pthread_mutex_destroy(&fd->ref_lock);
-	pthread_mutex_destroy(&fd->bam_list_lock);
+	pthread_mutex_destroy(fd->metrics_lock);
+	pthread_mutex_destroy(fd->ref_lock);
+	pthread_mutex_destroy(fd->bam_list_lock);
+	free(fd->metrics_lock);
+	free(fd->ref_lock);
+	free(fd->bam_list_lock);
 
 	fd->ctr = NULL; // prevent double freeing
 
@@ -4555,30 +5000,8 @@ int cram_close(cram_fd *fd) {
 
     if (fd->mode == 'w') {
 	/* Write EOF block */
-	if (IS_CRAM_3_VERS(fd)) {
-	    if (1 != CRAM_IO_WRITE(
-			    "\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
-			    "\x0f\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
-			    "\x00\x01\x00"                     // Cont HDR
-			    "\x05\xbd\xd9\x4f"                 // CRC32
-			  //"\xa8\x2a\x1b\xb9"		       // CRC32C
-			    "\x00\x01\x00\x06\x06"             // Comp.HDR blk
-			    "\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
-			    "\xee\x63\x01\x4b",                // CRC32
-			  //"\xe9\x70\xd3\x86",                // CRC32C
-			    38, 1, fd)) {
-	        fd = cram_io_close(fd,0);
-		return -1;
-	    }
-	} else { 
-	    if (1 != CRAM_IO_WRITE("\x0b\x00\x00\x00\xff\xff\xff\xff"
-				   "\x0f\xe0\x45\x4f\x46\x00\x00\x00"
-				   "\x00\x01\x00\x00\x01\x00\x06\x06"
-				   "\x01\x00\x01\x00\x01\x00", 30, 1, fd)) {
-	        fd = cram_io_close(fd,0);
-		return -1;
-	    }
-	}		
+	if (0 != cram_write_eof_block(fd))
+	    return -1;
 
 //	if (1 != fwrite("\x00\x00\x00\x00\xff\xff\xff\xff"
 //			"\xff\xe0\x45\x4f\x46\x00\x00\x00"
@@ -4768,9 +5191,12 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
                 return -1;
 
 	    fd->rqueue = t_results_queue_init();
-	    pthread_mutex_init(&fd->metrics_lock, NULL);
-	    pthread_mutex_init(&fd->ref_lock, NULL);
-	    pthread_mutex_init(&fd->bam_list_lock, NULL);
+	    fd->metrics_lock = malloc(sizeof(pthread_mutex_t));
+	    fd->ref_lock = malloc(sizeof(pthread_mutex_t));
+	    fd->bam_list_lock = malloc(sizeof(pthread_mutex_t));
+	    pthread_mutex_init(fd->metrics_lock, NULL);
+	    pthread_mutex_init(fd->ref_lock, NULL);
+	    pthread_mutex_init(fd->bam_list_lock, NULL);
 	    fd->shared_ref = 1;
 	    fd->own_pool = 1;
         }
@@ -4781,9 +5207,12 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	fd->pool = va_arg(args, t_pool *);
 	if (fd->pool) {
 	    fd->rqueue = t_results_queue_init();
-	    pthread_mutex_init(&fd->metrics_lock, NULL);
-	    pthread_mutex_init(&fd->ref_lock, NULL);
-	    pthread_mutex_init(&fd->bam_list_lock, NULL);
+	    fd->metrics_lock = malloc(sizeof(pthread_mutex_t));
+	    fd->ref_lock = malloc(sizeof(pthread_mutex_t));
+	    fd->bam_list_lock = malloc(sizeof(pthread_mutex_t));
+	    pthread_mutex_init(fd->metrics_lock, NULL);
+	    pthread_mutex_init(fd->ref_lock, NULL);
+	    pthread_mutex_init(fd->bam_list_lock, NULL);
 	}
 	fd->shared_ref = 1; // Needed to avoid clobbering ref between threads
 	fd->own_pool = 0;
