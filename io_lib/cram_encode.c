@@ -1296,7 +1296,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 		    }
 
 		    c->ref_seq_id = bam_ref(b); // overwritten later by -2
-		    assert(fd->refs->ref_id[c->ref_seq_id]->seq);
+		    if (!fd->refs->ref_id[c->ref_seq_id]->seq)
+			return -1;
 		    c->ref       = fd->refs->ref_id[c->ref_seq_id]->seq;
 		    c->ref_start = 1;
 		    c->ref_end   = fd->refs->ref_id[c->ref_seq_id]->length;
@@ -2482,7 +2483,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	cr->rg = brg ? brg->id : -1;
     } else if (IS_CRAM_1_VERS(fd)) {
 	SAM_RG *brg = sam_hdr_find_rg(fd->header, "UNKNOWN");
-	assert(brg);
+	if (!brg)
+	    return -1;
     } else {
 	cr->rg = -1;
     }
