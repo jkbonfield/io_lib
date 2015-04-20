@@ -74,7 +74,6 @@
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
 #include "io_lib/open_trace_file.h"
-#include "io_lib/arith_static.h"
 #include "io_lib/rANS_static.h"
 
 //#include "crc32c.c"
