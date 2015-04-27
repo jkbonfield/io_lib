@@ -578,8 +578,10 @@ cram_codec *cram_beta_decode_init(char *data, int size,
 	c->decode = cram_beta_decode_int;
     else if (option == E_BYTE_ARRAY || option == E_BYTE)
 	c->decode = cram_beta_decode_char;
-    else
-	abort();
+    else {
+	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
+	return NULL;
+    }
     c->free   = cram_beta_decode_free;
     
     cp += itf8_get(cp, &c->beta.offset);
@@ -757,6 +759,11 @@ cram_codec *cram_subexp_decode_init(char *data, int size,
     cram_codec *c;
     char *cp = data;
 
+    if (option == E_BYTE_ARRAY_BLOCK) {
+	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
+	return NULL;
+    }
+
     if (!(c = malloc(sizeof(*c))))
 	return NULL;
 
@@ -812,6 +819,11 @@ cram_codec *cram_gamma_decode_init(char *data, int size,
 				   int version) {
     cram_codec *c;
     char *cp = data;
+
+    if (option == E_BYTE_ARRAY_BLOCK) {
+	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
+	return NULL;
+    }
 
     if (!(c = malloc(sizeof(*c))))
 	return NULL;
@@ -963,6 +975,11 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
     cram_huffman_code *codes;
     int32_t val, last_len, max_len = 0;
     
+    if (option == E_BYTE_ARRAY_BLOCK) {
+	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
+	return NULL;
+    }
+
     cp += itf8_get(cp, &ncodes);
     h = calloc(1, sizeof(*h));
     if (!h)
