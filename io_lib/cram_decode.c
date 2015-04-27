@@ -504,8 +504,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    }
 	} else if (key[0] == 'R' && key[1] == 'N') {
 	    if (!(hdr->codecs[DS_RN] = cram_decoder_init(encoding, cp, size,
-						    E_BYTE_ARRAY_BLOCK,
-						    fd->version))) {
+							 E_BYTE_ARRAY_BLOCK,
+							 fd->version))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
