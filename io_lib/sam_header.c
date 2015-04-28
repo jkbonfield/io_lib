@@ -300,7 +300,8 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	}
 
 	type = &hdr[i+1];
-	if (type[0] < 'A' || type[0] > 'z' ||
+        if (len - i < 3 ||
+            type[0] < 'A' || type[0] > 'z' ||
 	    type[1] < 'A' || type[1] > 'z') {
 	    sam_hdr_error("Header line does not have a two character key",
 			  &hdr[l_start], len - l_start, lno);
@@ -308,7 +309,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	}
 
 	i += 3;
-	if (hdr[i] == '\n')
+        if (i >= len || hdr[i] == '\n')
 	    continue;
 
 	// Add the header line type
