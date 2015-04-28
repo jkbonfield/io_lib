@@ -1643,7 +1643,7 @@ int cram_uncompress_block(cram_block *b) {
     case RANS0: {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 0);
-	if (usize != usize2)
+	if (!uncomp || usize != usize2)
 	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
@@ -1657,7 +1657,7 @@ int cram_uncompress_block(cram_block *b) {
     case RANS1: {
 	unsigned int usize = b->uncomp_size, usize2;
 	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 1);
-	if (usize != usize2)
+	if (!uncomp || usize != usize2)
 	    return -1;
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
