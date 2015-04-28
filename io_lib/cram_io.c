@@ -754,6 +754,11 @@ int itf8_encode(cram_fd *fd, int32_t val) {
     return CRAM_IO_WRITE(buf, 1, len, fd) == len ? 0 : -1;
 }
 
+const int itf8_bytes[16] = {
+    1, 1, 1, 1, 1, 1, 1, 1,
+    2, 2, 2, 2, 3, 3, 4, 5
+};
+
 #ifndef ITF8_MACROS
 /*
  * As above, but decoding from memory
