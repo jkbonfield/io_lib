@@ -72,24 +72,28 @@
  * Returns number of bytes decoded on success
  *        -1 on failure
  */
-int cram_decode_TD(char *cp, cram_block_compression_hdr *h) {
+int cram_decode_TD(char *cp, const char *endp, cram_block_compression_hdr *h) {
     char *op = cp;
     unsigned char *dat;
     cram_block *b;
-    int32_t blk_size;
+    int32_t blk_size = 0;
     int nTL, i, sz;
 
     if (!(b = cram_new_block(0, 0)))
 	return -1;
-    h->TD_blk = b;
 
     /* Decode */
-    cp += itf8_get(cp, &blk_size);
+    cp += safe_itf8_get(cp, endp, &blk_size);
     if (!blk_size) {
 	h->nTL = 0;
 	h->TL = NULL;
 	cram_free_block(b);
 	return cp - op;
+    }
+
+    if (blk_size < 0 || endp - cp < blk_size) {
+        cram_free_block(b);
+	return -1;
     }
 
     BLOCK_APPEND(b, cp, blk_size);
@@ -112,13 +116,16 @@ int cram_decode_TD(char *cp, cram_block_compression_hdr *h) {
 
     // Copy
     h->nTL = nTL;
-    if (!(h->TL = calloc(h->nTL, sizeof(unsigned char *))))
-	return -1;
+    if (!(h->TL = calloc(h->nTL, sizeof(unsigned char *)))) {
+        cram_free_block(b);
+        return -1;
+    }
     for (nTL = i = 0; i < BLOCK_SIZE(b); i++) {
 	h->TL[nTL++] = &dat[i];
 	while (dat[i])
 	    i++;
     }
+    h->TD_blk = b;
     
     return sz;
 }
@@ -130,10 +137,10 @@ int cram_decode_TD(char *cp, cram_block_compression_hdr *h) {
  */
 cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 							   cram_block *b) {
-    char *cp, *cp_copy;
+    char *cp, *endp, *cp_copy;
     cram_block_compression_hdr *hdr = calloc(1, sizeof(*hdr));
     int i;
-    int32_t map_size, map_count;
+    int32_t map_size = 0, map_count = 0;
 
     if (!hdr)
 	return NULL;
@@ -144,19 +151,20 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     }
 
     cp = (char *)b->data;
+    endp = cp + b->uncomp_size;
 
     if (IS_CRAM_1_VERS(fd)) {
-	cp += itf8_get(cp, &hdr->ref_seq_id);
-	cp += itf8_get(cp, &hdr->ref_seq_start);
-	cp += itf8_get(cp, &hdr->ref_seq_span);
-	cp += itf8_get(cp, &hdr->num_records);
-	cp += itf8_get(cp, &hdr->num_landmarks);
+	cp += safe_itf8_get(cp, endp, &hdr->ref_seq_id);
+	cp += safe_itf8_get(cp, endp, &hdr->ref_seq_start);
+	cp += safe_itf8_get(cp, endp, &hdr->ref_seq_span);
+	cp += safe_itf8_get(cp, endp, &hdr->num_records);
+	cp += safe_itf8_get(cp, endp, &hdr->num_landmarks);
 	if (!(hdr->landmark = malloc(hdr->num_landmarks * sizeof(int32_t)))) {
 	    free(hdr);
 	    return NULL;
 	}
 	for (i = 0; i < hdr->num_landmarks; i++) {
-	    cp += itf8_get(cp, &hdr->landmark[i]);
+	    cp += safe_itf8_get(cp, endp, &hdr->landmark[i]);
 	}
     }
 
@@ -182,11 +190,14 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     memcpy(hdr->substitution_matrix, "CGTNAGTNACTNACGNACGT", 20);
 
     /* Preservation map */
-    cp += itf8_get(cp, &map_size); cp_copy = cp;
-    cp += itf8_get(cp, &map_count);
+    cp += safe_itf8_get(cp, endp, &map_size); cp_copy = cp;
+    cp += safe_itf8_get(cp, endp, &map_count);
     for (i = 0; i < map_count; i++) {
 	HashData hd;
-
+	if (endp - cp < 2) {
+	    cram_free_compression_header(hdr);
+	    return NULL;
+	}
 	cp += 2;
 	switch(CRAM_KEY(cp[-2],cp[-1])) {
 	case CRAM_KEY('M','I'):
@@ -244,6 +255,10 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    break;
 
 	case CRAM_KEY('S','M'):
+	    if (endp - cp < 5) {
+	        cram_free_compression_header(hdr);
+		return NULL;
+	    }
 	    hdr->substitution_matrix[0][(cp[0]>>6)&3] = 'C';
 	    hdr->substitution_matrix[0][(cp[0]>>4)&3] = 'G';
 	    hdr->substitution_matrix[0][(cp[0]>>2)&3] = 'T';
@@ -277,7 +292,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    break;
 
 	case CRAM_KEY('T','D'): {
-	    int sz = cram_decode_TD(cp, hdr); // tag dictionary
+	    int sz = cram_decode_TD(cp, endp, hdr); // tag dictionary
 	    if (sz < 0) {
 		cram_free_compression_header(hdr);
 		return NULL;
@@ -305,22 +320,23 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     }
 
     /* Record encoding map */
-    cp += itf8_get(cp, &map_size); cp_copy = cp;
-    cp += itf8_get(cp, &map_count);
+    cp += safe_itf8_get(cp, endp, &map_size); cp_copy = cp;
+    cp += safe_itf8_get(cp, endp, &map_count);
     for (i = 0; i < map_count; i++) {
 	char *key = cp;
 	int32_t encoding;
 	int32_t size;
 	cram_map *m = malloc(sizeof(*m)); // FIXME: use pooled_alloc
 
-	if (!m) {
+	if (!m || endp - cp < 4) {
+	    free(m);
 	    cram_free_compression_header(hdr);
 	    return NULL;
 	}
 
 	cp += 2;
-	cp += itf8_get(cp, &encoding);
-	cp += itf8_get(cp, &size);
+	cp += safe_itf8_get(cp, endp, &encoding);
+	cp += safe_itf8_get(cp, endp, &size);
 
 	// Fill out cram_map purely for cram_dump to dump out.
 	m->key = (key[0]<<8)|key[1];
@@ -331,6 +347,12 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 
 	if (m->encoding == E_NULL)
 	    continue;
+
+	if (size < 0 || endp - cp < size) {
+	    free(m);
+	    cram_free_compression_header(hdr);
+	    return NULL;
+	}
 
 	//printf("%s codes for %.2s\n", cram_encoding2str(encoding), key);
 
@@ -543,29 +565,32 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     }
 
     /* Tag encoding map */
-    cp += itf8_get(cp, &map_size); cp_copy = cp;
-    cp += itf8_get(cp, &map_count);
+    cp += safe_itf8_get(cp, endp, &map_size); cp_copy = cp;
+    cp += safe_itf8_get(cp, endp, &map_count);
     for (i = 0; i < map_count; i++) {
 	int32_t encoding;
 	int32_t size;
 	cram_map *m = malloc(sizeof(*m)); // FIXME: use pooled_alloc
-	char *key = cp+1;
+	char *key;
 
-	if (!m) {
+	if (!m || endp - cp < 6) {
+	    free(m);
 	    cram_free_compression_header(hdr);
 	    return NULL;
 	}
 
+	key = cp + 1;
 	m->key = (key[0]<<16)|(key[1]<<8)|key[2];
 
 	cp += 4; // Strictly ITF8, but this suffices
-	cp += itf8_get(cp, &encoding);
-	cp += itf8_get(cp, &size);
+	cp += safe_itf8_get(cp, endp, &encoding);
+	cp += safe_itf8_get(cp, endp, &size);
 
 	m->encoding = encoding;
 	m->size     = size;
 	m->offset   = cp - (char *)b->data;
-	if (!(m->codec = cram_decoder_init(encoding, cp, size,
+	if (size < 0 || endp - cp < size ||
+	    !(m->codec = cram_decoder_init(encoding, cp, size,
 					   E_BYTE_ARRAY_BLOCK, fd->version))) {
 	    cram_free_compression_header(hdr);
 	    free(m);
@@ -924,9 +949,19 @@ int cram_dependent_data_series(cram_fd *fd,
  */
 cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     cram_block_slice_hdr *hdr;
-    unsigned char *cp = (unsigned char *)BLOCK_DATA(b);
-    unsigned char *cp_end = cp + b->uncomp_size;
+    unsigned char *cp;
+    unsigned char *cp_end;
     int i;
+
+    if (b->method != RAW) {
+        /* Spec. says slice header should be RAW, but we can future-proof
+	   by trying to decode it if it isn't. */
+        if (cram_uncompress_block(b) < 0)
+            return NULL;
+    }
+
+    cp = (unsigned char *)BLOCK_DATA(b);
+    cp_end = cp + b->uncomp_size;
 
     if (b->content_type != MAPPED_SLICE &&
 	b->content_type != UNMAPPED_SLICE)
@@ -938,16 +973,16 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     hdr->content_type = b->content_type;
 
     if (b->content_type == MAPPED_SLICE) {
-	cp += itf8_get((char *)cp, &hdr->ref_seq_id);
-	cp += itf8_get((char *)cp, &hdr->ref_seq_start);
-	cp += itf8_get((char *)cp, &hdr->ref_seq_span);
+        cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->ref_seq_id);
+        cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->ref_seq_start);
+        cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->ref_seq_span);
     }
-    cp += itf8_get((char *)cp, &hdr->num_records);
+    cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_records);
     if (!IS_CRAM_1_VERS(fd))
-	cp += itf8_get((char *)cp, &hdr->record_counter);
-    cp += itf8_get((char *)cp, &hdr->num_blocks);
+	cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->record_counter);
+    cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_blocks);
 
-    cp += itf8_get((char *)cp, &hdr->num_content_ids);
+    cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_content_ids);
     hdr->block_content_ids = malloc(hdr->num_content_ids * sizeof(int32_t));
     if (!hdr->block_content_ids) {
 	free(hdr);
@@ -955,14 +990,19 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     }
 
     for (i = 0; i < hdr->num_content_ids; i++) {
-	cp += itf8_get((char *)cp, &hdr->block_content_ids[i]);
+        cp += safe_itf8_get((char *)cp, (char *) cp_end,
+                            &hdr->block_content_ids[i]);
     }
 
     if (b->content_type == MAPPED_SLICE) {
-	cp += itf8_get((char *)cp, &hdr->ref_base_id);
+        cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->ref_base_id);
     }
 
     if (!IS_CRAM_1_VERS(fd)) {
+        if (cp_end - cp < 16) {
+            free(hdr);
+            return NULL;
+        }
 	memcpy(hdr->md5, cp, 16);
 	cp += 16;
     } else {
