@@ -951,16 +951,14 @@ static int bam_uncompress_input(bam_file_t *b) {
 	    if (b->z_finish)
 		inflateReset(&b->s);
 	    
-	    do {
-		err = inflate(&b->s, Z_BLOCK);
-		//printf("err=%d\n", err);
+	    err = inflate(&b->s, Z_BLOCK);
+	    //printf("err=%d\n", err);
 
-		if (err == Z_OK || err == Z_STREAM_END) {
-		    b->comp_p  += b->comp_sz - b->s.avail_in;
-		    b->comp_sz  = b->s.avail_in;
-		    b->uncomp_sz = b->s.total_out;
-		    b->uncomp_p  = b->uncomp;
-		}
+	    if (err == Z_OK || err == Z_STREAM_END || err == Z_BUF_ERROR) {
+	        b->comp_p  += b->comp_sz - b->s.avail_in;
+	        b->comp_sz  = b->s.avail_in;
+	        b->uncomp_sz = b->s.total_out;
+	        b->uncomp_p  = b->uncomp;
 
 		if (err == Z_STREAM_END) {
 		    b->z_finish = 1;
@@ -975,8 +973,11 @@ static int bam_uncompress_input(bam_file_t *b) {
 		    b->comp_p  += 8;
 		} else {
 		    b->z_finish = 0;
-		}
-	    } while (err != Z_OK && err != Z_STREAM_END);
+	        }
+	    } else {
+	        fprintf(stderr, "Inflate returned error code %d\n", err);
+		return -1;
+	    }
 	}
     }
 
