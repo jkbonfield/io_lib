@@ -2464,8 +2464,11 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    if (s->hdr->BD_crc && ds & CRAM_BA && s->ref)
 		s->BD_crc += crc32(0L, seq, cr->len);
 	    
-	    if (s->hdr->SD_crc & ds & CRAM_QS)
+	    if (s->hdr->SD_crc &&
+		(ds & CRAM_QS) &&
+		(cf & CRAM_FLAG_PRESERVE_QUAL_SCORES)) {
 		s->SD_crc += crc32(0L, qual, cr->len);
+	    }
 	}
     }
 
