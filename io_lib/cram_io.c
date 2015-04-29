@@ -4047,7 +4047,10 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    cram_free_container(c);
 	    return NULL;
 	}
-	cram_uncompress_block(b);
+        if (cram_uncompress_block(b) < 0) {
+            cram_free_container(c);
+            return NULL;
+        }
 
 	len = b->comp_size + 2 + 4*IS_CRAM_3_VERS(fd) +
 	    itf8_size(b->content_id) + 
@@ -4056,17 +4059,19 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 
 	/* Extract header from 1st block */
 	if (-1 == int32_get(b, &header_len) ||
+            header_len < 0 || /* Spec. says signed...  why? */
 	    b->uncomp_size - 4 < header_len) {
 	    cram_free_container(c);
 	    cram_free_block(b);
 	    return NULL;
 	}
-	if (NULL == (header = malloc(header_len))) {
+        if (NULL == (header = malloc(header_len + 1))) {
 	    cram_free_container(c);
 	    cram_free_block(b);
 	    return NULL;
 	}
 	memcpy(header, BLOCK_END(b), header_len);
+        header[header_len] = '\0';
 	cram_free_block(b);
 
 	/* Consume any remaining blocks */
