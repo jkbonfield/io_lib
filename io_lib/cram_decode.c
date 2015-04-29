@@ -1102,11 +1102,13 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 	    break;
 
         default:
+	    id[2] = '\0';
 	    fprintf(stderr, "Unknown aux type.\n");
 	    cp = cp_end;
 	}
 
-	HashTableAdd(hdr->tags, (char *)id, 3, hd, NULL);
+	if (id[2] != '\0')
+	    HashTableAdd(hdr->tags, (char *)id, 3, hd, NULL);
  
 	if (id[0] == 'B' && id[1] == 'D' && id[2] == 'B') {
 	    unsigned char *p = hd.p;
