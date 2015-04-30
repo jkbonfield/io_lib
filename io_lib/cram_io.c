@@ -4020,12 +4020,12 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    return NULL;
 
 	/* Alloc and read */
-	if (NULL == (header = malloc(header_len+1)))
+	if (header_len < 0 || NULL == (header = malloc(header_len+1)))
 	    return NULL;
 
-	*header = 0;
 	if (header_len != CRAM_IO_READ(header, 1, header_len, fd))
 	    return NULL;
+	header[header_len] = '\0';
 
 	fd->first_container += 4 + header_len;
     } else {
