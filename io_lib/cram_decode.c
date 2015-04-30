@@ -1916,7 +1916,7 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 }
 
 /* Resolve mate pair cross-references between recs within this slice */
-static void cram_decode_slice_xref(cram_slice *s, int required_fields) {
+static int cram_decode_slice_xref(cram_slice *s, int required_fields) {
     int rec;
 
     if (!(required_fields & (SAM_RNEXT | SAM_PNEXT | SAM_TLEN))) {
@@ -1928,7 +1928,7 @@ static void cram_decode_slice_xref(cram_slice *s, int required_fields) {
 	    cr->mate_ref_id = -1;
 	}
 
-	return;
+	return 0;
     }
 
     for (rec = 0; rec < s->hdr->num_records; rec++) {
@@ -1967,7 +1967,9 @@ static void cram_decode_slice_xref(cram_slice *s, int required_fields) {
 			    s->crecs[id2].mate_line = rec;
 			    break;
 			}
-			assert(s->crecs[id2].mate_line > id2);
+			if (s->crecs[id2].mate_line <= id2 ||
+                            s->crecs[id2].mate_line >= s->hdr->num_records)
+			    return -1;
 			id2 = s->crecs[id2].mate_line;
 
 			if (s->crecs[id2].ref_id != ref)
@@ -2056,7 +2058,8 @@ static void cram_decode_slice_xref(cram_slice *s, int required_fields) {
 
 	if (cr->tlen == INT_MIN)
 	    cr->tlen = 0; // Just incase
-    }    
+    }
+    return 0;
 }
 
 static char *md5_print(unsigned char *md5, char *out) {
@@ -2570,7 +2573,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 
     /* Resolve mate pair cross-references between recs within this slice */
-    cram_decode_slice_xref(s, fd->required_fields);
+    r |= cram_decode_slice_xref(s, fd->required_fields);
 
     /* Checksum */
     if (CRAM_MAJOR_VERS(fd->version) >= 3) {
