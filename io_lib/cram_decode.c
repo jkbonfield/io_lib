@@ -1033,11 +1033,12 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 	unsigned char id[3];
 	HashData hd;
 
-	if (cp_end - cp < 3)
+	if (cp_end - cp < 4)
 	    return hdr;
 
 	id[0] = cp[0];
 	id[1] = cp[1];
+	id[2] = '\0';
 
 	switch (cp[2]) {
 	case 'c':
@@ -1053,30 +1054,35 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 	    break;
 
 	case 's':
+	    if (cp_end - cp < 5) break;
 	    id[2] = 'i';
 	    hd.i = (int16_t)(cp[3] + (cp[4]<<8));
-	    cp += 4;
+	    cp += 5;
 	    break;
 
 	case 'S':
+	    if (cp_end - cp < 5) break;
 	    id[2] = 'i';
 	    hd.i = (uint16_t)(cp[3] + (cp[4]<<8));
 	    cp += 5;
 	    break;
 
 	case 'i':
+	    if (cp_end - cp < 7) break;
 	    id[2] = 'i';
 	    hd.i = (int32_t)(cp[3] + (cp[4]<<8) + (cp[5]<<16) + cp[6]<<24);
 	    cp += 7;
 	    break;
 
 	case 'I':
+	    if (cp_end - cp < 7) break;
 	    id[2] = 'i';
 	    hd.i = (uint32_t)(cp[3] + (cp[4]<<8) + (cp[5]<<16) + cp[6]<<24);
 	    cp += 7;
 	    break;
 
 	case 'f':
+	    if (cp_end - cp < 7) break;
 	    id[2] = cp[2];
 	    hd.f = bam_aux_f(cp+2);
 	    cp += 7;
@@ -1091,39 +1097,59 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 	case 'Z': case 'H':
 	    id[2] = cp[2];
 	    hd.p = &cp[3];
-	    cp += strlen(cp)+1;
+	    cp += 3;
+	    while (cp < cp_end && *cp != '\0') cp++;
+	    if (cp < cp_end) {
+	        /* Skip NUL */
+	        cp++;
+	    } else {
+	        /* Add missing NUL termination */
+	        assert(cp == BLOCK_DATA(b) + b->uncomp_size);
+	        BLOCK_RESIZE(b, b->uncomp_size + 1);
+		cp = cp_end = BLOCK_DATA(b) + b->uncomp_size;
+		*cp = '\0';
+	    }
 	    break;
 
 	case 'B':
 	    // <type>B<code><4-len><...>
-	    id[2] = cp[2];
+	    if (cp_end - cp < 8) break;
 	    hd.p = &cp[3];
 	    sub_len = cp[4] + (cp[5]<<8) + (cp[6]<<16) + (cp[7]<<24);
 	    switch (cp[3]) {
 	    case 'c': case 'C':
-		cp += 8 + sub_len;
-		break;
+	        if (cp_end - cp < 8 + sub_len) break;
+	        id[2] = cp[2];
+	        cp += 8 + sub_len;
+	        break;
 	    case 's': case 'S':
-		cp += 8 + 2*sub_len;
-		break;
+	        if (cp_end - cp < 8 + 2 * sub_len) break;
+	        id[2] = cp[2];
+	        cp += 8 + 2*sub_len;
+	        break;
 	    case 'i': case 'I': case 'f':
-		cp += 8 + 4*sub_len;
-		break;
+	        if (cp_end - cp < 8 + 4 * sub_len) break;
+	        id[2] = cp[2];
+	        cp += 8 + 4*sub_len;
+	        break;
 	    default:
-		fprintf(stderr, "Unknown aux type 'B' sub-code.\n");
-		cp = cp_end;
+	        fprintf(stderr, "Unknown aux type 'B' sub-code.\n");
+	        cp = cp_end;
 	    }
 	    break;
 
         default:
-	    id[2] = '\0';
 	    fprintf(stderr, "Unknown aux type.\n");
 	    cp = cp_end;
 	}
 
-	if (id[2] != '\0')
+	if (id[2] != '\0') {
 	    HashTableAdd(hdr->tags, (char *)id, 3, hd, NULL);
- 
+	} else {
+	    cp = cp_end;
+	    break;
+	}
+
 	if (id[0] == 'B' && id[1] == 'D' && id[2] == 'B') {
 	    unsigned char *p = hd.p;
 	    hdr->BD_crc =  p[5] | (p[6]<<8) | (p[7]<<16) | (p[8]<<24);
