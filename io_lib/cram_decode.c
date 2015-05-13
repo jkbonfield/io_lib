@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Genome Research Ltd.
+ * Copyright (c) 2013, 2014, 2015 Genome Research Ltd.
  * Author(s): James Bonfield, Rob Davies
  * 
  * Redistribution and use in source and binary forms, with or without 
@@ -2130,9 +2130,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 			"no embedded reference is available.\n");
 		return -1;
 	    }
-	    /* FIXME should search for the block if this fails */
-	    if (!s->block_by_id || s->hdr->ref_base_id >= 1024 ||
-		!(b = s->block_by_id[s->hdr->ref_base_id]))
+	    b = cram_get_block_by_id(s, s->hdr->ref_base_id);
+	    if (!b)
 		return -1;
             if (cram_uncompress_block(b) < 0)
                 return -1;
@@ -2208,8 +2207,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		MD5_Update(&md5, s->ref + start, len);
 	    MD5_Final(digest, &md5);
 	} else if (!s->ref && s->hdr->ref_base_id >= 0) {
-	    cram_block *b;
-	    if (s->block_by_id && (b = s->block_by_id[s->hdr->ref_base_id])) {
+	    cram_block *b = cram_get_block_by_id(s, s->hdr->ref_base_id);
+	    if (b) {
 		MD5_Init(&md5);
 		MD5_Update(&md5, b->data, b->uncomp_size);
 		MD5_Final(digest, &md5);

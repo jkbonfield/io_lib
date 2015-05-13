@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Genome Research Ltd.
+ * Copyright (c) 2013, 2014, 2015 Genome Research Ltd.
  * Author(s): James Bonfield
  * 
  * Redistribution and use in source and binary forms, with or without 
@@ -342,23 +342,12 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 			     cram_block *in, char *out, int *out_size) {
   int i, l;
     char *cp;
-    cram_block *b = NULL;
+    cram_block *b;
 
     /* Find the external block */
-    if (slice->block_by_id) {
-	if (!(b = slice->block_by_id[c->external.content_id]))
-	    return *out_size?-1:0;
-    } else {
-	for (i = 0; i < slice->hdr->num_blocks; i++) {
-	    b = slice->block[i];
-	    if (b && b->content_type == EXTERNAL &&
-		b->content_id == c->external.content_id) {
-		break;
-	    }
-	}
-	if (i == slice->hdr->num_blocks || !b)
-	    return -1;
-    }
+    b = cram_get_block_by_id(slice, c->external.content_id);
+    if (!b)
+        return *out_size?-1:0;
 
     cp = (char *)b->data + b->idx;
     // E_INT and E_LONG are guaranteed single item queries
@@ -374,23 +363,12 @@ int cram_external_decode_char(cram_slice *slice, cram_codec *c,
 			      int *out_size) {
     int i;
     char *cp;
-    cram_block *b = NULL;
+    cram_block *b;
 
     /* Find the external block */
-    if (slice->block_by_id) {
-	if (!(b = slice->block_by_id[c->external.content_id]))
-	    return *out_size?-1:0;
-    } else {
-	for (i = 0; i < slice->hdr->num_blocks; i++) {
-	    b = slice->block[i];
-	    if (b && b->content_type == EXTERNAL &&
-		b->content_id == c->external.content_id) {
-		break;
-	    }
-	}
-	if (i == slice->hdr->num_blocks || !b)
-	    return -1;
-    }
+    b = cram_get_block_by_id(slice, c->external.content_id);
+    if (!b)
+        return *out_size?-1:0;
 
     cp = cram_extract_block(b, *out_size);
     if (!cp)
@@ -409,20 +387,9 @@ static int cram_external_decode_block(cram_slice *slice, cram_codec *c,
     cram_block *b = NULL;
 
     /* Find the external block */
-    if (slice->block_by_id) {
-	if (!(b = slice->block_by_id[c->external.content_id]))
-	    return *out_size?-1:0;
-    } else {
-	for (i = 0; i < slice->hdr->num_blocks; i++) {
-	    b = slice->block[i];
-	    if (b && b->content_type == EXTERNAL &&
-		b->content_id == c->external.content_id) {
-		break;
-	    }
-	}
-	if (i == slice->hdr->num_blocks || !b)
-	    return -1;
-    }
+    b = cram_get_block_by_id(slice, c->external.content_id);
+    if (!b)
+        return *out_size?-1:0;
 
     cp = cram_extract_block(b, *out_size);
     if (!cp)
@@ -1594,20 +1561,9 @@ static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
     char *cp, ch;
     cram_block *b = NULL;
 
-    if (slice->block_by_id) {
-	if (!(b = slice->block_by_id[c->byte_array_stop.content_id]))
-	    return *out_size?-1:0;
-    } else {
-	for (i = 0; i < slice->hdr->num_blocks; i++) {
-	    b = slice->block[i];
-	    if (b && b->content_type == EXTERNAL &&
-		b->content_id == c->byte_array_stop.content_id) {
-		break;
-	    }
-	}
-	if (i == slice->hdr->num_blocks || !b)
-	    return -1;
-    }
+    b = cram_get_block_by_id(slice, c->byte_array_stop.content_id);
+    if (!b)
+        return *out_size?-1:0;
 
     if (b->idx >= b->uncomp_size)
 	return -1;
@@ -1629,26 +1585,14 @@ static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
 int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
 				      cram_block *in, char *out_,
 				      int *out_size) {
-    cram_block *b = NULL;
+    cram_block *b;
     cram_block *out = (cram_block *)out_;
     char *cp, *out_cp, *cp_end;
     char stop;
 
-    if (slice->block_by_id) {
-	if (!(b = slice->block_by_id[c->byte_array_stop.content_id]))
-	    return *out_size?-1:0;
-    } else {
-	int i;
-	for (i = 0; i < slice->hdr->num_blocks; i++) {
-	    b = slice->block[i];
-	    if (b && b->content_type == EXTERNAL &&
-		b->content_id == c->byte_array_stop.content_id) {
-		break;
-	    }
-	}
-	if (i == slice->hdr->num_blocks || !b)
-	    return -1;
-    }
+    b = cram_get_block_by_id(slice, c->byte_array_stop.content_id);
+    if (!b)
+        return *out_size?-1:0;
 
     if (b->idx >= b->uncomp_size)
 	return -1;
