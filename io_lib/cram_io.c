@@ -1249,7 +1249,9 @@ static char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size) {
 
 	if (err != Z_OK) {
 	    fprintf(stderr, "zlib inflate error: %s\n", s.msg);
-	    break;
+	    if (data)
+		free(data);
+	    return NULL;
 	}
 
 	/* More to come, so realloc based on growth so far */
