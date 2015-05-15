@@ -348,8 +348,10 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
 	    // FIXME: if we ever implement range queries for BAM this will
 	    // need amendments to not claim a sub-range is invalid EOF.
 	    fd->eof = fd->b->eof_block ? 1 : 2;
+	    return -1;
 
 	default:
+	    fd->eof = -1; // err
 	    return -1;
 	}
     }

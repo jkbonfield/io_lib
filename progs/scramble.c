@@ -459,19 +459,24 @@ int main(int argc, char **argv) {
 		break;
     }
 
-    if (max_reads == -1) {
-	switch(scram_eof(in)) {
-	case 0:
+    switch(scram_eof(in)) {
+    case -1:
+	fprintf(stderr, "Failed to decode sequence\n");
+	return 1;
+    case 0:
+	if (max_reads == -1) {
 	    fprintf(stderr, "Failed to decode sequence\n");
 	    return 1;
-	case 2:
-	    fprintf(stderr, "Warning: no end-of-file block identified. "
-		    "File may be truncated.\n");
-	    break;
-	case 1: default:
-	    // expected case
+	} else {
 	    break;
 	}
+    case 2:
+	fprintf(stderr, "Warning: no end-of-file block identified. "
+		"File may be truncated.\n");
+	break;
+    case 1: default:
+	// expected case
+	break;
     }
 
     /* Finally tidy up and close files */

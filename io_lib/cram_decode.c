@@ -3012,7 +3012,7 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	    fprintf(stderr, "Failure to decode slice\n");
 	    cram_free_slice(s);
 	    c->slice = NULL;
-	    fd->eof = 0;
+	    fd->eof = -1;
 	    return NULL;
 	}
 
@@ -3040,7 +3040,7 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 
 	if (!res || !res->data) {
 	    fprintf(stderr, "t_pool_next_result failure\n");
-	    fd->eof = 0;
+	    fd->eof = -1;
 	    return NULL;
 	}
 
@@ -3050,7 +3050,7 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 
 	if (j->exit_code != 0) {
 	    fprintf(stderr, "Slice decode failure\n");
-	    fd->eof = 0;
+	    fd->eof = -1;
 	    return NULL;
 	}
 
