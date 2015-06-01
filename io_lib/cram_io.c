@@ -4425,10 +4425,8 @@ static void cram_init_tables(cram_fd *fd) {
 }
 
 // Default version numbers for CRAM
-//static int major_version = 3;
-//static int minor_version = 0;
-static int major_version = 2;
-static int minor_version = 1;
+static int major_version = 3;
+static int minor_version = 0;
 
 cram_fd * cram_io_close(cram_fd * fd, int * fclose_result)
 {
