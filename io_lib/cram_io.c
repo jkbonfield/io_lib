@@ -76,6 +76,10 @@
 #include "io_lib/open_trace_file.h"
 #include "io_lib/rANS_static.h"
 
+#if defined(HAVE_STDIO_EXT_H)
+#include <stdio_ext.h>
+#endif
+
 //#include "crc32c.c"
 
 //#define REF_DEBUG
