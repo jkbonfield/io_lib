@@ -2876,7 +2876,7 @@ char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
 
 	for (i = j = 0; i < len; i++) {
 	    if (cp[i] >= '!' && cp[i] <= '~')
-		cp[j++] = cp[i] & ~0x20;
+		cp[j++] = toupper(cp[i]);
 	}
 	cp_to = cp+j;
 
@@ -2888,7 +2888,7 @@ char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
     } else {
 	int i;
 	for (i = 0; i < len; i++) {
-	    seq[i] = seq[i] & ~0x20; // uppercase in ASCII
+	    seq[i] = toupper(seq[i]);
 	}
     }
 
