@@ -4030,7 +4030,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    return NULL;
 
 	/* Alloc and read */
-	if (header_len < 0 || NULL == (header = malloc(header_len+1)))
+	if (header_len < 0 || NULL == (header = malloc((size_t) header_len+1)))
 	    return NULL;
 
 	if (header_len != CRAM_IO_READ(header, 1, header_len, fd))
@@ -4075,7 +4075,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    cram_free_block(b);
 	    return NULL;
 	}
-        if (NULL == (header = malloc(header_len + 1))) {
+        if (NULL == (header = malloc((size_t) header_len + 1))) {
 	    cram_free_container(c);
 	    cram_free_block(b);
 	    return NULL;
@@ -4097,7 +4097,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    cram_free_block(b);
 	}
 
-	if (c->length && c->length > len) {
+	if (c->length > 0 && len > 0 && c->length > len) {
 	    // Consume padding
 	    char *pads = malloc(c->length - len);
 	    if (!pads) {
