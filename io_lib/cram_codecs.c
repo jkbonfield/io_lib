@@ -511,10 +511,10 @@ int cram_beta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char 
     int32_t *out_i = (int32_t *)out;
     int i, n;
 
-    if (cram_not_enough_bits(in, c->beta.nbits))
-        return -1;
-
     if (c->beta.nbits) {
+        if (cram_not_enough_bits(in, c->beta.nbits))
+	    return -1;
+
 	for (i = 0, n = *out_size; i < n; i++)
 	    out_i[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
     } else {
@@ -528,10 +528,10 @@ int cram_beta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char 
 int cram_beta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
     int i, n;
 
-    if (cram_not_enough_bits(in, c->beta.nbits))
-        return -1;
-
     if (c->beta.nbits) {
+        if (cram_not_enough_bits(in, c->beta.nbits))
+            return -1;
+
 	for (i = 0, n = *out_size; i < n; i++)
 	    out[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
     } else {
@@ -758,8 +758,8 @@ cram_codec *cram_subexp_decode_init(char *data, int size,
     c->free   = cram_subexp_decode_free;
     c->subexp.k = -1;
 
-    cp += itf8_get(cp, &c->subexp.offset);
-    cp += itf8_get(cp, &c->subexp.k);
+    cp += safe_itf8_get(cp, data + size, &c->subexp.offset);
+    cp += safe_itf8_get(cp, data + size, &c->subexp.k);
 
     if (cp - data != size || c->subexp.k < 0) {
 	fprintf(stderr, "Malformed subexp header stream\n");
@@ -1439,7 +1439,7 @@ cram_codec *cram_byte_array_len_decode_init(char *data, int size,
     char *cp   = data;
     char *endp = data + size;
     int32_t encoding = 0;
-    int32_t sub_size = 0;
+    int32_t sub_size = -1;
 
     if (!(c = malloc(sizeof(*c))))
 	return NULL;
@@ -1458,6 +1458,7 @@ cram_codec *cram_byte_array_len_decode_init(char *data, int size,
         goto no_codec;
     cp += sub_size;
 
+    sub_size = -1;
     cp += safe_itf8_get(cp, endp, &encoding);
     cp += safe_itf8_get(cp, endp, &sub_size);
     if (sub_size < 0 || endp - cp < sub_size)
@@ -1662,9 +1663,6 @@ cram_codec *cram_byte_array_stop_decode_init(char *data, int size,
       free(c);
       return NULL;
     }
-    c->decode = (option == E_BYTE_ARRAY_BLOCK)
-	? cram_byte_array_stop_decode_block
-	: cram_byte_array_stop_decode_char;
     c->free   = cram_byte_array_stop_decode_free;
     
     c->byte_array_stop.stop = *cp++;
