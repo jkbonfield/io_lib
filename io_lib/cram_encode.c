@@ -1373,7 +1373,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     }
 
     c->num_records = 0;
-    c->num_blocks = 0;
+    c->num_blocks = 1; // cram_block_compression_hdr
     c->length = 0;
 
     if (fd->verbose > 1) fprintf(stderr, "BF_stats: ");
@@ -1630,7 +1630,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     for (i = 0; i < c->curr_slice; i++) {
 	cram_slice *s = c->slices[i];
 	
-	c->num_blocks += s->hdr->num_blocks + 2;
+	c->num_blocks += s->hdr->num_blocks + 1; // slice header
 	c->landmark[i] = slice_offset;
 
 	if (s->hdr->ref_seq_start + s->hdr->ref_seq_span >
