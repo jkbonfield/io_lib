@@ -509,16 +509,16 @@ cram_codec *cram_external_encode_init(cram_stats *st,
  */
 int cram_beta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
     int32_t *out_i = (int32_t *)out;
-    int i, n;
+    int i, n = *out_size;
 
     if (c->beta.nbits) {
-        if (cram_not_enough_bits(in, c->beta.nbits))
+        if (cram_not_enough_bits(in, c->beta.nbits * n))
 	    return -1;
 
-	for (i = 0, n = *out_size; i < n; i++)
+	for (i = 0; i < n; i++)
 	    out_i[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
     } else {
-	for (i = 0, n = *out_size; i < n; i++)
+	for (i = 0; i < n; i++)
 	    out_i[i] = -c->beta.offset;
     }
 
@@ -526,16 +526,16 @@ int cram_beta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char 
 }
 
 int cram_beta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
-    int i, n;
+    int i, n = *out_size;
 
     if (c->beta.nbits) {
-        if (cram_not_enough_bits(in, c->beta.nbits))
+        if (cram_not_enough_bits(in, c->beta.nbits * n))
             return -1;
 
-	for (i = 0, n = *out_size; i < n; i++)
+	for (i = 0; i < n; i++)
 	    out[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
     } else {
-	for (i = 0, n = *out_size; i < n; i++)
+	for (i = 0; i < n; i++)
 	    out[i] = -c->beta.offset;
     }
 
@@ -634,6 +634,7 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
 				  int version) {
     cram_codec *c;
     int min_val, max_val, len = 0;
+    int64_t range;
 
     c = malloc(sizeof(*c));
     if (!c)
@@ -676,10 +677,10 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
 
     assert(max_val >= min_val);
     c->e_beta.offset = -min_val;
-    max_val -= min_val;
-    while (max_val) {
+    range = (int64_t) max_val - min_val;
+    while (range) {
 	len++;
-	max_val >>= 1;
+	range >>= 1;
     }
     c->e_beta.nbits = len;
 

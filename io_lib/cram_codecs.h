@@ -169,7 +169,7 @@ static inline int cram_not_enough_bits(cram_block *blk, int nbits) {
 	blk->byte >= blk->uncomp_size ||
 	(blk->uncomp_size - blk->byte <= INT32_MAX / 8 + 1 &&
 	 (blk->uncomp_size - blk->byte) * 8 + blk->bit - 7 < nbits)) {
-        return 1;
+        return nbits != 0 ? 1 : 0;
     }
     return 0;
 }
