@@ -1070,14 +1070,14 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 	case 'i':
 	    if (cp_end - cp < 7) break;
 	    id[2] = 'i';
-	    hd.i = (int32_t)(cp[3] + (cp[4]<<8) + (cp[5]<<16) + cp[6]<<24);
+	    hd.i = (int32_t)(cp[3] + (cp[4]<<8) + (cp[5]<<16) + (cp[6]<<24));
 	    cp += 7;
 	    break;
 
 	case 'I':
 	    if (cp_end - cp < 7) break;
 	    id[2] = 'i';
-	    hd.i = (uint32_t)(cp[3] + (cp[4]<<8) + (cp[5]<<16) + cp[6]<<24);
+	    hd.i = (uint32_t)(cp[3] + (cp[4]<<8) + (cp[5]<<16) + (cp[6]<<24));
 	    cp += 7;
 	    break;
 
