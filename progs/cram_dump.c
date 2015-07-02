@@ -42,12 +42,14 @@
 #include <assert.h>
 #include <ctype.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <io_lib/cram.h>
 
 void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data,
 	      HashTable *ds_h) {
-    int i, j, k;
+    int i, j;
+    uintptr_t k;
     for (i = 0; i < CRAM_MAP_HASH; i++) {
 	cram_map *m;
 	for (m = ma[i]; m; m = m->next) {
@@ -167,7 +169,7 @@ int main(int argc, char **argv) {
     HashTable *ds_h; // content_id to data-series lookup.
     HashTable *dc_h; // content_id to data-compression lookup
 
-    static bmax = 0;
+    static int bmax = 0;
     bsize_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
 			    HASH_NONVOLATILE_KEYS |
 			    HASH_INT_KEYS);
@@ -341,15 +343,15 @@ int main(int argc, char **argv) {
 	
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
 		HashItem *hi;
-		int k = s->block[id]->content_type == CORE
+		intptr_t k = s->block[id]->content_type == CORE
 		    ? -1 : s->block[id]->content_id;
-		hi = HashTableSearch(bsize_h, (char *)k, 4);
+		hi = HashTableSearch(bsize_h, (char *)k, sizeof(k));
 		if (hi) {
 		    hi->data.i += s->block[id]->comp_size;
 		} else {
 		    HashData hd;
 		    hd.i = s->block[id]->comp_size;
-		    HashTableAdd(bsize_h, (char *)k, 4, hd, NULL);
+		    HashTableAdd(bsize_h, (char *)k, sizeof(k), hd, NULL);
 		}
 
 		// WARNING: scuppered by having high content_id values.
@@ -597,7 +599,6 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'b': { // Read bases; BB
-				unsigned char l, cc;
 				int out_sz2;
 				char seq[256];
 
@@ -607,7 +608,6 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'q': { // Read bases; QQ
-				unsigned char l, cc;
 				int out_sz2;
 				char qual[256];
 
@@ -776,24 +776,25 @@ int main(int argc, char **argv) {
     cram_close(fd);
 
     {
-	int id;
+	intptr_t id;
 
 	puts("");
 	for (id = -1; id <= bmax; id++) {
-	    int k;
+	    intptr_t k;
 	    HashItem *hi;
 	    HashIter *iter;
 
-	    if (!(hi = HashTableSearch(bsize_h, (char *)id, 4)))
+	    if (!(hi = HashTableSearch(bsize_h, (char *)id, sizeof(id))))
 		continue;
 
-	    k = (int)hi->key;
+	    k = (intptr_t) hi->key;
 	    if (k == -1) {
 		printf("Block CORE          , total size %10ld\n", hi->data.i);
 		continue;
 	    }
 
-	    printf("Block content_id %3d, total size %10ld ", k, hi->data.i);
+	    printf("Block content_id %3d, total size %10ld ",
+		   (int) k, hi->data.i);
 
 	    struct {
 		int id;
@@ -824,7 +825,7 @@ int main(int argc, char **argv) {
 		if (hi->data.i != k)
 		    continue;
 		
-		c = ((int)hi->key)>>8;
+		c = ((uintptr_t) hi->key)>>8;
 		
 		buf[x--] = 0;
 		while(c & 0xff) {

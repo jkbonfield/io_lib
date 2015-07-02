@@ -496,8 +496,6 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
     long  lFileLen;               /* Length of file */
     long  lIndex;                 /* Index into cThisLine array */
     long  lLineCount;             /* Current line number */
-    long  lLineLen;               /* Current line length */
-    long  lStartPos;              /* Offset of start of current line */
     long  lTotalChars;            /* Total characters read */
     char  cThisLine[MAX_REC_LEN]; /* Contents of current line */
     char *cFile;                  /* Dynamically allocated buffer (entire file) */
@@ -532,7 +530,6 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
 	{
 	    lIndex    = 0L;                 /* Reset counters and flags */
 	    isNewline = 0;
-	    lStartPos = lTotalChars;
 
 	    while (*cThisPtr)               /* Read until reaching null char */
 		{
@@ -557,7 +554,6 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
 
 	    cThisLine[lIndex] = '\0';     /* Terminate the string */
 	    ++lLineCount;                 /* Increment the line counter */
-	    lLineLen = strlen(cThisLine); /* Get length of line */
 
 	    /* Find the one and only = in the string. */
 	    if(strchr(cThisLine,'=') != NULL && (strchr(cThisLine,'=') == strrchr(cThisLine,'='))) {

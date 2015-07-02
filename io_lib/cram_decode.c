@@ -626,7 +626,7 @@ int cram_dependent_data_series(cram_fd *fd,
 			       cram_slice *s) {
     int *block_used;
     int core_used = 0;
-    int i, j;
+    int i;
     static int i_to_id[] = {
 	DS_BF, DS_AP, DS_FP, DS_RL, DS_DL, DS_NF, DS_BA, DS_QS,
 	DS_FC, DS_FN, DS_BS, DS_IN, DS_RG, DS_MQ, DS_TL, DS_RN,
@@ -1217,7 +1217,6 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
     int orig_aux = 0;
     int decode_md = fd->decode_md && s->ref && !has_MD;
     int decode_nm = fd->decode_md && s->ref && !has_NM;
-    char buf[20];
     uint32_t ds = c->comp_hdr->data_series;
 
     if (ds & CRAM_QS && !(cf & CRAM_FLAG_PRESERVE_QUAL_SCORES)) {
@@ -1421,7 +1420,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 			nm--;
 		    }
 		} else {
-                    char ref_call = ref_pos <= s->ref_end
+                    unsigned char ref_call = ref_pos <= s->ref_end
                         ? (uc)s->ref[ref_pos - s->ref_start +1]
                         : 'N';
                     ref_base = fd->L1[ref_call];
@@ -2146,7 +2145,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     int rec;
     char *seq, *qual;
     int unknown_rg = -1;
-    int id, embed_ref;
+    int embed_ref;
     char **refs = NULL;
     uint32_t ds;
 
@@ -2617,12 +2616,12 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	if (!fd->ignore_chksum) {
 	    if (s->hdr->BD_crc && ds & CRAM_BA && s->ref)
-		s->BD_crc += crc32(0L, seq, cr->len);
+		s->BD_crc += crc32(0L, (Bytef *) seq, cr->len);
 	    
 	    if (s->hdr->SD_crc &&
 		(ds & CRAM_QS) &&
 		(cf & CRAM_FLAG_PRESERVE_QUAL_SCORES)) {
-		s->SD_crc += crc32(0L, qual, cr->len);
+		s->SD_crc += crc32(0L, (Bytef *) qual, cr->len);
 	    }
 	}
     }
