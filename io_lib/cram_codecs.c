@@ -63,9 +63,8 @@ static char *codec2str(enum cram_encoding codec) {
     case E_SUBEXP:          return "SUBEXP";
     case E_GOLOMB_RICE:     return "GOLOMB_RICE";
     case E_GAMMA:           return "GAMMA";
+    default:                return "(unknown)";
     }
-
-    return "(unknown)";
 }
 
 /*
@@ -344,7 +343,7 @@ static char *cram_extract_block(cram_block *b, int size) {
  */
 int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 			     cram_block *in, char *out, int *out_size) {
-  int i, l;
+    int l;
     char *cp;
     cram_block *b;
 
@@ -365,7 +364,6 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 int cram_external_decode_char(cram_slice *slice, cram_codec *c,
 			      cram_block *in, char *out,
 			      int *out_size) {
-    int i;
     char *cp;
     cram_block *b;
 
@@ -385,7 +383,6 @@ int cram_external_decode_char(cram_slice *slice, cram_codec *c,
 static int cram_external_decode_block(cram_slice *slice, cram_codec *c,
 				      cram_block *in, char *out_,
 				      int *out_size) {
-    int i;
     char *cp;
     cram_block *out = (cram_block *)out_;
     cram_block *b = NULL;
@@ -1574,7 +1571,6 @@ cram_codec *cram_byte_array_len_encode_init(cram_stats *st,
 static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
 					    cram_block *in, char *out,
 					    int *out_size) {
-    int i;
     char *cp, ch;
     cram_block *b = NULL;
 
@@ -1765,8 +1761,9 @@ char *cram_encoding2str(enum cram_encoding t) {
     case E_SUBEXP:          return "SUBEXP";
     case E_GOLOMB_RICE:     return "GOLOMB_RICE";
     case E_GAMMA:           return "GAMMA";
+    case E_NUM_CODECS:
+    default:                return "?";
     }
-    return "?";
 }
 
 static cram_codec *(*decode_init[])(char *data,

@@ -587,6 +587,9 @@ extern cram_fd * cram_io_openw_by_callbacks(
 extern cram_fd * cram_io_close(cram_fd * fd, int * fclose_result);
 
 extern cram_fd_output_buffer *
+cram_io_deallocate_output_buffer(cram_fd_output_buffer * buffer);
+
+extern cram_fd_output_buffer *
 cram_io_allocate_output_buffer(size_t const bufsize);
 #endif
 

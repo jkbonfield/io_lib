@@ -100,6 +100,17 @@ extern "C" {
 #    define __PRINTF_FORMAT__(a,b)
 #endif
 
+/*
+ * Stop gcc from warning about unused variables.
+ */
+
+#ifdef __GNUC__
+#    define __UNUSED__  __attribute__ ((__unused__))
+#else
+#    define __UNUSED__
+#endif
+
+
 extern int is_directory(char * fn);
 extern int is_file(char * fn);
 extern int file_exists(char * fn);

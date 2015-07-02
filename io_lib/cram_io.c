@@ -1784,7 +1784,10 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 
     case RAW:
 	break;
-    }
+
+    default:
+        return NULL;
+     }
 
     return NULL;
 }
@@ -1936,7 +1939,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    //fprintf(stderr, "sz_best = %d\n", sz_best);
 
 	    free(b->data);
-	    b->data = c_best;
+	    b->data = (unsigned char *)c_best;
 	    //printf("method_best = %s\n", cram_block_method2str(method_best));
 	    b->method = method_best == GZIP_RLE ? GZIP : method_best;
 	    b->comp_size = sz_best;
@@ -3395,7 +3398,7 @@ cram_container *cram_read_container(cram_fd *fd) {
     }
 
     if (IS_CRAM_3_VERS(fd)) {
-	if (-1 == int32_decode(fd, (uint32_t *)&c->crc32))
+	if (-1 == int32_decode(fd, (int32_t *)&c->crc32))
 	    return NULL;
 	else
 	    rd+=4;

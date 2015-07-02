@@ -278,7 +278,7 @@ int main(int argc, char **argv) {
 	    printf("Tlen:\t%d\n", bam_ins_size(s));
 
 	if (col & SAM_SEQ) {
-	    unsigned char *seq = bam_seq(s);
+	    unsigned char *seq = (unsigned char *) bam_seq(s);
 	    int i;
 	    printf("Seq:\t");
 	    for (i = 0; i < bam_seq_len(s); i++)

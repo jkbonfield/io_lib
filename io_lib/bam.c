@@ -535,7 +535,7 @@ bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh) {
     b->bam = 1;
     b->gzip = 0;
     b->comp_sz = 0;
-    b->uncomp_p = blk;
+    b->uncomp_p = (unsigned char *) blk;
     b->uncomp_sz = blk_size;
     b->header = sh;
 
@@ -2386,7 +2386,6 @@ int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam) {
     unsigned char *cpf = (unsigned char *) sam;
     unsigned char *cpt = (unsigned char *)&(*bsp)->ref + (*bsp)->blk_size;
     unsigned char *end = (unsigned char *)(*bsp) + (*bsp)->alloc;
-    int n;
 
     while (*cpf) {
 	unsigned char *key = cpf, *value;

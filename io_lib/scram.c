@@ -260,7 +260,6 @@ scram_fd *scram_open_cram_via_callbacks(
     size_t const bufsize            
 )
 {
-    char mode2[10];
     scram_fd *fd = calloc(1, sizeof(*fd));
     if (!fd)
 	return NULL;

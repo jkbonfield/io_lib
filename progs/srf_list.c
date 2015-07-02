@@ -102,7 +102,7 @@ int64_t list_file(char *fname, opts *opts) {
 int64_t count_file(char *fname, opts *opts) {
     srf_t *srf;
     srf_index_hdr_t hdr;
-    off_t ipos, skip;
+    off_t skip;
     int item_sz = 9;
 
     if (NULL == (srf = srf_open(fname, "r"))) {
@@ -115,7 +115,6 @@ int64_t count_file(char *fname, opts *opts) {
 	srf_destroy(srf, 1);
 	return list_file(fname, opts);
     }
-    ipos = ftello(srf->fp);
 
     /* Compute the remaining size of the index and divide by item_sz */
     if (hdr.dbh_pos_stored_sep)
