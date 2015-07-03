@@ -79,6 +79,9 @@ AC_PROG_LIBTOOL
 #   ;;
 # esac
 
+dnl Turn on C compiler warnings.
+VL_PROG_CC_WARNINGS
+
 dnl Check for libcurl and zlib
 LIBCURL_CHECK_CONFIG(,,[have_curl=yes], [have_curl=no])
 ZLIB_CHECK_CONFIG(,,[have_zlib=yes], [have_zlib=no])
