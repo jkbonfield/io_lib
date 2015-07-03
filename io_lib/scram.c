@@ -304,7 +304,12 @@ int scram_close(scram_fd *fd) {
 }
 
 SAM_hdr *scram_get_header(scram_fd *fd) {
+#ifdef __INTEL_COMPILER
+    // avoids cmovne generation from icc 2015 (bug)
+    return fd->is_bam && fd->b ? fd->b->header : fd->c->header;
+#else
     return fd->is_bam ? fd->b->header : fd->c->header;
+#endif
 }
 
 refs_t *scram_get_refs(scram_fd *fd) {
