@@ -118,12 +118,12 @@ int parse_int_from_name(const char *name, int *variable, size_t *i, const char *
     size_t last = *i;
     int sep = 0;
 
-    while (*i >= 0 && isdigit(name[*i])) {
+    while (*i > 0 && isdigit(name[*i])) {
 	--(*i);
     }
     sep = name[*i];
 
-    if(*i < 0 || last == *i) {
+    if((*i == 0 && isdigit(name[*i])) || last == *i) {
 	fprintf(stderr, "Bad read name \"%s\" for \"%s\".  Read name needs to follow pattern of:\n", name, variable_name);
 	fprintf(stderr, "\"prefix<separator><lane><separator><tile><separator><x><separator><y>\"\n");
 	fprintf(stderr, "where lane, tile, x and y all consist of digits and the separators consist of non-numeric characters.\n");
@@ -132,7 +132,7 @@ int parse_int_from_name(const char *name, int *variable, size_t *i, const char *
     }
 
     *variable = atoi(&name[(*i)+1]);
-    --(*i);
+    if (*i > 0) --(*i);
 
     return sep;
 }
@@ -287,7 +287,7 @@ void dump_solexa(ztr_t *z, char *name, char mode, FILE **files) {
     int i, nc;
     ztr_chunk_t **chunks;
     char *seq;
-    int lane, tile, x, y;
+    int lane = -1, tile = -1, x = -1, y = -1;
     parse_name(name, &lane, &tile, &x, &y);
 
     uncompress_ztr(z);
@@ -886,7 +886,7 @@ int process_srf_to_solexa_files(char *ar_name, char chunk_mode, int num_reads_on
     mkdir(dir2, 0777);
 
     while (NULL != (ztr = srf_next_ztr(srf, name, 0))) {
-	int lane, tile, x, y;
+	int lane = -1, tile = -1, x = -1, y = -1;
 
 	parse_name(name, &lane, &tile, &x, &y);
 
@@ -987,7 +987,7 @@ int process_srf_to_text_files(char *ar_name, char chunk_mode, int num_reads_only
     mkdir(dir2, 0777);
 
     while (NULL != (ztr = srf_next_ztr(srf, name, 0))) {
-	int lane, tile, x, y;
+	int lane = -1, tile = -1, x = -1, y = -1;
 
 	parse_name(name, &lane, &tile, &x, &y);
 

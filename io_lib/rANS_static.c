@@ -61,6 +61,7 @@ static inline void RansEncInit(RansState* r)
     *r = RANS_BYTE_L;
 }
 
+#if 0 /* Curently unused */
 // Renormalize the encoder. Internal function.
 static inline RansState RansEncRenorm(RansState x, uint8_t** pptr, uint32_t freq, uint32_t scale_bits)
 {
@@ -91,6 +92,7 @@ static inline void RansEncPut(RansState* r, uint8_t** pptr, uint32_t start, uint
     // x = C(s,x)
     *r = ((x / freq) << scale_bits) + (x % freq) + start;
 }
+#endif /* Currently unused */
 
 // Flushes the rANS encoder.
 static inline void RansEncFlush(RansState* r, uint8_t** pptr)
@@ -294,6 +296,7 @@ static inline void RansDecAdvanceSymbol(RansState* r, uint8_t** pptr, RansDecSym
     RansDecAdvance(r, pptr, sym->start, sym->freq, scale_bits);
 }
 
+#if 0 /* Currently unused */
 // Advances in the bit stream by "popping" a single symbol with range start
 // "start" and frequency "freq". All frequencies are assumed to sum to "1 << scale_bits".
 // No renormalization or output happens.
@@ -311,6 +314,7 @@ static inline void RansDecAdvanceSymbolStep(RansState* r, RansDecSymbol const* s
 {
     RansDecAdvanceStep(r, sym->start, sym->freq, scale_bits);
 }
+#endif /* Currently unused */
 
 // Renormalize.
 static inline void RansDecRenorm(RansState* r, uint8_t** pptr)
