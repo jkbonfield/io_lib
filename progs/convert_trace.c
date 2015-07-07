@@ -80,10 +80,9 @@
 #include <io_lib/traceType.h>
 #include <io_lib/seqIOABI.h>
 #include <io_lib/open_trace_file.h>
+#include <io_lib/misc.h> /* defines MAX and __UNUSED__ */
 
-static char const rcsid[] = "$Id: convert_trace.c,v 1.12 2008-02-20 16:07:44 jkbonfield Exp $";
-
-#define MAX(a,b) ((a)>(b)?(a):(b))
+static char const rcsid[] __UNUSED__ = "$Id: convert_trace.c,v 1.12 2008-02-20 16:07:44 jkbonfield Exp $";
 
 struct opts {
     char *name;
