@@ -444,7 +444,7 @@ static int cram_index_build_multiref(cram_fd *fd,
 				     off_t cpos,
 				     int32_t landmark,
 				     int sz) {
-    int i, ref = -2, ref_start, ref_end;
+    int i, ref = -2, ref_start = 0, ref_end;
     char buf[1024];
 
     if (0 != cram_decode_slice(fd, c, s, fd->header))

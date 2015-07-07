@@ -731,7 +731,7 @@ int get_type_of_output(char *arg, char *mode) {
  * Returns 0 on success.
  */
 int get_destination_types(char *arg, char *mode) {
-    int num_allowed_types = 6;
+    int num_allowed_types = 3;
     char *allowed_str_types[] = {CONSOLE_STR, FILE_STR, NONE_STR};
     char allowed_types[] = {CONSOLE_DEST, FILE_DEST, NONE_DEST};
     char *type;

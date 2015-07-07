@@ -324,8 +324,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     cp += safe_itf8_get(cp, endp, &map_count);
     for (i = 0; i < map_count; i++) {
 	char *key = cp;
-	int32_t encoding;
-	int32_t size;
+	int32_t encoding = E_NULL;
+	int32_t size = 0;
 	cram_map *m = malloc(sizeof(*m)); // FIXME: use pooled_alloc
 
 	if (!m || endp - cp < 4) {
@@ -568,8 +568,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     cp += safe_itf8_get(cp, endp, &map_size); cp_copy = cp;
     cp += safe_itf8_get(cp, endp, &map_count);
     for (i = 0; i < map_count; i++) {
-	int32_t encoding;
-	int32_t size;
+	int32_t encoding = E_NULL;
+	int32_t size = 0;
 	cram_map *m = malloc(sizeof(*m)); // FIXME: use pooled_alloc
 	char *key;
 
@@ -2129,7 +2129,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     unsigned char cf;
     int out_sz, r = 0;
     int rec;
-    char *seq, *qual;
+    char *seq = NULL, *qual = NULL;
     int unknown_rg = -1;
     int embed_ref;
     char **refs = NULL;
