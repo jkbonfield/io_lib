@@ -421,30 +421,26 @@ int cram_io_flush_output_buffer(cram_fd *fd)
 
     /* write up to buffer size bytes */
     /* C-IO fwrite */
-    while (len) {
+    if (len) {
 	r = fd->fp_out_callbacks->fwrite_callback
 	    (dat, 1, len, fd->fp_out_callbacks->user_data);   
 
-	if (r >= 0) {
-	    dat += r;
-	    len -= r;
-	}
+	dat += r;
+	len -= r;
+	fd->fp_out_buffer->fp_out_buf_start += r; /* move offset */
 
-	if (r < 0) {
+	if (r < olen) {
 	    /* Write failed, possible partial */
-	    memmove(fd->fp_out_buffer->fp_out_buf_pa, dat, len);
-	    fd->fp_out_buffer->fp_out_buf_pc
-		= fd->fp_out_buffer->fp_out_buf_pa;
+	    if (r > 0) {
+		memmove(fd->fp_out_buffer->fp_out_buf_pa, dat, len);
+		fd->fp_out_buffer->fp_out_buf_pc
+		    = fd->fp_out_buffer->fp_out_buf_pa + len;
+	    }
 
-	    fd->fp_out_buffer->fp_out_buf_start
-		+= fd->fp_out_buffer->fp_out_buf_size - len;
-
+	    /* Output is probably unfixable now so return error */
 	    return -1;
 	}
     }
-
-    /* move offset */
-    fd->fp_out_buffer->fp_out_buf_start += olen;
 
     /* reset current output */
     fd->fp_out_buffer->fp_out_buf_pc = fd->fp_out_buffer->fp_out_buf_pa;
@@ -486,17 +482,15 @@ size_t cram_io_output_buffer_write(void *ptr, size_t size, size_t nmemb,
 	     1,
 	     fd->fp_out_buffer->fp_out_buf_size,
 	     fd->fp_out_callbacks->user_data);
-	if (blockwrite < 0)
-	    break;
 
 	towrite -= blockwrite;
 	ptr += blockwrite;
         r += blockwrite;
 	fd->fp_out_buffer->fp_out_buf_start += blockwrite;
-    }
 
-    if (blockwrite < 0)
-	goto partial_write;
+	if (blockwrite < fd->fp_out_buffer->fp_out_buf_size)
+	    goto partial_write;
+    }
 
     /* Push any remaining bytes into the output buffer */
     if (towrite) {
@@ -4598,7 +4592,7 @@ cram_fd * cram_io_open(
                     return cram_io_close(fd,0);
 		}
             }
-	} while ( 0 );
+	}
 #endif // HAVE_STDIO_EXT_H
 	
         fd->fp_in_callbacks = cram_IO_allocate_cram_io_input_from_C_FILE(fd->fp_in);

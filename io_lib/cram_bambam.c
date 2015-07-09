@@ -166,7 +166,12 @@ typedef struct {
 //-----------------------------------------------------------------------------
 // The callbacks for making CRAM write to an in-memory data block.
 
-/* Cram buffered I/O writer */
+/*
+ * Cram buffered I/O writer.
+ * Has an fwrite()-like interface.  It returns the number of items
+ * (not bytes) written.  As dstring_nappend either writes everything
+ * or nothing, this will return nmemb on success and 0 on failure.
+ */
 size_t cram_mem_write_callback(void *ptr,
 			       size_t size,
 			       size_t nmemb,
@@ -174,9 +179,9 @@ size_t cram_mem_write_callback(void *ptr,
     dstring_t *ds = (dstring_t *)cram_io_userdata;
 
     if (0 == dstring_nappend(ds, ptr, size*nmemb))
-	return size*nmemb;
+	return nmemb;
 
-    return -1;
+    return 0;
 }
 
 static cram_io_output_t *
