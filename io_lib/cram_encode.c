@@ -2792,7 +2792,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    return -1;
 	}
 	fake_qual = spos;
-	cr->aend = MIN(apos, c->ref_end);
+	cr->aend = fd->no_ref ? apos : MIN(apos, c->ref_end);
 	cram_stats_add(c->stats[DS_FN], cr->nfeature);
     } else {
 	// Unmapped
