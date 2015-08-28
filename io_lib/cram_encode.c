@@ -923,6 +923,36 @@ static int cram_encode_slice_read(cram_fd *fd,
     return r ? -1 : 0;
 }
 
+#if 0
+static void squash_qual(cram_block *b) {
+    size_t i, j, l;
+
+    unsigned int map[256] = {0};
+
+    l = BLOCK_SIZE(b);
+    for (i = 0; i < l; i++)
+	map[b->data[i]]++;
+
+    for (i = j = 0; i < 256; i++)
+	if (map[i])
+	    map[i] = j++;
+
+    //fprintf(stderr, "%d symbols\n", j);
+    assert(j <= 16);
+
+    l /= 2;
+    for (i = j = 0; j < l; j++) {
+	assert(map[b->data[i+0]]!=255);
+	assert(map[b->data[i+1]]!=255);
+	unsigned char c = map[b->data[i++]] << 4;
+	b->data[j] = c | map[b->data[i++]];
+    }
+    if (j*2 < BLOCK_SIZE(b))
+	b->data[j++] = map[b->data[BLOCK_SIZE(b)-1]]<<4;
+    //fprintf(stderr, "Data size %d to %d\n", (int)BLOCK_SIZE(b), (int)j);
+    b->uncomp_size = BLOCK_SIZE(b) = j;
+}
+#endif
 
 /*
  * Applies various compression methods to specific blocks, depending on
@@ -953,6 +983,13 @@ static int cram_compress_slice(cram_fd *fd, cram_slice *s) {
     if (level >= 6)
 	methodF = method;
     
+#if 0
+    // Squash qual.
+    // Experimental to see what packing into nibbles first does if 
+    // the qualities have been quantised and fit. (NB: misses lookup
+    // table in output.)
+    squash_qual(s->block[DS_QS]);
+#endif
 
     /* Specific compression methods for certain block types */
     if (cram_compress_block(fd, s->block[DS_IN], fd->m[DS_IN], //IN (seq)
@@ -2835,6 +2872,18 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    if (CRAM_MAJOR_VERS(fd->version) >= 3 && !fd->ignore_chksum)
 		s->SD_crc += crc32(0L, (Bytef *) to, cr->len);
 
+#if 0
+	    // Reverse. Experimental to see the impact on file size
+	    if (cr->flags & BAM_FREVERSE) {
+		int i, j;
+		for (i = 0, j = cr->len-1; i < j; i++, j--) {
+		    unsigned char c;
+		    c = to[i];
+		    to[i] = to[j];
+		    to[j] = c;
+		}
+	    }
+#endif
 	    //for (i = 0; i < cr->len; i++) cp[i] = from[i];
 	}
 	BLOCK_SIZE(s->qual_blk) += cr->len;
