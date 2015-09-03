@@ -1642,6 +1642,7 @@ int cram_uncompress_block(cram_block *b) {
 
     case RANS0: {
 	unsigned int usize = b->uncomp_size, usize2;
+	if (*b->data == 1) b->orig_method = RANS1; // useful in debugging
 	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 0);
 	if (!uncomp || usize != usize2)
 	    return -1;
@@ -1815,6 +1816,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	if (metrics->trial > 0 || --metrics->next_trial <= 0) {
 	    size_t sz_best = INT_MAX;
 	    size_t sz_gz_rle = 0;
+	    size_t sz_gz_filt = 0;
 	    size_t sz_gz_def = 0;
 	    size_t sz_rans0 = 0;
 	    size_t sz_rans1 = 0;
@@ -1832,6 +1834,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		metrics->next_trial = TRIAL_SPAN;
 		metrics->trial = NTRIALS;
 		metrics->sz_gz_rle /= 2;
+		metrics->sz_gz_filt/= 2;
 		metrics->sz_gz_def /= 2;
 		metrics->sz_rans0  /= 2;
 		metrics->sz_rans1  /= 2;
@@ -1860,10 +1863,29 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    if (method & (1<<GZIP)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					    &sz_gz_def, GZIP, level,
-					    Z_FILTERED);
+					    Z_DEFAULT_STRATEGY);
 		if (sz_best > sz_gz_def) {
 		    sz_best = sz_gz_def;
 		    method_best = GZIP;
+		    if (c_best)
+			free(c_best);
+		    c_best = c;
+		} else {
+		    free(c);
+		}
+
+		//fprintf(stderr, "Block %d; %d->%d\n", b->content_id, b->uncomp_size, sz_gz_def);
+	    }
+
+	    // Doesn't seem to buy us much as default strategy usually wins anyway,
+	    // but occasionally it's an improvement.  Limit to high comp level only?
+	    if (method & (1<<GZIP_FLT)) {
+		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
+					    &sz_gz_filt, GZIP, level,
+					    Z_FILTERED);
+		if (sz_best > sz_gz_filt) {
+		    sz_best = sz_gz_filt;
+		    method_best = GZIP_FLT;
 		    if (c_best)
 			free(c_best);
 		    c_best = c;
@@ -1935,11 +1957,13 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    free(b->data);
 	    b->data = (unsigned char *)c_best;
 	    //printf("method_best = %s\n", cram_block_method2str(method_best));
-	    b->method = method_best == GZIP_RLE ? GZIP : method_best;
+	    b->method = (method_best == GZIP_RLE || method_best == GZIP_FLT)
+		? GZIP : method_best;
 	    b->comp_size = sz_best;
 
 	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
 	    metrics->sz_gz_rle += sz_gz_rle;
+	    metrics->sz_gz_filt+= sz_gz_filt;
 	    metrics->sz_gz_def += sz_gz_def;
 	    metrics->sz_rans0  += sz_rans0;
 	    metrics->sz_rans1  += sz_rans1;
@@ -1952,11 +1976,13 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		// Scale methods by cost
 		if (fd->level <= 3) {
 		    metrics->sz_rans1  *= 1.02;
+		    metrics->sz_gz_filt*= 1.04;
 		    metrics->sz_gz_def *= 1.04;
 		    metrics->sz_bzip2  *= 1.08;
 		    metrics->sz_lzma   *= 1.10;
 		} else if (fd->level <= 6) {
 		    metrics->sz_rans1  *= 1.01;
+		    metrics->sz_gz_filt*= 1.02;
 		    metrics->sz_gz_def *= 1.02;
 		    metrics->sz_bzip2  *= 1.03;
 		    metrics->sz_lzma   *= 1.05;
@@ -1964,6 +1990,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
 		if (method & (1<<GZIP_RLE) && best_sz > metrics->sz_gz_rle)
 		    best_sz = metrics->sz_gz_rle, best_method = GZIP_RLE;
+
+		if (method & (1<<GZIP_FLT) && best_sz > metrics->sz_gz_filt)
+		    best_sz = metrics->sz_gz_filt, best_method = GZIP_FLT;
 
 		if (method & (1<<GZIP) && best_sz > metrics->sz_gz_def)
 		    best_sz = metrics->sz_gz_def, best_method = GZIP;
@@ -1983,9 +2012,12 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		if (best_method == GZIP_RLE) {
 		    metrics->method = GZIP;
 		    metrics->strat  = Z_RLE;
+		} else if (best_method == GZIP_FLT) {
+		    metrics->method = GZIP;
+		    metrics->strat  = Z_FILTERED;
 		} else {
 		    metrics->method = best_method;
-		    metrics->strat  = Z_FILTERED;
+		    metrics->strat  = Z_DEFAULT_STRATEGY;
 		}
 
 		// If we see at least MAXFAIL trials in a row for a specific
@@ -2002,6 +2034,16 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    if (++metrics->gz_rle_cnt >= MAXFAILS && 
 			(metrics->gz_rle_extra += r) >= MAXDELTA)
 			method &= ~(1<<GZIP_RLE);
+		}
+
+		if (best_method == GZIP_FLT) {
+		    metrics->gz_filt_cnt = 0;
+		    metrics->gz_filt_extra = 0;
+		} else if (best_sz < metrics->sz_gz_filt) {
+		    double r = (double)metrics->sz_gz_filt / best_sz - 1;
+		    if (++metrics->gz_filt_cnt >= MAXFAILS && 
+			(metrics->gz_filt_extra += r) >= MAXDELTA)
+			method &= ~(1<<GZIP_FLT);
 		}
 
 		if (best_method == GZIP) {
@@ -2070,24 +2112,34 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 					   level, strat);
 	    if (!comp)
 		return -1;
-	    free(b->data);
-	    b->data = (unsigned char *)comp;
-	    b->comp_size = comp_size;
-	    b->method = method;
+
+	    if (comp_size < b->uncomp_size) {
+		free(b->data);
+		b->data = (unsigned char *)comp;
+		b->comp_size = comp_size;
+		b->method = method;
+	    } else {
+		free(comp);
+	    }
 	}
 
     } else {
 	// no cached metrics, so just do zlib?
 	comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
-				       &comp_size, GZIP, level, Z_FILTERED);
+				       &comp_size, GZIP, level, Z_DEFAULT_STRATEGY);
 	if (!comp) {
 	    fprintf(stderr, "Compression failed!\n");
 	    return -1;
 	}
-	free(b->data);
-	b->data = (unsigned char *)comp;
-	b->comp_size = comp_size;
-	b->method = GZIP;
+
+	if (comp_size < b->uncomp_size) {
+	    free(b->data);
+	    b->data = (unsigned char *)comp;
+	    b->comp_size = comp_size;
+	    b->method = GZIP;
+	} else {
+	    free(comp);
+	}
     }
 
     if (fd->verbose)
@@ -2123,6 +2175,7 @@ char *cram_block_method2str(enum cram_block_method m) {
     case RANS0:    return "RANS0";
     case RANS1:    return "RANS1";
     case GZIP_RLE: return "GZIP_RLE";
+    case GZIP_FLT: return "GZIP_FLT";
     case BM_ERROR: break;
     }
     return "?";
@@ -3306,7 +3359,21 @@ void cram_free_container(cram_container *c) {
 
     //if (c->aux_B_stats) cram_stats_free(c->aux_B_stats);
     
-    if (c->tags_used) HashTableDestroy(c->tags_used, 0);
+    if (c->tags_used) {
+        HashItem *hi;
+        HashIter *iter = HashTableIterCreate();
+
+	while (iter && (hi = HashTableIterNext(c->tags_used, iter))) {
+	    cram_tag_map *tm = (cram_tag_map *)hi->data.p;
+	    cram_codec *c = tm->codec;
+
+	    if (c) c->free(c);
+	    free(tm);
+	}
+	
+	HashTableDestroy(c->tags_used, 0);
+	HashTableIterDestroy(iter);
+    }
 
     free(c);
 }
@@ -3730,24 +3797,6 @@ void cram_free_slice(cram_slice *s) {
 
     if (s->aux_blk)
 	cram_free_block(s->aux_blk);
-
-    if (s->aux_OQ_blk)
-	cram_free_block(s->aux_OQ_blk);
-
-    if (s->aux_BQ_blk)
-	cram_free_block(s->aux_BQ_blk);
-
-    if (s->aux_FZ_blk)
-	cram_free_block(s->aux_FZ_blk);
-
-    if (s->aux_oq_blk)
-	cram_free_block(s->aux_oq_blk);
-
-    if (s->aux_os_blk)
-	cram_free_block(s->aux_os_blk);
-
-    if (s->aux_oz_blk)
-	cram_free_block(s->aux_oz_blk);
 
     if (s->base_blk)
 	cram_free_block(s->base_blk);
@@ -4753,6 +4802,10 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     for (i = 0; i < DS_END; i++)
 	fd->m[i] = cram_new_metrics();
 
+    if (!(fd->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
+	goto err;
+    fd->next_content_id = DS_END;
+
     fd->range.refid = -2; // no ref.
     fd->eof = 1;
     fd->ref_fn = NULL;
@@ -4853,6 +4906,10 @@ cram_fd *cram_open_by_callbacks(
 
     for (i = 0; i < DS_END; i++)
 	fd->m[i] = cram_new_metrics();
+
+    if (!(fd->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
+	goto err;
+    fd->next_content_id = DS_END;
 
     fd->range.refid = -2; // no ref.
     fd->eof = 1;
@@ -4968,6 +5025,10 @@ cram_fd *cram_openw_by_callbacks(
 
     for (i = 0; i < DS_END; i++)
 	fd->m[i] = cram_new_metrics();
+
+    if (!(fd->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
+	goto err;
+    fd->next_content_id = DS_END;
 
     fd->range.refid = -2; // no ref.
     fd->eof = 1;
@@ -5133,6 +5194,9 @@ int cram_close(cram_fd *fd) {
     for (i = 0; i < DS_END; i++)
 	if (fd->m[i])
 	    free(fd->m[i]);
+
+    if (fd->tags_used)
+	HashTableDestroy(fd->tags_used, 1);
 
     if (fd->index)
 	cram_index_free(fd);

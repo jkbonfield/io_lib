@@ -91,6 +91,7 @@ typedef struct {
 typedef struct {
     int32_t content_id;
     enum cram_external_type type;
+    cram_block *b;
 } cram_external_decoder;
 
 typedef struct {
@@ -101,6 +102,7 @@ typedef struct {
 typedef struct {
     unsigned char stop;
     int32_t content_id;
+    cram_block *b;
 } cram_byte_array_stop_decoder;
 
 typedef struct {

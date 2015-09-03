@@ -183,12 +183,13 @@ struct cram_slice;
 enum cram_block_method {
     BM_ERROR  = -1,
     RAW    = 0,
-    GZIP   = 1,
+    GZIP   = 1,    // Z_DEFAULT_STRATEGY
     BZIP2  = 2,
     LZMA   = 3,
     RANS0  = 4,
     RANS1  = 10,   // Not externalised; stored as RANS (generic)
-    GZIP_RLE = 11, // NB: not externalised in CRAM
+    GZIP_RLE = 11, // Z_RLE, NB: not externalised in CRAM
+    GZIP_FLT = 12, // Z_FILTERED, NB: not externalised in CRAM
 };
 
 enum cram_content_type {
@@ -210,6 +211,7 @@ typedef struct {
     // aggregate sizes during trials
     int sz_gz_rle;
     int sz_gz_def;
+    int sz_gz_filt;
     int sz_rans0;
     int sz_rans1;
     int sz_bzip2;
@@ -222,6 +224,7 @@ typedef struct {
     // Revisions of method, to allow culling of continually failing ones.
     int gz_rle_cnt;
     int gz_def_cnt;
+    int gz_filt_cnt;
     int rans0_cnt;
     int rans1_cnt;
     int bzip2_cnt;
@@ -230,10 +233,15 @@ typedef struct {
 
     double gz_rle_extra;
     double gz_def_extra;
+    double gz_filt_extra;
     double rans0_extra;
     double rans1_extra;
     double bzip2_extra;
     double lzma_extra;
+
+    // Which content_id is this the metrics for?
+    // (Ab)used to track which tag type has which content_id.
+    int content_id;
 } cram_metrics;
 
 /* Block */
@@ -304,6 +312,12 @@ typedef struct cram_map {
     struct cram_codec *codec;
     struct cram_map *next; // for noddy internal hash
 } cram_map;
+
+typedef struct {
+    struct cram_codec *codec;
+    cram_block *blk;
+    cram_metrics *m;
+} cram_tag_map;
 
 /* Mapped or unmapped slice header block */
 typedef struct {
@@ -378,7 +392,8 @@ typedef struct {
     /* Statistics for encoding */
     cram_stats *stats[DS_END];
 
-    HashTable *tags_used; // hash of tag types in use, for tag encoding map
+    HashTable *tags_used; // cram_tag_map[], per tag types in use.
+
     int *refs_used;       // array of frequency of ref seq IDs
 
     // For experimental name delta
@@ -558,14 +573,6 @@ typedef struct cram_slice {
     cram_block *base_blk;
     cram_block *soft_blk;
     cram_block *aux_blk;
-    cram_block *aux_OQ_blk;
-    cram_block *aux_BQ_blk;
-    cram_block *aux_BD_blk;
-    cram_block *aux_BI_blk;
-    cram_block *aux_FZ_blk;
-    cram_block *aux_oq_blk;
-    cram_block *aux_os_blk;
-    cram_block *aux_oz_blk;
 
     HashTable *pair[2];      // for identifying read-pairs in this slice.
 
@@ -761,6 +768,8 @@ typedef struct {
     // compression level and metrics
     int level;
     cram_metrics *m[DS_END];
+    HashTable *tags_used; // cram_metrics[], per tag types in use.
+    int next_content_id;
 
     // options
     int decode_md; // Whether to export MD and NM tags

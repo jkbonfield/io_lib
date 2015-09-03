@@ -217,17 +217,16 @@ char *cram_content_type2str(enum cram_content_type t);
 /*
  * Find an external block by its content_id
  */
-
 static inline cram_block *cram_get_block_by_id(cram_slice *slice, int id) {
     if (slice->block_by_id && id >= 0 && id < 1024) {
         return slice->block_by_id[id];
     } else {
         int i;
         for (i = 0; i < slice->hdr->num_blocks; i++) {
-	    cram_block *b = slice->block[i];
-	    if (b && b->content_type == EXTERNAL && b->content_id == id)
-	        return b;
-	}
+            cram_block *b = slice->block[i];
+            if (b && b->content_type == EXTERNAL && b->content_id == id)
+                return b;
+        }
     }
     return NULL;
 }
