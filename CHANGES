@@ -1,3 +1,50 @@
+Version 1.14.0 (10th July 2015)
+--------------
+
+* The default CRAM format type is now version 3.0.  You can still
+  generate version 2.1 files using scramble -V2.1
+
+* Lots of BAM/CRAM code hardening against I/O errors or corrupted data
+  files.  Some have been from visual inspection while many have come
+  from automated "american fuzzy lop" fuzz testing.  See the ChangeLog
+  for the full list.
+
+* Imperovements to compilation; we now compile with -Wall and this
+  should produce no warnings.  Let us know if you get them.  There is
+  a configure --disable-warnings option to switch off -Wall.
+
+* CRAM: added mmap support for references.  This can reduce the total
+  memory footprint if many instances of scramble are running and also
+  reduces I/O when we are using small regions of cached md5
+  references.
+
+* CRAM: improved compatibility with Java Cramtools CRC32 checking
+  (Cram version 3.0).  We've also now done full integration checking
+  between the two implementations to ensure best compatibility with
+  version 3.0.
+
+* CRAM: better support for Biobambam/libmaus; provides an in-memory
+  buffered alternative to the file descriptor to allow better
+  multi-threading performance with libmaus.
+
+* CRAM: we now correctly spot sequence "*" when generating a CRAM file
+  so we can correctly export it again (cram version 3.0).  Similarly
+  quality "*" is better handled too when being passed on to Cramtools.
+
+* CRAM: bug fixed NM:i tag so it no longer counts hard clips. Also
+  fixed NM/MD for sequence "*" and cases where one was previously
+  present but not the other.
+
+* CRAM: bug fixed handling unmapped reads with sequence "*".
+
+* CRAM: bug fix to index querying when a read starts precisely on a
+  boundary of a cram slice.
+
+* CRAM: fixed the container number of blocks field to be computed
+  correctly for multi-slice containers.  (Oddly this didn't actually
+  matter for Scramble or Cramtools.)
+
+
 version 1.13.10 (3rd Mar 2015)
 ---------------
 

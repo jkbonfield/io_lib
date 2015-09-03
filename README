@@ -1,5 +1,5 @@
-			IO_LIB VERSION 1.13.10
-			======================
+			IO_LIB VERSION 1.14.0
+			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
 purpose trace file (and Experiment File) reading interface. The programmer
@@ -25,6 +25,19 @@ These link together to form a single "libstaden-read" library supporting
 all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
+
+
+What's new in 1.14.0
+=====================
+
+The primary change with this release is the default CRAM version is
+now version 3.0.  This has been extensively cross-validated with the
+Cramtools-3.0.jar implementation.
+
+In addition to this many bugs have been fixed and the code has been
+"hardened" by both visual inspection, automated fuzzing and fixing all
+the compiler warnings.
+
 
 What's new in 1.13.10
 =====================
