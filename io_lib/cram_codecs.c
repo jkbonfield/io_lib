@@ -348,7 +348,10 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
     cram_block *b;
 
     /* Find the external block */
-    b = cram_get_block_by_id(slice, c->external.content_id);
+    if (!(b = c->external.b)){
+	b = cram_get_block_by_id(slice, c->external.content_id);
+	c->external.b = b;
+    }
     if (!b)
         return *out_size?-1:0;
 
@@ -368,7 +371,10 @@ int cram_external_decode_char(cram_slice *slice, cram_codec *c,
     cram_block *b;
 
     /* Find the external block */
-    b = cram_get_block_by_id(slice, c->external.content_id);
+    if (!(b = c->external.b)){
+	b = cram_get_block_by_id(slice, c->external.content_id);
+	c->external.b = b;
+    }
     if (!b)
         return *out_size?-1:0;
 
@@ -388,7 +394,10 @@ static int cram_external_decode_block(cram_slice *slice, cram_codec *c,
     cram_block *b = NULL;
 
     /* Find the external block */
-    b = cram_get_block_by_id(slice, c->external.content_id);
+    if (!(b = c->external.b)){
+	b = cram_get_block_by_id(slice, c->external.content_id);
+	c->external.b = b;
+    }
     if (!b)
         return *out_size?-1:0;
 
@@ -432,6 +441,7 @@ cram_codec *cram_external_decode_init(char *data, int size,
     }
 
     c->external.type = option;
+    c->external.b = NULL;
 
     return c;
 }
@@ -1553,7 +1563,7 @@ cram_codec *cram_byte_array_len_encode_init(cram_stats *st,
     c->store = cram_byte_array_len_encode_store;
 
     c->e_byte_array_len.len_codec = cram_encoder_init(e->len_encoding,
-						      NULL, E_INT, 
+						      st, E_INT, 
 						      e->len_dat,
 						      version);
     c->e_byte_array_len.val_codec = cram_encoder_init(e->val_encoding,
@@ -1574,7 +1584,10 @@ static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
     char *cp, ch;
     cram_block *b = NULL;
 
-    b = cram_get_block_by_id(slice, c->byte_array_stop.content_id);
+    if (!(b = c->byte_array_stop.b)){
+	b = cram_get_block_by_id(slice, c->byte_array_stop.content_id);
+	c->byte_array_stop.b = b;
+    }
     if (!b)
         return *out_size?-1:0;
 
@@ -1603,7 +1616,10 @@ int cram_byte_array_stop_decode_block(cram_slice *slice, cram_codec *c,
     char *cp, *out_cp, *cp_end;
     char stop;
 
-    b = cram_get_block_by_id(slice, c->byte_array_stop.content_id);
+    if (!(b = c->byte_array_stop.b)){
+	b = cram_get_block_by_id(slice, c->byte_array_stop.content_id);
+	c->byte_array_stop.b = b;
+    }
     if (!b)
         return *out_size?-1:0;
 
@@ -1676,6 +1692,8 @@ cram_codec *cram_byte_array_stop_decode_init(char *data, int size,
 	free(c);
 	return NULL;
     }
+
+    c->byte_array_stop.b = NULL;
 
     return c;
 }
