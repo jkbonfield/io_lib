@@ -478,7 +478,10 @@ cram_block *cram_encode_slice_header(cram_fd *fd, cram_slice *s) {
     cp += itf8_put(cp, s->hdr->ref_seq_start);
     cp += itf8_put(cp, s->hdr->ref_seq_span);
     cp += itf8_put(cp, s->hdr->num_records);
-    cp += itf8_put(cp, s->hdr->record_counter);
+    if (CRAM_MAJOR_VERS(fd->version) == 2)
+	cp += itf8_put(cp, s->hdr->record_counter);
+    else if (CRAM_MAJOR_VERS(fd->version) >= 3)
+	cp += ltf8_put(cp, s->hdr->record_counter);
     cp += itf8_put(cp, s->hdr->num_blocks);
     cp += itf8_put(cp, s->hdr->num_content_ids);
     for (j = 0; j < s->hdr->num_content_ids; j++) {
@@ -772,7 +775,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<GZIP_FLT | 1<<BZIP2 | 1<<LZMA);
-    if (level >= 5)
+    if (level >= 6)
 	method |= 1<<GZIP;
     if (level >= 6)
 	methodF = method;

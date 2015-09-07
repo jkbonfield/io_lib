@@ -108,7 +108,9 @@ int itf8_put(char *cp, int32_t val);
 
 #endif
 
-  /* Version of itf8_get that checks it hasn't run out of input */
+int ltf8_put(char *cp, int64_t val);
+
+/* Version of itf8_get that checks it hasn't run out of input */
 
 extern const int itf8_bytes[16];
 

@@ -3519,7 +3519,10 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
 	cp += itf8_put(cp, c->ref_seq_span);
     }
     cp += itf8_put(cp, c->num_records);
-    cp += itf8_put(cp, c->record_counter);
+    if (IS_CRAM_3_VERS(fd))
+	cp += ltf8_put(cp, c->record_counter);
+    else
+	cp += itf8_put(cp, c->record_counter);
     cp += ltf8_put(cp, c->num_bases);
     cp += itf8_put(cp, c->num_blocks);
     cp += itf8_put(cp, c->num_landmarks);
