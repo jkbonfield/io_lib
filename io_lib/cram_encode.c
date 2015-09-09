@@ -845,7 +845,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     // It benefits well from a little bit extra compression level.
     if (cram_compress_block(fd, s->block[DS_RN], fd->m[DS_RN],
 			    method & ~(1<<RANS0 | 1<<GZIP_RLE),
-			    MIN(9,level)))
+			    level))
 	return -1;
 
     // NS shows strong local correlation as rearrangements are localised
