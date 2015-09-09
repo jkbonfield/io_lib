@@ -2551,7 +2551,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	}
 
 	if (!(bf & BAM_FUNMAP)) {
-            if (cr->apos <= 0) {
+            if ((ds & CRAM_AP) && cr->apos <= 0) {
                 fprintf(stderr,
 			"Read has alignment position %d but no unmapped flag\n",
 			cr->apos);
@@ -3036,6 +3036,7 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	if (j->exit_code != 0) {
 	    fprintf(stderr, "Slice decode failure\n");
 	    fd->eof = -1;
+	    t_pool_delete_result(res, 1);
 	    return NULL;
 	}
 
