@@ -758,11 +758,11 @@ static void squash_qual(cram_block *b) {
  */
 static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     int level = fd->level, i;
-    int method = 1<<GZIP_FLT | 1<<GZIP_RLE, methodF = method;
+    int method = 1<<GZIP | 1<<GZIP_RLE, methodF = method;
 
     /* Compress the CORE Block too, with minimal zlib level */
     if (level > 5 && s->block[0]->uncomp_size > 500)
-	cram_compress_block(fd, s->block[0], NULL, GZIP, 1);
+	cram_compress_block(fd, s->block[0], NULL, 1<<GZIP, 1);
  
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
@@ -774,9 +774,9 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	method |= (1<<LZMA);
 
     /* Faster method for data series we only need entropy encoding on */
-    methodF = method & ~(1<<GZIP | 1<<GZIP_FLT | 1<<BZIP2 | 1<<LZMA);
+    methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
     if (level >= 6)
-	method |= 1<<GZIP;
+	method |= 1<<GZIP_1;
     if (level >= 6)
 	methodF = method;
     
