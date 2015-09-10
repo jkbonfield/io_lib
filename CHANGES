@@ -1,3 +1,25 @@
+Version 1.14.1 (10th September 2015)
+--------------
+
+CRAM changes:
+
+* Small improvements to compression ratios.  CRAM auxiliary fields are
+  now always written to their own blocks. Also now experiment with
+  level 1 zlib compression in addition to the required level, as
+  on some data series this is the best solution.
+
+* Removed support for writing CRAM version 1.0.  This format was never
+  truely spec compliant anyway due to errors with the first
+  specification.
+
+* rANS O1 memory allocation is now via malloc rather than the heap,
+  permitting building on MacOS X again.
+
+* Fixed crash in multi-threaded decoding if not decoding positional
+  data (via cram_required_fields() function).
+
+* Fixed a bug with non-reference encoded CRAMs and indexing.
+
 Version 1.14.0 (10th July 2015)
 --------------
 
