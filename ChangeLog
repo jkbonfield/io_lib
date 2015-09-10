@@ -1,5 +1,151 @@
 ===============================================================================
-2015-07-10: RELEASE 1.13.11
+2015-09-10: RELEASE 1.14.1
+
+------------------------------------------------------------------------
+r3952 | jkbonfield | 2015-09-09 16:11:10 +0100 (Wed, 09 Sep 2015) | 11 lines
+
+Fixed bugs causing scram_flagstat -t2 to crash.
+
+On error, we shouldn't do t_pool_flush and cram_flush_result as the
+data structures may not have been initialised in all threads
+(particularly one generating an error).
+
+The second issue is the error itself.  This was due to additional
+error checking in r3916 to check unmapped reads have no alignment
+position.  It's not a valid check when we are not decode CRAM_AP data
+series.
+
+------------------------------------------------------------------------
+r3951 | jkbonfield | 2015-09-09 15:29:45 +0100 (Wed, 09 Sep 2015) | 11 lines
+
+Improved zlib compression methods again.
+
+Observed that the reason why Z_DEFAULT_STRATEGY wins over Z_FILTERED
+for our mc:i:<num> (mate coordinate) tag unlike all other zlib uses is
+not so much the strategy as the impact is has on how hard it tries.
+Using compression level 1 has both a better effect (it's smaller still
+on mc:i: block) while being considerably faster.
+
+So changed the default method back to Z_FILTERED and GZIP_FLT codec is
+now GZIP_1 (default strategy at level 1).
+
+------------------------------------------------------------------------
+r3950 | jkbonfield | 2015-09-09 11:29:10 +0100 (Wed, 09 Sep 2015) | 2 lines
+
+Removed some pointless code.
+
+------------------------------------------------------------------------
+r3949 | jkbonfield | 2015-09-07 16:50:50 +0100 (Mon, 07 Sep 2015) | 11 lines
+
+Minor tweaks.
+
+Use both Z_DEFAULT_STRATEGY and Z_FILTERED only on compression level 6
+and above as it's 6-7% more cpu and rarely makes much difference
+except on specific data sets.
+
+Also noticed and fixed a cram version 2.1 vs 3.0 difference that
+wasn't correctly honoured - the container record counter is 64-bit, so
+we need to allow for this.  (In practice it wouldn't make a difference
+until we got to > 2 billion records.)
+
+------------------------------------------------------------------------
+r3948 | jkbonfield | 2015-09-07 09:34:33 +0100 (Mon, 07 Sep 2015) | 4 lines
+
+Made the zlib Z_DEFAULT_STRATEGY or Z_FILTERED exploration only apply
+at compression level 5 (the default) and above.  This allows for level
+4 to be similar to how it used to be on performance.
+
+------------------------------------------------------------------------
+r3947 | jkbonfield | 2015-09-03 17:06:58 +0100 (Thu, 03 Sep 2015) | 4 lines
+
+Ditched all the V1.0 CRAM writing code.  The reading code still exists
+(but I've no idea if it still runs; I've never seen such data in the
+wild anyway).
+
+------------------------------------------------------------------------
+r3946 | jkbonfield | 2015-09-03 16:35:52 +0100 (Thu, 03 Sep 2015) | 39 lines
+
+Misc updates to improve compression ratios.  The major change here was
+to split auxiliary tags into their own blocks, but several smaller
+optimisations took place at the same time.
+
+- Changed the default GZIP strategy to Z_DEFAULT_STRATEGY and added a
+  separate GZIP_FLT method, much like GZIP_RLE works.
+
+  This is because I found some cases where the default strategy was
+  far superior (and vice versa).
+
+- cram_compress_block no longer keeps blocks which grew during
+  compression.
+
+- cram_get_block_by_id returns are now cached, removing a lot of time
+  spend linear scanning.
+
+- Aux tags are now strictly one tag KeyKey:Type per block.  This
+  simplified all the existing code to explicitly handle OQ, FZ, BQ,
+  etc blocks, but made other areas more complex.
+
+  Specifically we now have an unknown number of blocks to deal with.
+  This means that the cram_metrics, holding the compression method
+  performance per block type, now has to be allocated on-the-fly for
+  each tag code witnessed along with code to generate new block
+  content_ids.  These are new fields in the cram_fd struct
+  (fd->tags_used and fd->next_content_id).
+
+  Aux tags now auto-resize to their smallest data size.  This is
+  because we routinely see things like MQ:i:10 encoded as "i" in BAM
+  with 3 out of 4 values being 0.  I am unsure of which tool causes
+  this to happen.
+
+- Dropped version 1 cram support in some places.
+  TODO: go through the rest of the code dropping it too.  It's dead
+  and was never really an officially recognised format (in that the
+  implemented code by Java nor C did not match the specification in
+  numerous places).
+
+------------------------------------------------------------------------
+r3945 | jkbonfield | 2015-09-03 14:42:51 +0100 (Thu, 03 Sep 2015) | 2 lines
+
+Missing doc updates for the 1.14.0 release.
+
+------------------------------------------------------------------------
+r3944 | jkbonfield | 2015-08-28 12:17:09 +0100 (Fri, 28 Aug 2015) | 4 lines
+
+Various experiments in quality compression.
+All commented out, but committed so we can resurrect them sometime if
+needed.
+
+------------------------------------------------------------------------
+r3943 | jkbonfield | 2015-08-19 17:44:04 +0100 (Wed, 19 Aug 2015) | 9 lines
+
+Fixed bug with non-reference base CRAMs and indexing.
+
+When using --output-fmt cram,no_ref the reference sequence is not
+loaded into memory, causing the "ref_end" container field to be unset.
+This in turn meant that the code that clipped the container header
+start/end fields (pos+span) to the actual reference length, to work
+around buggy aligners that positiong data off the end of the
+reference, was itself buggy.
+
+------------------------------------------------------------------------
+r3942 | daviesrob | 2015-08-19 12:00:25 +0100 (Wed, 19 Aug 2015) | 14 lines
+
+Change rANS O1 codecs to allocate large arrays on the heap.
+
+rans_compress_O1 needed about 1.25 Mb of stack for a couple of 256x256
+arrays.  This caused problems on MacOS X when running in threaded mode
+due to running out of per-thread stack.  The default stack size for
+threads on MacOS X is 512 K.  For details, see:
+https://developer.apple.com/library/mac/qa/qa1419/_index.html
+
+This changes rans_compress_O1 and rans_uncompress_O1 to use malloc
+and calloc to allocate the arrays instead of using the stack.
+
+See also htslib commit 4494fa66822f0fad7f9715ed6925939295f3e87a
+
+
+===============================================================================
+2015-07-10: RELEASE 1.14.0
 
 ------------------------------------------------------------------------
 r3941 | daviesrob | 2015-07-09 12:13:25 +0100 (Thu, 09 Jul 2015) | 16 lines

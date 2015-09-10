@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.14.0
+			IO_LIB VERSION 1.14.1
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -27,8 +27,19 @@ mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
 
 
+See the CHANGES or ChangeLog file for the full list of chanegs.  A
+quick summary follows.
+
+What's new in 1.14.1
+====================
+
+More CRAM tweaks.  The primary purpose for this release is slightly
+better compression ratios on some (although not all) CRAM files due to
+splitting auxiliary tags into their own per-tag data blocks.
+
+
 What's new in 1.14.0
-=====================
+====================
 
 The primary change with this release is the default CRAM version is
 now version 3.0.  This has been extensively cross-validated with the
@@ -72,8 +83,7 @@ use Io_lib to handle non-POSIX file-systems.
 What's new in 1.13.8
 ====================
 
-Mainly bug fixes to CRAM, but a few minor BAM fixes.  Full changes are
-in CHANGES file.
+Mainly bug fixes to CRAM, but a few minor BAM fixes.  
 
 CRAM version 3.0 support has been tightened up and now produces data
 compatible with the Java implementation (this involved changes to both
@@ -110,8 +120,7 @@ What's new in 1.13.5
 ====================
 
 Two bug fixes to CRAM involving computation of MD5sums for both the
-@SQ line and also the slice headers. See the CHANGES or ChangeLog file
-for details.
+@SQ line and also the slice headers.
 
 
 What's new in 1.13.4
@@ -164,8 +173,6 @@ There is also now support for finding references by a colon separated
 search path (REF_PATH environment variable), which may contain URLs in
 the same manner that TRACE_PATH does.  We can also locally cache files
 accessed by the MD5 sum to the REF_CACHE environment variable. 
-
-See the CHANGES file for full details.
 
 
 What's new in 1.13.0
