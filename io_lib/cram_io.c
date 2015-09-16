@@ -1830,7 +1830,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    else
 		metrics->revised_method = method;
 
-	    if (metrics->next_trial == 0) {
+	    if (metrics->next_trial <= 0) {
 		metrics->next_trial = TRIAL_SPAN;
 		metrics->trial = NTRIALS;
 		metrics->sz_gz_rle /= 2;
