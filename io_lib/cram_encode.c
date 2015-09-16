@@ -881,7 +881,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
      */
     {
 	int i;
-	for (i = 1; i < s->hdr->num_blocks; i++) {
+	for (i = 1; i < s->hdr->num_blocks && i < DS_END; i++) {
 	    if (!s->block[i] || s->block[i] == s->block[0])
 		continue;
 
@@ -1823,7 +1823,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    if (!(hi_global = HashTableAdd(fd->tags_used, aux_f, 3, hd, NULL)))
 		return NULL;
 	    if (!hi_global->data.p) {
-		hi_global->data.p = calloc(1, sizeof(cram_metrics));
+		hi_global->data.p = cram_new_metrics();
 		((cram_metrics *)hi_global->data.p)->content_id = fd->next_content_id++;
 	    }
 	    key = ((cram_metrics *)hi_global->data.p)->content_id;
