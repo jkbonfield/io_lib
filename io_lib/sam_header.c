@@ -265,14 +265,14 @@ static int sam_hdr_update_hashes(SAM_hdr *sh,
  * optional new-line. If it contains more than 1 line then multiple lines
  * will be added in order.
  *
- * Len is the length of the text data, or 0 if unknown (in which case
- * it should be null terminated).
+ * Input text is of maximum length len or as terminated earlier by a NUL.
+ * Len may be 0 if unknown, in which case lines must be NUL-terminated.
  *
  * Returns 0 on success
  *        -1 on failure
  */
 int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
-    int i, lno = 1, text_offset;
+    int i, lno, text_offset;
     HashItem *hi;
     HashData hd;
     char *hdr;
@@ -284,7 +284,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
     dstring_nappend(sh->text, lines, len);
     hdr = DSTRING_STR(sh->text) + text_offset;
 
-    for (i = 0; i < len; i++) {
+    for (i = 0, lno = 1; i < len && hdr[i] != '\0'; i++, lno++) {
 	char *type;
 	int l_start = i, new;
 	SAM_hdr_type *h_type;
@@ -292,7 +292,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 
 	if (hdr[i] != '@') {
 	    int j;
-	    for (j = i; j < len && hdr[j] != '\n'; j++)
+	    for (j = i; j < len && hdr[j] != '\0' && hdr[j] != '\n'; j++)
 		;
 	    sam_hdr_error("Header line does not start with '@'",
 			  &hdr[l_start], len - l_start, lno);
@@ -346,7 +346,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 		return -1;
 	    }
 
-	    for (j = ++i; j < len && hdr[j] != '\n'; j++)
+	    for (j = ++i; j < len && hdr[j] != '\0' && hdr[j] != '\n'; j++)
 		;
 
 	    if (!(h_type->tag = h_tag = pool_alloc(sh->tag_pool)))
@@ -368,7 +368,10 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 		    return -1;
 		}
 
-		for (j = ++i; j < len && hdr[j] != '\n' && hdr[j] != '\t'; j++)
+		for (j = ++i;
+		     j < len && hdr[j] != '\0' &&
+			        hdr[j] != '\n' && hdr[j] != '\t';
+		     j++)
 		    ;
 	    
 		if (!(h_tag = pool_alloc(sh->tag_pool)))
@@ -392,7 +395,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 
 		last = h_tag;
 		i = j;
-	    } while (i < len && hdr[i] != '\n');
+	    } while (i < len && hdr[i] != '\0' && hdr[i] != '\n');
 	}
 
 	/* Update RG/SQ hashes */
