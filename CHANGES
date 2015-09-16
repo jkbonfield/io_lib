@@ -1,3 +1,16 @@
+Version 1.14.2 (16th September 2015)
+--------------
+
+CRAM changes:
+
+* Bug fix to SAM header parsing so that it now permits nul characters.
+  (This is a long standing bug.)
+
+* Bug fix to auxiliary tag compression; we failed to correctly cache
+  the best codec to use, resulting in slower (but valid) compression
+  times.
+
+
 Version 1.14.1 (10th September 2015)
 --------------
 
