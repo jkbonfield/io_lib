@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.14.1
+			IO_LIB VERSION 1.14.2
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -29,6 +29,12 @@ too. See the file include/Read.h for the generic 'Read' structure.
 
 See the CHANGES or ChangeLog file for the full list of chanegs.  A
 quick summary follows.
+
+What's new in 1.14.2
+====================
+
+Minor CRAM bug fixes and a speed improvement (bug fix to 1.14.1).
+
 
 What's new in 1.14.1
 ====================

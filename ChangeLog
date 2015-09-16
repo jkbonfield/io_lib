@@ -1,8 +1,74 @@
 ===============================================================================
+2015-09-16: RELEASE 1.14.2
+
+------------------------------------------------------------------------
+r3957 | jkbonfield | 2015-09-16 12:43:00 +0100 (Wed, 16 Sep 2015) | 10 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/sam_header.c
+   M /io_lib/trunk/io_lib/sam_header.h
+
+Fixes ported over from John Marshall's htslib changes.
+https://github.com/samtools/htslib/commit/eb4dcaeff88f6da22b82e1bc193dcd2df242d833
+https://github.com/samtools/htslib/commit/04997f6de9b3f47f1f4a5d471b0fb4b517a8716e
+
+The line number is now reported correctly when reporting header
+errors.
+
+More importantly it now copes with nul characters on the end of the
+header where they are also included in the length of the header.
+
+------------------------------------------------------------------------
+r3956 | jkbonfield | 2015-09-16 11:50:57 +0100 (Wed, 16 Sep 2015) | 11 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed a potential crash bug where we attempt to compress a block that
+previously failed to compress (the compressed size was larger then the
+uncompressed one) using a cram_metric structure off the end of the
+fixed size metrics array.
+
+Fixed, in two different places for belt and braces, a bug where the
+try-and-cache strategy of cram_metrics was not working for the newly
+split auxiliary tag blocks.  This means it was slower than desired,
+considerably so if we mix in more (and slower) methods with scramble
+-j -Z.  File sizes are almost identical.
+
+------------------------------------------------------------------------
+r3955 | jkbonfield | 2015-09-14 17:27:50 +0100 (Mon, 14 Sep 2015) | 6 lines
+Changed paths:
+   M /io_lib/trunk/progs/Makefile.am
+   A /io_lib/trunk/progs/cram_size.c
+
+Added cram_size tool to dump out the size of data series per
+compression type.
+
+This is equivalent to the final table output by cram_dump, but an
+order of magnitude faster as it doesn't need to uncompress anything.
+
+===============================================================================
 2015-09-10: RELEASE 1.14.1
 
 ------------------------------------------------------------------------
+r3953 | jkbonfield | 2015-09-10 09:49:51 +0100 (Thu, 10 Sep 2015) | 7 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Doc & config updates for 1.14.1.
+
+Due to adding in extra fields to a few structs, I bumped the so
+version too as I cannot guarantee full compatibility, although I'm
+certain most programs will not be directly manipulating the affected
+structures.
+
+------------------------------------------------------------------------
 r3952 | jkbonfield | 2015-09-09 16:11:10 +0100 (Wed, 09 Sep 2015) | 11 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
 
 Fixed bugs causing scram_flagstat -t2 to crash.
 
@@ -17,6 +83,10 @@ series.
 
 ------------------------------------------------------------------------
 r3951 | jkbonfield | 2015-09-09 15:29:45 +0100 (Wed, 09 Sep 2015) | 11 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
 
 Improved zlib compression methods again.
 
@@ -31,11 +101,17 @@ now GZIP_1 (default strategy at level 1).
 
 ------------------------------------------------------------------------
 r3950 | jkbonfield | 2015-09-09 11:29:10 +0100 (Wed, 09 Sep 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
 
 Removed some pointless code.
 
 ------------------------------------------------------------------------
 r3949 | jkbonfield | 2015-09-07 16:50:50 +0100 (Mon, 07 Sep 2015) | 11 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
 
 Minor tweaks.
 
@@ -50,6 +126,8 @@ until we got to > 2 billion records.)
 
 ------------------------------------------------------------------------
 r3948 | jkbonfield | 2015-09-07 09:34:33 +0100 (Mon, 07 Sep 2015) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
 
 Made the zlib Z_DEFAULT_STRATEGY or Z_FILTERED exploration only apply
 at compression level 5 (the default) and above.  This allows for level
@@ -57,6 +135,9 @@ at compression level 5 (the default) and above.  This allows for level
 
 ------------------------------------------------------------------------
 r3947 | jkbonfield | 2015-09-03 17:06:58 +0100 (Thu, 03 Sep 2015) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
 
 Ditched all the V1.0 CRAM writing code.  The reading code still exists
 (but I've no idea if it still runs; I've never seen such data in the
@@ -64,6 +145,13 @@ wild anyway).
 
 ------------------------------------------------------------------------
 r3946 | jkbonfield | 2015-09-03 16:35:52 +0100 (Thu, 03 Sep 2015) | 39 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_codecs.h
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_structs.h
 
 Misc updates to improve compression ratios.  The major change here was
 to split auxiliary tags into their own blocks, but several smaller
@@ -103,13 +191,21 @@ optimisations took place at the same time.
   implemented code by Java nor C did not match the specification in
   numerous places).
 
+
 ------------------------------------------------------------------------
 r3945 | jkbonfield | 2015-09-03 14:42:51 +0100 (Thu, 03 Sep 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
 
 Missing doc updates for the 1.14.0 release.
 
 ------------------------------------------------------------------------
 r3944 | jkbonfield | 2015-08-28 12:17:09 +0100 (Fri, 28 Aug 2015) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
 
 Various experiments in quality compression.
 All commented out, but committed so we can resurrect them sometime if
@@ -117,6 +213,8 @@ needed.
 
 ------------------------------------------------------------------------
 r3943 | jkbonfield | 2015-08-19 17:44:04 +0100 (Wed, 19 Aug 2015) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
 
 Fixed bug with non-reference base CRAMs and indexing.
 
@@ -129,6 +227,8 @@ reference, was itself buggy.
 
 ------------------------------------------------------------------------
 r3942 | daviesrob | 2015-08-19 12:00:25 +0100 (Wed, 19 Aug 2015) | 14 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/rANS_static.c
 
 Change rANS O1 codecs to allocate large arrays on the heap.
 
@@ -142,7 +242,6 @@ This changes rans_compress_O1 and rans_uncompress_O1 to use malloc
 and calloc to allocate the arrays instead of using the stack.
 
 See also htslib commit 4494fa66822f0fad7f9715ed6925939295f3e87a
-
 
 ===============================================================================
 2015-07-10: RELEASE 1.14.0
