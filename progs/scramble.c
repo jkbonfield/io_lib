@@ -95,8 +95,8 @@ static void usage(FILE *fp) {
     fprintf(fp, "Options:\n");
     fprintf(fp, "    -I format      Set input format:  \"bam\", \"sam\" or \"cram\".\n");
     fprintf(fp, "    -O format      Set output format: \"bam\", \"sam\" or \"cram\".\n");
-    fprintf(fp, "    -1 to -9       Set zlib compression level.\n");
-    fprintf(fp, "    -0 or -u       No zlib compression.\n");
+    fprintf(fp, "    -1 to -9       Set compression level.\n");
+    fprintf(fp, "    -0 or -u       No compression.\n");
     //fprintf(fp, "    -v             Verbose output.\n");
     fprintf(fp, "    -R range       [Cram] Specifies the refseq:start-end range\n");
     fprintf(fp, "    -r ref.fa      [Cram] Specifies the reference file.\n");
@@ -110,10 +110,14 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -M             [Cram] Use multiple references per slice.\n");
     fprintf(fp, "    -m             [Cram] Generate MD and NM tags.\n");
 #ifdef HAVE_LIBBZ2
-    fprintf(fp, "    -j             [Cram] Compress using bzip2.\n");
+    fprintf(fp, "    -j             [Cram] Also compress using bzip2.\n");
+#endif
+#ifdef HAVE_LIBLZMA
+    fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
+    fprintf(fp, "    -!             Disable all checking of checksums\n");
 }
 
 int main(int argc, char **argv) {
