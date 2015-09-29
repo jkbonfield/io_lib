@@ -4770,7 +4770,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->embed_ref = 0;
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
-    fd->ignore_chksum = 0;
+    fd->ignore_chksum = 1; // Some disagreement in the specification of these
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
