@@ -47,6 +47,33 @@ with no internal compression. In CRAM it stores blocks in RAW format
 instead. The option has no effect on SAM output.
 
 .TP
+\fB-j\fR
+CRAM encoding only.  Add bzip2 to the list of compression codes
+potentially used during CRAM creation.
+
+.TP
+\fB-Z\fR
+CRAM encoding only.  Add lzma to the list of compression codes
+potentially used during CRAM creation.  Given the slow compression
+speed of lzma, this may only be used where it gives a significant
+advantage over zlib or bzip2, but with higher compression levels (-7)
+this weighting is ignored as LZMA decompression speed is acceptable,
+albeit still slower than zlib.
+
+.TP
+\fB-m\fR
+CRAM decoding only. Generate MD:Z: and NM:I: auxiliary fields based on
+the reference-based compression.
+
+.TP
+\fB-M\fR
+CRAM encoding only.  Forcibly pack sequences from multiple references
+into the same slice.  Normally CRAM will start a new slice when
+changing from one reference to another, but will still automatically
+switch to multi-reference slices if the number of sequences per slice
+becomes too small.
+
+.TP
 \fB-R\fR \fIrange\fR
 Currently for CRAM input only, but SAM/BAM support is pending. This
 indicates a reference sequence name and optionally a start and end
@@ -73,26 +100,37 @@ CRAM encoding only.   Specifies the number of slices per container.
 Defaults to 1.
 
 .TP
-\fB-V\fR \fIversion_string\fR
-CRAM encoding only.  Sets the CRAM file format version. Supported values are
-"1.0" and "2.0".
+\fB-t\fR
+BAM and CRAM only.  Specifies the number of compression or
+decompression threads, adaptively shared between both encoding and
+decoding.  Defaults to 1 (no threading).
 
 .TP
-\fB-X\fR
+\fB-V\fR \fIversion_string\fR
+CRAM encoding only.  Sets the CRAM file format version. Supported values are
+"2.0", "2.1" and "3.0".
+
+.TP
+\fB-e\fR
 CRAM encoding only. Embed snippets of the reference sequence in every slice.
 This means the files can be decoded without needing to specify the
 reference fasta file.
 
 .TP
 \fB-x\fR
-CRAM only. When encoding, omit reference based compression and instead
-store details of every base verbatim. During decoding -x is still
-required to avoid checking that the reference can be loaded.
+CRAM encoding only.  Omit reference based compression and instead
+store details of every base verbatim.
 
 .TP
-\fB-m\fR
-CRAM decoding only. Generate MD:Z: and NM:I: auxiliary fields based on
-the reference-based compression.
+\fB-B\fR
+Experimental, encoding only.  When storing quality values, bin into 8
+discrete values (plus 0), as typically used by modern Illumina
+instruments.  (Note that the bins may not be precisely the same ranges.)
+
+.TP
+\fB-!\fR
+CRAM v3.0 and above decoding only. Do not check CRCs.  This option
+should only be used when attempting to recover from a data corruption.
 
 .SH "EXAMPLES"
 .PP
@@ -103,10 +141,12 @@ To convert a BAM file from stdin to CRAM on stdout, using reference MT.fa.
 .fi
 
 .PP
-To convert from CRAM version 1.0 to CRAM version 2.0.
+The default CRAM output format is version 3.0, so no version needs to
+be specified when converting from 2.1 to 3.0.  To perform the reverse
+use:
 .PP
 .nf
-    scramble -V 2.0 in.cram out.cram
+    scramble -V 2.1 in.cram out.cram
 .fi
 
 .SH "AUTHOR"
