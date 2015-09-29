@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.14.2
+			IO_LIB VERSION 1.14.3
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -29,6 +29,16 @@ too. See the file include/Read.h for the generic 'Read' structure.
 
 See the CHANGES or ChangeLog file for the full list of chanegs.  A
 quick summary follows.
+
+What's new in 1.14.3
+====================
+
+CRAM: disabled the experimental slice checksum headers (SD and BD
+*slice* tags) as their behaviour is still undefined and not in the
+CRAM specification.  These were left in in error.
+
+Also fixed a bug with decoding lzma compression level 9.
+
 
 What's new in 1.14.2
 ====================

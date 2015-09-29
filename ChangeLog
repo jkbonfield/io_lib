@@ -1,5 +1,62 @@
 ===============================================================================
+2015-09-29: RELEASE 1.14.3
+
+------------------------------------------------------------------------
+r3963 | jkbonfield | 2015-09-29 09:57:28 +0100 (Tue, 29 Sep 2015) | 11 lines
+
+Disable the per-slice md5 creation and checks (SD and BD slice tags).
+
+Behaviour of these have changed in a recent Java Cramtools release,
+indicating that we shouldn't be using these until they are formally
+added to the specification as they are too fluid currently.
+
+For future work, once CRAM version 3.1 exists with the tags defined
+we'll need to only check these tags if the CRAM version is 3.1 and
+above as we have generated several v3.0 CRAM files with differing
+BD/SD endianness.
+
+------------------------------------------------------------------------
+r3962 | jkbonfield | 2015-09-29 09:55:21 +0100 (Tue, 29 Sep 2015) | 9 lines
+
+Improved usage message.
+
+We now admit that -Z and -! exist (although -! should be used very
+sparingly).
+
+Updated the text to remove a zlib-only bias and clarified that -j and
+-Z aren't a wholesale switch of compression method, but rather adding
+in additional methods to select from if beneficial.
+
+------------------------------------------------------------------------
+r3961 | jkbonfield | 2015-09-25 17:42:21 +0100 (Fri, 25 Sep 2015) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed bug where the memory usage for lzma decode wasn't enough to cope
+with lzma -9 level of compression.
+
+------------------------------------------------------------------------
+r3960 | jkbonfield | 2015-09-25 17:41:46 +0100 (Fri, 25 Sep 2015) | 5 lines
+Changed paths:
+   M /io_lib/trunk/progs/scram_merge.c
+
+Fixed -R option of scram merge (it didn't do anything before) so
+ranges work.
+
+Added -N to limit number of reads (useful for benchmarking).
+
+===============================================================================
 2015-09-16: RELEASE 1.14.2
+
+------------------------------------------------------------------------
+r3958 | jkbonfield | 2015-09-16 14:31:19 +0100 (Wed, 16 Sep 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Updated to 1.14.2
 
 ------------------------------------------------------------------------
 r3957 | jkbonfield | 2015-09-16 12:43:00 +0100 (Wed, 16 Sep 2015) | 10 lines

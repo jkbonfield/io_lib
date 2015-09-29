@@ -1,3 +1,22 @@
+Version 1.14.3 (29th September 2015)
+--------------
+
+CRAM changes:
+
+* Disabled the experimental slice checksum headers (SD and BD *slice*
+  tags) as their behaviour is still undefined and not in the CRAM
+  specification.  These were left in in error.
+
+* Fixed scram_merge to honour the -R option to specify a region.
+  (NB: This isn't really a properly supported tool, but a test of the
+  library code.)
+
+* Fixed a bug in decoding memory that caused lzma level 9 compressed
+  files to be unable to be decompressed.
+
+* Minor updates to scramble usage text.
+
+
 Version 1.14.2 (16th September 2015)
 --------------
 
