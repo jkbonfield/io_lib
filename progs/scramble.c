@@ -98,6 +98,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -1 to -9       Set compression level.\n");
     fprintf(fp, "    -0 or -u       No compression.\n");
     //fprintf(fp, "    -v             Verbose output.\n");
+    fprintf(fp, "    -H             [SAM] Do not print header\n");
     fprintf(fp, "    -R range       [Cram] Specifies the refseq:start-end range\n");
     fprintf(fp, "    -r ref.fa      [Cram] Specifies the reference file.\n");
     fprintf(fp, "    -s integer     [Cram] Sequences per slice, default %d.\n",
@@ -137,9 +138,10 @@ int main(int argc, char **argv) {
     int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
     int sam_fields = 0; // all
+    int header = 1;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:H")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -157,6 +159,10 @@ int main(int argc, char **argv) {
 	case 'h':
 	    usage(stdout);
 	    return 0;
+
+	case 'H':
+	    header = 0;
+	    break;
 
 	case 'v':
 	    verbose++;
@@ -417,7 +423,8 @@ int main(int argc, char **argv) {
 			   "CL", arg_list, NULL))
 	    return 1;
 
-	if (scram_write_header(out))
+	fprintf(stderr, "out_f=%s mode=%s\n", out_f, omode);
+	if ((header || omode[1] != 's') && scram_write_header(out) != 0)
 	    return 1;
 
 	free(arg_list);
