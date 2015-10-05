@@ -1,5 +1,42 @@
 ===============================================================================
+2015-10-05: RELEASE 1.14.4
+
+------------------------------------------------------------------------
+r3967 | jkbonfield | 2015-10-05 12:12:20 +0100 (Mon, 05 Oct 2015) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed a bug with CRAM compression level >= 6.
+
+We could attempt to compress the CORE block twice, yielding corrupted
+data during decode.
+
+------------------------------------------------------------------------
+r3966 | jkbonfield | 2015-10-05 12:11:48 +0100 (Mon, 05 Oct 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/scramble.c
+
+Added -H to elide printing of SAM header (similar to bcftools -H).
+
+===============================================================================
 2015-09-29: RELEASE 1.14.3
+
+------------------------------------------------------------------------
+r3965 | jkbonfield | 2015-09-29 10:24:03 +0100 (Tue, 29 Sep 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/man/man1/scramble.1
+
+Updated scramble man page.  Many updates as it's been too long.
+
+------------------------------------------------------------------------
+r3964 | jkbonfield | 2015-09-29 10:05:15 +0100 (Tue, 29 Sep 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+The usual version number updates.  Now 1.14.3
 
 ------------------------------------------------------------------------
 r3963 | jkbonfield | 2015-09-29 09:57:28 +0100 (Tue, 29 Sep 2015) | 11 lines

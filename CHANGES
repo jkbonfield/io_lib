@@ -1,3 +1,15 @@
+Version 1.14.4 (5th October 2015)
+--------------
+
+CRAM changes:
+
+* Fixed a CRAM encoding bug with compression level 6 and above where
+  the resulting CRAM file could not be decoded.  This has been in
+  existance since 1.13.8 (and possibly 1.13.6 under rarer conditions).
+
+* New scramble option -H to avoid printing header in SAM output.
+
+
 Version 1.14.3 (29th September 2015)
 --------------
 

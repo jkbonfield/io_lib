@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.14.3
+			IO_LIB VERSION 1.14.4
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -29,6 +29,15 @@ too. See the file include/Read.h for the generic 'Read' structure.
 
 See the CHANGES or ChangeLog file for the full list of chanegs.  A
 quick summary follows.
+
+What's new in 1.14.4
+====================
+
+Bug fix release: fixed a CRAM encoding bug with compression level 6
+and above where the resulting CRAM file could not be decoded.  This
+has been in existance since 1.13.8 (and possibly 1.13.6 under rarer
+conditions).
+
 
 What's new in 1.14.3
 ====================
