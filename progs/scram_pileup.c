@@ -52,6 +52,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 #include "scram_pileup.h"
 
 /*
@@ -639,10 +640,10 @@ typedef struct {
 
 static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 		      int depth, int pos, int nth, int is_insert) {
-    static char *seq = NULL, *qual = NULL, *buf = NULL;
+    static unsigned char *seq = NULL, *qual = NULL, *buf = NULL;
     static size_t seq_alloc = 0, buf_alloc = 0;
     static int max_depth = 0;
-    char *sp, *qp, *cp;
+    unsigned char *sp, *qp, *cp;
     int ref;
     sam_pileup_t *cd = (sam_pileup_t *)cd_v;
     size_t buf_len;
@@ -711,7 +712,7 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 	    uint8_t *b_seq = (uint8_t *)bam_seq(p->b);
 
 	    while ((sp - seq + 5 + cd->seq_len[n]) > seq_alloc) {
-		int d = sp - seq;
+		ptrdiff_t d = sp - seq;
 		seq = realloc(seq, seq_alloc*=2);
 		sp = seq + d;
 	    }
@@ -740,7 +741,7 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
     } else {
 	for (; p; p = p->next) {
 	    while ((sp - seq + 4) > seq_alloc) {
-		int d = sp - seq;
+		ptrdiff_t d = sp - seq;
 		seq = realloc(seq, seq_alloc*=2);
 		sp = seq + d;
 	    }
@@ -767,7 +768,8 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 	buf = realloc(buf, buf_alloc = buf_len);
 
     cp = buf;
-    strcpy(cp, scram_get_header(fp)->ref[ref].name); cp += strlen(cp);
+    strcpy((char *) cp, scram_get_header(fp)->ref[ref].name);
+    cp += strlen((char *) cp);
     *cp++ = '\t';
     cp = append_int(cp, pos);   *cp++ = '\t';
     *cp++ = 'N';
@@ -775,7 +777,7 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
     cp = append_int(cp, depth); *cp++ = '\t';
     memcpy(cp, seq,  sp-seq);  cp += sp-seq;  *cp++ = '\t';
     memcpy(cp, qual, qp-qual); cp += qp-qual; *cp++ = '\0';
-    puts(buf);
+    puts((char *) buf);
 
     //*sp++ = 0;
     //*qp++ = 0;
@@ -786,9 +788,9 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 
 static int basic_pileup(void *cd, scram_fd *fp, pileup_t *p,
 			int depth, int pos, int nth, int is_insert) {
-    static char *seq = NULL, *qual = NULL, *buf = NULL;
+    static unsigned char *seq = NULL, *qual = NULL, *buf = NULL;
     static int max_depth = 0;
-    char *qp, *cp, *rp;
+    unsigned char *qp, *cp, *rp;
     int ref;
 
     if (max_depth < depth) {
@@ -808,7 +810,7 @@ static int basic_pileup(void *cd, scram_fd *fp, pileup_t *p,
 
     /* Ref, pos, depth */
     ref = p->b->ref;
-    rp = scram_get_header(fp)->ref[ref].name;
+    rp = (unsigned char *) scram_get_header(fp)->ref[ref].name;
     while ((*cp++ = *rp++))
 	;
     cp--;
@@ -827,19 +829,19 @@ static int basic_pileup(void *cd, scram_fd *fp, pileup_t *p,
     }
     *cp++ = '\t';
     *qp++ = '\0';
-    puts(buf);
+    puts((char *) buf);
 
     return 0;
 }
 
 static int depth_pileup(void *cd, scram_fd *fp, pileup_t *p,
 			int depth, int pos, int nth, int is_insert) {
-    char buf[1024], *cp = buf, *rp;
+    unsigned char buf[1024], *cp = buf, *rp;
 
     if (nth)
 	return 0;
 
-    rp = scram_get_header(fp)->ref[p->b->ref].name;
+    rp = (unsigned char *) scram_get_header(fp)->ref[p->b->ref].name;
     while ((*cp++ = *rp++))
 	;
     cp[-1] = '\t';
@@ -847,7 +849,7 @@ static int depth_pileup(void *cd, scram_fd *fp, pileup_t *p,
     *cp++=  '\t';
     cp = append_int(cp, depth);
     *cp++ = '\0';
-    puts(buf);
+    puts((char *) buf);
     
     return 0;
 }

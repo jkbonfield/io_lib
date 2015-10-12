@@ -265,14 +265,14 @@ static int sam_hdr_update_hashes(SAM_hdr *sh,
  * optional new-line. If it contains more than 1 line then multiple lines
  * will be added in order.
  *
- * Len is the length of the text data, or 0 if unknown (in which case
- * it should be null terminated).
+ * Input text is of maximum length len or as terminated earlier by a NUL.
+ * Len may be 0 if unknown, in which case lines must be NUL-terminated.
  *
  * Returns 0 on success
  *        -1 on failure
  */
 int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
-    int i, lno = 1, text_offset;
+    int i, lno, text_offset;
     HashItem *hi;
     HashData hd;
     char *hdr;
@@ -284,7 +284,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
     dstring_nappend(sh->text, lines, len);
     hdr = DSTRING_STR(sh->text) + text_offset;
 
-    for (i = 0; i < len; i++) {
+    for (i = 0, lno = 1; i < len && hdr[i] != '\0'; i++, lno++) {
 	char *type;
 	int l_start = i, new;
 	SAM_hdr_type *h_type;
@@ -292,7 +292,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 
 	if (hdr[i] != '@') {
 	    int j;
-	    for (j = i; j < len && hdr[j] != '\n'; j++)
+	    for (j = i; j < len && hdr[j] != '\0' && hdr[j] != '\n'; j++)
 		;
 	    sam_hdr_error("Header line does not start with '@'",
 			  &hdr[l_start], len - l_start, lno);
@@ -300,7 +300,8 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	}
 
 	type = &hdr[i+1];
-	if (type[0] < 'A' || type[0] > 'z' ||
+        if (len - i < 3 ||
+            type[0] < 'A' || type[0] > 'z' ||
 	    type[1] < 'A' || type[1] > 'z') {
 	    sam_hdr_error("Header line does not have a two character key",
 			  &hdr[l_start], len - l_start, lno);
@@ -308,7 +309,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	}
 
 	i += 3;
-	if (hdr[i] == '\n')
+        if (i >= len || hdr[i] == '\n')
 	    continue;
 
 	// Add the header line type
@@ -323,7 +324,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	    SAM_hdr_type *t = hi->data.p, *p;
 	    p = t->prev;
 	    
-	    assert(p->next = t);
+	    assert(p->next == t);
 	    p->next = h_type;
 	    h_type->prev = p;
 
@@ -345,7 +346,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 		return -1;
 	    }
 
-	    for (j = ++i; j < len && hdr[j] != '\n'; j++)
+	    for (j = ++i; j < len && hdr[j] != '\0' && hdr[j] != '\n'; j++)
 		;
 
 	    if (!(h_type->tag = h_tag = pool_alloc(sh->tag_pool)))
@@ -367,7 +368,10 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 		    return -1;
 		}
 
-		for (j = ++i; j < len && hdr[j] != '\n' && hdr[j] != '\t'; j++)
+		for (j = ++i;
+		     j < len && hdr[j] != '\0' &&
+			        hdr[j] != '\n' && hdr[j] != '\t';
+		     j++)
 		    ;
 	    
 		if (!(h_tag = pool_alloc(sh->tag_pool)))
@@ -391,7 +395,7 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 
 		last = h_tag;
 		i = j;
-	    } while (i < len && hdr[i] != '\n');
+	    } while (i < len && hdr[i] != '\0' && hdr[i] != '\n');
 	}
 
 	/* Update RG/SQ hashes */
@@ -741,6 +745,41 @@ int sam_hdr_update(SAM_hdr *hdr, SAM_hdr_type *type, ...) {
     return 0;
 }
 
+
+/*
+ * Returns the sort order:
+ */
+enum sam_sort_order sam_hdr_sort_order(SAM_hdr *hdr) {
+    return hdr->sort_order;
+}
+
+static enum sam_sort_order sam_hdr_parse_sort_order(SAM_hdr *hdr) {
+    HashItem *hi;
+    enum sam_sort_order so;
+
+    so = ORDER_UNKNOWN;
+    if ((hi = HashTableSearch(hdr->h, "HD", 2))) {
+	SAM_hdr_type *ty = hi->data.p;
+	SAM_hdr_tag *tag;
+        for (tag = ty->tag; tag; tag = tag->next) {
+	    if (tag->str[0] == 'S' && tag->str[1] == 'O') {
+		if (strcmp(tag->str+3, "unsorted") == 0)
+		    so = ORDER_UNSORTED;
+		else if (strcmp(tag->str+3, "queryname") == 0)
+		    so = ORDER_NAME;
+		else if (strcmp(tag->str+3, "coordinate") == 0)
+		    so = ORDER_COORD;
+		else
+		    fprintf(stderr, "Unknown sort order field: %s\n",
+			    tag->str+3);
+	    }
+	}
+    }
+
+    return so;
+}
+
+
 /*
  * Reconstructs the dstring from the header hash table.
  * Returns 0 on success
@@ -900,6 +939,9 @@ SAM_hdr *sam_hdr_parse(const char *hdr, int len) {
 	sam_hdr_free(sh);
 	return NULL;
     }
+
+    /* Obtain sort order */
+    sh->sort_order = sam_hdr_parse_sort_order(sh);
 
     //sam_hdr_dump(sh);
     //sam_hdr_add(sh, "RG", "ID", "foo", "SM", "bar", NULL);

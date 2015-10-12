@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Genome Research Ltd.
+ * Copyright (c) 2013, 2014, 2015 Genome Research Ltd.
  * Author(s): James Bonfield
  * 
  * Redistribution and use in source and binary forms, with or without 
@@ -108,6 +108,37 @@ int itf8_put(char *cp, int32_t val);
 
 #endif
 
+int ltf8_put(char *cp, int64_t val);
+
+/* Version of itf8_get that checks it hasn't run out of input */
+
+extern const int itf8_bytes[16];
+
+static inline int safe_itf8_get(const char *cp, const char *endp,
+				int32_t *val_p) {
+  const unsigned char *up = (unsigned char *)cp;
+
+  if (endp - cp < 5 && 
+      (cp >= endp || endp - cp < itf8_bytes[up[0]>>4])) return 0;
+
+  if (up[0] < 0x80) {
+    *val_p =   up[0];
+    return 1;
+  } else if (up[0] < 0xc0) {
+    *val_p = ((up[0] <<8) |  up[1])                           & 0x3fff;
+    return 2;
+  } else if (up[0] < 0xe0) {
+    *val_p = ((up[0]<<16) | (up[1]<< 8) |  up[2])             & 0x1fffff;
+    return 3;
+  } else if (up[0] < 0xf0) {
+    *val_p = ((up[0]<<24) | (up[1]<<16) | (up[2]<<8) | up[3]) & 0x0fffffff;
+    return 4;
+  } else {
+    *val_p = ((up[0] & 0x0f)<<28) | (up[1]<<20) | (up[2]<<12) | (up[3]<<4) | (up[4] & 0x0f);
+    return 5;
+  }
+}
+
 /*! Pushes a value in ITF8 format onto the end of a block.
  *
  * This shouldn't be used for high-volume data as it is not the fastest
@@ -160,6 +191,23 @@ void cram_free_block(cram_block *b);
 cram_metrics *cram_new_metrics(void);
 char *cram_block_method2str(enum cram_block_method m);
 char *cram_content_type2str(enum cram_content_type t);
+
+/*
+ * Find an external block by its content_id
+ */
+static inline cram_block *cram_get_block_by_id(cram_slice *slice, int id) {
+    if (slice->block_by_id && id >= 0 && id < 1024) {
+        return slice->block_by_id[id];
+    } else {
+        int i;
+        for (i = 0; i < slice->hdr->num_blocks; i++) {
+            cram_block *b = slice->block[i];
+            if (b && b->content_type == EXTERNAL && b->content_id == id)
+                return b;
+        }
+    }
+    return NULL;
+}
 
 /* --- Accessor macros for manipulating blocks on a byte by byte basis --- */
 
@@ -433,6 +481,14 @@ int cram_close(cram_fd *fd);
  */
 int cram_flush(cram_fd *fd);
 
+/*
+ * Writes an EOF block to a CRAM file.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int cram_write_eof_block(cram_fd *fd);
+
 /*! Checks for end of file on a cram_fd stream.
  *
  * @return
@@ -478,6 +534,13 @@ extern cram_fd *cram_open_by_callbacks(
     size_t const bufsize
 );
 
+extern cram_fd * cram_openw_by_callbacks(
+    char const * filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
+    size_t const bufsize
+);
+
 extern cram_fd * cram_io_open(
 	char const * filename, 
 	char const * mode, 
@@ -490,7 +553,21 @@ extern cram_fd * cram_io_open_by_callbacks(
     size_t const bufsize,
     int const decompress
 );
+
+extern cram_fd * cram_io_openw_by_callbacks(
+    char const * filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
+    size_t const bufsize
+);
+
 extern cram_fd * cram_io_close(cram_fd * fd, int * fclose_result);
+
+extern cram_fd_output_buffer *
+cram_io_deallocate_output_buffer(cram_fd_output_buffer * buffer);
+
+extern cram_fd_output_buffer *
+cram_io_allocate_output_buffer(size_t const bufsize);
 #endif
 
 /**@}*/

@@ -72,7 +72,7 @@ static HashTable *codec_hash = NULL;
 /*
  * Uncompresses a CRAM block, if compressed.
  */
-int cram_uncompress_block(cram_block *b) {
+int cram_uncompress_block(cram_slice *s, cram_block *b) {
     char *uncomp;
     size_t uncomp_size = 0;
     uint32_t method;
@@ -111,7 +111,7 @@ int cram_uncompress_block(cram_block *b) {
     case RANS0:
     case RANS1:
 	uncomp_size = b->uncomp_size;
-	uncomp = codecs[method]->uncompress_block(b->data, b->comp_size, &uncomp_size);
+	uncomp = codecs[method]->uncompress_block(s, b->data, b->comp_size, &uncomp_size);
 	if (!uncomp)
 	    return -1;
 	if ((int)uncomp_size != b->uncomp_size)
@@ -177,6 +177,7 @@ int cram_uncompress_block(cram_block *b) {
 
 static char *cram_compress_by_method(char *in, size_t in_size,
 				     size_t *out_size,
+				     cram_slice *s,
 				     enum cram_block_method method,
 				     int level, int strat) {
     if (method == GZIP && strat == Z_RLE)
@@ -197,7 +198,7 @@ static char *cram_compress_by_method(char *in, size_t in_size,
     case LZMA:
     case RANS0:
     case RANS1:
-	return codecs[method]->compress_block(level, in, in_size, out_size);
+	return codecs[method]->compress_block(level, s, in, in_size, out_size);
 
     case RAW:
 	break;
@@ -214,7 +215,7 @@ static char *cram_compress_by_method(char *in, size_t in_size,
  * or Z_DEFAULT_STRATEGY on quality data. If so, we'd rather use it as it is
  * significantly faster.
  */
-int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
+int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics *metrics,
 			int method, int level) {
 
     char *comp = NULL;
@@ -238,7 +239,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     }
 
     if (metrics) {
-	pthread_mutex_lock(&fd->metrics_lock);
+	if (fd->metrics_lock) pthread_mutex_lock(&fd->metrics_lock);
 	if (metrics->trial > 0 || --metrics->next_trial <= 0) {
 	    int m;
 	    size_t sz_best = INT_MAX;
@@ -259,7 +260,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    metrics->sz[i] /= 2;
 	    }
 
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(&fd->metrics_lock);
 
 	    // Compress this block using the best method
 	    for (m = 0; m < 32; m++) {
@@ -279,7 +280,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 			!(codecs[m]->content_ids & b->id_bits))
 			continue;
 		    c = cram_compress_by_method((char *)b->data, b->uncomp_size,
-						&sz[m], m, level, strat);
+						&sz[m], s, m, level, strat);
 		    if (sz_best > sz[m]) {
 			sz_best = sz[m];
 			method_best = m;
@@ -304,7 +305,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    b->comp_size = sz_best;
 
 	    // Accumulate stats for all methods tried
-	    pthread_mutex_lock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_lock(&fd->metrics_lock);
 	    for (m = 0; m < CRAM_MAX_METHOD; m++)
 		metrics->sz[m] += sz[m];
 
@@ -366,14 +367,14 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		//	    b->content_id, metrics->revised_method, method);
 		metrics->revised_method = method;
 	    }
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(&fd->metrics_lock);
 	} else {
 	    strat = metrics->strat;
 	    method = metrics->method;
 
-	    pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(&fd->metrics_lock);
 	    comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
-					   &comp_size, method,
+					   &comp_size, s, method,
 					   level, strat);
 	    if (!comp)
 		return -1;
@@ -386,7 +387,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     } else {
 	// no cached metrics, so just do zlib?
 	comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
-				       &comp_size, GZIP, level, Z_FILTERED);
+				       &comp_size, s, GZIP, level, Z_FILTERED);
 	if (!comp) {
 	    fprintf(stderr, "Compression failed!\n");
 	    return -1;
@@ -543,6 +544,7 @@ static const char *gzip_rle_codec_name(void) {
 }
 
 unsigned char *gzip_codec_compress(int level,
+				   cram_slice *s,
 				   unsigned char *in,
 				   size_t in_size,
 				   size_t *out_size) {
@@ -556,6 +558,7 @@ unsigned char *gzip_codec_compress(int level,
 }
 
 unsigned char *gzip_rle_codec_compress(int level,
+				       cram_slice *s,
 				       unsigned char *in,
 				       size_t in_size,
 				       size_t *out_size) {
@@ -568,7 +571,8 @@ unsigned char *gzip_rle_codec_compress(int level,
     return comp;
 }
 
-unsigned char *gzip_codec_uncompress(unsigned char *in,
+unsigned char *gzip_codec_uncompress(cram_slice *s,
+				     unsigned char *in,
 				     size_t in_size,
 				     size_t *out_size) {
     char *uncomp;
@@ -606,6 +610,7 @@ static const char *bzip2_codec_name(void) {
 }
 
 unsigned char *bzip2_codec_compress(int level,
+				    cram_slice *s,
 				    unsigned char *in,
 				    size_t in_size,
 				    size_t *out_size) {
@@ -626,7 +631,8 @@ unsigned char *bzip2_codec_compress(int level,
     return comp;
 }
 
-unsigned char *bzip2_codec_uncompress(unsigned char *in,
+unsigned char *bzip2_codec_uncompress(cram_slice *s,
+				      unsigned char *in,
 				      size_t in_size,
 				      size_t *out_size) {
     int block_size, data_size;
@@ -700,7 +706,7 @@ static char *lzma_mem_inflate(char *cdata, size_t csize, size_t *size) {
     int r;
 
     /* Initiate the decoder */
-    if (LZMA_OK != lzma_stream_decoder(&strm, 50000000, 0))
+    if (LZMA_OK != lzma_stream_decoder(&strm, lzma_easy_decoder_memusage(9), 0))
 	return NULL;
 
     /* Decode loop */
@@ -748,13 +754,15 @@ static const char *lzma_codec_name(void) {
 }
 
 unsigned char *lzma_codec_compress(int level,
+				   cram_slice *s,
 				   unsigned char *in,
 				   size_t in_size,
 				   size_t *out_size) {
     return lzma_mem_deflate(in, in_size, out_size, level);
 }
 
-unsigned char *lzma_codec_uncompress(unsigned char *in,
+unsigned char *lzma_codec_uncompress(cram_slice *s,
+				     unsigned char *in,
 				     size_t in_size,
 				     size_t *out_size) {
     return lzma_mem_inflate(in, in_size, out_size);
@@ -783,6 +791,7 @@ static const char *rans1_codec_name(void) {
 }
 
 unsigned char *rans0_codec_compress(int level,
+				    cram_slice *s,
 				    unsigned char *in,
 				    size_t in_size,
 				    size_t *out_size) {
@@ -796,6 +805,7 @@ unsigned char *rans0_codec_compress(int level,
 }
 
 unsigned char *rans1_codec_compress(int level,
+				    cram_slice *s,
 				    unsigned char *in,
 				    size_t in_size,
 				    size_t *out_size) {
@@ -808,7 +818,8 @@ unsigned char *rans1_codec_compress(int level,
     return comp;
 }
 
-unsigned char *rans_codec_uncompress(unsigned char *in,
+unsigned char *rans_codec_uncompress(cram_slice *s,
+				     unsigned char *in,
 				     size_t in_size,
 				     size_t *out_size) {
     int i_out_size = *out_size;
@@ -871,7 +882,8 @@ int cram_compression_codec_init(void) {
     codecs = (cram_compressor **)calloc(BLOCK_METHOD_END, sizeof(*codecs));
     if (!codecs)
 	return -1;
-    ncodecs = BLOCK_METHOD_END;
+    //ncodecs = BLOCK_METHOD_END;
+    ncodecs = 18; // matches 0xfffc0000 in cram_encode.c
 
     codecs[GZIP]     = &gzip_codec;
 #ifdef HAVE_LIBBZ2

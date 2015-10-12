@@ -26,6 +26,7 @@ static const char *name(void) {
 }
 
 unsigned char *compress_block(int level,
+			      cram_slice *slice,
 			      unsigned char *data,
 			      size_t len,
 			      size_t *comp_len) {
@@ -182,7 +183,8 @@ unsigned char *compress_block(int level,
     return comp2;
 }
 
-unsigned char *uncompress_block(unsigned char *data, size_t len,
+unsigned char *uncompress_block(cram_slice *s,
+				unsigned char *data, size_t len,
 				size_t *uncomp_len) {
     unsigned char *cp, *udata = NULL;
     int ulen, clen, udata_ind = 0, udata_sz = 0;
@@ -237,6 +239,7 @@ unsigned char *uncompress_block(unsigned char *data, size_t len,
 		udata[udata_ind++] = *cp;
 	    } while (*cp++ > '\n');
 	} else {
+	    // FIXME: i-1 where i == 0
 	    char *last = &udata[line_ind[i-1]];
 	    int p, s;
 
@@ -270,6 +273,11 @@ unsigned char *uncompress_block(unsigned char *data, size_t len,
 	    udata[udata_ind++] = *mid_cp++;
 	}
     }
+
+    free(back_buf);
+    free(pre_buf);
+    free(mid_buf);
+    free(suf_buf);
     
     *uncomp_len = udata_ind;
     return udata;

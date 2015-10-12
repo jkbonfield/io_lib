@@ -375,7 +375,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 	     iregion<regn->nregions && iregion<MAX_REGIONS;
 	     iregion++) {
             char *cp = name;
-            int start, length;
+            int length;
 
             if( regn->code[iregion] == 'E' ) {
                 /*
@@ -386,7 +386,6 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
             }
             
 
-            start = regn->start[iregion];
             length = (regn->length[iregion] == -1
 		      ? (seq_len-regn->start[iregion])
 		      : regn->length[iregion]);
@@ -486,7 +485,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
         if( explicit ){
             int iregion;
             for (iregion=0; iregion<regn->nregions; iregion++) {
-                int start, length;
+                int length;
                 if( regn->code[iregion] == 'E' ){
                     /*
 		     * region not in BASE chunk, the name of region IS
@@ -503,7 +502,6 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated, int sequential,
 		    memset(qual, '!', strlen(regn->name[iregion]));
                     qual += strlen(regn->name[iregion]);
                 } else {
-                    start = regn->start[iregion];
                     length = (regn->length[iregion] == -1
 			      ? (seq_len-regn->start[iregion])
 			      : regn->length[iregion]);

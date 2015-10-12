@@ -236,13 +236,11 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 	    if (*from != '\n') {
 		*to++ = *from++;
 	    } else {
-		if (to[-1] == '\r') *--to = 0; // handle \r\n too
+		if (to > buf && to[-1] == '\r') *--to = 0; // handle \r\n too
 		b->uncomp_p = from;
 		used_l = to-buf;
 		b->uncomp_p++;
 		buf[used_l] = 0;
-		*str = buf;
-		*len = alloc_l;
 		b->uncomp_sz -= (tmp - next_condition);
 		return used_l;
 	    }
@@ -258,6 +256,8 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 	    // COPY_CPF_TO_CPTM macro.
 	    if (NULL == (buf = realloc(buf, alloc_l+8)))
 		return -1;
+	    *str = buf;
+	    *len = alloc_l;
 	}
     }
 
@@ -304,16 +304,18 @@ static int load_bam_header(bam_file_t *b) {
 
     for (i = 0; i < nref; i++) {
 	uint32_t nlen, len;
-	char name_a[1024], *name;;
+	char name_a[1024], *name;
 
 	if (4 != bam_read(b, &nlen, 4))
 	    return -1;
-	name = nlen < 1024 ? name_a : malloc(nlen);
+	nlen = le_int4(nlen);
+        name = (nlen < 1023 ? name_a
+                : (nlen < UINT32_MAX ? malloc(nlen + 1) : NULL));
 	if (!name)
 	    return -1;
-	nlen = le_int4(nlen);
 	if (nlen != bam_read(b, name, nlen))
 	    return -1;
+	name[nlen] = 0;
 
 	if (4 != bam_read(b, &len, 4))
 	    return -1;
@@ -321,13 +323,13 @@ static int load_bam_header(bam_file_t *b) {
 
 	if (i < b->header->nref && b->header->ref[i].name) {
 	    if (strcmp(b->header->ref[i].name, name)) {
-		fprintf(stderr, "Error: @RG lines are at odds with "
+		fprintf(stderr, "Error: @SQ lines are at odds with "
 			"binary encoded reference data\n");
 		return -1;
 	    }
 
 	    if (b->header->ref[i].len != len) {
-		fprintf(stderr, "Error: @RG lines are at odds with "
+		fprintf(stderr, "Error: @SQ lines are at odds with "
 			"binary encoded reference data\n");
 		return -1;
 	    }
@@ -385,6 +387,30 @@ static int load_sam_header(bam_file_t *b) {
 #    define O_BINARY 0
 #endif
 
+static void bam_file_init(bam_file_t *b) {
+    b->comp_p     = b->comp;
+    b->comp_sz    = 0;
+    b->uncomp_p    = b->uncomp;
+    b->uncomp_sz   = 0;
+    b->next_len = -1;
+    b->bs       = NULL;
+    b->bs_size  = 0;
+    b->z_finish = 1;
+    b->bgzf     = 0;
+    b->no_aux   = 0;
+    b->line     = 0;
+    b->binary   = 0;
+    b->level    = Z_DEFAULT_COMPRESSION;
+    b->sam_str  = NULL;
+    b->pool     = NULL;
+    b->equeue   = NULL;
+    b->dqueue   = NULL;
+    b->job_pending = NULL;
+    b->eof      = 0;
+    b->nd_jobs    = 0;
+    b->ne_jobs    = 0;
+}
+
 /*! Opens a SAM or BAM file.
  *
  * The mode parameter indicates the file
@@ -407,27 +433,7 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
     if (!b)
 	return NULL;
 
-    b->comp_p     = b->comp;
-    b->comp_sz    = 0;
-    b->uncomp_p    = b->uncomp;
-    b->uncomp_sz   = 0;
-    b->next_len = -1;
-    b->bs       = NULL;
-    b->bs_size  = 0;
-    b->z_finish = 1;
-    b->bgzf     = 0;
-    b->no_aux   = 0;
-    b->line     = 0;
-    b->binary   = 0;
-    b->level    = Z_DEFAULT_COMPRESSION;
-    b->sam_str  = NULL;
-    b->pool     = NULL;
-    b->equeue   = NULL;
-    b->dqueue   = NULL;
-    b->job_pending = NULL;
-    b->eof      = 0;
-    b->nd_jobs    = 0;
-    b->ne_jobs    = 0;
+    bam_file_init(b);
 
     /* Creation */
     if (*mode == 'w') {
@@ -516,6 +522,28 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 
     return NULL;
 }
+
+bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh) {
+    bam_file_t *b = calloc(1, sizeof *b);
+    
+    if (!b)
+	return NULL;
+
+    bam_file_init(b);
+
+    b->fp = NULL; // forces bam_more_input() to fail
+    b->bam = 1;
+    b->gzip = 0;
+    b->comp_sz = 0;
+    b->uncomp_p = (unsigned char *) blk;
+    b->uncomp_sz = blk_size;
+    b->header = sh;
+
+    sam_hdr_incr_ref(sh);
+
+    return b;
+}
+
 
 int bam_close(bam_file_t *b) {
     int r = 0;
@@ -923,16 +951,14 @@ static int bam_uncompress_input(bam_file_t *b) {
 	    if (b->z_finish)
 		inflateReset(&b->s);
 	    
-	    do {
-		err = inflate(&b->s, Z_BLOCK);
-		//printf("err=%d\n", err);
+	    err = inflate(&b->s, Z_BLOCK);
+	    //printf("err=%d\n", err);
 
-		if (err == Z_OK || err == Z_STREAM_END) {
-		    b->comp_p  += b->comp_sz - b->s.avail_in;
-		    b->comp_sz  = b->s.avail_in;
-		    b->uncomp_sz = b->s.total_out;
-		    b->uncomp_p  = b->uncomp;
-		}
+	    if (err == Z_OK || err == Z_STREAM_END || err == Z_BUF_ERROR) {
+	        b->comp_p  += b->comp_sz - b->s.avail_in;
+	        b->comp_sz  = b->s.avail_in;
+	        b->uncomp_sz = b->s.total_out;
+	        b->uncomp_p  = b->uncomp;
 
 		if (err == Z_STREAM_END) {
 		    b->z_finish = 1;
@@ -947,8 +973,11 @@ static int bam_uncompress_input(bam_file_t *b) {
 		    b->comp_p  += 8;
 		} else {
 		    b->z_finish = 0;
-		}
-	    } while (err != Z_OK && err != Z_STREAM_END);
+	        }
+	    } else {
+	        fprintf(stderr, "Inflate returned error code %d\n", err);
+		return -1;
+	    }
 	}
     }
 
@@ -1168,7 +1197,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	}
 	bs->ref = hi->data.i;
     }
-    cpf++;
+    if (!*cpf++) return -1;
 
     /* Pos */
     n = 0;
@@ -1338,7 +1367,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 //	    *cpt++ = *cpf++ - '!';
     }
 
-    assert((char *)cpt == (char *)(bam_aux(bs)));
+    if ((char *)cpt != (char *)(bam_aux(bs))) return -1;
 
     if (!*cpf++ || b->no_aux) goto skip_aux;
 
@@ -1421,6 +1450,9 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    char subtype = *value++;
 	    unsigned char *sz;
 	    int count = 0;
+
+	    if (subtype == '\0')
+	        break;
 
 	    *cpt++ = 'B';
 	    *cpt++ = subtype;
@@ -1511,12 +1543,15 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 	if (4 != bam_read(b, &blk_size, 4))
 	    return 0;
 	blk_size = le_int4(blk_size);
+	if (blk_size < 36) /* Minimum valid BAM record size */
+	    return -1;
     }
 
     if (!*bsp || blk_size+20 > (*bsp)->alloc) {
 	/* 20 extra is for bs->alloc to bs->cigar_len plus next_len */
-	if (!(*bsp = realloc(*bsp, blk_size+20)))
+	if (!(bs = realloc(*bsp, blk_size+20)))
 	    return -1;
+	*bsp = bs;
 	(*bsp)->alloc = blk_size+20;
 	(*bsp)->blk_size = blk_size;
     }
@@ -1586,11 +1621,14 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 	if (4 != bam_read(b, &blk_size, 4))
 	    return 0;
 	blk_size = le_int4(blk_size);
+	if (blk_size < 36) /* Minimum valid BAM record size */
+	    return -1;
     }
 
     if (!*bsp || blk_size+24 > (*bsp)->alloc) {
-	if (!(*bsp = realloc(*bsp, blk_size+24)))
+	if (!(bs = realloc(*bsp, blk_size+24)))
 	    return -1;
+	*bsp = bs;
 	(*bsp)->alloc = blk_size+24;
 	(*bsp)->blk_size = blk_size;
     }
@@ -2348,7 +2386,6 @@ int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam) {
     unsigned char *cpf = (unsigned char *) sam;
     unsigned char *cpt = (unsigned char *)&(*bsp)->ref + (*bsp)->blk_size;
     unsigned char *end = (unsigned char *)(*bsp) + (*bsp)->alloc;
-    int n;
 
     while (*cpf) {
 	unsigned char *key = cpf, *value;

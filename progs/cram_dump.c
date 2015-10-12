@@ -42,12 +42,14 @@
 #include <assert.h>
 #include <ctype.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <io_lib/cram.h>
 
 void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data,
 	      HashTable *ds_h) {
-    int i, j, k;
+    int i, j;
+    uintptr_t k;
     for (i = 0; i < CRAM_MAP_HASH; i++) {
 	cram_map *m;
 	for (m = ma[i]; m; m = m->next) {
@@ -167,7 +169,7 @@ int main(int argc, char **argv) {
     HashTable *ds_h; // content_id to data-series lookup.
     HashTable *dc_h; // content_id to data-compression lookup
 
-    static bmax = 0;
+    static int bmax = 0;
     bsize_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
 			    HASH_NONVOLATILE_KEYS |
 			    HASH_INT_KEYS);
@@ -291,18 +293,65 @@ int main(int argc, char **argv) {
 	    if (s->hdr->content_type == MAPPED_SLICE) {
 		printf("\tRef base id:     %d\n", s->hdr->ref_base_id);
 	    }
+
+	    if (s->hdr->tags) {
+		HashIter *iter;
+		HashItem *hi;
+
+		iter = HashTableIterCreate();
+		while ((hi = HashTableIterNext(s->hdr->tags, iter))) {
+		    printf("\tOptional tag %c%c:%c:",
+			   hi->key[0], hi->key[1], hi->key[2]);
+
+		    switch(hi->key[2]) {
+			uint32_t len;
+			unsigned char *dat;
+		    case 'i':
+			printf("%"PRId64"\n", hi->data.i);
+			break;
+		    case 'f':
+			printf("%f\n", hi->data.f);
+			break;
+		    case 'Z': case 'H':
+			printf("%s\n", (char *)hi->data.p);
+			break;
+		    case 'A':
+			printf("<%d>\n", (unsigned char)hi->data.i);
+			break;
+		    case 'B':
+			dat = hi->data.p;
+			len = dat[1] | (dat[2]<<8) | (dat[3]<<16)| (dat[4]<<24);
+			switch(dat[0]) {
+			case 's': case 'S':
+			    len *= 2;
+			    break;
+			case 'i': case 'I': case 'f':
+			    len *= 4;
+			    break;
+			default:
+			    break;
+			}
+			putchar(dat[0]);
+			dat += 5;
+			while (len--) {
+			    printf(",%02x", *dat++);
+			}
+			putchar('\n');
+		    }
+		}
+	    }
 	
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
 		HashItem *hi;
-		int k = s->block[id]->content_type == CORE
+		intptr_t k = s->block[id]->content_type == CORE
 		    ? -1 : s->block[id]->content_id;
-		hi = HashTableSearch(bsize_h, (char *)k, 4);
+		hi = HashTableSearch(bsize_h, (char *)k, sizeof(k));
 		if (hi) {
 		    hi->data.i += s->block[id]->comp_size;
 		} else {
 		    HashData hd;
 		    hd.i = s->block[id]->comp_size;
-		    HashTableAdd(bsize_h, (char *)k, 4, hd, NULL);
+		    HashTableAdd(bsize_h, (char *)k, sizeof(k), hd, NULL);
 		}
 
 		// WARNING: scuppered by having high content_id values.
@@ -311,7 +360,7 @@ int main(int argc, char **argv) {
 	    }
 
 	    for (id = 0; id < s->hdr->num_blocks; id++)
-		cram_uncompress_block(s->block[id]);
+		cram_uncompress_block(s, s->block[id]);
 
 	    /* Test decoding of 1st seq */
 	    if (verbose) {
@@ -550,7 +599,6 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'b': { // Read bases; BB
-				unsigned char l, cc;
 				int out_sz2;
 				char seq[256];
 
@@ -560,7 +608,6 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'q': { // Read bases; QQ
-				unsigned char l, cc;
 				int out_sz2;
 				char qual[256];
 
@@ -622,12 +669,12 @@ int main(int argc, char **argv) {
 			char dat[1024];
 			int len = rl;
 
-			do {
+			while (len > 0) {
 			    int32_t out_sz2 = len > 1024 ? 1024 : len;
 			    r = c->comp_hdr->codecs[DS_BA]->decode(s, c->comp_hdr->codecs[DS_BA], b, dat, &out_sz2);
 			    printf("SQ = %.*s (out_sz %d)\n", out_sz2, dat, out_sz2);
 			    len -= 1024;
-			} while (len > 0);
+			}
 
 			if (cf & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
 			    int len = rl, i;
@@ -663,7 +710,7 @@ int main(int argc, char **argv) {
 		printf("\t    Content id:   %d\n", b->content_id);
 
 		if (b->method != RAW)
-		    cram_uncompress_block(b);
+		    cram_uncompress_block(s, b);
 
 		if (b->content_type == CORE) {
 		    dump_core_block(b, verbose);
@@ -729,24 +776,25 @@ int main(int argc, char **argv) {
     cram_close(fd);
 
     {
-	int id;
+	intptr_t id;
 
 	puts("");
 	for (id = -1; id <= bmax; id++) {
-	    int k;
+	    intptr_t k;
 	    HashItem *hi;
 	    HashIter *iter;
 
-	    if (!(hi = HashTableSearch(bsize_h, (char *)id, 4)))
+	    if (!(hi = HashTableSearch(bsize_h, (char *)id, sizeof(id))))
 		continue;
 
-	    k = (int)hi->key;
+	    k = (intptr_t) hi->key;
 	    if (k == -1) {
 		printf("Block CORE          , total size %10ld\n", hi->data.i);
 		continue;
 	    }
 
-	    printf("Block content_id %3d, total size %10ld ", k, hi->data.i);
+	    printf("Block content_id %3d, total size %10ld ",
+		   (int) k, hi->data.i);
 
 	    struct {
 		int id;
@@ -777,7 +825,7 @@ int main(int argc, char **argv) {
 		if (hi->data.i != k)
 		    continue;
 		
-		c = ((int)hi->key)>>8;
+		c = ((uintptr_t) hi->key)>>8;
 		
 		buf[x--] = 0;
 		while(c & 0xff) {

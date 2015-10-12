@@ -15,6 +15,7 @@ static const char *name(void) {
 }
 
 unsigned char *compress_block(int level,
+			      cram_slice *s,
 			      unsigned char *in,
 			      size_t in_size,
 			      size_t *out_size) {

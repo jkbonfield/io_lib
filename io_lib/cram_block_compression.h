@@ -87,6 +87,7 @@ typedef struct {
     // Returns malloced buffer on success;
     //         NULL on failure
     unsigned char *(*compress_block)(int level,
+                                     cram_slice *s,
                                      unsigned char *in,
                                      size_t in_size,
                                      size_t *out_size);
@@ -98,7 +99,8 @@ typedef struct {
     //
     // Returns malloced buffer on success;
     //         NULL on failure
-    unsigned char *(*uncompress_block)(unsigned char *in,
+    unsigned char *(*uncompress_block)(cram_slice *s,
+                                       unsigned char *in,
                                        size_t in_size,
                                        size_t *out_size);
 } cram_compressor;
@@ -110,7 +112,7 @@ typedef struct {
  * Returns 0 on success;
  *        -1 on failure
  */
-int cram_uncompress_block(cram_block *b);
+int cram_uncompress_block(cram_slice *s, cram_block *b);
 
 
 /*! Compresses a block.
@@ -126,7 +128,8 @@ int cram_uncompress_block(cram_block *b);
  * Returns 0 on success;
  *        -1 on failure
  */
-int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
+int cram_compress_block(cram_fd *fd, cram_slice *s,
+                        cram_block *b, cram_metrics *metrics,
 			int method, int level);
 
 /*

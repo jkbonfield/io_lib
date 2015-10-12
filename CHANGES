@@ -1,3 +1,115 @@
+Version 1.14.3 (29th September 2015)
+--------------
+
+CRAM changes:
+
+* Disabled the experimental slice checksum headers (SD and BD *slice*
+  tags) as their behaviour is still undefined and not in the CRAM
+  specification.  These were left in in error.
+
+* Fixed scram_merge to honour the -R option to specify a region.
+  (NB: This isn't really a properly supported tool, but a test of the
+  library code.)
+
+* Fixed a bug in decoding memory that caused lzma level 9 compressed
+  files to be unable to be decompressed.
+
+* Minor updates to scramble usage text.
+
+
+Version 1.14.2 (16th September 2015)
+--------------
+
+CRAM changes:
+
+* Bug fix to SAM header parsing so that it now permits nul characters.
+  (This is a long standing bug.)
+
+* Bug fix to auxiliary tag compression; we failed to correctly cache
+  the best codec to use, resulting in slower (but valid) compression
+  times.
+
+
+Version 1.14.1 (10th September 2015)
+--------------
+
+CRAM changes:
+
+* Small improvements to compression ratios.  CRAM auxiliary fields are
+  now always written to their own blocks. Also now experiment with
+  level 1 zlib compression in addition to the required level, as
+  on some data series this is the best solution.
+
+* Removed support for writing CRAM version 1.0.  This format was never
+  truely spec compliant anyway due to errors with the first
+  specification.
+
+* rANS O1 memory allocation is now via malloc rather than the heap,
+  permitting building on MacOS X again.
+
+* Fixed crash in multi-threaded decoding if not decoding positional
+  data (via cram_required_fields() function).
+
+* Fixed a bug with non-reference encoded CRAMs and indexing.
+
+Version 1.14.0 (10th July 2015)
+--------------
+
+* The default CRAM format type is now version 3.0.  You can still
+  generate version 2.1 files using scramble -V2.1
+
+* Lots of BAM/CRAM code hardening against I/O errors or corrupted data
+  files.  Some have been from visual inspection while many have come
+  from automated "american fuzzy lop" fuzz testing.  See the ChangeLog
+  for the full list.
+
+* Imperovements to compilation; we now compile with -Wall and this
+  should produce no warnings.  Let us know if you get them.  There is
+  a configure --disable-warnings option to switch off -Wall.
+
+* CRAM: added mmap support for references.  This can reduce the total
+  memory footprint if many instances of scramble are running and also
+  reduces I/O when we are using small regions of cached md5
+  references.
+
+* CRAM: improved compatibility with Java Cramtools CRC32 checking
+  (Cram version 3.0).  We've also now done full integration checking
+  between the two implementations to ensure best compatibility with
+  version 3.0.
+
+* CRAM: better support for Biobambam/libmaus; provides an in-memory
+  buffered alternative to the file descriptor to allow better
+  multi-threading performance with libmaus.
+
+* CRAM: we now correctly spot sequence "*" when generating a CRAM file
+  so we can correctly export it again (cram version 3.0).  Similarly
+  quality "*" is better handled too when being passed on to Cramtools.
+
+* CRAM: bug fixed NM:i tag so it no longer counts hard clips. Also
+  fixed NM/MD for sequence "*" and cases where one was previously
+  present but not the other.
+
+* CRAM: bug fixed handling unmapped reads with sequence "*".
+
+* CRAM: bug fix to index querying when a read starts precisely on a
+  boundary of a cram slice.
+
+* CRAM: fixed the container number of blocks field to be computed
+  correctly for multi-slice containers.  (Oddly this didn't actually
+  matter for Scramble or Cramtools.)
+
+
+version 1.13.10 (3rd Mar 2015)
+---------------
+
+* Reduced memory coordinate sorted CRAM files with many references per
+  slice.
+
+* More error protection for mismatching .fai/@SQ headers.
+
+* Improved handling of alignments off the end of references.
+
+
 version 1.13.9 (29th Jan 2015)
 --------------
 

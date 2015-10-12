@@ -97,6 +97,7 @@ static void *pool_calloc(pool_alloc_t *p, size_t size) {
 
 
 unsigned char *compress_block(int level,
+			      cram_slice *s,
 			      unsigned char *data,
 			      size_t len,
 			      size_t *comp_len) {
@@ -341,6 +342,9 @@ unsigned char *compress_block(int level,
 	*comp_len = outp - out;
     }
 
+
+    fprintf(stderr, "Comp_len=%d\n", (int)*comp_len);
+
     //*comp_len = 0; cp = comp;
     //*comp_len = cp-comp; cp = comp;
     //cp = rans_compress(comp, cp-comp, (unsigned int *)comp_len, 1);
@@ -357,7 +361,8 @@ unsigned char *compress_block(int level,
     return cp;
 }
 
-unsigned char *uncompress_block(unsigned char *data,
+unsigned char *uncompress_block(cram_slice *s,
+				unsigned char *data,
 				size_t len,
 				size_t *uncomp_len) {
     int i, x, t;

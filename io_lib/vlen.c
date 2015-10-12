@@ -78,6 +78,7 @@
 
 #include "io_lib/vlen.h"
 #include "io_lib/os.h"
+#include "io_lib/misc.h"
 
 #ifndef MAX
 #define MAX(a,b) ((a)>(b)?(a):(b))
@@ -122,7 +123,7 @@ int vflen(char *fmt, va_list ap)
     int len = 0;
     char *cp, c;
     long long l;
-    int i;
+    int i __UNUSED__;
     double d; 
 
     /*

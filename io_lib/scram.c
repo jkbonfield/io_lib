@@ -260,7 +260,6 @@ scram_fd *scram_open_cram_via_callbacks(
     size_t const bufsize            
 )
 {
-    char mode2[10];
     scram_fd *fd = calloc(1, sizeof(*fd));
     if (!fd)
 	return NULL;
@@ -305,7 +304,12 @@ int scram_close(scram_fd *fd) {
 }
 
 SAM_hdr *scram_get_header(scram_fd *fd) {
+#ifdef __INTEL_COMPILER
+    // avoids cmovne generation from icc 2015 (bug)
+    return fd->is_bam && fd->b ? fd->b->header : fd->c->header;
+#else
     return fd->is_bam ? fd->b->header : fd->c->header;
+#endif
 }
 
 refs_t *scram_get_refs(scram_fd *fd) {
@@ -348,8 +352,10 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
 	    // FIXME: if we ever implement range queries for BAM this will
 	    // need amendments to not claim a sub-range is invalid EOF.
 	    fd->eof = fd->b->eof_block ? 1 : 2;
+	    return -1;
 
 	default:
+	    fd->eof = -1; // err
 	    return -1;
 	}
     }

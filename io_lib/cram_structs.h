@@ -57,6 +57,7 @@ extern "C" {
 
 #include "io_lib/hash_table.h"       // From io_lib aka staden-read
 #include "io_lib/thread_pool.h"
+#include "io_lib/mFILE.h"
 
 #ifdef SAMTOOLS
 // From within samtools/HTSlib
@@ -94,7 +95,8 @@ enum cram_encoding {
     E_BETA               = 6,
     E_SUBEXP             = 7,
     E_GOLOMB_RICE        = 8,
-    E_GAMMA              = 9
+    E_GAMMA              = 9,
+    E_NUM_CODECS         = 10, /* Number of codecs, not a real one. */
 };
 
 enum cram_external_type {
@@ -181,15 +183,14 @@ struct cram_slice;
 enum cram_block_method {
     BM_ERROR  = -1,
     RAW    = 0,
-    GZIP   = 1,
+    GZIP   = 1,    // Z_FILTERED
     BZIP2  = 2,
     LZMA   = 3,
     RANS0  = 4,
     RANS1  = 10,   // Not externalised; stored as RANS (generic)
-    GZIP_RLE = 11, // NB: not externalised in CRAM
-    ARITH0 = 16,   // unofficial & test only
-    ARITH1 = 17,
-    BLOCK_METHOD_END
+    GZIP_RLE = 11, // Z_RLE, NB: not externalised in CRAM
+    GZIP_1 = 12,   // Z_DEFAULT_STRATEGY level 1, NB: not externalised in CRAM
+    BLOCK_METHOD_END = 31
 };
 
 enum cram_content_type {
@@ -223,6 +224,10 @@ typedef struct {
     int revised_method;
 
     double extra[CRAM_MAX_METHOD];
+
+    // Which content_id is this the metrics for?
+    // (Ab)used to track which tag type has which content_id.
+    int content_id;
 } cram_metrics;
 
 /* Block */
@@ -295,6 +300,12 @@ typedef struct cram_map {
     struct cram_map *next; // for noddy internal hash
 } cram_map;
 
+typedef struct {
+    struct cram_codec *codec;
+    cram_block *blk;
+    cram_metrics *m;
+} cram_tag_map;
+
 /* Mapped or unmapped slice header block */
 typedef struct {
     enum cram_content_type content_type;
@@ -308,6 +319,9 @@ typedef struct {
     int32_t *block_content_ids;
     int32_t ref_base_id;    /* if content_type == MAPPED_SLICE */
     unsigned char md5[16];
+    HashTable *tags;        /* hash of optional tags */
+    uint32_t BD_crc;        /* base call digest */
+    uint32_t SD_crc;        /* quality score digest */
 } cram_block_slice_hdr;
 
 struct ref_entry;
@@ -365,12 +379,14 @@ typedef struct {
     /* Statistics for encoding */
     cram_stats *stats[DS_END];
 
-    HashTable *tags_used; // hash of tag types in use, for tag encoding map
+    HashTable *tags_used; // cram_tag_map[], per tag types in use.
+
     int *refs_used;       // array of frequency of ref seq IDs
 
+    // For experimental name delta
     char *last_name;
 
-    uint32_t crc32;       // CRC32
+    uint32_t crc32;       // Raw container bytes CRC
 } cram_container;
 
 /*
@@ -544,14 +560,6 @@ typedef struct cram_slice {
     cram_block *base_blk;
     cram_block *soft_blk;
     cram_block *aux_blk;
-    cram_block *aux_OQ_blk;
-    cram_block *aux_BQ_blk;
-    cram_block *aux_BD_blk;
-    cram_block *aux_BI_blk;
-    cram_block *aux_FZ_blk;
-    cram_block *aux_oq_blk;
-    cram_block *aux_os_blk;
-    cram_block *aux_oz_blk;
 
     HashTable *pair[2];      // for identifying read-pairs in this slice.
 
@@ -559,6 +567,9 @@ typedef struct cram_slice {
     int ref_start;           // start position of current reference;
     int ref_end;             // end position of current reference;
     int ref_id;
+
+    uint32_t BD_crc;         // base call digest
+    uint32_t SD_crc;         // quality score digest
 } cram_slice;
 
 /*-----------------------------------------------------------------------------
@@ -574,6 +585,7 @@ typedef struct ref_entry {
     int line_length;
     int64_t count;	   // for shared references so we know to dealloc seq
     char *seq;
+    mFILE *mf;
 } ref_entry;
 
 // References structure.
@@ -638,6 +650,7 @@ typedef struct spare_bams {
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
 typedef size_t (*cram_io_C_FILE_fread_t)(void *ptr, size_t size, size_t nmemb, void *stream);
+typedef size_t (*cram_io_C_FILE_fwrite_t)(void *ptr, size_t size, size_t nmemb, void *stream);
 typedef int    (*cram_io_C_FILE_fseek_t)(void * fd, off_t offset, int whence);
 typedef off_t  (*cram_io_C_FILE_ftell_t)(void * fd);
 
@@ -648,8 +661,22 @@ typedef struct {
     cram_io_C_FILE_ftell_t  ftell_callback;
 } cram_io_input_t;
 
+typedef struct {
+    void                   *user_data;
+    cram_io_C_FILE_fwrite_t fwrite_callback;
+    cram_io_C_FILE_ftell_t  ftell_callback;
+} cram_io_output_t;
+
 typedef cram_io_input_t * (*cram_io_allocate_read_input_t)(char const * filename, int const decompress);
 typedef cram_io_input_t * (*cram_io_deallocate_read_input_t)(cram_io_input_t * obj);
+
+typedef cram_io_output_t * (*cram_io_allocate_write_output_t)(char const * filename);
+typedef cram_io_output_t * (*cram_io_deallocate_write_output_t)(cram_io_output_t * obj);
+
+
+
+// FIXME: make cram_fd_input_buffer and cram_fd_input_buffer the same thing.
+// Ie cram_fd_io_buffer and internals fp_io_*.
 
 typedef struct {
     /* input buffer size */
@@ -658,23 +685,43 @@ typedef struct {
     char          *fp_in_buffer;
     /* position of buffer start in file */
     uint64_t       fp_in_buf_start;
-    /* start of window pointer */
+    /* start of window pointer; same as fp_in_buffer */
     char          *fp_in_buf_pa;
     /* window current pointer */
     char          *fp_in_buf_pc;
-    /* window end pointer */
+    /* window end pointer;  same as fp_in_buffer + fp_in_buf_size (no seeks) */
     char          *fp_in_buf_pe;    
 } cram_fd_input_buffer;
+
+typedef struct {
+    /* output buffer size */
+    size_t         fp_out_buf_size;
+    /* output buffer base pointer */
+    char          *fp_out_buffer;
+    /* position of buffer start in file */
+    uint64_t       fp_out_buf_start;
+    /* start of window pointer; same as fp_out_buffer */
+    char          *fp_out_buf_pa;
+    /* window current pointer */
+    char          *fp_out_buf_pc;
+    /* window end pointer */
+    char          *fp_out_buf_pe;    
+} cram_fd_output_buffer;
 #endif
 
 typedef struct {
     FILE                 *fp_in;
-    #if defined(CRAM_IO_CUSTOM_BUFFERING)
-    cram_fd_input_buffer *fp_in_buffer;
-    cram_io_input_t      *fp_in_callbacks;
-    cram_io_allocate_read_input_t   fp_in_callback_allocate_function;
-    cram_io_deallocate_read_input_t fp_in_callback_deallocate_function;
-    #endif
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
+    cram_fd_input_buffer            *fp_in_buffer;
+    cram_io_input_t                 *fp_in_callbacks;
+    cram_io_allocate_read_input_t    fp_in_callback_allocate_function;
+    cram_io_deallocate_read_input_t  fp_in_callback_deallocate_function;
+
+    cram_fd_output_buffer            *fp_out_buffer;
+    cram_io_output_t                 *fp_out_callbacks;
+    cram_io_allocate_write_output_t   fp_out_callback_allocate_function;
+    cram_io_deallocate_write_output_t fp_out_callback_deallocate_function;
+#endif
     
     FILE          *fp_out;
     int            mode;     // 'r' or 'w'
@@ -708,6 +755,8 @@ typedef struct {
     // compression level and metrics
     int level;
     cram_metrics *m[DS_END];
+    HashTable *tags_used; // cram_metrics[], per tag types in use.
+    int next_content_id;
 
     // options
     int decode_md; // Whether to export MD and NM tags
@@ -745,12 +794,14 @@ typedef struct {
     int own_pool;
     t_pool *pool;
     t_results_queue *rqueue;
-    pthread_mutex_t metrics_lock;
-    pthread_mutex_t ref_lock;
+    pthread_mutex_t *metrics_lock;
+    pthread_mutex_t *ref_lock;
     spare_bams *bl;
-    pthread_mutex_t bam_list_lock;
+    pthread_mutex_t *bam_list_lock;
     void *job_pending;
+
     int ooc;                            // out of containers.
+    int ignore_chksum;
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -758,6 +809,7 @@ extern size_t cram_io_input_buffer_read(void *ptr, size_t size, size_t nmemb, cr
 extern int cram_io_input_buffer_seek(cram_fd * fd, off_t offset, int whence);
 extern int cram_io_input_buffer_underflow(cram_fd * fd);
 extern char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd);
+extern int cram_io_flush_output_buffer(cram_fd *fd);
 #endif
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -766,17 +818,21 @@ extern char * cram_io_input_buffer_fgets(char * s, int size, cram_fd * fd);
 #define CRAM_IO_SEEK(fd, offset, whence) cram_io_input_buffer_seek(fd, offset, whence)
 #define CRAM_IO_TELLO(fd) (fd->fp_in_buffer->fp_in_buf_start +(fd->fp_in_buffer->fp_in_buf_pc-fd->fp_in_buffer->fp_in_buf_pa))
 #define CRAM_IO_FGETS(s,size,fd) cram_io_input_buffer_fgets(s,size,fd)
+#define CRAM_IO_PUTC(c,fd) cram_io_output_buffer_putc(c,fd)
+#define CRAM_IO_WRITE(ptr, size, nmemb, fd) cram_io_output_buffer_write(ptr,size,nmemb,fd)
+#define CRAM_IO_FLUSH(fd) cram_io_flush_output_buffer((fd))
+
 #else // ! CRAM_IO_CUSTOM_BUFFERING
 #define CRAM_IO_GETC(fd) getc(fd->fp_in)
 #define CRAM_IO_READ(ptr, size, nmemb, fd) fread(ptr,size,nmemb,fd->fp_in)
 #define CRAM_IO_TELLO(fd) ftello(fd->fp_in)
 #define CRAM_IO_SEEK(fd, offset, whence) fseeko(fd->fp_in,offset,whence)
 #define CRAM_IO_FGETS(s,size,fd) fgets(s,size,fd->fp_in)
-#endif // end CRAM_IO_CUSTOM_BUFFERING
-
 #define CRAM_IO_PUTC(c,fd) putc(c,fd->fp_out)
 #define CRAM_IO_WRITE(ptr, size, nmemb, fd) fwrite(ptr,size,nmemb,fd->fp_out)
 #define CRAM_IO_FLUSH(fd) (fd->fp_out ? fflush(fd->fp_out) : 0)
+
+#endif // end CRAM_IO_CUSTOM_BUFFERING
 
 // REQUIRED_FIELDS
 enum sam_fields {
@@ -863,6 +919,7 @@ enum cram_option {
     CRAM_OPT_USE_LZMA,
     CRAM_OPT_REQUIRED_FIELDS,
     CRAM_OPT_USE_RANS,
+    CRAM_OPT_IGNORE_CHKSUM,
 };
 
 /* BF bitfields */
@@ -895,6 +952,7 @@ enum cram_option {
 #define CRAM_FLAG_PRESERVE_QUAL_SCORES (1<<0)
 #define CRAM_FLAG_DETACHED             (1<<1)
 #define CRAM_FLAG_MATE_DOWNSTREAM      (1<<2)
+#define CRAM_FLAG_NO_SEQ               (1<<3)
 
 #ifdef __cplusplus
 }

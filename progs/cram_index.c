@@ -49,10 +49,6 @@
 
 int main(int argc, char **argv) {
     cram_fd *fd;
-    cram_container *c;
-    off_t cpos, spos, hpos;
-    zfp *fp;
-    char fn[PATH_MAX];
 
     if (argc != 2 && argc != 3) {
 	fprintf(stderr, "Usage: cram_index filename.cram [filename.cram.crai]\n");

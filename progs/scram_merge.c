@@ -135,9 +135,10 @@ int main(int argc, char **argv) {
     int start, end;
     char ref_name[1024] = {0};
     refs_t *refs = NULL;
+    int max_reads = -1;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:XI:O:R:N:")) != -1) {
 	switch (c) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -206,6 +207,10 @@ int main(int argc, char **argv) {
 	    break;
 	}
 
+	case 'N': // For debugging
+	    max_reads = atoi(optarg);
+	    break;
+
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
 	    usage(stderr);
@@ -252,6 +257,33 @@ int main(int argc, char **argv) {
 
 	if (refs && scram_set_option(in[i], CRAM_OPT_SHARED_REF, refs))
 	    return 1;
+
+	/* Support for sub-range queries, currently implemented for CRAM only */
+	if (*ref_name != 0) {
+	    cram_range r;
+	    int refid;
+
+	    if (in[i]->is_bam) {
+		fprintf(stderr, "Currently the -R option is only implemented for CRAM indices\n");
+		return 1;
+	    }
+	    
+	    cram_index_load(in[i]->c, argv[optind]);
+
+	    refid = sam_hdr_name2ref(in[i]->c->header, ref_name);
+
+
+	    if (refid == -1 && *ref_name != '*') {
+		fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
+		return 1;
+	    }
+	    r.refid = refid;
+	    r.start = start;
+	    r.end = end;
+
+	    if (scram_set_option(in[i], CRAM_OPT_RANGE, &r))
+	    	return 1;
+	}
     }
 
     /* Set any format specific options */
@@ -334,6 +366,10 @@ int main(int argc, char **argv) {
 	    in[best_j] = NULL;
 	    free(s[best_j]);
 	}
+
+	if (max_reads >= 0)
+	    if (--max_reads == 0)
+		break;
     }
 
     for (i = 0; i < n_input; i++) {
