@@ -11,7 +11,9 @@ static const char *name(void) {
     return "fqzcomp-qual";
 }
 
-#define QMAX 64
+#ifndef QMAX
+#  define QMAX 64
+#endif
 #define QMAX_B 9
 #define QBITS 12
 #define QSIZE (1<<QBITS)
@@ -57,8 +59,9 @@ unsigned char *compress_block(int level,
     //fprintf(stderr, "%.1000s\n", in);
 
     for (i = 0; i < in_size; i++) {
-        unsigned char q = in[i] & (QMAX-1);
-	assert(in[i] < QMAX && in[i] >= 0);
+	unsigned char q = in[i] < QMAX ? in[i] : QMAX-1;
+        //unsigned char q = in[i] & (QMAX-1);
+	//assert(in[i] < QMAX && in[i] >= 0);
         model_qual[last].encodeSymbol(&rc, q);
         //last = ((MAX(q1, q2)<<6) + q) & (QSIZE-1);
         last = (((q1>>2)<<6) + q) & (QSIZE-1); // quicker learning
@@ -148,7 +151,7 @@ unsigned char *compress_block_fqz2(int level,
 
         unsigned char q = in[i] & (QMAX-1);
 	assert(in[i] < QMAX && in[i] >= 0);
-        model_qual[last].encodeSymbol(&rc, q);
+        model_qual[last & (QSIZE*16-1)].encodeSymbol(&rc, q);
         last = ((MAX(q1, q2)<<6) + q) & (QSIZE-1);
 	last  += (q1==q2) << QBITS;
 
@@ -243,7 +246,11 @@ unsigned char *compress_block_fqz2f(int level,
 
     for (i = j = 0; i < in_size; i++, j--) {
 	if (j == 0) {
-	    int len = s->crecs[rec].len;
+	    // Quality buffer maybe longer than sum of reads if we've inserted a specific
+	    // base + quality pair.  FIXME: how to handle this?
+	    int len = rec < s->hdr->num_records-1
+		? s->crecs[rec].len
+		: in_size - i;
 	    model_len[0].encodeSymbol(&rc, (len>> 0) & 0xff);
 	    model_len[1].encodeSymbol(&rc, (len>> 8) & 0xff);
 
@@ -270,8 +277,9 @@ unsigned char *compress_block_fqz2f(int level,
 	    // reset last too?
 	}
 
-        unsigned char q = in[i] & (QMAX-1);
-	assert(in[i] < QMAX && in[i] >= 0);
+	unsigned char q = in[i] < QMAX ? in[i] : QMAX-1;
+        //unsigned char q = in[i] & (QMAX-1);
+	//assert(in[i] < QMAX && in[i] >= 0);
         model_qual[last].encodeSymbol(&rc, q);
         last = ((MAX(q1, q2)<<6) + q) & (QSIZE-1);
 	last  += (q1==q2) << QBITS;
