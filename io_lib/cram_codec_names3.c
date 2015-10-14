@@ -243,7 +243,7 @@ unsigned char *compress_block(int level,
 	}
 	if (token)
 	    *cp++ = token;
-	*cp++ = '\n';
+	*cp++ = '\0';
 	//putchar('\n');
 
 	//last = &data[j];
