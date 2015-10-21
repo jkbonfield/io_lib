@@ -582,8 +582,14 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'I': { // Insertion (several bases); IN
-				char dat[100];
+				static char *dat = NULL;
+				static int dat_l = 0;
 				int32_t out_sz2 = 1;
+
+				if (dat_l < rl+1) {
+				    dat = realloc(dat, rl+1);
+				    dat_l = rl;
+				}
 
 				dat[0]='?';dat[1]=0;
 				r = c->comp_hdr->codecs[DS_IN]->decode(s,c->comp_hdr->codecs[DS_IN], b, dat, &out_sz2);
@@ -599,8 +605,14 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'b': { // Read bases; BB
+				static char *seq = NULL;
+				static int seq_l = 0;
 				int out_sz2;
-				char seq[256];
+
+				if (seq_l < rl) {
+				    seq = realloc(seq, rl);
+				    seq_l = rl;
+				}
 
 				r  = c->comp_hdr->codecs[DS_BB]->decode(s,c->comp_hdr->codecs[DS_BB], b, seq, &out_sz2);
 				printf("  %d: BB(b) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, seq, r, out_sz2);
@@ -609,7 +621,13 @@ int main(int argc, char **argv) {
 
 			    case 'q': { // Read bases; QQ
 				int out_sz2;
-				char qual[256];
+				static char *qual = NULL;
+				static int qual_l = 0;
+
+				if (qual_l < rl) {
+				    qual = realloc(qual, rl);
+				    qual_l = rl;
+				}
 
 				r  = c->comp_hdr->codecs[DS_QQ]->decode(s,c->comp_hdr->codecs[DS_QQ], b, qual, &out_sz2);
 				printf("  %d: QQ(b) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, qual, r, out_sz2);
@@ -656,13 +674,17 @@ int main(int argc, char **argv) {
 
 			if (cf & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
 			    char dat[1024];
-			    int32_t out_sz2 = rl, i;
+			    int len = rl;
 
-			    dat[0]='?';dat[1]=0;
-			    r = c->comp_hdr->codecs[DS_QS]->decode(s,c->comp_hdr->codecs[DS_QS], b, dat, &out_sz2);
-			    for (i = 0; i < rl; i++)
-				dat[i] += '!';
-			    printf("QS = %.*s (ret %d, out_sz %d)\n", out_sz2, dat, r, out_sz2);
+			    do {
+				int32_t out_sz2 = len > 1024 ? 1024 : len, i;
+				dat[0]='?';dat[1]=0;
+				r = c->comp_hdr->codecs[DS_QS]->decode(s,c->comp_hdr->codecs[DS_QS], b, dat, &out_sz2);
+				for (i = 0; i < out_sz2; i++)
+				    dat[i] += '!';
+				printf("QS = %.*s (ret %d, out_sz %d)\n", out_sz2, dat, r, out_sz2);
+				len -= 1024;
+			    } while (len > 0);
 			}
 		    } else {
 			puts("Unmapped");
@@ -682,7 +704,7 @@ int main(int argc, char **argv) {
 			    do {
 				int32_t out_sz2 = len > 1024 ? 1024 : len;
 				r = c->comp_hdr->codecs[DS_QS]->decode(s, c->comp_hdr->codecs[DS_QS], b, dat, &out_sz2);
-				for (i = 0; i < len; i++)
+				for (i = 0; i < out_sz2; i++)
 				    dat[i] += '!';
 				printf("QS = %.*s (out_sz %d)\n", out_sz2, dat, out_sz2);
 				len -= 1024;
