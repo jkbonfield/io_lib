@@ -68,6 +68,7 @@ extern "C" {
 #endif
 
 #define SEQS_PER_SLICE 10000
+#define BASES_PER_SLICE (SEQS_PER_SLICE*500)
 #define SLICE_PER_CNT  1
 
 #define CRAM_SUBST_MATRIX "CGTNAGTNACTNACGNACGT"
@@ -259,6 +260,9 @@ typedef struct {
     size_t alloc;
     size_t byte;
     int bit;
+
+    // To aid compression
+    cram_metrics *m; // used to track aux block compression only
 } cram_block;
 
 struct cram_codec; /* defined in cram_codecs.h */
@@ -400,6 +404,8 @@ typedef struct {
     char *last_name;
 
     uint32_t crc32;       // Raw container bytes CRC
+
+    uint64_t s_num_bases; // number of bases in this slice
 } cram_container;
 
 /*
@@ -572,7 +578,7 @@ typedef struct cram_slice {
     cram_block *qual_blk;
     cram_block *base_blk;
     cram_block *soft_blk;
-    cram_block *aux_blk;
+    cram_block *aux_blk;  // BAM aux block, used when going from CRAM to BAM
 
     HashTable *pair[2];      // for identifying read-pairs in this slice.
 
@@ -583,6 +589,10 @@ typedef struct cram_slice {
 
     uint32_t BD_crc;         // base call digest
     uint32_t SD_crc;         // quality score digest
+
+    // For going from BAM to CRAM; an array of auxiliary blocks per type
+    int naux_block;
+    cram_block **aux_block;
 } cram_slice;
 
 /*-----------------------------------------------------------------------------
@@ -775,6 +785,7 @@ typedef struct {
     int decode_md; // Whether to export MD and NM tags
     int verbose;
     int seqs_per_slice;
+    int bases_per_slice;
     int slices_per_container;
     int embed_ref;
     int no_ref;
@@ -933,6 +944,7 @@ enum cram_option {
     CRAM_OPT_REQUIRED_FIELDS,
     CRAM_OPT_USE_RANS,
     CRAM_OPT_IGNORE_CHKSUM,
+    CRAM_OPT_BASES_PER_SLICE,
 };
 
 /* BF bitfields */

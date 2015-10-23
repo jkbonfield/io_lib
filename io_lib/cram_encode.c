@@ -858,22 +858,18 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
      * Compress any auxiliary tags with their own per-tag metrics
      */
     {
-        HashItem *hi;
-        HashIter *iter = HashTableIterCreate();
-	if (!iter)
-	    return -1;
-        while ((hi = HashTableIterNext(c->tags_used, iter))) {
-	    cram_tag_map *tm = (cram_tag_map *)hi->data.p;
-	    
-	    if (!tm->blk || tm->blk->method != RAW)
+	int i;
+	for (i = 0; i < s->naux_block; i++) {
+	    if (!s->aux_block[i] || s->aux_block[i] == s->block[0])
 		continue;
 
-	    if (cram_compress_block(fd, tm->blk, tm->m,
+	    if (s->aux_block[i]->method != RAW)
+		continue;
+
+	    if (cram_compress_block(fd, s->aux_block[i], s->aux_block[i]->m,
 				    method, level))
 		return -1;
 	}
-
-	HashTableIterDestroy(iter);
     }
 
     /*
@@ -1006,18 +1002,10 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
      * Add in the external tag blocks too.
      */
     if (c->tags_used) {
-        HashItem *hi;
-        HashIter *iter = HashTableIterCreate();
-	if (!iter)
-	    return -1;
-
+	int n;
 	s->hdr->num_blocks = DS_END;
-        while ((hi = HashTableIterNext(c->tags_used, iter))) {
-	    cram_tag_map *tm = (cram_tag_map *)hi->data.p;
-	    s->block[s->hdr->num_blocks++] = tm->blk;
-	}
-
-	HashTableIterDestroy(iter);
+	for (n = 0; n < s->naux_block; n++)
+	    s->block[s->hdr->num_blocks++] = s->aux_block[n];
     }
 
     /* Encode reads */
@@ -1143,7 +1131,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	 * bit is threaded so it's less work in the main thread.
 	 */
 
-	for (r2 = 0; r1 < c->curr_c_rec && r2 < c->max_rec; r1++, r2++) {
+	for (r2 = 0; r1 < c->curr_c_rec && r2 < s->hdr->num_records; r1++, r2++) {
 	    cram_record *cr = &s->crecs[r2];
 	    bam_seq_t *b = c->bams[r1];
 
@@ -1188,6 +1176,31 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    s->hdr->ref_seq_span  = last_base - first_base + 1;
 	}
 	s->hdr->num_records = r2;
+
+	// Processed a slice, now stash the aux blocks so the next
+	// slice can start aggregating them from the start again.
+	if (c->tags_used->nused) {
+	    int ntags = c->tags_used->nused;
+	    s->aux_block = calloc(ntags, sizeof(*s->aux_block));
+	    if (!s->aux_block)
+		return -1;
+	    
+	    HashItem *hi;
+	    HashIter *iter = HashTableIterCreate();
+	    if (!iter)
+		return -1;
+
+	    s->naux_block = 0;
+	    while ((hi = HashTableIterNext(c->tags_used, iter))) {
+		cram_tag_map *tm = (cram_tag_map *)hi->data.p;
+		if (!tm->blk) continue;
+		s->aux_block[s->naux_block++] = tm->blk;
+		tm->blk = NULL;
+	    }
+	    assert(s->naux_block <= c->tags_used->nused);
+
+	    HashTableIterDestroy(iter);
+	}
     }
 
     if (c->multi_seq && !fd->no_ref) {
@@ -1425,6 +1438,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     for (i = 0; i < c->curr_slice; i++) {
 	if (fd->verbose)
 	    fprintf(stderr, "Encode slice %d\n", i);
+
 	if (cram_encode_slice(fd, c, h, c->slices[i]) != 0)
 	    return -1;
     }
@@ -1847,8 +1861,6 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		c = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL,
 				      E_BYTE_ARRAY, (void *)i2,
 				      fd->version);
-		c->out = cram_new_block(EXTERNAL, key);
-		m->blk = c->out;
 		break;
 
 	    case 'A': case 'c': case 'C': {
@@ -1868,9 +1880,6 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		c = cram_encoder_init(E_BYTE_ARRAY_LEN, &st,
 				      E_BYTE_ARRAY, (void *)&e,
 				      fd->version);
-
-		m->blk = cram_new_block(EXTERNAL, key);
-		c->e_byte_array_len.val_codec->out = m->blk;
 		break;
 	    }
 
@@ -1891,9 +1900,6 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		c = cram_encoder_init(E_BYTE_ARRAY_LEN, &st,
 				      E_BYTE_ARRAY, (void *)&e,
 				      fd->version);
-
-		m->blk = cram_new_block(EXTERNAL, key);
-		c->e_byte_array_len.val_codec->out = m->blk;
 		break;
 	    }
 	    case 'i': case 'I': case 'f': {
@@ -1913,9 +1919,6 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		c = cram_encoder_init(E_BYTE_ARRAY_LEN, &st,
 				      E_BYTE_ARRAY, (void *)&e,
 				      fd->version);
-
-		m->blk = cram_new_block(EXTERNAL, key);
-		c->e_byte_array_len.val_codec->out = m->blk;
 		break;
 	    }
 
@@ -1936,10 +1939,6 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		c = cram_encoder_init(E_BYTE_ARRAY_LEN, NULL,
 				      E_BYTE_ARRAY, (void *)&e,
 				      fd->version);
-		m->blk = cram_new_block(EXTERNAL, key);
-		c->e_byte_array_len.len_codec->out =
-		c->e_byte_array_len.val_codec->out =
-		    m->blk;
 		break;
 	    }
 
@@ -1958,8 +1957,15 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 
 	cram_tag_map *tm = (cram_tag_map *)hi->data.p;
 	cram_codec *codec = tm->codec;
+
 	switch(aux[2]) {
 	case 'A': case 'C': case 'c':
+	    if (!tm->blk) {
+		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		    return NULL;
+		codec->e_byte_array_len.val_codec->out = tm->blk;
+	    }
+
 	    aux+=3;
 	    //codec->encode(s, codec, aux, 1);
 	    // Functionally equivalent, but less code.
@@ -1968,6 +1974,12 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    break;
 
 	case 'S': case 's':
+	    if (!tm->blk) {
+		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		    return NULL;
+		codec->e_byte_array_len.val_codec->out = tm->blk;
+	    }
+
 	    aux+=3;
 	    //codec->encode(s, codec, aux, aux_len);
 	    BLOCK_APPEND(tm->blk, aux, aux_len);
@@ -1975,6 +1987,12 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    break;
 
 	case 'I': case 'i': case 'f':
+	    if (!tm->blk) {
+		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		    return NULL;
+		codec->e_byte_array_len.val_codec->out = tm->blk;
+	    }
+
 	    aux+=3;
 	    //codec->encode(s, codec, aux, aux_len);
 	    BLOCK_APPEND(tm->blk, aux, aux_len);
@@ -1982,13 +2000,26 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    break;
 
 	case 'd':
+	    if (!tm->blk) {
+		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		    return NULL;
+		codec->e_byte_array_len.val_codec->out = tm->blk;
+	    }
+
 	    aux+=3; //*tmp++=*aux++; *tmp++=*aux++; *tmp++=*aux++;
 	    //codec->encode(s, codec, aux, 8);
 	    BLOCK_APPEND(tm->blk, aux, 8);
 	    aux+=8;
 	    break;
 
-	case 'Z': case 'H': {
+	case 'Z': case 'H':
+	    {
+		if (!tm->blk) {
+		    if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+			return NULL;
+		    codec->out = tm->blk;
+		}
+
 		char *aux_s;
 		aux += 3;
 		aux_s = aux;
@@ -2003,6 +2034,13 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 					(((unsigned char *)aux)[5]<< 8) +
 					(((unsigned char *)aux)[6]<<16) +
 					(((unsigned char *)aux)[7]<<24));
+	    if (!tm->blk) {
+		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		    return NULL;
+		codec->e_byte_array_len.len_codec->out = tm->blk;
+		codec->e_byte_array_len.val_codec->out = tm->blk;
+	    }
+
 	    // skip TN field
 	    aux+=3;
 
@@ -2034,6 +2072,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    fprintf(stderr, "Unknown aux type '%c'\n", aux[2]);
 	    return NULL;
 	}
+	tm->blk->m = tm->m;
     }
 
     // FIXME: sort BLOCK_DATA(td_b) by char[3] triples
@@ -2059,6 +2098,34 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     return rg;
 }
 
+/*
+ * During cram_next_container or before the final flush at end of
+ * file, we update the current slice headers and increment the slice
+ * number to the next slice.
+ *
+ * See cram_next_container() and cram_close().
+ */
+void cram_update_curr_slice(cram_container *c) {
+    cram_slice *s = c->slice;
+    if (c->multi_seq) {
+	s->hdr->ref_seq_id    = -2;
+	s->hdr->ref_seq_start = 0;
+	s->hdr->ref_seq_span  = 0;
+    } else {
+	s->hdr->ref_seq_id    = c->curr_ref;
+	s->hdr->ref_seq_start = c->first_base;
+	s->hdr->ref_seq_span  = c->last_base - c->first_base + 1;
+    }
+    s->hdr->num_records   = c->curr_rec;
+
+    if (c->curr_slice == 0) {
+	if (c->ref_seq_id != s->hdr->ref_seq_id)
+	    c->ref_seq_id  = s->hdr->ref_seq_id;
+	c->ref_seq_start = c->first_base;
+    }
+
+    c->curr_slice++;
+}
 
 /*
  * Handles creation of a new container or new slice, flushing any
@@ -2071,34 +2138,14 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
  */
 static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
     cram_container *c = fd->ctr;
-    cram_slice *s;
     int i;
 
     /* First occurence */
     if (c->curr_ref == -2)
 	c->curr_ref = bam_ref(b);
 
-    if (c->slice) {
-	s = c->slice;
-	if (c->multi_seq) {
-	    s->hdr->ref_seq_id    = -2;
-	    s->hdr->ref_seq_start = 0;
-	    s->hdr->ref_seq_span  = 0;
-	} else {
-	    s->hdr->ref_seq_id    = c->curr_ref;
-	    s->hdr->ref_seq_start = c->first_base;
-	    s->hdr->ref_seq_span  = c->last_base - c->first_base + 1;
-	}
-	s->hdr->num_records   = c->curr_rec;
-
-	if (c->curr_slice == 0) {
-	    if (c->ref_seq_id != s->hdr->ref_seq_id)
-		c->ref_seq_id  = s->hdr->ref_seq_id;
-	    c->ref_seq_start = c->first_base;
-	}
-
-	c->curr_slice++;
-    }
+    if (c->slice)
+	cram_update_curr_slice(c);
 
     /* Flush container */
     if (c->curr_slice == c->max_slice ||
@@ -2159,6 +2206,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
     }
 
     c->curr_rec = 0;
+    c->s_num_bases = 0;
 
     return c;
 }
@@ -2752,10 +2800,10 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
     c = fd->ctr;
 
     if (!c->slice || c->curr_rec == c->max_rec ||
-	(bam_ref(b) != c->curr_ref && c->curr_ref >= -1)) {
+	(bam_ref(b) != c->curr_ref && c->curr_ref >= -1) ||
+	(c->s_num_bases >= fd->bases_per_slice)) {
 	int slice_rec, curr_rec, multi_seq = fd->multi_seq == 1;
 	int curr_ref = c->slice ? c->curr_ref : bam_ref(b);
-
 
 	/*
 	 * Start packing slices when we routinely have under 1/4tr full.
@@ -2774,7 +2822,8 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	slice_rec = c->slice_rec;
 	curr_rec  = c->curr_rec;
 
-	if (c->curr_rec == c->max_rec || fd->multi_seq != 1 || !c->slice)
+	if (c->curr_rec == c->max_rec || fd->multi_seq != 1 || !c->slice ||
+	    c->s_num_bases >= fd->bases_per_slice)
 	    if (NULL == (c = cram_next_container(fd, b)))
 		return -1;
 
@@ -2848,6 +2897,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     c->curr_rec++;
     c->curr_c_rec++;
+    c->s_num_bases += bam_seq_len(b);
     fd->record_counter++;
 
     return 0;
