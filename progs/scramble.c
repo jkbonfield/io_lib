@@ -101,6 +101,8 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -H             [SAM] Do not print header\n");
     fprintf(fp, "    -R range       [Cram] Specifies the refseq:start-end range\n");
     fprintf(fp, "    -r ref.fa      [Cram] Specifies the reference file.\n");
+    fprintf(fp, "    -b integer     [Cram] Max. bases per slice, default %d.\n",
+	    BASES_PER_SLICE);
     fprintf(fp, "    -s integer     [Cram] Sequences per slice, default %d.\n",
 	    SEQS_PER_SLICE);
     fprintf(fp, "    -S integer     [Cram] Slices per container, default %d.\n",
@@ -139,9 +141,10 @@ int main(int argc, char **argv) {
     enum quality_binning binning = BINNING_NONE;
     int sam_fields = 0; // all
     int header = 1;
+    int bases_per_slice = 0;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:H")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -170,6 +173,11 @@ int main(int argc, char **argv) {
 
 	case 's':
 	    s_opt = atoi(optarg);
+	    bases_per_slice = s_opt * 500; // guesswork...
+	    break;
+
+	case 'b':
+	    bases_per_slice = atoi(optarg);
 	    break;
 
 	case 'S':
@@ -339,6 +347,10 @@ int main(int argc, char **argv) {
 
     if (S_opt)
 	if (scram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, S_opt))
+	    return 1;
+
+    if (bases_per_slice)
+	if (scram_set_option(out, CRAM_OPT_BASES_PER_SLICE, bases_per_slice))
 	    return 1;
 
     if (embed_ref)
