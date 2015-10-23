@@ -791,8 +791,10 @@ int cram_dependent_data_series(cram_fd *fd,
 
 		while (m) {
 		    cram_codec *c = m->codec;
-		    if (!c)
+		    if (!c) {
+			m = m->next;
 			continue;
+		    }
 
 		    bnum1 = cram_codec_to_id(c, &bnum2);
 
@@ -880,8 +882,10 @@ int cram_dependent_data_series(cram_fd *fd,
 
 	    while (m) {
 		cram_codec *c = m->codec;
-		if (!c)
+		if (!c) {
+		    m = m->next;
 		    continue;
+		}
 
 		bnum1 = cram_codec_to_id(c, &bnum2);
 		
@@ -2117,6 +2121,27 @@ static char *md5_print(unsigned char *md5, char *out) {
     return out;
 }
 
+static void reset_all_codecs(cram_block_compression_hdr *hdr) {
+    int i;
+
+    for (i = 0; i < DS_END; i++) {
+	if (hdr->codecs[i])
+	    hdr->codecs[i]->reset(hdr->codecs[i]);
+    }
+
+    for (i = 0; i < CRAM_MAP_HASH; i++) {
+	cram_map *m;
+	for (m = hdr->rec_encoding_map[i]; m; m = m->next)
+	    if (m->codec) m->codec->reset(m->codec);
+    }
+
+    for (i = 0; i < CRAM_MAP_HASH; i++) {
+	cram_map *m;
+	for (m = hdr->tag_encoding_map[i]; m; m = m->next)
+	    if (m->codec) m->codec->reset(m->codec);
+    }
+}
+
 /*
  * Decode an entire slice from container blocks. Fills out s->crecs[] array.
  * Returns 0 on success
@@ -2134,6 +2159,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     int embed_ref;
     char **refs = NULL;
     uint32_t ds;
+
+    /* Clear any cached blocks in the external / B.A.S. codecs */
+    reset_all_codecs(c->comp_hdr);
 
     if (cram_dependent_data_series(fd, c->comp_hdr, s) != 0)
 	return -1;

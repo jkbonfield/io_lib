@@ -127,6 +127,8 @@ typedef struct cram_codec {
 		  char *in, int in_size);
     int (*store)(struct cram_codec *codec, cram_block *b, char *prefix,
 		 int version);
+    void (*reset)(struct cram_codec *codec); // used between slices in a container
+
     union {
 	cram_huffman_decoder         huffman;
 	cram_external_decoder        external;
