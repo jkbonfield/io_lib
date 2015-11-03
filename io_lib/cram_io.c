@@ -5064,7 +5064,8 @@ int cram_flush(cram_fd *fd) {
 
     if (fd->mode == 'w' && fd->ctr) {
 	if(fd->ctr->slice)
-	    fd->ctr->curr_slice++;
+	    cram_update_curr_slice(fd->ctr);
+
 	if (-1 == cram_flush_container_mt(fd, fd->ctr))
 	    return -1;
     }
@@ -5126,6 +5127,7 @@ int cram_close(cram_fd *fd) {
     if (fd->mode == 'w' && fd->ctr) {
 	if(fd->ctr->slice)
 	    cram_update_curr_slice(fd->ctr);
+
 	if (-1 == cram_flush_container_mt(fd, fd->ctr)) {
 	    fd = cram_io_close(fd,0);
 	    return -1;
