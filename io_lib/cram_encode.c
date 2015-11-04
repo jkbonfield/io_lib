@@ -1826,28 +1826,21 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	if (!(hi = HashTableAdd(c->tags_used, aux_f, 3, hd, NULL)))
 	    return NULL;
 
+	int key = (aux_f[0]<<16)|(aux_f[1]<<8)|aux_f[2];
 	if (!hi->data.p) {
 	    HashItem *hi_global;
 	    hd.p = NULL;
-	    int key;
 
 	    // Global tags_used for cram_metrics support
 	    hd.p = NULL;
 	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
 	    if (!(hi_global = HashTableAdd(fd->tags_used, aux_f, 3, hd, NULL)))
 		return NULL;
-	    if (!hi_global->data.p) {
+	    if (!hi_global->data.p)
 		hi_global->data.p = cram_new_metrics();
-		((cram_metrics *)hi_global->data.p)->content_id = fd->next_content_id++;
-	    }
-	    key = ((cram_metrics *)hi_global->data.p)->content_id;
+
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 
-	    // Now fix up the container-level tags_used hash too.
-
-	    // We could also generate keys based on tag type itself.
-	    // Cramtools takes this approach.
-	    //int key = (hi->key[0]<<16)|(hi->key[1]<<8)|hi->key[2];
 	    int i2[2] = {'\t',key};
 	    size_t sk = key;
 	    cram_tag_map *m = calloc(1, sizeof(*m));
@@ -1961,7 +1954,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	switch(aux[2]) {
 	case 'A': case 'C': case 'c':
 	    if (!tm->blk) {
-		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		if (!(tm->blk = cram_new_block(EXTERNAL, key)))
 		    return NULL;
 		codec->e_byte_array_len.val_codec->out = tm->blk;
 	    }
@@ -1975,7 +1968,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 
 	case 'S': case 's':
 	    if (!tm->blk) {
-		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		if (!(tm->blk = cram_new_block(EXTERNAL, key)))
 		    return NULL;
 		codec->e_byte_array_len.val_codec->out = tm->blk;
 	    }
@@ -1988,7 +1981,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 
 	case 'I': case 'i': case 'f':
 	    if (!tm->blk) {
-		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		if (!(tm->blk = cram_new_block(EXTERNAL, key)))
 		    return NULL;
 		codec->e_byte_array_len.val_codec->out = tm->blk;
 	    }
@@ -2001,7 +1994,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 
 	case 'd':
 	    if (!tm->blk) {
-		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		if (!(tm->blk = cram_new_block(EXTERNAL, key)))
 		    return NULL;
 		codec->e_byte_array_len.val_codec->out = tm->blk;
 	    }
@@ -2015,7 +2008,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	case 'Z': case 'H':
 	    {
 		if (!tm->blk) {
-		    if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		    if (!(tm->blk = cram_new_block(EXTERNAL, key)))
 			return NULL;
 		    codec->out = tm->blk;
 		}
@@ -2035,7 +2028,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 					(((unsigned char *)aux)[6]<<16) +
 					(((unsigned char *)aux)[7]<<24));
 	    if (!tm->blk) {
-		if (!(tm->blk = cram_new_block(EXTERNAL, tm->m->content_id)))
+		if (!(tm->blk = cram_new_block(EXTERNAL, key)))
 		    return NULL;
 		codec->e_byte_array_len.len_codec->out = tm->blk;
 		codec->e_byte_array_len.val_codec->out = tm->blk;

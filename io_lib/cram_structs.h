@@ -239,10 +239,6 @@ typedef struct {
     double rans1_extra;
     double bzip2_extra;
     double lzma_extra;
-
-    // Which content_id is this the metrics for?
-    // (Ab)used to track which tag type has which content_id.
-    int content_id;
 } cram_metrics;
 
 /* Block */
