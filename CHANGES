@@ -1,3 +1,32 @@
+Version 1.14.5 (5th November 2015)
+--------------
+
+* Scramble now has a way to control the maximum number of bases per
+  slice (default 5Mb), forcing a new slice if this limit is hit before
+  hitting the existing max sequences per slice limit.  This improves
+  performance on very long read data. (PacBio, ONT, etc)
+
+* Improvements for MacOS X building.
+
+* Removed erroneous debugging output from Scramble.
+
+* Fixed cram_dump so it works on longer sequences, eg PacBio data.
+
+* Fixed cram_size (but not yet cram_dump summary output) to handle
+  multi-byte content_ids when reporting which block type is for which
+  data series.
+
+* Fixed a bug with multi-slice containers, broken since r3946
+  (1.14.1).
+
+* Bug fixes to the libmaus2/biobambam2 interface code.  Part of this
+  change includes simplifying how auxiliary tag content_ids are
+  assigned for CRAM.
+
+* This io_lib release should now work again when being used by the
+  current (albeit 2013) release of Staden Package.
+
+
 Version 1.14.4 (5th October 2015)
 --------------
 
