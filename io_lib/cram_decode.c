@@ -2125,7 +2125,7 @@ static void reset_all_codecs(cram_block_compression_hdr *hdr) {
     int i;
 
     for (i = 0; i < DS_END; i++) {
-	if (hdr->codecs[i])
+	if (hdr->codecs[i] && hdr->codecs[i]->reset)
 	    hdr->codecs[i]->reset(hdr->codecs[i]);
     }
 

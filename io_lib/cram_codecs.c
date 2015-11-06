@@ -1028,6 +1028,8 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 	return NULL;
     }
 
+    h->reset = cram_nop_decode_reset;
+
     if (ncodes == 0) {
 	/* NULL huffman stream.  Ensure it returns an error if
            anything tries to use it. */
@@ -1106,8 +1108,6 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 	else
 	    h->decode = cram_huffman_decode_int;
     }
-
-    h->reset = cram_nop_decode_reset;
 
     return (cram_codec *)h;
 }
