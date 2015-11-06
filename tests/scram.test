@@ -13,7 +13,7 @@ compare_sam=$srcdir/compare_sam.pl
 cmp=cmp
 
 case $# in
-    0) files=`/bin/ls $srcdir/data/*.sam | egrep -v '\.(full|sub)\.'`
+    0) files=`/bin/ls $srcdir/data/*.sam | egrep -v '[._](full|\.sub|java)\.'`
        ;;
     *) files=${@+"$@"}
        ;;

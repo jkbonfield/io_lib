@@ -65,6 +65,10 @@ while ($ln1 && $ln2) {
     if ($ln1[1] & 4) { $ln1[4] = 0; $ln1[5] = "*"; }
     if ($ln2[1] & 4) { $ln2[4] = 0; $ln2[5] = "*"; }
 
+    # Canonicalise floating point numbers
+    map {s/^(..):f:(.*)/{"$1:f:".($2+0)}/e} @ln1[11..$#ln1];
+    map {s/^(..):f:(.*)/{"$1:f:".($2+0)}/e} @ln2[11..$#ln2];
+
     # Rationalise order of auxiliary fields
     if (exists $opts{noaux}) {
 	@ln1 = @ln1[0..10];
