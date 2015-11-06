@@ -1,3 +1,13 @@
+Version 1.14.6 (6th November 2015)
+--------------
+
+* CRAM bug fix, reversing a bug introduced during 1.14.5.  Output from
+  cramtools could trigger a crash during decoding with scramble.  This
+  happened where a HUFFMAN codec was specified with zero symbols.
+  E.g. "DL => HUFFMAN {0, 0}" from cram_dump for a slice where there
+  are no D operators in the cigar strings for this slice.
+
+
 Version 1.14.5 (5th November 2015)
 --------------
 

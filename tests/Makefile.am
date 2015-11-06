@@ -51,7 +51,8 @@ TESTS                   = \
 			scram.test \
 			scram_mt.test \
 			scram_v3.test \
-			cram_io.test
+			cram_io.test \
+			java.test
 
 cram_io_test_SOURCES = cram_io_test.c
 cram_io_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la

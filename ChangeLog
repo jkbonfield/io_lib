@@ -1,5 +1,40 @@
 ===============================================================================
+2015-11-06: RELEASE 1.14.6
+
+------------------------------------------------------------------------
+r3984 | jkbonfield | 2015-11-06 15:35:12 +0000 (Fri, 06 Nov 2015) | 5
+lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Fixed a bug in the code to reset cached block pointers (r3975),
+causing a crash when decoding some CRAM files.
+
+(Bah, one day after a new release!)
+
+
+===============================================================================
 2015-11-05: RELEASE 1.14.5
+
+------------------------------------------------------------------------
+r3983 | jkbonfield | 2015-11-05 12:44:25 +0000 (Thu, 05 Nov 2015) | 2
+lines
+Changed paths:
+   M /io_lib/trunk/README
+
+Now with updated version number.
+
+------------------------------------------------------------------------
+r3982 | jkbonfield | 2015-11-05 12:43:49 +0000 (Thu, 05 Nov 2015) | 2
+lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+
+Updates for 1.14.5 release.
 
 ------------------------------------------------------------------------
 r3981 | jkbonfield | 2015-11-05 11:55:47 +0000 (Thu, 05 Nov 2015) | 10 lines
