@@ -2,6 +2,29 @@
 2015-11-06: RELEASE 1.14.6
 
 ------------------------------------------------------------------------
+r3985 | jkbonfield | 2015-11-06 17:21:53 +0000 (Fri, 06 Nov 2015) | 5
+lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/tests/Makefile.am
+   M /io_lib/trunk/tests/compare_sam.pl
+   A /io_lib/trunk/tests/data/aux#aux_java.cram
+   A /io_lib/trunk/tests/data/aux#aux_java.sam
+   A /io_lib/trunk/tests/data/ce#5b_java.cram
+   A /io_lib/trunk/tests/data/ce#5b_java.sam
+   A /io_lib/trunk/tests/data/xx#large_aux_java.cram
+   A /io_lib/trunk/tests/data/xx#large_aux_java.sam
+   M /io_lib/trunk/tests/scram.test
+
+Added test for decoding a few Java Cramtools.jar built cram files, as
+this was a recent (undetected) decoding bug.
+
+Also updated ancillary files for 1.14.6.
+
+------------------------------------------------------------------------
 r3984 | jkbonfield | 2015-11-06 15:35:12 +0000 (Fri, 06 Nov 2015) | 5
 lines
 Changed paths:
