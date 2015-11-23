@@ -239,7 +239,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
     }
 
     if (metrics) {
-	if (fd->metrics_lock) pthread_mutex_lock(&fd->metrics_lock);
+	if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
 	if (metrics->trial > 0 || --metrics->next_trial <= 0) {
 	    int m;
 	    size_t sz_best = INT_MAX;
@@ -260,7 +260,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
 		    metrics->sz[i] /= 2;
 	    }
 
-	    if (fd->metrics_lock) pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 
 	    // Compress this block using the best method
 	    for (m = 0; m < 32; m++) {
@@ -305,7 +305,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
 	    b->comp_size = sz_best;
 
 	    // Accumulate stats for all methods tried
-	    if (fd->metrics_lock) pthread_mutex_lock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
 	    for (m = 0; m < CRAM_MAX_METHOD; m++)
 		metrics->sz[m] += sz[m];
 
@@ -367,12 +367,12 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
 		//	    b->content_id, metrics->revised_method, method);
 		metrics->revised_method = method;
 	    }
-	    if (fd->metrics_lock) pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	} else {
 	    strat = metrics->strat;
 	    method = metrics->method;
 
-	    if (fd->metrics_lock) pthread_mutex_unlock(&fd->metrics_lock);
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					   &comp_size, s, method,
 					   level, strat);
