@@ -3640,13 +3640,16 @@ static int cram_flush_result(cram_fd *fd) {
 	fd = j->fd;
 	c = j->c;
 
-	if (0 != cram_flush_container2(fd, c))
-	    return -1;
+	if (fd->mode == 'w')
+	    if (0 != cram_flush_container2(fd, c))
+		return -1;
 
 	/* Free the container */
 	for (i = 0; i < c->max_slice; i++) {
-	    cram_free_slice(c->slices[i]);
-	    c->slices[i] = NULL;
+	    if (c->slices && c->slices[i]) {
+		cram_free_slice(c->slices[i]);
+		c->slices[i] = NULL;
+	    }
 	}
 
 	c->slice = NULL;
@@ -4580,10 +4583,12 @@ cram_fd * cram_io_open(
     
     memset(fd,0,sizeof(cram_fd));
 
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
     fd->fp_in_callback_allocate_function = NULL;
     fd->fp_in_callback_deallocate_function = cram_IO_deallocate_cram_io_input;
     fd->fp_out_callback_allocate_function = NULL;
     fd->fp_out_callback_deallocate_function = cram_IO_deallocate_cram_io_output;
+#endif
         
     if ( *mode == 'r' ) {
         size_t bufsize = 0;
@@ -5105,7 +5110,11 @@ int cram_write_eof_block(cram_fd *fd) {
 	}
     }		
 
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
     return cram_io_flush_output_buffer(fd);
+#else
+    return 0;
+#endif
 }
 
 
