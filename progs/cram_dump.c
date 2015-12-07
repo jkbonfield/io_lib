@@ -252,6 +252,10 @@ int main(int argc, char **argv) {
 	printf("        T: %.4s\n", c->comp_hdr->substitution_matrix[3]);
 	printf("        N: %.4s\n", c->comp_hdr->substitution_matrix[4]);
 
+	printf("      TD map:\n");
+	for (i = 0; i < c->comp_hdr->nTL; i++)
+	    printf("        %3d: %s\n", i, c->comp_hdr->TL[i]);
+
 	printf("\n      Record encoding map:\n");
 	DumpMap2(c->comp_hdr->rec_encoding_map, stdout, "\t", 
 		 (char *)c->comp_hdr_block->data, ds_h);
