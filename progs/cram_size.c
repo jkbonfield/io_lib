@@ -99,11 +99,11 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 
 	k = (intptr_t) hi->key;
 	if (k == -1) {
-	    printf("Block CORE          , total size %10ld\n", hi->data.i);
+	    printf("Block CORE              , total size %11ld\n", hi->data.i);
 	    continue;
 	}
 
-	printf("Block content_id %7d, total size %10ld ",
+	printf("Block content_id %7d, total size %11ld ",
 	       (int) k, hi->data.i);
 
 	struct {
