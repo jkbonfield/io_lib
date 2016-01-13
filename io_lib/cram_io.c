@@ -4783,6 +4783,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
     fd->ignore_chksum = 1; // Some disagreement in the specification of these
+    fd->lossy_read_names = 0;
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
@@ -4888,7 +4889,8 @@ cram_fd *cram_open_by_callbacks(
     fd->embed_ref = 0;
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
-    fd->ignore_chksum = 0;
+    fd->ignore_chksum = 1; // Some disagreement in the specification of these
+    fd->lossy_read_names = 0;
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
@@ -5302,6 +5304,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_IGNORE_CHKSUM:
 	fd->ignore_chksum = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_LOSSY_READ_NAMES:
+	fd->lossy_read_names = va_arg(args, int);
 	break;
 
     case CRAM_OPT_USE_BZIP2:

@@ -121,7 +121,8 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 	if (!(h->preservation_map = HashTableCreate(4, HASH_NONVOLATILE_KEYS)))
 	    return NULL;
 
-	hd.i = 1; HashTableAdd(h->preservation_map, "RN", 2, hd, NULL);
+	hd.i = !fd->lossy_read_names;
+	HashTableAdd(h->preservation_map, "RN", 2, hd, NULL);
 	// Technically SM was in 1.0, but wasn't in Java impl.
 	hd.i = 0;
 	if (!(HashTableAdd(h->preservation_map, "SM", 2, hd, NULL)))
@@ -541,7 +542,7 @@ static int cram_encode_slice_read(cram_fd *fd,
     i32 = fd->cram_flag_swap[cr->flags & 0xfff];
     r |= h->codecs[DS_BF]->encode(s, h->codecs[DS_BF], (char *)&i32, 1);
 
-    i32 = cr->cram_flags;
+    i32 = cr->cram_flags & CRAM_FLAG_MASK;
     r |= h->codecs[DS_CF]->encode(s, h->codecs[DS_CF], (char *)&i32, 1);
 
     if (s->hdr->ref_seq_id == -2)
@@ -560,17 +561,9 @@ static int cram_encode_slice_read(cram_fd *fd,
 
     r |= h->codecs[DS_RG]->encode(s, h->codecs[DS_RG], (char *)&cr->rg, 1);
 
-    if (c->comp_hdr->read_names_included) {
-	// RN codec: Already stored in block[3].
-    }
-
     if (cr->cram_flags & CRAM_FLAG_DETACHED) {
 	i32 = cr->mate_flags;
 	r |= h->codecs[DS_MF]->encode(s, h->codecs[DS_MF], (char *)&i32, 1);
-
-	if (!c->comp_hdr->read_names_included) {
-	    // RN codec: Already stored in block[3].
-	}
 
 	r |= h->codecs[DS_NS]->encode(s, h->codecs[DS_NS], 
 				      (char *)&cr->mate_ref_id, 1);
@@ -1069,6 +1062,175 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     return r ? -1 : 0;
 }
 
+
+/*
+ * Returns the number of expected read names for this record.
+ */
+int expected_template_count(bam_seq_t *b) {
+    int expected = bam_flag(b) & BAM_FPAIRED ? 2 : 1;
+
+    uint8_t *TC = (uint8_t *)bam_aux_find(b, "TC");
+    if (TC) {
+	int n = bam_aux_i(TC);
+	if (expected < n)
+	    expected = n;
+    }
+
+    if (!TC && bam_aux_find(b, "SA")) {
+	// We could count the semicolons, but we'd have to do this for
+	// read1, read2 and read(not-1-or-2) combining the results
+	// together.  This is a cheap and safe alternative for now.
+	expected = INT_MAX;
+    }
+
+    return expected;
+}
+
+/*
+ * Lossily reject read names.
+ *
+ * The rule here is that if all reads for this template reside in the
+ * same slice then we can lose the name.  Otherwise we keep them as we
+ * do not know when (or if) the other reads will turn up.
+ *
+ * Note there may be only 1 read (non-paired library) or more than 2
+ * reads (paired library with supplementary reads), or other weird
+ * setups.  We need to know how many are expected.  Ways to guess:
+ *
+ * - Flags (0x1 - has > 1 read)
+ * - TC aux field (not mandatory)
+ * - SA tags (count semicolons, NB per fragment so sum - /1, /2, other)
+ * - RNEXT/PNEXT uniqueness count. (TODO)
+ */
+int lossy_read_names(cram_fd *fd, cram_container *c, cram_slice *s,
+		     int bam_start) {
+    int r1, r2;
+    if (!fd->lossy_read_names) {
+	// Initialise cram_flags
+	for (r2 = 0; r2 < s->hdr->num_records; r2++) {
+	    s->crecs[r2].cram_flags = 0;
+	}
+	return 0;
+    }
+
+    HashTable *names = HashTableCreate(16, HASH_DYNAMIC_SIZE |
+				           HASH_NONVOLATILE_KEYS);
+
+    // 1: Iterate through names to count frequency
+    for (r1 = bam_start, r2 = 0; r2 < s->hdr->num_records; r1++, r2++) {
+	//cram_record *cr = &s->crecs[r2];
+	bam_seq_t *b = c->bams[r1];
+	HashItem *hi;
+	HashData hd;
+	int n;
+	uint64_t e;
+	union {
+	    uint64_t i64;
+	    struct {
+		int32_t e,c; // expected & observed counts.
+	    };
+	} u;
+	
+	e = expected_template_count(b);
+	//printf("%.*s %d\n", bam_name_len(b), bam_name(b), (int)e);
+	u.e = e; u.c = 1; hd.i = u.i64;
+	hi = HashTableAdd(names, bam_name(b), bam_name_len(b), hd, &n);
+
+	if (!n) {
+	    u.i64 = hi->data.i;
+	    if (u.e != e) {
+		// different expectation or already hit the max
+		//printf("Err %.*s %x %x %llx\n", bam_name_len(b), bam_name(b), (int)u.e, (int)e, (long long)u.i64);
+		hi->data.i = 0;
+	    } else {
+		u.c++;
+		if (u.e == u.c) {
+		    // Reached expected count.
+		    hi->data.i = -1;
+		} else {
+		    hi->data.i = u.i64;
+		}
+	    }
+	}
+    }
+
+    // 2: Remove names if all present (hd.i == -1)
+    for (r1 = bam_start, r2 = 0; r2 < s->hdr->num_records; r1++, r2++) {
+	cram_record *cr = &s->crecs[r2];
+	bam_seq_t *b = c->bams[r1];
+	HashItem *hi;
+
+	hi = HashTableSearch(names, bam_name(b), bam_name_len(b));
+	if (hi->data.i == -1) {
+	    //printf("Discard %.*s %llx\n", bam_name_len(b), bam_name(b), (long long)hi->data.i);
+	    cr->cram_flags = CRAM_FLAG_DISCARD_NAME;
+	} else {
+	    //printf("Preserve %.*s %llx\n", bam_name_len(b), bam_name(b), (long long)hi->data.i);
+	    cr->cram_flags = 0;
+	}
+    }
+
+    HashTableDestroy(names, 0);
+
+    return 0;
+}
+
+/*
+ * Adds the reading names.  We do this here as a separate pass rather
+ * than per record in the process_one_read calls as that function can
+ * go back and change the CRAM_FLAG_DETACHED status of a previously
+ * processed read if it subsequently determines the TLEN field is
+ * incorrect.  Given DETACHED reads always try to decode read names,
+ * we need to know their status before generating the read-name block.
+ *
+ * Output is an update s->name_blk, and cr->name / cr->name_len
+ * fields.
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int add_read_names(cram_fd *fd, cram_container *c, cram_slice *s,
+		   int bam_start) {
+    int r1, r2;
+    int keep_names = !fd->lossy_read_names;
+
+    for (r1 = bam_start, r2 = 0;
+	 r1 < c->curr_c_rec && r2 < s->hdr->num_records;
+	 r1++, r2++) {
+	cram_record *cr = &s->crecs[r2];
+	bam_seq_t *b = c->bams[r1];
+
+	cr->name        = BLOCK_SIZE(s->name_blk);
+#if 1
+	if ((cr->cram_flags & CRAM_FLAG_DETACHED) || keep_names) {
+ 	    BLOCK_APPEND(s->name_blk, bam_name(b), bam_name_len(b));
+	    cr->name_len    = bam_name_len(b);
+	} else {
+	    // Can only discard duplicate names if not detached
+	    cr->name_len = 0;
+	}
+#else
+	// Experiment with using delta encoding to last name
+	{
+	    int l = bam_name_len(b);
+	    char *n1 = bam_name(b), *n0 = c->last_name;
+	    for (i = 0; i < l; i++) {
+		if (n1[i] != n0[i])
+		    break;
+	    }
+	    BLOCK_APPEND_CHAR(s->name_blk, i);
+	    BLOCK_APPEND(s->name_blk, bam_name(b)+i, bam_name_len(b)-i);
+	    c->last_name = n1;
+	    cr->name_len    = bam_name_len(b);
+	}
+#endif
+	cram_stats_add(c->stats[DS_RN], cr->name_len);
+    }
+
+    return 0;
+}
+
+
 /*
  * Encodes all slices in a container into blocks.
  * Returns 0 on success
@@ -1123,14 +1285,16 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     for (r1 = sn = 0; r1 < c->curr_c_rec; sn++) {
 	cram_slice *s = c->slices[sn];
 	int first_base = INT_MAX, last_base = INT_MIN;
+	int r1_start = r1;
 
 	assert(sn < c->curr_slice);
 
-	/* FIXME: we could create our slice objects here too instead of
-	 * in cram_put_bam_seq. It's more natural here and also this is
-	 * bit is threaded so it's less work in the main thread.
-	 */
+	// Discover which read names *may* be safely removed.
+	// Ie which ones have all their records in this slice.
+	lossy_read_names(fd, c, s, r1_start);
 
+	// Iterate through records creating the cram blocks for some
+	// fields and just gathering stats for others.
 	for (r2 = 0; r1 < c->curr_c_rec && r2 < s->hdr->num_records; r1++, r2++) {
 	    cram_record *cr = &s->crecs[r2];
 	    bam_seq_t *b = c->bams[r1];
@@ -1165,6 +1329,13 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    if (last_base < cr->aend)
 		last_base = cr->aend;
 	}
+
+	// Process_one_read doesn't add read names as it can change
+	// its mind during the loop on the CRAM_FLAG_DETACHED setting
+	// of earlier records (if it detects the auto-generation of
+	// TLEN is incorrect).  This affects which read-names can be
+	// lossily compressed, so we do these in another pass.
+	add_read_names(fd, c, s, r1_start);
 
 	if (c->multi_seq) {
 	    s->hdr->ref_seq_id    = -2;
@@ -2253,9 +2424,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     // Non reference based encoding means storing the bases verbatim as features, which in
     // turn means every base also has a quality already stored.
     if (!fd->no_ref || CRAM_MAJOR_VERS(fd->version) >= 3)
-	cr->cram_flags = CRAM_FLAG_PRESERVE_QUAL_SCORES;
-    else
-	cr->cram_flags = 0;
+	cr->cram_flags |= CRAM_FLAG_PRESERVE_QUAL_SCORES;
 
     if (cr->len <= 0 && CRAM_MAJOR_VERS(fd->version) >= 3)
 	cr->cram_flags |= CRAM_FLAG_NO_SEQ;
@@ -2274,28 +2443,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	//cram_stats_add(c->stats[DS_AP], cr->apos);
     }
     c->max_apos += (cr->apos > c->max_apos) * (cr->apos - c->max_apos);
-
-    cr->name        = BLOCK_SIZE(s->name_blk);
-    cr->name_len    = bam_name_len(b);
-    cram_stats_add(c->stats[DS_RN], cr->name_len);
-
-#if 1
-    BLOCK_APPEND(s->name_blk, bam_name(b), bam_name_len(b));
-#else
-    // Experiment with using delta encoding to last name
-    {
-	int l = bam_name_len(b);
-	char *n1 = bam_name(b), *n0 = c->last_name;
-	for (i = 0; i < l; i++) {
-	    if (n1[i] != n0[i])
-		break;
-	}
-	BLOCK_APPEND_CHAR(s->name_blk, i);
-	BLOCK_APPEND(s->name_blk, bam_name(b)+i, bam_name_len(b)-i);
-	c->last_name = n1;
-    }
-#endif
-
 
     /*
      * This seqs_ds is largely pointless and it could reuse the same memory
@@ -2622,8 +2769,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	//	cr->name_len, DSTRING_STR(s->name_ds)+cr->name);
 	if (cr->flags & BAM_FPAIRED) {
 	    hi = HashTableAdd(s->pair[(cr->flags & BAM_FSECONDARY) ? 1 : 0],
-			      (char *)BLOCK_DATA(s->name_blk)+cr->name,
-			      cr->name_len, hd, &new);
+			      bam_name(b), bam_name_len(b), hd, &new);
 	    if (!hi)
 		return -1;
 	} else {
@@ -2686,6 +2832,14 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		(p->flags & BAM_FSUPPLEMENTARY))
 		goto detached;
 
+	    // When in lossy name mode, if a read isn't detached we
+	    // cannot store the name.  The corollary is that when we
+	    // must store the name, it must be detached (inefficient).
+	    if (fd->lossy_read_names &&
+		(!(cr->cram_flags & CRAM_FLAG_DISCARD_NAME) ||
+		 !((p->cram_flags & CRAM_FLAG_DISCARD_NAME))))
+		goto detached;
+
 	    /*
 	     * The fields below are unused when encoding this read as it is
 	     * no longer detached.  In theory they may get referred to when
@@ -2719,13 +2873,13 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
 	    // Clear detached from cr flags
 	    cr->cram_flags &= ~CRAM_FLAG_DETACHED;
-	    cram_stats_add(c->stats[DS_CF], cr->cram_flags);
+	    cram_stats_add(c->stats[DS_CF], cr->cram_flags & CRAM_FLAG_MASK);
 
 	    // Clear detached from p flags and set downstream
-	    cram_stats_del(c->stats[DS_CF], p->cram_flags);
+	    cram_stats_del(c->stats[DS_CF], p->cram_flags & CRAM_FLAG_MASK);
 	    p->cram_flags  &= ~CRAM_FLAG_DETACHED;
 	    p->cram_flags  |=  CRAM_FLAG_MATE_DOWNSTREAM;
-	    cram_stats_add(c->stats[DS_CF], p->cram_flags);
+	    cram_stats_add(c->stats[DS_CF], p->cram_flags & CRAM_FLAG_MASK);
 
 	    p->mate_line = hd.i - (hi->data.i + 1);
 	    cram_stats_add(c->stats[DS_NF], p->mate_line);
@@ -2752,7 +2906,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    cram_stats_add(c->stats[DS_TS], cr->tlen);
 
 	    cr->cram_flags |= CRAM_FLAG_DETACHED;
-	    cram_stats_add(c->stats[DS_CF], cr->cram_flags);
+	    cram_stats_add(c->stats[DS_CF], cr->cram_flags & CRAM_FLAG_MASK);
 	    cram_stats_add(c->stats[DS_NS], bam_mate_ref(b));
 	}
     }

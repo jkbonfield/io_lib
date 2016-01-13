@@ -822,6 +822,7 @@ typedef struct {
 
     int ooc;                            // out of containers.
     int ignore_chksum;
+    int lossy_read_names;
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -941,6 +942,7 @@ enum cram_option {
     CRAM_OPT_USE_RANS,
     CRAM_OPT_IGNORE_CHKSUM,
     CRAM_OPT_BASES_PER_SLICE,
+    CRAM_OPT_LOSSY_READ_NAMES,
 };
 
 /* BF bitfields */
@@ -974,6 +976,10 @@ enum cram_option {
 #define CRAM_FLAG_DETACHED             (1<<1)
 #define CRAM_FLAG_MATE_DOWNSTREAM      (1<<2)
 #define CRAM_FLAG_NO_SEQ               (1<<3)
+#define CRAM_FLAG_MASK                 ((1<<4)-1)
+
+/* Internal only */
+#define CRAM_FLAG_DISCARD_NAME (1<<31)
 
 #ifdef __cplusplus
 }
