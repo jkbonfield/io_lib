@@ -118,6 +118,7 @@ static void usage(FILE *fp) {
 #ifdef HAVE_LIBLZMA
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
+    fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
     fprintf(fp, "    -!             Disable all checking of checksums\n");
@@ -142,9 +143,10 @@ int main(int argc, char **argv) {
     int sam_fields = 0; // all
     int header = 1;
     int bases_per_slice = 0;
+    int lossy_read_names = 0;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:n")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -239,6 +241,10 @@ int main(int argc, char **argv) {
 
 	case '!':
 	    ignore_md5 = 1;
+	    break;
+
+	case 'n':
+	    lossy_read_names = 1;
 	    break;
 
 	case 'M':
@@ -409,6 +415,11 @@ int main(int argc, char **argv) {
 	    return 1;
     }
     
+    if (lossy_read_names) {
+	if (scram_set_option(out, CRAM_OPT_LOSSY_READ_NAMES, lossy_read_names))
+	    return 1;
+    }
+
     if (sam_fields)
 	scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS, sam_fields);
 
