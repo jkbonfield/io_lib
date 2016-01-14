@@ -979,6 +979,7 @@ enum cram_option {
 #define CRAM_FLAG_MASK                 ((1<<4)-1)
 
 /* Internal only */
+#define CRAM_FLAG_STATS_ADDED  (1<<30)
 #define CRAM_FLAG_DISCARD_NAME (1<<31)
 
 #ifdef __cplusplus
