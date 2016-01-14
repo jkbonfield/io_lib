@@ -2880,7 +2880,11 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    cram_stats_add(c->stats[DS_CF], cr->cram_flags & CRAM_FLAG_MASK);
 
 	    // Clear detached from p flags and set downstream
-	    cram_stats_del(c->stats[DS_CF], p->cram_flags & CRAM_FLAG_MASK);
+	    if (p->cram_flags & CRAM_FLAG_STATS_ADDED) {
+		cram_stats_del(c->stats[DS_CF], p->cram_flags & CRAM_FLAG_MASK);
+		p->cram_flags &= ~CRAM_FLAG_STATS_ADDED;
+	    }
+
 	    p->cram_flags  &= ~CRAM_FLAG_DETACHED;
 	    p->cram_flags  |=  CRAM_FLAG_MATE_DOWNSTREAM;
 	    cram_stats_add(c->stats[DS_CF], p->cram_flags & CRAM_FLAG_MASK);
