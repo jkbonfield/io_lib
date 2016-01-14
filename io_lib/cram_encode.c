@@ -1208,6 +1208,9 @@ int add_read_names(cram_fd *fd, cram_container *c, cram_slice *s,
 	} else {
 	    // Can only discard duplicate names if not detached
 	    cr->name_len = 0;
+
+	    // Alternatively: try empty names for discarded ones.
+	    // BLOCK_APPEND_CHAR(s->name_blk, 0); cr->name_len = 1;
 	}
 #else
 	// Experiment with using delta encoding to last name
@@ -2765,8 +2768,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	HashItem *hi;
 
 	hd.i = rnum;
-	//fprintf(stderr, "Checking %"PRId64"/%.*s\t", hd.i,
-	//	cr->name_len, DSTRING_STR(s->name_ds)+cr->name);
+	//fprintf(stderr, "Checking %"PRId64"\t%s\n", hd.i, bam_name(b));
 	if (cr->flags & BAM_FPAIRED) {
 	    hi = HashTableAdd(s->pair[(cr->flags & BAM_FSECONDARY) ? 1 : 0],
 			      bam_name(b), bam_name_len(b), hd, &new);
@@ -2856,10 +2858,12 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    	((p->flags & BAM_FMREVERSE) == BAM_FMREVERSE) * CRAM_M_REVERSE;
 
 	    // Decrement statistics aggregated earlier
-	    cram_stats_del(c->stats[DS_NP], p->mate_pos);
-	    cram_stats_del(c->stats[DS_MF], p->mate_flags);
-	    cram_stats_del(c->stats[DS_TS], p->tlen);
-	    cram_stats_del(c->stats[DS_NS], p->mate_ref_id);
+	    if (p->cram_flags & CRAM_FLAG_STATS_ADDED) {
+		cram_stats_del(c->stats[DS_NP], p->mate_pos);
+		cram_stats_del(c->stats[DS_MF], p->mate_flags);
+		cram_stats_del(c->stats[DS_TS], p->tlen);
+		cram_stats_del(c->stats[DS_NS], p->mate_ref_id);
+	    }
 
 	    /* Similarly we could correct the p-> values too, but these will no
 	     * longer have any code that refers back to them as the new 'p'
@@ -2908,6 +2912,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    cr->cram_flags |= CRAM_FLAG_DETACHED;
 	    cram_stats_add(c->stats[DS_CF], cr->cram_flags & CRAM_FLAG_MASK);
 	    cram_stats_add(c->stats[DS_NS], bam_mate_ref(b));
+
+	    cr->cram_flags |= CRAM_FLAG_STATS_ADDED;
 	}
     }
 
