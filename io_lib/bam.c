@@ -452,7 +452,6 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 		goto error;
 	}
 
-	setvbuf(b->fp, b->vbuf, _IOFBF, 4*Z_BUFF_SIZE);
 	return b;
     }
 
@@ -470,8 +469,6 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 	if (NULL == (b->fp = fopen(fn, "rb")))
 	    goto error;
     }
-
-    setvbuf(b->fp, b->vbuf, _IOFBF, 4*Z_BUFF_SIZE);
 
     /* Load first block so we can check */
     bam_more_input(b);
