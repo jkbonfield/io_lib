@@ -2,6 +2,22 @@
 2016-02-18: RELEASE 1.14.7
 
 ------------------------------------------------------------------------
+r4006 | jkbonfield | 2016-02-18 15:02:36 +0000 (Thu, 18 Feb 2016) | 2 lines
+Changed paths:
+   M /io_lib/trunk/configure.in
+
+Updates for 1.14.7
+
+------------------------------------------------------------------------
+r4005 | jkbonfield | 2016-02-18 15:02:14 +0000 (Thu, 18 Feb 2016) | 2 lines
+Changed paths:
+   M /io_lib/trunk/CHANGES
+   M /io_lib/trunk/ChangeLog
+   M /io_lib/trunk/README
+
+Updates for version 1.14.7
+
+------------------------------------------------------------------------
 r4004 | jkbonfield | 2016-02-18 12:46:54 +0000 (Thu, 18 Feb 2016) | 16 lines
 Changed paths:
    M /io_lib/trunk/io_lib/bam.c
