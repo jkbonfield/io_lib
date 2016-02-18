@@ -135,12 +135,11 @@ typedef struct {
  * therefore minimal.
  */
 #define Z_BUFF_SIZE 65536    /* Max size of a zlib block */
-#define BGZF_BUFF_SIZE 65400 /* Max size of a BGZF block, 65477 actual */
+#define BGZF_BUFF_SIZE 65273 // 65535 - MIN_LOOKAHEAD to avoid fill_window()
 typedef struct {
     FILE *fp;
     int mode, binary, level;
     z_stream s;
-    char vbuf[Z_BUFF_SIZE*4];
 
     unsigned char comp[Z_BUFF_SIZE];
     unsigned char *comp_p;
