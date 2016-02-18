@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.14.6
+			IO_LIB VERSION 1.14.7
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -26,106 +26,40 @@ all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
 
+See the CHANGES for a summary of older updates or ChangeLog for the
+full details.
 
-See the CHANGES or ChangeLog file for the full list of chanegs.  A
-quick summary follows.
+Version 1.14.7 (18th February 2016)
+--------------
 
-What's new in 1.14.6
-====================
+* Some speed ups to BAM encoding, particularly when using uncompressed
+  BAM.
 
-Tiny bug fix to cope with cramtools.jar generated CRAM data
-(zero sized huffman tables).  The bug was introduced in 1.14.5.
+* Scramble now has a lossy read-name method (scramble -n) when
+  outputting to CRAM.
 
-What's new in 1.14.5
-====================
+* Tidied up the formatting of cram_size.
 
-CRAM now has a maximum number of bases per slice limit, specified in
-scramble with -b.  The defaults mean that the code is now faster and
-less memory hungry on long reads (PacBio, ONT) but has no change with
-Illumina short-read data.  Long read data file sizes may be impacted
-slightly.
+* Cram_dump now prints up the TD map.
 
-Various CRAM bug fixes including multi-slice containers, the
-biobambam interfaces and MacOS X support.
+* CRAM bug fix: Scramble -N was sometimes failing when multi-threaded.
 
-What's new in 1.14.4
-====================
+* CRAM bug fix: The code once again builds if CRAM_IO_CUSTOM_BUFFERING
+  is disabled.
 
-Bug fix release: fixed a CRAM encoding bug with compression level 6
-and above where the resulting CRAM file could not be decoded.  This
-has been in existance since 1.13.8 (and possibly 1.13.6 under rarer
-conditions).
+* CRAM bug fix: avoid undefined behaviour in some uses of
+  CRAM_OPT_REQUIRED_FIELD (not readily noticable from command line
+  tools).
 
+* CRAM bug fix: on very rare cases TLEN could change during decode
+  (albeit fixing it) for read-pairs that spanned references.
 
-What's new in 1.14.3
-====================
+* CRAM bug fix: CIGAR sequences with more than 2^27 operations are now
+  supported.
 
-CRAM: disabled the experimental slice checksum headers (SD and BD
-*slice* tags) as their behaviour is still undefined and not in the
-CRAM specification.  These were left in in error.
+* CRAM bug fix: fixed an assertion failure triggered with some
+  repeated templates.
 
-Also fixed a bug with decoding lzma compression level 9.
-
-
-What's new in 1.14.2
-====================
-
-Minor CRAM bug fixes and a speed improvement (bug fix to 1.14.1).
-
-
-What's new in 1.14.1
-====================
-
-More CRAM tweaks.  The primary purpose for this release is slightly
-better compression ratios on some (although not all) CRAM files due to
-splitting auxiliary tags into their own per-tag data blocks.
-
-
-What's new in 1.14.0
-====================
-
-The primary change with this release is the default CRAM version is
-now version 3.0.  This has been extensively cross-validated with the
-Cramtools-3.0.jar implementation.
-
-In addition to this many bugs have been fixed and the code has been
-"hardened" by both visual inspection, automated fuzzing and fixing all
-the compiler warnings.
-
-
-Older comments
-==============
-
-1.13.x saw the arrival of CRAM (version 2) format.  1.14.0
-introduced CRAM version 3. 
-
-In 1.12.x saw various improvements to building and linking,
-specifically on Fedora and MacOS X plus the use of libtool to create
-dynamic libraries.  The library name is now libstaden-read.so too, as
-this was already renamed within Debian.
-
-We removed illumina2srf and srf2illumina in this release too (they
-have their own package on SourceForge now).
-
-In 1.11.x the SRF support was added. The SRF v1.3 format specification can
-be found here:
-
-http://www.bcgsc.ca/pipermail/ssrformat/attachments/20071209/b0f865a0/ShortSequenceFormatDec9th_v_1_3-0001.doc
-
-The ZTR specification changes involve adding some new compression
-types (the general purpose XRLE2 plus some more solexa specific TSHIT
-and QSHIFT methods), a region chunk (REGN) to indicate the location of
-paired-end data stored in a single trace, improved meta-data support
-for SMP4/SAMP chunks including specifying the baseline (OFFS meta-data
-tag) and various minor tweaks. There's still a few questions in the
-ZTR format itself (pending feedback), but what is implemented
-currently is also what has been described in the docs/ZTR_format
-file.
-
-Finally the directory layout has been greatly simplified with the
-merging of all the format directories into a single "io_lib"
-directory and the programs utilising it remaining in the "progs"
-subdirectory.
 
 
 Building

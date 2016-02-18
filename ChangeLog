@@ -1,5 +1,151 @@
 ===============================================================================
+2016-02-18: RELEASE 1.14.7
+
+------------------------------------------------------------------------
+r4004 | jkbonfield | 2016-02-18 12:46:54 +0000 (Thu, 18 Feb 2016) | 16 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+   M /io_lib/trunk/io_lib/bam.h
+
+Removed the setvbuf code as it was harming piping and pretty much
+having nil effect on file based I/O.  scramble | wc -c was up to 50%
+slower due to the larger vbuf.  We're best to let fopen just work it
+out.
+
+Also changed the BGZF_BUFF_SIZE parameter.  This is the maximum size
+of uncompressed data to guarantee that the compressed data will still
+fit under a 64K block, thus being indexable in bgzf via its 16-bit
+size field.  This works out at 65477, dropped to 65400 for safety.
+
+However recent data shows that 65273 is up to 30% faster at encoding
+when using compression level 0.  If the input buffer gets within
+MIN_LOOKAHEAD of the end then zlib calls fill_window(), shuffling
+things down a bit to make room.  65535 - MIN_LOOKAHEAD is 65273, thus
+we guarantee to not trigger this function overhead.
+
+------------------------------------------------------------------------
+r4003 | jkbonfield | 2016-02-18 12:41:39 +0000 (Thu, 18 Feb 2016) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+
+Fixed uninitialised cram flags when using certain combinations of
+required_fields settings.
+
+------------------------------------------------------------------------
+r4001 | jkbonfield | 2016-01-27 11:17:03 +0000 (Wed, 27 Jan 2016) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Force detached read-pairs if they span references.
+
+Previously it was possible for a read-pair aligned to different
+references to still be claimed as an attached-pair if they were in the
+same slice and their 5' to 3' size was as listed in their (broken?)
+tlen fields.
+
+------------------------------------------------------------------------
+r4000 | jkbonfield | 2016-01-26 14:06:13 +0000 (Tue, 26 Jan 2016) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Fixed a crash when dealing with extra large cigar operations (longer
+than 2^27).
+
+------------------------------------------------------------------------
+r3995 | jkbonfield | 2016-01-14 12:21:53 +0000 (Thu, 14 Jan 2016) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Addition to last commit.
+
+Also add guard around the DS_CF stats.
+Also clear the RAM_FLAG_STATS_ADDED flag incase it's possible to
+revert back to detached mode again. (I'm not sure if it can, but this
+is safest.)
+
+
+------------------------------------------------------------------------
+r3994 | jkbonfield | 2016-01-14 11:43:11 +0000 (Thu, 14 Jan 2016) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   A /io_lib/trunk/tests/data/xx#repeated.sam
+
+Fixed an edge case of repeated templates causing incorrect incr/decr
+of cram_stats elements.  This was triggering an assertion.  Test data
+included.
+
+------------------------------------------------------------------------
+r3993 | jkbonfield | 2016-01-13 17:01:15 +0000 (Wed, 13 Jan 2016) | 2 lines
+Changed paths:
+   A /io_lib/trunk/tests/java.test
+
+Added missing java compataibility test file. Sorry.
+
+------------------------------------------------------------------------
+r3992 | jkbonfield | 2016-01-13 14:58:07 +0000 (Wed, 13 Jan 2016) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/progs/scramble.c
+
+Added a lossy read-name method to scramble (-n).
+
+This takes care to handle supplementary reads too and also uses the TC
+aux field if present (it almost never is!).
+
+Note, using scramble to convert a lossy read-name CRAM to a new CRAM
+will increase the size as it doesn't currently remember the lossy
+mode.  This is either a feature or a bug, depending on use.
+
+------------------------------------------------------------------------
+r3991 | jkbonfield | 2015-12-21 11:08:25 +0000 (Mon, 21 Dec 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/cram_size.c
+
+Fixed display alignment.
+
+------------------------------------------------------------------------
+r3990 | jkbonfield | 2015-12-07 10:28:20 +0000 (Mon, 07 Dec 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/progs/cram_dump.c
+
+Now prints up the TD map so we can see how TL is decoded.
+
+------------------------------------------------------------------------
+r3989 | jkbonfield | 2015-11-27 13:50:46 +0000 (Fri, 27 Nov 2015) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_index.c
+
+Tidy up return val from cram_index_build().
+
+Backported from https://github.com/samtools/htslib/commit/d9e9e3a9cfba7b3048e9d0f79273d23832b0e86f
+
+------------------------------------------------------------------------
+r3988 | jkbonfield | 2015-11-23 13:52:40 +0000 (Mon, 23 Nov 2015) | 10 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Fixed multi threaded decoding when encoding using -N.
+Ie scramble -N 10000 in.cram out.cram
+
+This triggered a bug where the decoding cram pool was flushed during
+closing, attempting to write a container (to a file descriptor opened
+for read, leading to crashes due to missing buffers).
+
+Also improved the CRAM_IO_CUSTOM_BUFFERING checks so it builds again
+without being defined.
+
+===============================================================================
 2015-11-06: RELEASE 1.14.6
+
+------------------------------------------------------------------------
+r3986 | jkbonfield | 2015-11-06 17:24:46 +0000 (Fri, 06 Nov 2015) | 2 lines
+Changed paths:
+   M /io_lib/trunk/ChangeLog
+
+Changelog
 
 ------------------------------------------------------------------------
 r3985 | jkbonfield | 2015-11-06 17:21:53 +0000 (Fri, 06 Nov 2015) | 5
