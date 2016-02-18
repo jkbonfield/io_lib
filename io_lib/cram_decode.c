@@ -2343,6 +2343,8 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		if (r) return -1;
 		cf = cr->cram_flags;
 	    }
+	} else {
+	    cf = cr->cram_flags = 0;
 	}
 
 	if (!IS_CRAM_1_VERS(fd) && ref_id == -2) {
@@ -2785,7 +2787,7 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	seq = (char *)BLOCK_DATA(s->seqs_blk) + cr->seq;
     } else {
 	seq = "*";
-	cr->len = 1;
+	cr->len = 0;
     }
 
     if (fd->required_fields & SAM_QUAL) {
