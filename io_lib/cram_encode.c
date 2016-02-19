@@ -1971,8 +1971,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	char aux_f[3] = {aux[0], aux[1], aux[2]};
 	char aux_len = 0;
 	switch (aux[2]) {
-	// Could split out 'i'/'s' to look for small -ves too.
-	case 'I': case 'i':
+	case 'I':
 	    if ((aux[4]|aux[5]|aux[6]) == 0)
 		aux_len = 1, aux_f[2] = 'C';
 	    else if ((aux[5]|aux[6]) == 0)
@@ -1981,9 +1980,31 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		aux_len = 4;
 	    break;
 
-	case 'S': case 's':
+	case 'i':
+	    if ((aux[4]|aux[5]|aux[6]) == 0)
+		aux_len = 1, aux_f[2] = 'C';
+	    else if ((aux[4]&aux[5]&aux[6]) == 0xff && (aux[3] & 0x80))
+		aux_len = 1, aux_f[2] = 'c';
+	    else if ((aux[5]|aux[6]) == 0)
+		aux_len = 2, aux_f[2] = 'S';
+	    else if ((aux[5]&aux[6]) == 0xff && (aux[3] & 0x80))
+		aux_len = 2, aux_f[2] = 's';
+	    else
+		aux_len = 4;
+	    break;
+
+	case 'S':
 	    if (aux[4] == 0)
-		aux_len = 1, aux_f[2] = 'S';
+		aux_len = 1, aux_f[2] = 'C';
+	    else
+		aux_len = 2;
+	    break;
+
+	case 's':
+	    if (aux[4] == 0)
+		aux_len = 1, aux_f[2] = 'C';
+	    else if (aux[4] == 0xff && (aux[3] & 0x80))
+		aux_len = 1, aux_f[2] = 'c';
 	    else
 		aux_len = 2;
 	    break;
