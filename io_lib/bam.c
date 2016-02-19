@@ -1161,10 +1161,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     /* ref */
     cp = cpf;
-    //while (*cpf && *cpf != '\t')
-    //    CPF_SKIP();
-    while (*cpf > '\t')
-	cpf++;
+    CPF_SKIP();
     if (*cp == '*') {
 	/* Unmapped */
 	bs->ref = -1;
@@ -1264,10 +1261,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     
     /* mate ref name */
     cp = cpf;
-    //while (*cpf && *cpf != '\t')
-    //    CPF_SKIP();
-    while (*cpf > '\t')
-	cpf++;
+    CPF_SKIP();
     if (*cp == '*' && cp[1] == '\t') {
 	bs->mate_ref = -1;
     } else if (*cp == '=' && cp[1] == '\t') {
@@ -1376,9 +1370,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	cpf += 5;
 
 	value = cpf;
-	//CPF_SKIP();
-	while (*cpf > '\t')
-	    cpf++;
+	CPF_SKIP();
 
 	*cpt++ = key[0];
 	*cpt++ = key[1];
@@ -1431,15 +1423,13 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
 	case 'Z':
 	    *cpt++ = 'Z';
-	    while (value != cpf)
-		*cpt++=*value++;
+	    memcpy(cpt, value, cpf-value); cpt += cpf-value;
 	    *cpt++ = 0;
 	    break;
 
 	case 'H':
 	    *cpt++ = 'H';
-	    while (value != cpf)
-		*cpt++=*value++;
+	    memcpy(cpt, value, cpf-value); cpt += cpf-value;
 	    *cpt++ = 0;
 	    break;
 
