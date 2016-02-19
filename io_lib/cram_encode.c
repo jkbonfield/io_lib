@@ -2003,7 +2003,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	case 's':
 	    if (aux[4] == 0)
 		aux_len = 1, aux_f[2] = 'C';
-	    else if (aux[4] == 0xff && (aux[3] & 0x80))
+	    else if ((uint8_t)aux[4] == 0xff && (aux[3] & 0x80))
 		aux_len = 1, aux_f[2] = 'c';
 	    else
 		aux_len = 2;
