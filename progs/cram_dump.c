@@ -719,7 +719,7 @@ int main(int argc, char **argv) {
 	    }
 
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
-		HashData hd;
+		HashData hd = {0};
 		cram_block *b = s->block[id];
 		printf("\n\tBlock %d/%d\n", id+1, s->hdr->num_blocks);
 		printf("\t    Size:         %d comp / %d uncomp\n",
