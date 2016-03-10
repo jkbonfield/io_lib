@@ -185,6 +185,19 @@ static inline int cram_not_enough_bits(cram_block *blk, int nbits) {
  */
 int cram_codec_to_id(cram_codec *c, int *id2);
 
+/*
+ * cram_codec structures are specialised for decoding or encoding.
+ * Unfortunately this makes turning a decoder into an encoder (such as
+ * when transcoding files) problematic.
+ *
+ * This function converts a cram decoder codec into an encoder version
+ * in-place (ie it modifiers the codec itself).
+ *
+ * Returns 0 on success;
+ *        -1 on failure.
+ */
+int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c);
+
 #ifdef __cplusplus
 }
 #endif
