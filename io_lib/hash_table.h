@@ -48,6 +48,7 @@ extern "C" {
 /* The data referenced by the hash table */
 typedef union {
     uint64_t i;
+    uint32_t i32[2];
     float f;
     double d;
     void *p;

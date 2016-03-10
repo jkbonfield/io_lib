@@ -205,6 +205,10 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
     st->nvals = nvals;
     assert(ntot == st->nsamp);
 
+    // Crude and simple alternative.
+    return nvals > 1 ? E_EXTERNAL : E_HUFFMAN;
+
+
 #ifdef RANDOMISER
     // RANDOMISER
     switch(random()%10) {
