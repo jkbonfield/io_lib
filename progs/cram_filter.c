@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015 Genome Research Ltd.
+ * Copyright (c) 2016 Genome Research Ltd.
  * Author(s): James Bonfield
  * 
  * Redistribution and use in source and binary forms, with or without 
@@ -32,9 +32,9 @@
  */
 
 /*
- * A cut down version of cram_dump.c to accumulate only size
- * information per data series.  This is much faster than cram_dump as
- * it does not require uncompression of data blocks.
+ * A tool to slice-n-dice cram files at the container / block level,
+ * for efficient production of a subset without needing to uncompress
+ * and recompress.
  */
 
 #include "io_lib_config.h"
@@ -87,8 +87,9 @@ static int cram_flush_container2(cram_fd *fd, cram_container *c) {
  * Returns 0 on success
  *        -1 on failure
  */
-int cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
-					       cram_block_compression_hdr *ch) {
+int
+cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
+					   cram_block_compression_hdr *ch) {
     int i;
 
     if (!ch || !ch->codecs)
@@ -128,7 +129,7 @@ int cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
 	}
     }
 
-    // Fix various container bits which get generated as compression header bits
+    // Migrate misc. container header bits into the container itself.
     c->pos_sorted = ch->AP_delta;
 
     return 0;
@@ -178,7 +179,8 @@ int ds_to_id(cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
 			    drop = 1, hi->data.i32[0] = id1;
 			hd.i = 0;
 			uintptr_t k2 = id1;
-			hi = HashTableAdd(ci_h, (char *)k2, sizeof(k2), hd, NULL);
+			hi = HashTableAdd(ci_h, (char *)k2, sizeof(k2),
+					  hd, NULL);
 			hi->data.i32[drop]++;
 		    }
 		    if (id2 >= 0) {
@@ -187,7 +189,8 @@ int ds_to_id(cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
 			    drop = 1, hi->data.i32[1] = id2;
 			hd.i = 0;
 			uintptr_t k2 = id2;
-			hi = HashTableAdd(ci_h, (char *)k2, sizeof(k2), hd, NULL);
+			hi = HashTableAdd(ci_h, (char *)k2, sizeof(k2),
+					  hd, NULL);
 			hi->data.i32[drop]++;
 		    }
 		} else {
@@ -378,7 +381,8 @@ static int filter_container(cram_fd *fd_in, cram_fd *fd_out,
 	    } else {
 		s->block[id2] = s->block[id];
 		if (id > 0)
-		    s->hdr->block_content_ids[id2-1] = s->hdr->block_content_ids[id-1];
+		    s->hdr->block_content_ids[id2-1] =
+			s->hdr->block_content_ids[id-1];
 		id2++;
 	    }
 	}
@@ -410,8 +414,9 @@ void correct_compression_header(cram_fd *fd_out,
 	cram_stats_encoding(fd_out, stats);
 	if (c->comp_hdr->codecs[DS_QS])
 	    c->comp_hdr->codecs[DS_QS]->free(c->comp_hdr->codecs[DS_QS]);
-	c->comp_hdr->codecs[DS_QS] = cram_encoder_init(E_HUFFMAN, stats, E_BYTE,
-						       NULL, fd_out->version);
+	c->comp_hdr->codecs[DS_QS] = cram_encoder_init(E_HUFFMAN, stats,
+						       E_BYTE, NULL,
+						       fd_out->version);
 	cram_stats_free(stats);
     }
 
@@ -492,7 +497,8 @@ void update_slice_offsets(cram_fd *fd_out, cram_container *c) {
  * Returns 0 on success;
  *        -1 on failure
  */
-int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h, int drop_qs, char *keep_aux) {
+int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
+		  int drop_qs, char *keep_aux) {
     cram_container *c;
     char tag_to_del[128][128] = {{0}};
     char tag_to_keep[128][128] = {{0}};
@@ -577,14 +583,19 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h, int drop_qs,
     return 0;
 }
 
+
+/*
+ * -----------------------------------------------------------------------------
+ */
+
 void usage(int err) {
     fprintf(err ? stderr : stdout,
-	    "Usage: cram_filter [options] in.cram out.cram\n"
-	    "Valid options:\n"
-	    "    -q            Drop quality strings (CRAM QS).\n"
-	    "    -t tag-list   Discard comma separated list of tag types.\n"
-	    "    -T tag-list   Keep only aux. tag types in the specified list.\n"
-	    "    -!            Disable all checking of checksums.\n"
+	"Usage: cram_filter [options] in.cram out.cram\n"
+	"Valid options:\n"
+	"    -q            Drop quality strings (CRAM QS).\n"
+	"    -t tag-list   Discard comma separated list of tag types.\n"
+	"    -T tag-list   Keep only aux. tag types in the specified list.\n"
+	"    -!            Disable all checking of checksums.\n"
 	);
     exit(err);
 }
