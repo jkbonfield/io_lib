@@ -387,6 +387,7 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h, int drop_qs,
 	    i++;
 	}
 	BLOCK_SIZE(c->comp_hdr->TD_blk) = cp2 - (char *)c->comp_hdr->TL[0];
+	c->comp_hdr->TD_blk->crc32 = 0; // force recompute
 
 	c->curr_slice = 0;
 	c->slices = calloc(c->num_landmarks, sizeof(*c->slices));
@@ -515,13 +516,15 @@ void usage(int err) {
 	    "Valid options:\n"
 	    "    -q            Drop quality strings (CRAM QS).\n"
 	    "    -t tag-list   Discard comma separated list of tag types.\n"
-	    "    -T tag-list   Keep only aux. tag types in the specified list.\n");
+	    "    -T tag-list   Keep only aux. tag types in the specified list.\n"
+	    "    -!            Disable all checking of checksums.\n"
+	);
     exit(err);
 }
 
 int main(int argc, char **argv) {
     cram_fd *fd_in, *fd_out;
-    int drop_qs = 0;
+    int drop_qs = 0, ignore_md5 = 0;
     char *keep_aux = NULL;
     int c;
 
@@ -530,7 +533,7 @@ int main(int argc, char **argv) {
 				      HASH_NONVOLATILE_KEYS |
 				      HASH_INT_KEYS);
 
-    while ((c = getopt(argc, argv, "hqt:T:")) != -1) {
+    while ((c = getopt(argc, argv, "hqt:T:!")) != -1) {
 	switch (c) {
 	case 't': {
 	    while (*optarg) {
@@ -547,6 +550,8 @@ int main(int argc, char **argv) {
 	}
 	case 'T': keep_aux = optarg; break;
 	case 'q': drop_qs = 1; break;
+	case '!': ignore_md5 = 1; break;
+
 	case 'h': usage(0);
 	default:  usage(1);
 	}
@@ -565,6 +570,13 @@ int main(int argc, char **argv) {
     if (NULL == (fd_out = cram_open(argv[optind+1], "wb"))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[optind+1]);
 	return 1;
+    }
+
+    if (ignore_md5) {
+	if (cram_set_option(fd_in, CRAM_OPT_IGNORE_MD5, ignore_md5))
+	    return 1;
+	if (cram_set_option(fd_in, CRAM_OPT_IGNORE_CHKSUM, ignore_md5))
+	    return 1;
     }
 
     fd_out->header = fd_in->header;
