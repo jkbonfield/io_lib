@@ -3378,7 +3378,7 @@ void cram_free_container(cram_container *c) {
 	    cram_tag_map *tm = (cram_tag_map *)hi->data.p;
 	    cram_codec *c = tm->codec;
 
-	    if (c) c->free(c);
+	    if (c && c->free) c->free(c);
 	    free(tm);
 	}
 	
