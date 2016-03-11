@@ -356,7 +356,8 @@ static void fix_TD_map(cram_container *c, char (*tag_to_del)[128]) {
  *        -1 on failure.
  */
 static int filter_container(cram_fd *fd_in, cram_fd *fd_out,
-			    HashTable *ci_h, cram_container *c) {
+			    HashTable *ci_h, cram_container *c,
+			    int *eor) {
     int j;
 
     c->curr_slice = 0;
@@ -370,6 +371,35 @@ static int filter_container(cram_fd *fd_in, cram_fd *fd_out,
 	    
 	s = cram_read_slice(fd_in);
 	c->slices[c->curr_slice++] = s;
+
+	// Check if first slice is beyond range.
+	// This is complicated.  For fixed RI we've already checked for HUFFMAN
+	// headers, but E_EXTERNAL blocks we need to actually uncompressed and
+	// pull out the first value from the first slice in this container.
+	//
+	// We uncompress a duplicate of the appropriate block, so we don't
+	// need to recompress it afterwards.
+	*eor = 0;
+	if (j == 0 && fd_in->range.refid != -2 && c->ref_seq_id == -2) {
+	    if (c->comp_hdr->codecs[DS_RI] &&
+		c->comp_hdr->codecs[DS_RI]->codec == E_EXTERNAL) {
+		int cid = c->comp_hdr->codecs[DS_RI]->e_external.content_id;
+		cram_block *b = cram_get_block_by_id(s, cid);
+		cram_block *dup = malloc(sizeof(*dup));
+		*dup = *b;
+		dup->data = malloc(b->comp_size);
+		memcpy(dup->data, b->data, b->comp_size);
+		
+		cram_uncompress_block(dup);
+		int32_t rid;
+		itf8_get(BLOCK_DATA(dup), &rid);
+		cram_free_block(dup);
+		if (rid > fd_in->range.refid) {
+		    *eor = 1;
+		    return 0;
+		}
+	    }
+	}
 	    
 	// Filter slice
 	for (id = id2 = 0; id < s->hdr->num_blocks; id++) {
@@ -498,10 +528,11 @@ void update_slice_offsets(cram_fd *fd_out, cram_container *c) {
  *        -1 on failure
  */
 int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
-		  int drop_qs, char *keep_aux) {
+		  int drop_qs, char *keep_aux, int n_containers) {
     cram_container *c;
     char tag_to_del[128][128] = {{0}};
     char tag_to_keep[128][128] = {{0}};
+    HashTable *ci_h = NULL;
 
     if (keep_aux) {
 	while (*keep_aux) {
@@ -517,19 +548,55 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
     while ((c = cram_read_container(fd_in))) {
 	if (fd_in->empty_container) {
 	    cram_free_container(c);
-	    if (0 != cram_write_eof_block(fd_out))
-		return -1;
-	    break;
+	    continue;
+	}
+
+	if (fd_in->range.refid != -2) {
+	    // It's possible we may have multiple references in one container.
+	    // In theory we seeked to the first one we could, so just go with
+	    // it. (NB: our index may have missing entries, so not optimal.)
+
+	    // Beyond chr.
+	    if (c->ref_seq_id != -2 && c->ref_seq_id > fd_in->range.refid)
+		goto tidy;
+
+	    // Beyond seq in chr
+	    if (c->ref_seq_id != -2 && c->ref_seq_id == fd_in->range.refid &&
+		c->ref_seq_start > fd_in->range.end)
+		goto tidy;
+
+	    // We may also have mixed length sequences causing range X-Y be
+	    // covering disjoint containers on disk. Eg seqs in blocks
+	    // labeled with - = . and ;.
+	    //
+	    //                       |<--range--->
+	    // ----------------------------------------
+	    //  -----     ====     ....     ;;;;     
+	    //    -----     ====     ....     ;;;;     
+	    //      -----     ====     ....     ;;;;     
+	    //
+	    // The "-" "." and ";" blocks cover range, but not "=" block.
+	    // => Skip the "=" type blocks.
+	    if (c->ref_seq_id != -2 &&
+		!(c->ref_seq_id == fd_in->range.refid &&
+		  c->ref_seq_start <= fd_in->range.end &&
+		  c->ref_seq_start + c->ref_seq_span-1 >= fd_in->range.start))
+		continue;
+	} else {
+	    // How do we deal with multi-ref containers?  We'll have seeked to
+	    // the ideal starting point, but detecting the end point is tricky.
+	    // We need to fetch the first RI value, if able, and check this.
+	    //
+	    // See later in this function for the implementation.
 	}
 
 	// Maps content IDs to keep/remove counters.
 	// We use this to spot content IDs that clash (we asked to remove
 	// them but something else is in this block that we must keep).
 	HashItem *hi;
-	HashTable *ci_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
-					  HASH_NONVOLATILE_KEYS |
-					  HASH_INT_KEYS);
-	if (!ci_h)
+	if (!(ci_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
+				     HASH_NONVOLATILE_KEYS |
+				     HASH_INT_KEYS)))
 	    return -1;
 
 	// Reset counters for ds_h items.
@@ -554,14 +621,31 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
 	if (process_comp_hdr(fd_in, ds_h, c, keep_aux, tag_to_keep))
 	    return -1;
 
+	// Check RI tag if we're doing a range query and in multi-ref mode.
+	if (fd_in->range.refid != -2 && c->ref_seq_id == -2) {
+	    int id = -1;
+	    if (c->comp_hdr->codecs[DS_RI]) {
+		if (c->comp_hdr->codecs[DS_RI]->codec == E_HUFFMAN &&
+		    // 1 item huffman is fine (zero bits used).
+		    c->comp_hdr->codecs[DS_RI]->e_huffman.nvals == 1) {
+		    id = c->comp_hdr->codecs[DS_RI]->e_huffman.codes[0].symbol;
+		}
+	    }
+	    if (id > fd_in->range.refid)
+		goto tidy;
+	}
+
 	// Check which blocks we are permitted to delete (eg shared).
 	if (find_tags_to_del(fd_in, ds_h, ci_h, c, tag_to_keep, tag_to_del))
 	    return -1;
 	fix_TD_map(c, tag_to_del);
 
 	// Filter all slices in this container.
-	if (filter_container(fd_in, fd_out, ci_h, c))
+	int eor;
+	if (filter_container(fd_in, fd_out, ci_h, c, &eor))
 	    return -1;
+	if (eor == 1)
+	    goto tidy;
 
 	// Compute new compression header
 	correct_compression_header(fd_out, c, drop_qs);
@@ -577,10 +661,22 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
 	c->tags_used = NULL; // Avoids freeing codecs twice.
 	cram_free_container(c);
 
-	HashTableDestroy(ci_h, 0);
+	HashTableDestroy(ci_h, 0); ci_h = NULL;
+
+	if (n_containers && --n_containers <= 0)
+	    break;
     }
 
-    return 0;
+    return cram_write_eof_block(fd_out);
+
+ tidy:
+    HashTableDestroy(c->tags_used, 1);
+    c->tags_used = NULL; // Avoids freeing codecs twice.
+    cram_free_container(c);
+    if (ci_h)
+	HashTableDestroy(ci_h, 0);
+
+    return cram_write_eof_block(fd_out);
 }
 
 
@@ -588,23 +684,98 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
  * -----------------------------------------------------------------------------
  */
 
+/*
+ * Loads the cram index and seeks to the Nth container.
+ * Returns 0 on success
+ *        -1 on failure
+ */
+int index_start(cram_fd *fd, char *fn, int container) {
+    char fn_idx[PATH_MAX];
+    FILE *fp;
+    size_t len, buf_alloc = 0, buf_sz = 0;
+    char *buf = NULL;
+
+    snprintf(fn_idx, PATH_MAX, "%s.crai", fn);
+    
+    if (!(fp = fopen(fn_idx, "r"))) {
+	perror(fn_idx);
+	return -1;
+    }
+    
+    // Load the entire index into memory
+    buf = malloc((buf_alloc = 65536));
+    if (!buf)
+	return -1;
+    while ((len = fread(buf + buf_sz, 1, 65536, fp)) > 0) {
+	buf_sz += len;
+	if (buf_alloc < buf_sz + 65536) {
+	    buf_alloc *= 2;
+	    buf = realloc(buf, buf_alloc);
+	    if (!buf)
+		return -1;
+	}
+    }
+    
+    // Uncompress if required
+    if (buf_sz >= 2 && buf[0] == 31 && (unsigned char)buf[1] == 139) {
+	char *u = zlib_mem_inflate(buf, buf_sz, &buf_sz);
+	free(buf);
+	if (!u)
+	    return -1;
+	buf = u;
+    }
+
+    // Skip <container> lines
+    char *cp = buf;
+    while (container--) {
+	while (*cp && *cp != '\n')
+	    cp++;
+	if (!*cp)
+	    break;
+	cp++;
+    }
+
+    if (container != -1) {
+	free(buf);
+	return -1;
+    }
+
+    strtol(cp, &cp, 10);
+    strtol(cp, &cp, 10);
+    strtol(cp, &cp, 10);
+    if (cram_seek(fd, strtoll(cp, &cp, 10), SEEK_SET) != 0) {
+	free(buf);
+	return -1;
+    }
+
+    free(buf);
+    return 0;
+}
+
 void usage(int err) {
     fprintf(err ? stderr : stdout,
-	"Usage: cram_filter [options] in.cram out.cram\n"
+	"Usage: cram_filter [options] in.cram out.cram\n\n"
 	"Valid options:\n"
-	"    -q            Drop quality strings (CRAM QS).\n"
-	"    -t tag-list   Discard comma separated list of tag types.\n"
-	"    -T tag-list   Keep only aux. tag types in the specified list.\n"
-	"    -!            Disable all checking of checksums.\n"
+	"    -n start[-end]    Only emit containers 'start' to 'end' inclusive.\n"
+	"                      '-n 100' is equivalent to '-n 100-100'.\n"
+	"    -r range          Limit output to containers overlapping 'range'.\n"
+        "                      '-r chr1' matches all of chr1.\n"
+	"                      '-r chr1:1000' is equivalent to '-r chr1:1000-1000'.\n"
+	"    -q                Drop quality strings (CRAM QS).\n"
+	"    -t tag-list       Discard comma separated list of tag types.\n"
+	"    -T tag-list       Keep only aux. tag types in the specified list.\n"
+	"    -!                Disable all checking of checksums.\n"
+	"    -h                Show this help.\n"
 	);
     exit(err);
 }
 
+
 int main(int argc, char **argv) {
     cram_fd *fd_in, *fd_out;
     int drop_qs = 0, ignore_md5 = 0;
-    char *keep_aux = NULL;
-    int c;
+    char *keep_aux = NULL, *range = NULL;
+    int c, c_start = 0, c_end = -1, require_index = 0;
 
     // Map of data series 2 or 3 byte code to content_id(s).
     HashTable *ds_h = HashTableCreate(128, HASH_DYNAMIC_SIZE|
@@ -613,7 +784,8 @@ int main(int argc, char **argv) {
     if (!ds_h)
 	return 1;
 
-    while ((c = getopt(argc, argv, "hqt:T:!")) != -1) {
+    // Parse arguments
+    while ((c = getopt(argc, argv, "hqt:T:!n:r:")) != -1) {
 	switch (c) {
 	case 't': {
 	    while (*optarg) {
@@ -632,19 +804,81 @@ int main(int argc, char **argv) {
 	case 'q': drop_qs = 1; break;
 	case '!': ignore_md5 = 1; break;
 
+	case 'n':
+	    c_start = strtol(optarg, &optarg, 0);
+	    if (optarg && *optarg++)
+		c_end = strtol(optarg, &optarg, 0);
+	    else
+		c_end = c_start;
+
+	    require_index = 1;
+	    break;
+
+	case 'r':
+	    range = optarg;
+	    require_index = 2;
+	    break;
+
 	case 'h': usage(0);
 	default:  usage(1);
 	}
     }
 
-    if (argc - optind != 2) {
-	fprintf(stderr, "Usage: cram_size [options] in.cram out.cram\n");
-	return 1;
-    }
+    if (argc - optind != 2)
+	usage(1);
 
     if (NULL == (fd_in = cram_open(argv[optind], "rb"))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[optind]);
 	return 1;
+    }
+
+    // Parse index if required by -n and -r options.
+    if (require_index == 1) {
+	// For -n we parse the index manually as we need to track
+	// the order of containers.
+	if (index_start(fd_in, argv[optind], c_start) != 0) {
+	    fprintf(stderr, "Failed to seek to container #%d\n", c_start);
+	    return 1;
+	}
+    } if (require_index == 2) {
+	// Need this for -r only.
+	if (cram_index_load(fd_in, argv[optind])) {
+	    fprintf(stderr, "Unable to load .crai index\n");
+	    return 1;
+	}
+
+	int refid, start, end;
+	cram_range r;
+	char *cp = strchr(range, ':');
+	if (cp) {
+	    *cp = 0;
+	    switch(sscanf(cp+1, "%d-%d", &start, &end)) {
+	    case 1:
+		end = start;
+		break;
+	    case 2:
+		break;
+	    default:
+		fprintf(stderr, "Malformed range format\n");
+		return 1;
+	    }
+	} else {
+	    start = INT_MIN;
+	    end   = INT_MAX;
+	}
+
+	if ((refid = sam_hdr_name2ref(fd_in->header, range)) == -1
+	    && *range != '*') {
+	    fprintf(stderr, "Unknown reference name '%s'\n", range);
+	    return 1;
+	}
+	r.refid = refid;
+	r.start = start;
+	r.end   = end;
+	if (cram_set_option(fd_in, CRAM_OPT_RANGE, &r) != 0) {
+	    fprintf(stderr, "Failed to seek to range.\n");
+	    return 1;
+	}
     }
 
     if (NULL == (fd_out = cram_open(argv[optind+1], "wb"))) {
@@ -673,7 +907,8 @@ int main(int argc, char **argv) {
 	HashTableAdd(ds_h, (char *)k, sizeof(k), hd, NULL);
     }
 
-    if (0 != filter_blocks(fd_in, fd_out, ds_h, drop_qs, keep_aux)) {
+    if (0 != filter_blocks(fd_in, fd_out, ds_h, drop_qs, keep_aux,
+			   c_end - c_start+1)) {
 	fprintf(stderr, "Filter blocks failed\n");
 	return 1;
     }
