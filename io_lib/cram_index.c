@@ -169,7 +169,7 @@ static int cram_index_load_private(cram_fd *fd, void * fp, fgets_functions fgets
 	    idx_stack[(idx_stack_ptr = 0)] = idx;
 	}
 
-	while (!(e.start >= idx->start && e.end <= idx->end)) {
+	while (!(e.start >= idx->start && e.end <= idx->end) || idx->end == 0) {
 	    idx = idx_stack[--idx_stack_ptr];
 	}
 
