@@ -753,8 +753,32 @@ int itf8_encode(cram_fd *fd, int32_t val) {
 }
 
 const int itf8_bytes[16] = {
-    1, 1, 1, 1, 1, 1, 1, 1,
-    2, 2, 2, 2, 3, 3, 4, 5
+    1, 1, 1, 1,  1, 1, 1, 1,
+    2, 2, 2, 2,  3, 3, 4, 5
+};
+
+const int ltf8_bytes[256] = {
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+
+    2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,
+    2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,
+    2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,
+    2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,
+
+    3, 3, 3, 3,  3, 3, 3, 3,  3, 3, 3, 3,  3, 3, 3, 3,
+    3, 3, 3, 3,  3, 3, 3, 3,  3, 3, 3, 3,  3, 3, 3, 3,
+
+    4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
+
+    5, 5, 5, 5,  5, 5, 5, 5,  6, 6, 6, 6,  7, 7, 8, 9
 };
 
 #ifndef ITF8_MACROS
@@ -2999,7 +3023,7 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
 	if (--r->last->count <= 0) {
 	    RP("%d FREE REF %d (%p)\n", gettid(), id, r->last->seq);
 	    if (r->last->seq)
-		ref_entry_free_seq(r->last); 
+		ref_entry_free_seq(r->last);
 	}
     }
 
@@ -3349,7 +3373,6 @@ cram_container *cram_new_container(int nrec, int nslice) {
 	free(c);
     }
     return NULL;
-
 }
 
 void cram_free_container(cram_container *c) {
@@ -3449,7 +3472,7 @@ cram_container *cram_read_container(cram_fd *fd) {
 	c2.record_counter = 0;
 	c2.num_bases = 0;
     } else {
-	if ((s = itf8_decode_crc(fd, &c2.record_counter, &crc)) == -1)
+	if ((s = ltf8_decode_crc(fd, &c2.record_counter, &crc)) == -1)
 	    return NULL;
 	else
 	    rd += s;

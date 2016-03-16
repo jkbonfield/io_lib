@@ -969,7 +969,7 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     }
     cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_records);
     if (!IS_CRAM_1_VERS(fd))
-	cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->record_counter);
+	cp += safe_ltf8_get((char *)cp, (char *) cp_end, &hdr->record_counter);
     cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_blocks);
 
     cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_content_ids);

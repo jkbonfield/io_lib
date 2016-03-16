@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
 	printf("\nContainer pos %"PRId64" size %d\n", (int64_t)pos, c->length);
 	printf("    Ref id:            %d\n", c->ref_seq_id);
 	printf("    Ref pos:           %d + %d\n", c->ref_seq_start, c->ref_seq_span);
-	printf("    Rec counter:       %d\n", c->record_counter);
+	printf("    Rec counter:       %"PRId64"\n", c->record_counter);
        	printf("    No. recs:          %d\n", c->num_records);
 	printf("    No. bases          %"PRId64"\n", c->num_bases);
 	printf("    No. blocks:        %d\n", c->num_blocks);
@@ -286,7 +286,7 @@ int main(int argc, char **argv) {
 		    printf("%02x", s->hdr->md5[i]);
 		putchar('\n');
 	    }
-	    printf("\tRec counter      %d\n", s->hdr->record_counter);
+	    printf("\tRec counter      %"PRId64"\n", s->hdr->record_counter);
 	    printf("\tNo. records      %d\n", s->hdr->num_records);
 	    printf("\tNo. blocks       %d\n", s->hdr->num_blocks);
 	    printf("\tBlk IDS:         {");
