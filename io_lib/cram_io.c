@@ -3472,10 +3472,19 @@ cram_container *cram_read_container(cram_fd *fd) {
 	c2.record_counter = 0;
 	c2.num_bases = 0;
     } else {
-	if ((s = ltf8_decode_crc(fd, &c2.record_counter, &crc)) == -1)
-	    return NULL;
-	else
-	    rd += s;
+	if (IS_CRAM_3_VERS(fd)) {
+	    if ((s = ltf8_decode_crc(fd, &c2.record_counter, &crc)) == -1)
+		return NULL;
+	    else
+		rd += s;
+	} else {
+	    int32_t i32;
+	    if ((s = itf8_decode_crc(fd, &i32, &crc)) == -1)
+		return NULL;
+	    else
+		rd += s;
+	    c2.record_counter = i32;
+	}
 
 	if ((s = ltf8_decode_crc(fd, &c2.num_bases, &crc))== -1)
 	    return NULL;
