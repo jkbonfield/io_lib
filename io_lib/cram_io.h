@@ -350,6 +350,76 @@ static inline cram_block *cram_get_block_by_id(cram_slice *slice, int id) {
 	(b)->byte += append_uint(cp, (i)) - cp;	     \
     } while (0)
 
+static inline unsigned char *append_uint32(unsigned char *cp, uint32_t i) {
+    uint32_t j;
+
+    if (i == 0) {
+	*cp++ = '0';
+	return cp;
+    }
+
+    if (i < 100)        goto b1;
+    if (i < 10000)      goto b3;
+    if (i < 1000000)    goto b5;
+    if (i < 100000000)  goto b7;
+
+    if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
+    if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
+ b7:if ((j = i / 10000000))   {*cp++ = j + '0'; i -= j*10000000;   goto x6;}
+    if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
+ b5:if ((j = i / 100000))     {*cp++ = j + '0', i -= j*100000;     goto x4;}
+    if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
+ b3:if ((j = i / 1000))       {*cp++ = j + '0', i -= j*1000;       goto x2;}
+    if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
+ b1:if ((j = i / 10))         {*cp++ = j + '0', i -= j*10;         goto x0;}
+    if (i)                     *cp++ = i + '0';
+    return cp;
+
+ x8: *cp++ = i / 100000000 + '0', i %= 100000000;
+ x7: *cp++ = i / 10000000  + '0', i %= 10000000;
+ x6: *cp++ = i / 1000000   + '0', i %= 1000000;
+ x5: *cp++ = i / 100000    + '0', i %= 100000;
+ x4: *cp++ = i / 10000     + '0', i %= 10000;
+ x3: *cp++ = i / 1000      + '0', i %= 1000;
+ x2: *cp++ = i / 100       + '0', i %= 100;
+ x1: *cp++ = i / 10        + '0', i %= 10;
+ x0: *cp++ = i             + '0';
+
+    return cp;
+}
+
+static inline unsigned char *append_sub32(unsigned char *cp, uint32_t i) {
+    *cp++ = i / 100000000 + '0', i %= 100000000;
+    *cp++ = i / 10000000  + '0', i %= 10000000;
+    *cp++ = i / 1000000   + '0', i %= 1000000;
+    *cp++ = i / 100000    + '0', i %= 100000;
+    *cp++ = i / 10000     + '0', i %= 10000;
+    *cp++ = i / 1000      + '0', i %= 1000;
+    *cp++ = i / 100       + '0', i %= 100;
+    *cp++ = i / 10        + '0', i %= 10;
+    *cp++ = i             + '0';
+
+    return cp;
+}
+
+static inline unsigned char *append_uint64(unsigned char *cp, uint64_t i) {
+    uint64_t j;
+
+    if (i <= 0xffffffff)
+	return append_uint32(cp, i);
+
+    if ((j = i/1000000000) > 1000000000) {
+	cp = append_uint32(cp, j/1000000000);
+	j %= 1000000000;
+	cp = append_sub32(cp, j);
+    } else {
+	cp = append_uint32(cp, i / 1000000000);
+    }
+    cp = append_sub32(cp, i % 1000000000);
+
+    return cp;
+}
+
 #define BLOCK_UPLEN(b)			\
     (b)->comp_size = (b)->uncomp_size = BLOCK_SIZE((b))
 
