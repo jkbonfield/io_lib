@@ -2519,7 +2519,7 @@ static void sanitise_SQ_lines(cram_fd *fd) {
 	if (!(r = (ref_entry *)hi->data.p))
 	    continue;
 
-	if (r->length != fd->header->ref[i].len) {
+	if (r->length && r->length != fd->header->ref[i].len) {
 	    assert(strcmp(r->name, fd->header->ref[i].name) == 0);
 
 	    // Should we also check MD5sums here to ensure the correct
@@ -2574,7 +2574,10 @@ int refs2id(refs_t *r, SAM_hdr *h) {
  *         -1 on failure
  */
 static int refs_from_header(refs_t *r, cram_fd *fd, SAM_hdr *h) {
-    int i;
+    int i, j;
+
+    if (!r)
+	return -1;
 
     if (!h || h->nref == 0)
 	return 0;
@@ -2582,50 +2585,47 @@ static int refs_from_header(refs_t *r, cram_fd *fd, SAM_hdr *h) {
     //fprintf(stderr, "refs_from_header for %p mode %c\n", fd, fd->mode);
 
     /* Existing refs are fine, as long as they're compatible with the hdr. */
-    i = r->nref;
-    if (r->nref < h->nref)
-	r->nref = h->nref;
-
-    if (!(r->ref_id = realloc(r->ref_id, r->nref * sizeof(*r->ref_id))))
+    if (!(r->ref_id = realloc(r->ref_id, (r->nref + h->nref) * sizeof(*r->ref_id))))
 	return -1;
 
-    for (; i < r->nref; i++)
-	r->ref_id[i] = NULL;
-
     /* Copy info from h->ref[i] over to r */
-    for (i = 0; i < h->nref; i++) {
+    for (i = 0, j = r->nref; i < h->nref; i++) {
 	SAM_hdr_type *ty;
 	SAM_hdr_tag *tag;
 	HashData hd;
 	int n;
 
-	if (r->ref_id[i] && 0 == strcmp(r->ref_id[i]->name, h->ref[i].name))
+	if (HashTableSearch(r->h_meta, h->ref[i].name, strlen(h->ref[i].name)))
+	    // Ref already known about
 	    continue;
 
-	if (!(r->ref_id[i] = calloc(1, sizeof(ref_entry))))
+	if (!(r->ref_id[j] = calloc(1, sizeof(ref_entry))))
 	    return -1;
 
 	if (!h->ref[i].name)
 	    return -1;
 
-	r->ref_id[i]->name = string_dup(r->pool, h->ref[i].name);
-	r->ref_id[i]->length = 0; // marker for not yet loaded
+	r->ref_id[j]->name = string_dup(r->pool, h->ref[i].name);
+	r->ref_id[j]->length = 0; // marker for not yet loaded
 
 	/* Initialise likely filename if known */
 	if ((ty = sam_hdr_find(h, "SQ", "SN", h->ref[i].name))) {
 	    if ((tag = sam_hdr_find_key(h, ty, "M5", NULL))) {
-		r->ref_id[i]->fn = string_dup(r->pool, tag->str+3);
-		//fprintf(stderr, "Tagging @SQ %s / %s\n", r->ref_id[i]->name, r->ref_id[i]->fn);
+		r->ref_id[j]->fn = string_dup(r->pool, tag->str+3);
+		//fprintf(stderr, "Tagging @SQ %s / %s\n", r->ref_id[j]->name, r->ref_id[j]->fn);
 	    }
 	}
 
-	hd.p = r->ref_id[i];
-	if (!HashTableAdd(r->h_meta, r->ref_id[i]->name,
-			  strlen(r->ref_id[i]->name), hd, &n))
+	hd.p = r->ref_id[j];
+	if (!HashTableAdd(r->h_meta, r->ref_id[j]->name,
+			  strlen(r->ref_id[j]->name), hd, &n))
 	    return -1;
 	if (!n)
 	    return -1;
+
+	j++;
     }
+    r->nref = j;
 
     return 0;
 }
