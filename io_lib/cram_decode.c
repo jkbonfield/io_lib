@@ -963,16 +963,21 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     hdr->content_type = b->content_type;
 
     if (b->content_type == MAPPED_SLICE) {
-        cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->ref_seq_id);
-        cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->ref_seq_start);
-        cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->ref_seq_span);
+        cp += safe_itf8_get((char *)cp, (char *)cp_end, &hdr->ref_seq_id);
+        cp += safe_itf8_get((char *)cp, (char *)cp_end, &hdr->ref_seq_start);
+        cp += safe_itf8_get((char *)cp, (char *)cp_end, &hdr->ref_seq_span);
     }
     cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_records);
-    if (!IS_CRAM_1_VERS(fd))
-	cp += safe_ltf8_get((char *)cp, (char *) cp_end, &hdr->record_counter);
-    cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_blocks);
-
-    cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_content_ids);
+    hdr->record_counter = 0;
+    if (CRAM_MAJOR_VERS(fd->version) == 2) {
+	int32_t i32 = 0;
+	cp += safe_itf8_get((char *)cp, (char *)cp_end, &i32);
+	hdr->record_counter = i32;
+    } else if (CRAM_MAJOR_VERS(fd->version) >= 3) {
+	cp += safe_ltf8_get((char *)cp, (char *)cp_end, &hdr->record_counter);
+    }
+    cp += safe_itf8_get((char *)cp, (char *)cp_end, &hdr->num_blocks);
+    cp += safe_itf8_get((char *)cp, (char *)cp_end, &hdr->num_content_ids);
     if (hdr->num_content_ids < 1 ||
 	hdr->num_content_ids >= SIZE_MAX / sizeof(int32_t)) {
         /* Slice must have at least one data block,
