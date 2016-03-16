@@ -542,9 +542,6 @@ typedef struct cram_slice {
     /* State used during encoding/decoding */
     int last_apos, max_apos;
 
-    /* Identifier used for auto-assigning read names */
-    uint64_t id;
-
     /* Array of decoded cram records */
     cram_record *crecs;
 
@@ -750,7 +747,6 @@ typedef struct {
 
     char          *prefix;
     int            record_counter;
-    int            slice_num;
     int            err;
 
     // Most recent compression header decoded

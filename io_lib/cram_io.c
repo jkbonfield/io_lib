@@ -1199,7 +1199,7 @@ int int32_encode(cram_fd *fd, int32_t val) {
 }
 
 /* As int32_decoded/encode, but from/to blocks instead of cram_fd */
-int int32_get(cram_block *b, int32_t *val) {
+int int32_get_blk(cram_block *b, int32_t *val) {
     if (b->uncomp_size - BLOCK_SIZE(b) < 4)
 	return -1;
 
@@ -3610,6 +3610,9 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
 static int cram_flush_container2(cram_fd *fd, cram_container *c) {
     int i, j;
 
+    if (c->curr_slice > 0 && !c->slices)
+	return -1;
+
     //fprintf(stderr, "Writing container %d, sum %u\n", c->record_counter, sum);
 
     /* Write the container struct itself */
@@ -3632,7 +3635,7 @@ static int cram_flush_container2(cram_fd *fd, cram_container *c) {
 		return -1;
 	}
     }
-    
+
     return CRAM_IO_FLUSH(fd) == 0 ? 0 : -1;
 }
 
@@ -3911,8 +3914,7 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     s->block = NULL;
     s->block_by_id = NULL;
     s->last_apos = 0;
-    s->id = 0;
-    if (!(s->crecs = malloc(nrecs * sizeof(cram_record))))        goto err;
+    if (!(s->crecs = malloc(nrecs * sizeof(cram_record))))  goto err;
     s->cigar = NULL;
     s->cigar_alloc = 0;
     s->ncigar = 0;
@@ -4038,8 +4040,6 @@ cram_slice *cram_read_slice(cram_fd *fd) {
 
     s->last_apos = s->hdr->ref_seq_start;
     
-    s->id = fd->slice_num++;
-
     return s;
 
  err:
@@ -4156,10 +4156,10 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    cram_free_container(c);
 	    return NULL;
 	}
-        if (cram_uncompress_block(b) < 0) {
-            cram_free_container(c);
-            return NULL;
-        }
+	if (cram_uncompress_block(b) != 0) {
+	    cram_free_container(c);
+	    return NULL;
+	}
 
 	len = b->comp_size + 2 + 4*IS_CRAM_3_VERS(fd) +
 	    itf8_size(b->content_id) + 
@@ -4167,20 +4167,20 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
 	    itf8_size(b->comp_size);
 
 	/* Extract header from 1st block */
-	if (-1 == int32_get(b, &header_len) ||
+	if (-1 == int32_get_blk(b, &header_len) ||
             header_len < 0 || /* Spec. says signed...  why? */
 	    b->uncomp_size - 4 < header_len) {
 	    cram_free_container(c);
 	    cram_free_block(b);
 	    return NULL;
 	}
-        if (NULL == (header = malloc((size_t) header_len + 1))) {
+	if (NULL == (header = malloc((size_t) header_len+1))) {
 	    cram_free_container(c);
 	    cram_free_block(b);
 	    return NULL;
 	}
 	memcpy(header, BLOCK_END(b), header_len);
-        header[header_len] = '\0';
+	header[header_len] = '\0';
 	cram_free_block(b);
 
 	/* Consume any remaining blocks */
@@ -4768,7 +4768,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
 
     if (fd->mode == 'r') {
 	/* Reader */
-	
+
 	if (!(fd->file_def = cram_read_file_def(fd)))
 	    goto err;
 
@@ -4808,7 +4808,6 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
     if (!fd->prefix)
 	goto err;
-    fd->slice_num = 0;
     fd->first_base = fd->last_base = -1;
     fd->record_counter = 0;
 
@@ -4915,7 +4914,6 @@ cram_fd *cram_open_by_callbacks(
     fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
     if (!fd->prefix)
 	goto err;
-    fd->slice_num = 0;
     fd->first_base = fd->last_base = -1;
     fd->record_counter = 0;
 
@@ -5042,7 +5040,6 @@ cram_fd *cram_openw_by_callbacks(
     } else {
 	fd->prefix = strdup("");
     }
-    fd->slice_num = 0;
     fd->first_base = fd->last_base = -1;
     fd->record_counter = 0;
 

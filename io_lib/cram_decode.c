@@ -2766,15 +2766,21 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	    name = (char *)BLOCK_DATA(s->name_blk) + cr->name;
 	    name_len = cr->name_len;
 	} else {
-	    // FIXME: add prefix, container number, slice number, etc
 	    name = name_a;
-
+	    name_len = strlen(fd->prefix);
+	    memcpy(name, fd->prefix, name_len);
+	    name += name_len;
+	    *name++ = ':';
 	    if (cr->mate_line >= 0 && cr->mate_line < rec)
-		name_len = sprintf(name_a, "%s:%"PRId64":%d",
-				   fd->prefix, s->id, cr->mate_line);
+		name = (char *)append_uint64((unsigned char *)name,
+					     s->hdr->record_counter +
+					     cr->mate_line + 1);
 	    else
-		name_len = sprintf(name_a, "%s:%"PRId64":%d",
-				   fd->prefix, s->id, rec);
+		name = (char *)append_uint64((unsigned char *)name,
+					     s->hdr->record_counter +
+					     rec + 1);
+	    name_len = name - name_a;
+	    name = name_a;
 	}
     } else {
 	name = "?";

@@ -418,7 +418,6 @@ static cram_fd *cram_dup_fd(cram_fd *orig) {
     fd->fp_out_callbacks = cram_callback_allocate_func(NULL);
 
     fd->fp_out = NULL;
-    fd->slice_num = 0;
 
     return fd;
 }
