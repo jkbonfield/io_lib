@@ -1586,8 +1586,10 @@ int cram_uncompress_block(cram_block *b) {
 	uncomp = zlib_mem_inflate((char *)b->data, b->comp_size, &uncomp_size);
 	if (!uncomp)
 	    return -1;
-	if ((int)uncomp_size != b->uncomp_size)
+	if ((int)uncomp_size != b->uncomp_size) {
+	    free(uncomp);
 	    return -1;
+	}
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = uncomp_size;
@@ -1617,7 +1619,6 @@ int cram_uncompress_block(cram_block *b) {
 	fprintf(stderr, "Bzip2 compression is not compiled into this "
 		"version.\nPlease rebuild and try again.\n");
 	return -1;
-	break;
 #endif
 
 #ifdef HAVE_LIBLZMA
@@ -1782,7 +1783,7 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 
     default:
         return NULL;
-     }
+    }
 
     return NULL;
 }
@@ -1856,14 +1857,16 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    if (method & (1<<GZIP_RLE)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					    &sz_gz_rle, GZIP, 1, Z_RLE);
-		if (sz_best > sz_gz_rle) {
+		if (c && sz_best > sz_gz_rle) {
 		    sz_best = sz_gz_rle;
 		    method_best = GZIP_RLE;
 		    if (c_best)
 			free(c_best);
 		    c_best = c;
-		} else {
+		} else if (c) {
 		    free(c);
+		} else {
+		    sz_gz_rle = b->uncomp_size*2+1000;
 		}
 
 		//fprintf(stderr, "Block %d; %d->%d\n", b->content_id, b->uncomp_size, sz_gz_rle);
@@ -1873,14 +1876,16 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					    &sz_gz_def, GZIP, level,
 					    Z_FILTERED);
-		if (sz_best > sz_gz_def) {
+		if (c && sz_best > sz_gz_def) {
 		    sz_best = sz_gz_def;
 		    method_best = GZIP;
 		    if (c_best)
 			free(c_best);
 		    c_best = c;
-		} else {
+		} else if (c) {
 		    free(c);
+		} else {
+		    sz_gz_def = b->uncomp_size*2+1000;
 		}
 
 		//fprintf(stderr, "Block %d; %d->%d\n", b->content_id, b->uncomp_size, sz_gz_def);
@@ -1902,62 +1907,70 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    free(c);
 		}
 
-		//fprintf(stderr, "Block %d; %d->%d\n", b->content_id, b->uncomp_size, sz_gz_def);
+		//fprintf(stderr, "Block %d; %d->%d\n", b->content_id, b->uncomp_size, sz_gz_1);
 	    }
 
 	    if (method & (1<<RANS0)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					    &sz_rans0, RANS0, 0, 0);
-		if (sz_best > sz_rans0) {
+		if (c && sz_best > sz_rans0) {
 		    sz_best = sz_rans0;
 		    method_best = RANS0;
 		    if (c_best)
 			free(c_best);
 		    c_best = c;
-		} else {
+		} else if (c) {
 		    free(c);
+		} else {
+		    sz_rans0 = b->uncomp_size*2+1000;
 		}
 	    }
 
 	    if (method & (1<<RANS1)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					    &sz_rans1, RANS1, 0, 0);
-		if (sz_best > sz_rans1) {
+		if (c && sz_best > sz_rans1) {
 		    sz_best = sz_rans1;
 		    method_best = RANS1;
 		    if (c_best)
 			free(c_best);
 		    c_best = c;
-		} else {
+		} else if (c) {
 		    free(c);
+		} else {
+		    sz_rans1 = b->uncomp_size*2+1000;
 		}
 	    }
 
 	    if (method & (1<<BZIP2)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					    &sz_bzip2, BZIP2, level, 0);
-		if (sz_best > sz_bzip2) {
+		if (c && sz_best > sz_bzip2) {
 		    sz_best = sz_bzip2;
 		    method_best = BZIP2;
 		    if (c_best)
 			free(c_best);
 		    c_best = c;
-		} else {
+		} else if (c) {
 		    free(c);
+		} else {
+		    sz_bzip2 = b->uncomp_size*2+1000;
 		}
 	    }
 
 	    if (method & (1<<LZMA)) {
 		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					    &sz_lzma, LZMA, level, 0);
-		if (sz_best > sz_lzma) {
+		if (c && sz_best > sz_lzma) {
 		    sz_best = sz_lzma;
 		    method_best = LZMA;
 		    if (c_best)
 			free(c_best);
 		    c_best = c;
-		} else {
+		} else if (c) {
 		    free(c);
+		} else {
+		    sz_lzma = b->uncomp_size*2+1000;
 		}
 	    }
 
