@@ -5395,6 +5395,7 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	      (major == 3 &&  minor == 0))) {
 	    fprintf(stderr, "Unknown version string; "
 		    "use 1.0, 2.0, 2.1 or 3.0\n");
+	    errno = EINVAL;
 	    return -1;
 	}
 	if (major == 1 && minor == 0 && fd && fd->mode != 'r') {
