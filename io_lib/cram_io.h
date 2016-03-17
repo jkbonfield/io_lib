@@ -119,8 +119,11 @@ static inline int safe_itf8_get(const char *cp, const char *endp,
 				int32_t *val_p) {
     const unsigned char *up = (unsigned char *)cp;
 
-    if (endp - cp < 5 && 
-	(cp >= endp || endp - cp < itf8_bytes[up[0]>>4])) return 0;
+    if (endp - cp < 5 &&
+	(cp >= endp || endp - cp < itf8_bytes[up[0]>>4])) {
+        *val_p = 0;
+        return 0;
+    }
 
     if (up[0] < 0x80) {
 	*val_p =   up[0];
