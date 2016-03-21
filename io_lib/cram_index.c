@@ -169,7 +169,7 @@ static int cram_index_load_private(cram_fd *fd, void * fp, fgets_functions fgets
 	    idx_stack[(idx_stack_ptr = 0)] = idx;
 	}
 
-	while (!(e.start >= idx->start && e.end <= idx->end)) {
+	while (!(e.start >= idx->start && e.end <= idx->end) || idx->end == 0) {
 	    idx = idx_stack[--idx_stack_ptr];
 	}
 
@@ -303,7 +303,7 @@ void cram_index_free(cram_fd *fd) {
 
 /*
  * Searches the index for the first slice overlapping a reference ID
- * and position, or one immediately preceeding it if none is found in
+ * and position, or one immediately preceding it if none is found in
  * the index to overlap this position. (Our index may have missing
  * entries, but we require at least one per reference.)
  *
@@ -323,11 +323,16 @@ cram_index *cram_index_query(cram_fd *fd, int refid, int pos,
     if (refid+1 < 0 || refid+1 >= fd->index_sz)
 	return NULL;
 
-    i = 0, j = fd->index[refid+1].nslice-1;
-
     if (!from)
 	from = &fd->index[refid+1];
 
+    // Ref with nothing aligned against it.
+    if (!from->e)
+	return NULL;
+
+    // This sequence is covered by the index, so binary search to find
+    // the optimal starting block.
+    i = 0, j = fd->index[refid+1].nslice-1;
     for (k = j/2; k != i; k = (j-i)/2 + i) {
 	if (from->e[k].refid > refid) {
 	    j = k;
@@ -349,6 +354,9 @@ cram_index *cram_index_query(cram_fd *fd, int refid, int pos,
 	    continue;
 	}
     }
+    // i==j or i==j-1. Check if j is better.
+    if (j >= 0 && from->e[j].start < pos && from->e[j].refid == refid)
+	i = j;
 
     /* The above found *a* bin overlapping, but not necessarily the first */
     while (i > 0 && from->e[i-1].end >= pos)

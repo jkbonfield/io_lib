@@ -746,7 +746,7 @@ typedef struct {
     SAM_hdr       *header;
 
     char          *prefix;
-    int            record_counter;
+    int64_t        record_counter;
     int            err;
 
     // Most recent compression header decoded
