@@ -1932,6 +1932,9 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     int TD_blk_size = BLOCK_SIZE(td_b), new;
     HashData hd;
     HashItem *hi;
+    int omit_RG = !fd->preserve_aux_order;
+    int omit_MD = !fd->preserve_aux_order;
+    int omit_NM = !fd->preserve_aux_order;
 
     orig = aux = (char *)bam_aux(b);
 
@@ -1940,14 +1943,14 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	HashData hd; hd.p = 0;
 
 	// RG:Z
-	if (aux[0] == 'R' && aux[1] == 'G' && aux[2] == 'Z') {
+	if (omit_RG && aux[0] == 'R' && aux[1] == 'G' && aux[2] == 'Z') {
 	    rg = &aux[3];
 	    while (*aux++);
 	    continue;
 	}
 
 	// MD:Z
-	if (aux[0] == 'M' && aux[1] == 'D' && aux[2] == 'Z') {
+	if (omit_MD && aux[0] == 'M' && aux[1] == 'D' && aux[2] == 'Z') {
 	    if (cr->len && !fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
 		while (*aux++);
 		continue;
@@ -1955,7 +1958,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	}
 
 	// NM:i
-	if (aux[0] == 'N' && aux[1] == 'M') {
+	if (omit_NM && aux[0] == 'N' && aux[1] == 'M') {
 	    if (cr->len && !fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
 		switch(aux[2]) {
 		case 'A': case 'C': case 'c': aux+=4; break;
@@ -1972,48 +1975,63 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	// Restrict to appropriate integer size
 	char aux_f[3] = {aux[0], aux[1], aux[2]};
 	char aux_len = 0;
-	switch (aux[2]) {
-	case 'I':
-	    if ((aux[4]|aux[5]|aux[6]) == 0)
-		aux_len = 1, aux_f[2] = 'C';
-	    else if ((aux[5]|aux[6]) == 0)
-		aux_len = 2, aux_f[2] = 'S';
-	    else
+	if (fd->preserve_aux_size) {
+	    switch (aux[2]) {
+	    case 'I':
+	    case 'i':
+	    case 'f':
 		aux_len = 4;
-	    break;
+		break;
 
-	case 'i':
-	    if ((aux[4]|aux[5]|aux[6]) == 0)
-		aux_len = 1, aux_f[2] = 'C';
-	    else if ((aux[4]&aux[5]&aux[6]) == 0xff && (aux[3] & 0x80))
-		aux_len = 1, aux_f[2] = 'c';
-	    else if ((aux[5]|aux[6]) == 0)
-		aux_len = 2, aux_f[2] = 'S';
-	    else if ((aux[5]&aux[6]) == 0xff && (aux[4] & 0x80))
-		aux_len = 2, aux_f[2] = 's';
-	    else
+	    case 'S':
+	    case 's':
+		aux_len = 2;
+		break;
+	    }
+	} else {
+	    switch (aux[2]) {
+	    case 'I':
+		if ((aux[4]|aux[5]|aux[6]) == 0)
+		    aux_len = 1, aux_f[2] = 'C';
+		else if ((aux[5]|aux[6]) == 0)
+		    aux_len = 2, aux_f[2] = 'S';
+		else
+		    aux_len = 4;
+		break;
+
+	    case 'i':
+		if ((aux[4]|aux[5]|aux[6]) == 0)
+		    aux_len = 1, aux_f[2] = 'C';
+		else if ((aux[4]&aux[5]&aux[6]) == 0xff && (aux[3] & 0x80))
+		    aux_len = 1, aux_f[2] = 'c';
+		else if ((aux[5]|aux[6]) == 0)
+		    aux_len = 2, aux_f[2] = 'S';
+		else if ((aux[5]&aux[6]) == 0xff && (aux[4] & 0x80))
+		    aux_len = 2, aux_f[2] = 's';
+		else
+		    aux_len = 4;
+		break;
+
+	    case 'S':
+		if (aux[4] == 0)
+		    aux_len = 1, aux_f[2] = 'C';
+		else
+		    aux_len = 2;
+		break;
+
+	    case 's':
+		if (aux[4] == 0)
+		    aux_len = 1, aux_f[2] = 'C';
+		else if ((uint8_t)aux[4] == 0xff && (aux[3] & 0x80))
+		    aux_len = 1, aux_f[2] = 'c';
+		else
+		    aux_len = 2;
+		break;
+
+	    case 'f':
 		aux_len = 4;
-	    break;
-
-	case 'S':
-	    if (aux[4] == 0)
-		aux_len = 1, aux_f[2] = 'C';
-	    else
-		aux_len = 2;
-	    break;
-
-	case 's':
-	    if (aux[4] == 0)
-		aux_len = 1, aux_f[2] = 'C';
-	    else if ((uint8_t)aux[4] == 0xff && (aux[3] & 0x80))
-		aux_len = 1, aux_f[2] = 'c';
-	    else
-		aux_len = 2;
-	    break;
-
-	case 'f':
-	    aux_len = 4;
-	    break;
+		break;
+	    }
 	}
 
 	BLOCK_APPEND(td_b, aux_f, 3);
