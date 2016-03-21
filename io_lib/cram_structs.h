@@ -819,6 +819,8 @@ typedef struct {
     int ooc;                            // out of containers.
     int ignore_chksum;
     int lossy_read_names;
+    int preserve_aux_order;             // if set implies emitting RG, MD and NM
+    int preserve_aux_size;              // does not replace 'i' with 'c' etc in aux.
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -941,6 +943,8 @@ enum cram_option {
     CRAM_OPT_IGNORE_CHKSUM,
     CRAM_OPT_BASES_PER_SLICE,
     CRAM_OPT_LOSSY_READ_NAMES,
+    CRAM_OPT_PRESERVE_AUX_ORDER,
+    CRAM_OPT_PRESERVE_AUX_SIZE
 };
 
 /* BF bitfields */

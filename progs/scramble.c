@@ -119,6 +119,9 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
+    fprintf(fp, "    -P             [Cram EXPERIMENTAL] Preserve all aux tags (incl RG,NM,MD)\n");
+    fprintf(fp, "    -p             [Cram EXPERIMENTAL] Preserve aux tag sizes ('i', 's', 'c')\n");
+    fprintf(fp, "    -N integer     Stop decoding after 'integer' sequences\n");
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
     fprintf(fp, "    -!             Disable all checking of checksums\n");
@@ -144,9 +147,11 @@ int main(int argc, char **argv) {
     int header = 1;
     int bases_per_slice = 0;
     int lossy_read_names = 0;
+    int preserve_aux_order = 0;
+    int preserve_aux_size = 0;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:n")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPp")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -285,7 +290,15 @@ int main(int argc, char **argv) {
 	    binning = BINNING_ILLUMINA;
 	    break;
 
-	case 'N': // For debugging
+	case 'P':
+	    preserve_aux_order = 1;
+	    break;
+
+	case 'p':
+	    preserve_aux_size = 1;
+	    break;
+
+	case 'N':
 	    max_reads = atoi(optarg);
 	    break;
 
@@ -419,6 +432,14 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_LOSSY_READ_NAMES, lossy_read_names))
 	    return 1;
     }
+
+    if (preserve_aux_order)
+	if (scram_set_option(out, CRAM_OPT_PRESERVE_AUX_ORDER, preserve_aux_order))
+	    return 1;
+
+    if (preserve_aux_size)
+	if (scram_set_option(out, CRAM_OPT_PRESERVE_AUX_SIZE, preserve_aux_size))
+	    return 1;
 
     if (sam_fields)
 	scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS, sam_fields);

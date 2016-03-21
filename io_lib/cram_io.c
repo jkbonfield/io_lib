@@ -5457,6 +5457,14 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	fd->required_fields = va_arg(args, int);
 	break;
 
+    case CRAM_OPT_PRESERVE_AUX_ORDER:
+	fd->preserve_aux_order = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_PRESERVE_AUX_SIZE:
+	fd->preserve_aux_size = va_arg(args, int);
+	break;
+
     default:
 	fprintf(stderr, "Unknown CRAM option code %d\n", opt);
 	return -1;
