@@ -45,6 +45,10 @@
 #include <unistd.h>
 #include <stdarg.h>
 
+#ifdef _MSC_VER
+#include <io.h>
+#endif
+
 #include "io_lib/os.h"
 #include "io_lib/mFILE.h"
 #include "io_lib/vlen.h"
@@ -53,6 +57,14 @@
 #include <sys/mman.h>
 #endif
 
+//Moved from mFILE.h to avoid conflicting with WinUser.h
+#define MF_READ    1
+#define MF_WRITE   2
+#define MF_APPEND  4
+#define MF_BINARY  8
+#define MF_TRUNC  16
+#define MF_MODEX  32
+#define MF_MMAP   64
 
 /*
  * This file contains memory-based versions of the most commonly used

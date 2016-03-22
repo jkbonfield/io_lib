@@ -1305,7 +1305,11 @@ FILE *open_path_file(char *file, char *path, char *relative_to) {
 	return mf->fp;
 
     /* Secure temporary file generation */
+#ifdef _MSC_VER
+    if (NULL == (fp = tmpfile_win()))
+#else
     if (NULL == (fp = tmpfile()))
+#endif
 	return NULL;
 
     /* Copy the data */

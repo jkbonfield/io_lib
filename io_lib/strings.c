@@ -104,7 +104,7 @@ void f2cstr(char *f, int max_f, char *c, int max_c)
 {
     int i;
 
-    i = min(fstrlen(f,max_f),max_c);
+    i = MIN(fstrlen(f,max_f),max_c);
     strncpy(c,f,i);
     c[i]='\0';
 }
@@ -113,7 +113,7 @@ void f2cstr(char *f, int max_f, char *c, int max_c)
 void c2fstr(char *c, int max_c, char *f, int max_f)
 {
     int i;
-    i = min((int)strlen(c),max_f);
+    i = MIN((int)strlen(c),max_f);
     strncpy(f,c,i);
     for( ; i<max_f; i++) f[i]=' ';
 
