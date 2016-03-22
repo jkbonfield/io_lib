@@ -10,6 +10,7 @@
 #define RANS_BYTE_HEADER
 
 #include <stdint.h>
+#include "os.h"
 
 #ifdef assert
 #define RansAssert assert
