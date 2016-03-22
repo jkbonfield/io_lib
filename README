@@ -1,0 +1,117 @@
+			IO_LIB VERSION 1.14.7
+			=====================
+
+Io_lib is a library of file reading and writing code to provide a general
+purpose trace file (and Experiment File) reading interface. The programmer
+simply calls the (eg) read_reading to create a "Read" C structure with the
+data loaded into memory. It has been compiled and tested on a variety
+of unix systems, MacOS X and MS Windows.
+
+The directories below here contain the io_lib code. These support the
+following file formats:
+
+	SCF trace files
+	ABI trace files
+	ALF trace files
+	ZTR trace files
+	SFF trace archives
+	SRF trace archives
+	Experiment files
+	Plain text files
+	SAM/BAM sequence files
+	CRAM sequence files
+
+These link together to form a single "libstaden-read" library supporting
+all the file formats via a single read_reading (or fread_reading or
+mfread_reading) function call and analogous write_reading functions
+too. See the file include/Read.h for the generic 'Read' structure.
+
+See the CHANGES for a summary of older updates or ChangeLog for the
+full details.
+
+Version 1.14.7 (18th February 2016)
+--------------
+
+* Some speed ups to BAM encoding, particularly when using uncompressed
+  BAM.
+
+* Scramble now has a lossy read-name method (scramble -n) when
+  outputting to CRAM.
+
+* Tidied up the formatting of cram_size.
+
+* Cram_dump now prints up the TD map.
+
+* CRAM bug fix: Scramble -N was sometimes failing when multi-threaded.
+
+* CRAM bug fix: The code once again builds if CRAM_IO_CUSTOM_BUFFERING
+  is disabled.
+
+* CRAM bug fix: avoid undefined behaviour in some uses of
+  CRAM_OPT_REQUIRED_FIELD (not readily noticable from command line
+  tools).
+
+* CRAM bug fix: on very rare cases TLEN could change during decode
+  (albeit fixing it) for read-pairs that spanned references.
+
+* CRAM bug fix: CIGAR sequences with more than 2^27 operations are now
+  supported.
+
+* CRAM bug fix: fixed an assertion failure triggered with some
+  repeated templates.
+
+
+
+Building
+========
+
+Linux
+-----
+
+We use the GNU autoconf build mechanism.
+
+To build:
+
+1. ./configure
+
+"./configure --help" will give a list of the options for GNU autoconf. For
+modifying the compiler options or flags you may wish to redefine the CC or
+CFLAGS variable.
+
+Eg (in sh or bash):
+   CC=cc CFLAGS=-g ./configure
+
+2. make (or gmake)
+
+This will build the sources.
+
+CFLAGS may also be changed a build time using (eg):
+    make 'CFLAGS=-g ...'
+
+3. make install
+
+The default installation location is /usr/local/bin and /usr/local/lib. These
+can be changed with the --prefix option to "configure".
+
+Windows
+-------
+
+Under Microsoft Windows we recommend the use of MSYS and MINGW as a
+build environment.
+
+These contain enough tools to build using the configure script as per
+Linux. Visit http://sourceforge.net/projects/mingw/files/ and
+download/install Automated MinGW Installer (eg MinGW-5.1.4.exe), MSYS
+Base System (eg MSYS-1.0.11.exe) and MSYS Supplementary Tools (eg
+msysDTK-1.0.1.exe).
+
+
+MacOS X
+-------
+
+The configure script should work by default, but if you are attempting
+to build FAT binaries to work on both i386 and ppc targets you'll need
+to disable dependency tracking. Ie:
+
+    CFLAGS="-arch i386 -arch ppc" LDFLAGS="-arch i386 -arch ppc" \
+      ../configure --disable-dependency-tracking
