@@ -766,6 +766,9 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     if (fd->use_lzma)
 	method |= (1<<LZMA);
 
+    if (fd->use_zstd)
+	method |= (1<<ZSTD);
+
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
     if (level >= 6)

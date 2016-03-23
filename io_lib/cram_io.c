@@ -65,6 +65,9 @@
 #ifdef HAVE_LIBLZMA
 #include <lzma.h>
 #endif
+#ifdef HAVE_LIBZSTD
+#include <zstd.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <math.h>
@@ -1432,6 +1435,50 @@ static char *lzma_mem_inflate(char *cdata, size_t csize, size_t *size) {
 }
 #endif
 
+#ifdef HAVE_LIBZSTD
+/* ------------------------------------------------------------------------ */
+/*
+ * Data compression routines using zstd
+ */
+
+static char *zstd_compress(char *data, size_t size, size_t *cdata_size, int level) {
+    char *out;
+    size_t out_size = ZSTD_compressBound(size);
+    *cdata_size = 0;
+
+    if (!(out = malloc(out_size)))
+	return NULL;
+
+    /* Single call compression */
+    *cdata_size = ZSTD_compress(out, out_size, data, size, (int)((level-1)*2.5+1));
+    if (ZSTD_isError(*cdata_size)) {
+	fprintf(stderr, "ZSTD failure: %s\n", ZSTD_getErrorName(*cdata_size));
+	free(out);
+	return NULL;
+    }
+
+    return out;
+}
+
+static char *zstd_uncompress(char *cdata, size_t csize, size_t usize, size_t *size) {
+    size_t out_size = 0, out_pos = 0;
+    char *out = malloc(usize);
+    int r;
+
+    if (!out)
+	return NULL;
+
+    *size = ZSTD_decompress(out, usize, cdata, csize);
+    if (ZSTD_isError(*size)) {
+	fprintf(stderr, "ZSTD failure: %s\n", ZSTD_getErrorName(*size));
+	free(out);
+	return NULL;
+    }
+
+    return out;
+}
+#endif
+
 /* ----------------------------------------------------------------------
  * CRAM blocks - the dynamically growable data block. We have code to
  * create, update, (un)compress and read/write.
@@ -1694,6 +1741,27 @@ int cram_uncompress_block(cram_block *b) {
 	break;
     }
 
+#ifdef HAVE_LIBZSTD
+    case ZSTD: {
+	size_t usize = b->uncomp_size, usize2;
+	uncomp = zstd_uncompress(b->data, b->comp_size, usize, &usize2);
+	if (!uncomp || usize != usize2)
+	    return -1;
+	free(b->data);
+	b->data = (unsigned char *)uncomp;
+	b->alloc = usize2;
+	b->method = RAW;
+	b->uncomp_size = usize2; // Just incase it differs
+	break;
+    }
+#else
+    case ZSTD:
+	fprintf(stderr, "ZSTD compression is not compiled into this "
+		"version.\nPlease rebuild and try again.\n");
+	return -1;
+	break;
+#endif
+
     default:
 	return -1;
     }
@@ -1802,6 +1870,13 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 	return (char *)cp;
     }
 
+    case ZSTD:
+#ifdef HAVE_LIBZSTD
+	return zstd_compress(in, in_size, out_size, level);
+#else
+	return NULL;
+#endif
+
     case RAW:
 	break;
 
@@ -1856,6 +1931,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    size_t sz_rans1 = 0;
 	    size_t sz_bzip2 = 0;
 	    size_t sz_lzma = 0;
+	    size_t sz_zstd = 0;
 	    int method_best = 0;
 	    char *c_best = NULL, *c = NULL;
 
@@ -1874,6 +1950,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		metrics->sz_rans1  /= 2;
 		metrics->sz_bzip2  /= 2;
 		metrics->sz_lzma   /= 2;
+		metrics->sz_zstd   /= 2;
 	    }
 
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
@@ -1998,6 +2075,22 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		}
 	    }
 
+	    if (method & (1<<ZSTD)) {
+		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
+					    &sz_zstd, ZSTD, level, 0);
+		if (c && sz_best > sz_zstd) {
+		    sz_best = sz_zstd;
+		    method_best = ZSTD;
+		    if (c_best)
+			free(c_best);
+		    c_best = c;
+		} else if (c) {
+		    free(c);
+		} else {
+		    sz_zstd = b->uncomp_size*2+1000;
+		}
+	    }
+
 	    //fprintf(stderr, "sz_best = %d\n", sz_best);
 
 	    free(b->data);
@@ -2015,6 +2108,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    metrics->sz_rans1  += sz_rans1;
 	    metrics->sz_bzip2  += sz_bzip2;
 	    metrics->sz_lzma   += sz_lzma;
+	    metrics->sz_zstd   += sz_zstd;
 	    if (--metrics->trial == 0) {
 		int best_method = RAW;
 		int best_sz = INT_MAX;
@@ -2026,12 +2120,14 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    metrics->sz_gz_def *= 1.04;
 		    metrics->sz_bzip2  *= 1.08;
 		    metrics->sz_lzma   *= 1.10;
+		    metrics->sz_zstd   *= 1.03;
 		} else if (fd->level <= 6) {
 		    metrics->sz_rans1  *= 1.01;
 		    metrics->sz_gz_1   *= 1.01;
 		    metrics->sz_gz_def *= 1.02;
 		    metrics->sz_bzip2  *= 1.03;
 		    metrics->sz_lzma   *= 1.05;
+		    metrics->sz_zstd   *= 1.01;
 		}
 
 		if (method & (1<<GZIP_RLE) && best_sz > metrics->sz_gz_rle)
@@ -2054,6 +2150,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
 		if (method & (1<<LZMA) && best_sz > metrics->sz_lzma)
 		    best_sz = metrics->sz_lzma, best_method = LZMA;
+
+		if (method & (1<<ZSTD) && best_sz > metrics->sz_zstd)
+		    best_sz = metrics->sz_zstd, best_method = ZSTD;
 
 		if (best_method == GZIP_RLE) {
 		    metrics->method = GZIP;
@@ -2142,6 +2241,16 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 			method &= ~(1<<LZMA);
 		}
 
+		if (best_method == ZSTD) {
+		    metrics->zstd_cnt = 0;
+		    metrics->zstd_extra = 0;
+		} else if (best_sz < metrics->sz_zstd) {
+		    double r = (double)metrics->sz_zstd / best_sz - 1;
+		    if (++metrics->zstd_cnt >= MAXFAILS &&
+			(metrics->zstd_extra += r) >= MAXDELTA)
+			method &= ~(1<<ZSTD);
+		}
+
 		//if (method != metrics->revised_method)
 		//    fprintf(stderr, "%d: method from %x to %x\n",
 		//	    b->content_id, metrics->revised_method, method);
@@ -2223,6 +2332,7 @@ char *cram_block_method2str(enum cram_block_method m) {
     case RANS1:    return "RANS1";
     case GZIP_RLE: return "GZIP_RLE";
     case GZIP_1:   return "GZIP-1";
+    case ZSTD:     return "ZSTD";
     case BM_ERROR: break;
     }
     return "?";
@@ -4333,6 +4443,8 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    method |= 1<<BZIP2;
 	if (fd->use_lzma)
 	    method |= 1<<LZMA;
+	if (fd->use_zstd)
+	    method |= 1<<ZSTD;
 	cram_compress_block(fd, b, NULL, method, fd->level);
     } 
 
@@ -4831,6 +4943,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
+    fd->use_zstd = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
     fd->shared_ref = 0;
@@ -4936,6 +5049,7 @@ cram_fd *cram_open_by_callbacks(
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
+    fd->use_zstd = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
     fd->shared_ref = 0;
@@ -5059,6 +5173,7 @@ cram_fd *cram_openw_by_callbacks(
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_lzma = 0;
+    fd->use_zstd = 0;
     fd->multi_seq = 0;
     fd->unsorted   = 0;
     fd->shared_ref = 0;
@@ -5360,6 +5475,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_USE_LZMA:
 	fd->use_lzma = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_ZSTD:
+	fd->use_zstd = va_arg(args, int);
 	break;
 
     case CRAM_OPT_SHARED_REF:

@@ -188,6 +188,7 @@ enum cram_block_method {
     BZIP2  = 2,
     LZMA   = 3,
     RANS0  = 4,
+    ZSTD   = 5,
     RANS1  = 10,   // Not externalised; stored as RANS (generic)
     GZIP_RLE = 11, // Z_RLE, NB: not externalised in CRAM
     GZIP_1 = 12,   // Z_DEFAULT_STRATEGY level 1, NB: not externalised in CRAM
@@ -217,6 +218,7 @@ typedef struct {
     int sz_rans1;
     int sz_bzip2;
     int sz_lzma;
+    int sz_zstd;
 
     // resultant method from trials
     int method;
@@ -230,6 +232,7 @@ typedef struct {
     int rans1_cnt;
     int bzip2_cnt;
     int lzma_cnt;
+    int zstd_cnt;
     int revised_method;
 
     double gz_rle_extra;
@@ -239,6 +242,7 @@ typedef struct {
     double rans1_extra;
     double bzip2_extra;
     double lzma_extra;
+    double zstd_extra;
 } cram_metrics;
 
 /* Block */
@@ -784,6 +788,7 @@ typedef struct {
     int use_bz2;
     int use_rans;
     int use_lzma;
+    int use_zstd;
     int shared_ref;
     enum quality_binning binning;
     unsigned int required_fields;
@@ -943,7 +948,8 @@ enum cram_option {
     CRAM_OPT_BASES_PER_SLICE,
     CRAM_OPT_LOSSY_READ_NAMES,
     CRAM_OPT_PRESERVE_AUX_ORDER,
-    CRAM_OPT_PRESERVE_AUX_SIZE
+    CRAM_OPT_PRESERVE_AUX_SIZE,
+    CRAM_OPT_USE_ZSTD,
 };
 
 /* BF bitfields */

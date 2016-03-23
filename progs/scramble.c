@@ -118,6 +118,9 @@ static void usage(FILE *fp) {
 #ifdef HAVE_LIBLZMA
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
+#ifdef HAVE_LIBZSTD
+    fprintf(fp, "    -z             [Cram EXPERIMENTAL] Also compress using ZSTD.\n");
+#endif
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
     fprintf(fp, "    -P             [Cram EXPERIMENTAL] Preserve all aux tags (incl RG,NM,MD)\n");
     fprintf(fp, "    -p             [Cram EXPERIMENTAL] Preserve aux tag sizes ('i', 's', 'c')\n");
@@ -136,7 +139,7 @@ int main(int argc, char **argv) {
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
-    int use_bz2 = 0, use_rans = 0, use_lzma = 0;
+    int use_bz2 = 0, use_rans = 0, use_lzma = 0, use_zstd = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
@@ -151,7 +154,7 @@ int main(int argc, char **argv) {
     int preserve_aux_size = 0;
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPp")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZzt:BN:F:Hb:nPp")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -278,6 +281,15 @@ int main(int argc, char **argv) {
 #endif
 	    break;
 
+	case 'z':
+#ifdef HAVE_LIBZSTD
+	    use_zstd = 1;
+#else
+	    fprintf(stderr, "Warning: ZSTD support is not compiled into this"
+		    " version.\nPlease recompile.\n");
+#endif
+	    break;
+
 	case 't':
 	    nthreads = atoi(optarg);
 	    if (nthreads < 1) {
@@ -386,6 +398,10 @@ int main(int argc, char **argv) {
 
     if (use_lzma)
 	if (scram_set_option(out, CRAM_OPT_USE_LZMA, use_lzma))
+	    return 1;
+
+    if (use_zstd)
+	if (scram_set_option(out, CRAM_OPT_USE_ZSTD, use_zstd))
 	    return 1;
 
     if (binning != BINNING_NONE)
