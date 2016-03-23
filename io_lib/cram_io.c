@@ -4849,7 +4849,6 @@ cram_fd *cram_open(const char *filename, const char *mode) {
 
     if (!(fd->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
 	goto err;
-    fd->next_content_id = DS_END;
 
     fd->range.refid = -2; // no ref.
     fd->eof = 1;
@@ -4955,7 +4954,6 @@ cram_fd *cram_open_by_callbacks(
 
     if (!(fd->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
 	goto err;
-    fd->next_content_id = DS_END;
 
     fd->range.refid = -2; // no ref.
     fd->eof = 1;
@@ -5079,7 +5077,6 @@ cram_fd *cram_openw_by_callbacks(
 
     if (!(fd->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
 	goto err;
-    fd->next_content_id = DS_END;
 
     fd->range.refid = -2; // no ref.
     fd->eof = 1;

@@ -771,7 +771,6 @@ typedef struct {
     int level;
     cram_metrics *m[DS_END];
     HashTable *tags_used; // cram_metrics[], per tag types in use.
-    int next_content_id;
 
     // options
     int decode_md; // Whether to export MD and NM tags

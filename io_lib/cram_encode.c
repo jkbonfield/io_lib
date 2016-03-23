@@ -2044,7 +2044,6 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	int key = (aux_f[0]<<16)|(aux_f[1]<<8)|aux_f[2];
 	if (!hi->data.p) {
 	    HashItem *hi_global;
-	    hd.p = NULL;
 
 	    // Global tags_used for cram_metrics support
 	    hd.p = NULL;
