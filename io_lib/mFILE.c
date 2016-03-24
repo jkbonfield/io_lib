@@ -351,8 +351,20 @@ mFILE *mfreopen(const char *path, const char *mode_str, FILE *fp) {
  */
 mFILE *mfopen(const char *path, const char *mode) {
     FILE *fp;
+    char mode2[11];
+    int i1 = 0, i2 = 0;
 
-    if (NULL == (fp = fopen(path, mode)))
+    /* Remove the 'm' mmap symbol from mode before calling fopen() as
+     * MS Visual Studio dislikes it remaining.
+     */
+    while (i1 < 10 && mode[i1]) {
+	if (mode[i1] != 'm')
+	    mode2[i2++] = mode[i1];
+	i1++;
+    }
+    mode2[i2] = 0;
+
+    if (NULL == (fp = fopen(path, mode2)))
 	return NULL;
     return mfreopen(path, mode, fp);
 }

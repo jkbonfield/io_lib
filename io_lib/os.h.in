@@ -27,11 +27,17 @@ extern "C" {
  * processor type too.
  */
 
-/* Set by autoconf */
+/* Set by autoconf.
+ *
+ * If you are attempting to compile without autoconf, copy this file to
+ * os.h and hopefully it'll still build OK.
+ */
+#ifdef HAVE_CONFIG_H
 @SET_ENDIAN@
 
 @SET_STDIO_EXT@
 @SET_CRAM_IO_CUSTOM_BUFFERING@
+#endif
 
 /* Mac FAT binaries or unknown. Auto detect based on CPU type */
 #if !defined(SP_BIG_ENDIAN) && !defined(SP_LITTLE_ENDIAN)
