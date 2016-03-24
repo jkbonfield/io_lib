@@ -30,9 +30,9 @@ extern "C" {
 /* Set by autoconf.
  *
  * If you are attempting to compile without autoconf, copy this file to
- * os.h and hopefully it'll still build OK.
+ * os.h and remove the @...@ lines below.
  */
-#ifdef HAVE_CONFIG_H
+#ifndef NO_AUTOCONF
 @SET_ENDIAN@
 
 @SET_STDIO_EXT@
