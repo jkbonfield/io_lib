@@ -769,6 +769,8 @@ static enum sam_sort_order sam_hdr_parse_sort_order(SAM_hdr *hdr) {
 		    so = ORDER_NAME;
 		else if (strcmp(tag->str+3, "coordinate") == 0)
 		    so = ORDER_COORD;
+		else if (strcmp(tag->str+3, "unknown") == 0)
+		    so = ORDER_UNKNOWN;
 		else
 		    fprintf(stderr, "Unknown sort order field: %s\n",
 			    tag->str+3);
