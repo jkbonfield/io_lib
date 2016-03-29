@@ -27,11 +27,17 @@ extern "C" {
  * processor type too.
  */
 
-/* Set by autoconf */
+/* Set by autoconf.
+ *
+ * If you are attempting to compile without autoconf, copy this file to
+ * os.h and remove the @...@ lines below.
+ */
+#ifndef NO_AUTOCONF
 @SET_ENDIAN@
 
 @SET_STDIO_EXT@
 @SET_CRAM_IO_CUSTOM_BUFFERING@
+#endif
 
 /* Mac FAT binaries or unknown. Auto detect based on CPU type */
 #if !defined(SP_BIG_ENDIAN) && !defined(SP_LITTLE_ENDIAN)
@@ -269,6 +275,13 @@ typedef int mode_t;
 #define NOSTRCASECMP
 #define NO_STRPTIME
 #undef HAVE_SYS_WAIT_H
+
+//Visual Studio on Windows does not like "static inline"
+//http://lists.cairographics.org/archives/cairo/2008-January/012726.html
+#define inline __inline
+
+//Visual Studio does not define ssize_t
+#define ssize_t long
 #endif
 
 
@@ -386,7 +399,9 @@ typedef unsigned int	uint_4;
  * Some handy definitions.
  */
 
+#ifndef _MSC_VER
 #define MAXINT8 (9223372036854775807LL)
+#endif
 #define MAXINT4 (INT_MAX)
 #define MAXINT2 (SHRT_MAX)
 

@@ -70,6 +70,19 @@
 #include <math.h>
 #include <ctype.h>
 
+#ifdef _MSC_VER
+#include <direct.h>
+#include <io.h>
+
+#define chmod _chmod
+#define getcwd _getcwd
+
+//_mkdir does not take a mode argument on windows
+//but all calls below are followed up by calls to chmod
+//so this should not matter.
+#define mkdir(path,mode) _mkdir(path)
+#endif
+
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
@@ -167,7 +180,7 @@ static inline size_t imin(size_t const a, size_t const b)
 }
 
 /* fread simulation */
-size_t cram_io_input_buffer_read(void *ptr, size_t size, size_t nmemb, cram_fd * fd)
+size_t cram_io_input_buffer_read(void *vptr, size_t size, size_t nmemb, cram_fd * fd)
 {
     size_t toread = size * nmemb; /* number of bytes still to be read */
     size_t r = 0; /* number of bytes copied to ptr */    
@@ -175,6 +188,7 @@ size_t cram_io_input_buffer_read(void *ptr, size_t size, size_t nmemb, cram_fd *
 	           fd->fp_in_buffer->fp_in_buf_pc; /* number of bytes in buffer */
     size_t tocopy = imin(toread,inbuf); /* number of bytes to be copied from buffer */
     size_t blockread = 0;
+    char *ptr = (char *)vptr;
     
     /* copy bytes still in buffer and update values */
     memcpy(ptr,fd->fp_in_buffer->fp_in_buf_pc,tocopy);
@@ -450,7 +464,7 @@ int cram_io_flush_output_buffer(cram_fd *fd)
 
 
 /* fwrite simulation */
-size_t cram_io_output_buffer_write(void *ptr, size_t size, size_t nmemb,
+size_t cram_io_output_buffer_write(void *vptr, size_t size, size_t nmemb,
 				   cram_fd *fd)
 {
     size_t towrite = size * nmemb; /* number of bytes still to be written */
@@ -463,6 +477,7 @@ size_t cram_io_output_buffer_write(void *ptr, size_t size, size_t nmemb,
     /* number of bytes to be copied from buffer */
     size_t tocopy = imin(towrite, outbuf);
     size_t blockwrite = 0;
+    char *ptr = (char *)vptr;
     
     /* place as many bytes in out_buffer as will fit */
     memcpy(fd->fp_out_buffer->fp_out_buf_pc, ptr, tocopy);

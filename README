@@ -105,6 +105,16 @@ download/install Automated MinGW Installer (eg MinGW-5.1.4.exe), MSYS
 Base System (eg MSYS-1.0.11.exe) and MSYS Supplementary Tools (eg
 msysDTK-1.0.1.exe).
 
+If you wish to use Microsoft Visual Studio you may need to add the
+MSVC_includes subdirectory to your C include search path.  This
+adds several missing header files (eg unistd.h and sys/time.h) needed
+to build this software.  We do not have a MSVC project file available.
+
+In this case you will also need to copy io_lib/os.h.in to io_lib/os.h
+and either remove the @SET_ENDIAN@ and adjacent @ lines (as these are
+normally filled out for you by autoconf) or add -DNO_AUTOCONF to your
+compiler options.
+
 
 MacOS X
 -------

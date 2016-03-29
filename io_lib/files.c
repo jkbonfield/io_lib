@@ -221,21 +221,25 @@ static void display_win_error(char *msg) {
  *
  * Returns NULL on failure.
  */
+#ifdef _MSC_VER
+FILE *tmpfile_win(void) {
+#else
 FILE *tmpfile(void) {
+#endif
     DWORD ret;
     char tmp_path[PATH_MAX], shrt_path[PATH_MAX];
     int fd;
     FILE *fp;
 
     /* The Windows Way: get the temp directory and a file within it */
-    ret = GetTempPath(PATH_MAX, tmp_path);
+    ret = GetTempPathA(PATH_MAX, tmp_path);
     if (ret == 0 || ret > PATH_MAX) {
-	display_win_error("GetTempPath()");
+	display_win_error("GetTempPathA()");
         return NULL;
     }
 
-    if (0 == GetTempFileName(tmp_path, "fubar", 0, shrt_path)) {
-	display_win_error("GetTempFileName()");
+    if (0 == GetTempFileNameA(tmp_path, "fubar", 0, shrt_path)) {
+	display_win_error("GetTempFileNameA()");
 	return NULL;
     }
 
