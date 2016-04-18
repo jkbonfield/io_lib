@@ -56,6 +56,7 @@
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
 #include "io_lib/md5.h"
+#include "io_lib/crc32.h"
 
 //Whether CIGAR has just M or uses = and X to indicate match and mismatch
 //#define USE_X
@@ -2752,12 +2753,12 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
 	if (!fd->ignore_chksum) {
 	    if (s->hdr->BD_crc && ds & CRAM_BA && s->ref)
-		s->BD_crc += crc32(0L, (Bytef *) seq, cr->len);
+		s->BD_crc += iolib_crc32(0L, (Bytef *) seq, cr->len);
 	    
 	    if (s->hdr->SD_crc &&
 		(ds & CRAM_QS) &&
 		(cf & CRAM_FLAG_PRESERVE_QUAL_SCORES)) {
-		s->SD_crc += crc32(0L, (Bytef *) qual, cr->len);
+		s->SD_crc += iolib_crc32(0L, (Bytef *) qual, cr->len);
 	    }
 	}
     }
