@@ -65,6 +65,38 @@ Version 1.14.7 (18th February 2016)
 Building
 ========
 
+
+Zlib
+----
+
+This code makes heavy use of the Deflate algorithm, assuming a Zlib
+interface.  The native Zlib bundled with most systems is now rather
+old and better optimised versions exist for certain platforms
+(e.g. using the SSE instructions on Intel and AMD CPUs).
+
+Therefore the --with-zlib=/path/to/zlib configure option may be used
+to point to a different Zlib.  I have tested it with the vanilla zlib,
+Intel's zlib and CloudFlare's Zlib.  Of the three it appears the
+CloudFlare one has the quickest implementation, but mileage may vary
+depending on OS and CPU.  
+
+CloudFlare: https://github.com/cloudflare/zlib
+Intel:      https://github.com/jtkukunas/zlib
+Zlib-ng:    https://github.com/Dead2/zlib-ng
+
+The Zlib-ng one needs configuring with --zlib-compat and when you
+build Io_lib you will need to define -DWITH_GZFILEOP too.  It also
+doesn't work well when used in conjunction with LD_PRELOAD. Therefore
+I wouldn't recommend it for now.
+
+If you are using the CloudFlare implementation, you may also want to
+disable the CRC implementation in this code if your CloudFlare zlib
+was built with PCLMUL support as their implementation is faster.
+Otherwise the CRC here is quicker than Zlib's own version.
+Building io_lib with the internal CRC code disabled is done
+with ./configure --disable-own-crc (or CFLAGS=-UIOLIB_CRC).
+
+
 Linux
 -----
 

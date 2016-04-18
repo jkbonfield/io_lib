@@ -123,6 +123,8 @@ libstaden_read_la_SOURCES = \
 	string_alloc.h \
 	md5.c \
 	md5.h \
+	crc32.c \
+	crc32.h \
 	scram.c \
 	scram.h \
 	thread_pool.c \
