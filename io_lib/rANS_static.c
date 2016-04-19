@@ -1018,7 +1018,6 @@ unsigned char *rans_compress_O1(unsigned char *in, unsigned int in_size,
     return out_buf;
 }
 
-#include <malloc.h>
 unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
 				  unsigned int *out_size) {
     /* Load in the static tables */

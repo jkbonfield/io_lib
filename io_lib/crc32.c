@@ -615,6 +615,19 @@ const uint32_t Crc32Lookup[16][256] =
   }
 };
 
+/// swap endianess
+static inline uint32_t swap(uint32_t x)
+{
+#if defined(__GNUC__) || defined(__clang__)
+  return __builtin_bswap32(x);
+#else
+  return (x >> 24) |
+        ((x >>  8) & 0x0000FF00) |
+        ((x <<  8) & 0x00FF0000) |
+         (x << 24);
+#endif
+}
+
 /// compute CRC32 (Slicing-by-16 algorithm)
 uint32_t crc32_16bytes(const void* data, size_t length, uint32_t previousCrc32)
 {

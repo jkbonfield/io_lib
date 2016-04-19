@@ -4651,7 +4651,9 @@ cram_fd * cram_io_open(
         
     if ( *mode == 'r' ) {
         size_t bufsize = 0;
+#if defined(CRAM_IO_CUSTOM_BUFFERING) && defined(HAVE_STDIO_EXT_H)
         int isreg = 0;
+#endif
         
     	if ( strcmp(filename,"-") == 0 ) {
 	    fd->fp_in = stdin;
