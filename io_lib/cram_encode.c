@@ -2002,11 +2002,13 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    case 'i':
 		if ((aux[4]|aux[5]|aux[6]) == 0)
 		    aux_len = 1, aux_f[2] = 'C';
-		else if ((aux[4]&aux[5]&aux[6]) == 0xff && (aux[3] & 0x80))
+		else if ((unsigned char)(aux[4]&aux[5]&aux[6]) == 0xff
+			 && (aux[3] & 0x80))
 		    aux_len = 1, aux_f[2] = 'c';
 		else if ((aux[5]|aux[6]) == 0)
 		    aux_len = 2, aux_f[2] = 'S';
-		else if ((aux[5]&aux[6]) == 0xff && (aux[4] & 0x80))
+		else if ((unsigned char)(aux[5]&aux[6]) == 0xff
+			 && (aux[4] & 0x80))
 		    aux_len = 2, aux_f[2] = 's';
 		else
 		    aux_len = 4;

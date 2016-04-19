@@ -815,11 +815,11 @@ int main(int argc, char **argv) {
 
 	    k = (intptr_t) hi->key;
 	    if (k == -1) {
-		printf("Block CORE          , total size %10ld\n", hi->data.i);
+		printf("Block CORE              , total size %11"PRId64"\n", hi->data.i);
 		continue;
 	    }
 
-	    printf("Block content_id %3d, total size %10ld ",
+	    printf("Block content_id %7d, total size %11"PRId64" ",
 		   (int) k, hi->data.i);
 
 	    struct {
