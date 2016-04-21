@@ -1305,7 +1305,7 @@ FILE *open_path_file(char *file, char *path, char *relative_to) {
 	return mf->fp;
 
     /* Secure temporary file generation */
-#ifdef _MSC_VER
+#ifdef _WIN32
     if (NULL == (fp = tmpfile_win()))
 #else
     if (NULL == (fp = tmpfile()))
