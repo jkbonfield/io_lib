@@ -16,6 +16,7 @@
 #ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
 #endif
+#include "io_lib/os.h"
 
 #ifdef IOLIB_CRC
 
@@ -643,7 +644,7 @@ uint32_t crc32_16bytes(const void* data, size_t length, uint32_t previousCrc32)
     size_t unrolling;
     for (unrolling = 0; unrolling < Unroll; unrolling++)
     {
-#if __BYTE_ORDER == __BIG_ENDIAN
+#ifdef SP_BIG_ENDIAN
     uint32_t one   = *current++ ^ swap(crc);
     uint32_t two   = *current++;
     uint32_t three = *current++;
@@ -665,6 +666,9 @@ uint32_t crc32_16bytes(const void* data, size_t length, uint32_t previousCrc32)
            Crc32Lookup[14][(one   >> 16) & 0xFF] ^
            Crc32Lookup[15][(one   >> 24) & 0xFF];
 #else
+#ifndef SP_LITTLE_ENDIAN
+#error Endianness is unknown.
+#endif
     uint32_t one   = *current++ ^ crc;
     uint32_t two   = *current++;
     uint32_t three = *current++;
