@@ -221,11 +221,7 @@ static void display_win_error(char *msg) {
  *
  * Returns NULL on failure.
  */
-#ifdef _MSC_VER
 FILE *tmpfile_win(void) {
-#else
-FILE *tmpfile(void) {
-#endif
     DWORD ret;
     char tmp_path[PATH_MAX], shrt_path[PATH_MAX];
     int fd;

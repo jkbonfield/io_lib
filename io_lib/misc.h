@@ -113,11 +113,7 @@ extern "C" {
 
 /* from files.c */
 #ifdef _WIN32
-#  ifdef _MSC_VER
 FILE *tmpfile_win(void);
-#  else
-FILE *tmpfile(void);
-#  endif
 #endif
 
 extern int is_directory(char * fn);
