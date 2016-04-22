@@ -210,7 +210,7 @@ static void display_win_error(char *msg) {
     	          0,                 /* Default language */
     	          (LPTSTR)&lpMsgBuf, /* Got to love void* to str casts! */
     	          0, NULL);
-    fprintf(stderr, "%s: error #%d, %s", msg, GetLastError(), lpMsgBuf);
+    fprintf(stderr, "%s: error #%d, %s", msg, (int)GetLastError(), (char *)lpMsgBuf);
     LocalFree(lpMsgBuf);
 }
 
