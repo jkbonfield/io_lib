@@ -1,4 +1,369 @@
 ===============================================================================
+2016-04-22: RELEASE 1.14.8
+
+------------------------------------------------------------------------
+r4069 | jkbonfield | 2016-04-21 12:27:59 +0100 (Thu, 21 Apr 2016) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/files.c
+   M /io_lib/trunk/io_lib/misc.h
+   M /io_lib/trunk/io_lib/open_trace_file.c
+
+Use renamed tmpfile_win on Windows for all compilers rather than just
+MSC.  This fixes issue with more recent linux to windows
+cross-compilers and there is no benefit to having the function named
+tmpfile anyway.
+
+------------------------------------------------------------------------
+r4068 | jkbonfield | 2016-04-21 10:27:18 +0100 (Thu, 21 Apr 2016) | 6 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/crc32.c
+   M /io_lib/trunk/io_lib/jenkins_lookup3.c
+
+Improvements to endianness detection.
+
+We now use the os.h SP_?_ENDIAN macros, which in turn are set using
+autoconf and/or auto-detected via a bunch of ifdefs (incase we ever
+need to run on a platform that autoconf doesn't support).
+
+------------------------------------------------------------------------
+r4066 | jkbonfield | 2016-04-19 15:26:37 +0100 (Tue, 19 Apr 2016) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/crc32.c
+   M /io_lib/trunk/io_lib/rANS_static.c
+   M /io_lib/trunk/progs/cram_dump.c
+   M /io_lib/trunk/progs/cram_size.c
+
+Minor changes to remove (valid) warnings from Clang on MacOS X.
+
+Also changed the cram_dump field widths to match those used by
+cram_size.
+
+------------------------------------------------------------------------
+r4064 | jkbonfield | 2016-04-18 11:53:02 +0100 (Mon, 18 Apr 2016) | 7 lines
+Changed paths:
+   M /io_lib/trunk/README
+   M /io_lib/trunk/configure.in
+   M /io_lib/trunk/io_lib/Makefile.am
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   A /io_lib/trunk/io_lib/crc32.c
+   A /io_lib/trunk/io_lib/crc32.h
+
+Added a faster (than Zlib) crc32 implementation; under either BSD or
+Zlib license - it's unclear which, but both are compatible.
+
+There is also a configure option to disable this local code.  This is
+useful when linking against CloudFlare's optimised Zlib implementation
+as this has a still faster CRC if the PCLMUL instruction is available.
+
+------------------------------------------------------------------------
+r4063 | jkbonfield | 2016-04-18 11:50:14 +0100 (Mon, 18 Apr 2016) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/rANS_static.c
+
+The fix in r3942 for small stack sizes on pthread/MacOS X changed use
+of stack to heap.  This caused about 4% slow down, so it is now a
+#define.
+
+Also adding further tweaks to the rANS implementation designed to
+speed up the code on modern processors, mainly through better
+instruction ordering.
+
+------------------------------------------------------------------------
+r4062 | jkbonfield | 2016-03-30 14:58:48 +0100 (Wed, 30 Mar 2016) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/rANS_static.c
+
+Small speed ups to rANS decoding (6-10%).
+
+------------------------------------------------------------------------
+r4061 | jkbonfield | 2016-03-29 09:38:13 +0100 (Tue, 29 Mar 2016) | 5 lines
+Changed paths:
+   M /io_lib/trunk
+   A /io_lib/trunk/MSVC_includes (from /io_lib/branches/MSC/MSVC_includes:4060)
+   M /io_lib/trunk/README
+   M /io_lib/trunk/io_lib/Read.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/deflate_interlaced.c
+   M /io_lib/trunk/io_lib/files.c
+   M /io_lib/trunk/io_lib/mFILE.c
+   M /io_lib/trunk/io_lib/mFILE.h
+   M /io_lib/trunk/io_lib/misc.h
+   M /io_lib/trunk/io_lib/open_trace_file.c
+   M /io_lib/trunk/io_lib/os.h.in
+   M /io_lib/trunk/io_lib/rANS_static.c
+   M /io_lib/trunk/io_lib/srf.c
+   M /io_lib/trunk/io_lib/strings.c
+   M /io_lib/trunk/io_lib/thread_pool.c
+
+Merged in the MSC branch.
+
+This allows io_lib to be built using Microsoft Visual Studio.  Patches
+and tested by Will Stokes.
+
+------------------------------------------------------------------------
+r4060 | jkbonfield | 2016-03-24 14:43:57 +0000 (Thu, 24 Mar 2016) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/sam_header.c
+
+Don't complain about SO:unknown sort order.
+
+See https://sourceforge.net/p/staden/bugs/108/
+https://github.com/gt1/biobambam2/issues/15#issuecomment-200537636
+
+------------------------------------------------------------------------
+r4052 | jkbonfield | 2016-03-23 12:45:06 +0000 (Wed, 23 Mar 2016) | 11 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_stats.c
+
+Huge cull of the cram_stats_encoding function.
+
+It used to determine huffman vs beta vs external based on a variety of
+techniques, but not it's brutally simple:  1 unique symbol implies
+huffman, everything else implies external.
+
+The reason is to avoid ever mixing different data series together, to
+permit better random access, which in turn means never using the CORE
+block.  Hence beta, subexp, gamma, and most huffman are no longer
+suitable choices.
+
+------------------------------------------------------------------------
+r4051 | jkbonfield | 2016-03-23 09:25:59 +0000 (Wed, 23 Mar 2016) | 5 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Removed defunct next_content_id variable.
+
+This was a temporary part of the tag splitting code that was rewritten
+and become unnecessary.
+
+------------------------------------------------------------------------
+r4046 | jkbonfield | 2016-03-21 17:32:33 +0000 (Mon, 21 Mar 2016) | 14 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/progs/scramble.c
+
+Added experimental -p & -P options to scramble.
+
+These preserve the order of auxiliary tags, but forcibly encoding RG,
+MD and NM tags instead of auto-generating them,  and prevent size
+reduction of overly large auxiliary tags.  This is where we have, say,
+an MC:i:32 SAM record encoded as an MCi<20><00><00><00> BAM record
+instead of the smaller MCc<20> encoding.
+
+There is little benefit to using these options unless you really want
+your CRAM file to change as little as possible when converting back to
+BAM.  Note, storing RG, MD and NM still won't preserve order for the
+Java cram world as the order of tags is exported in some internal
+hash-table order.
+
+------------------------------------------------------------------------
+r4044 | jkbonfield | 2016-03-21 11:49:58 +0000 (Mon, 21 Mar 2016) | 10 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_index.c
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Fixes index query for references with no hits (htslib d7541514).
+
+This didn't actually affect io_lib as the seek function operates
+differently and returns a different error code, but the additional
+check does not harm and brings the implementations into alignment
+again.
+
+Also fixed cram_fd->record_counter to be 64-bit; an omission in the
+recent commits.
+
+------------------------------------------------------------------------
+r4043 | jkbonfield | 2016-03-21 11:15:42 +0000 (Mon, 21 Mar 2016) | 16 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Merging in changes from htslib.
+
+Resolved buffer overrun when last sequence is "*".
+
+Better freeing of memory on errors.
+
+Improved required_fields handling; CRAM_QUAL is no longer decoded when
+asking for CRAM_SEQ.
+
+Reduced memory usage for decodes, partly by dynamically growing the
+array by a smaller amount and partly by an improved estimation of the
+initial array sizes.
+
+Minor formatting / commenting tweaks to make spotting differences
+easier.
+
+------------------------------------------------------------------------
+r4042 | jkbonfield | 2016-03-17 12:45:07 +0000 (Thu, 17 Mar 2016) | 7 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_codecs.c
+   M /io_lib/trunk/io_lib/cram_codecs.h
+   M /io_lib/trunk/io_lib/cram_io.h
+
+Brought cram_codecs in line with htslib changes.
+
+- codec2str() removed; it was dup of cram_encoding2str().
+- Made beta codec more robust with out of bounds value (num items < 0).
+- More consistent val vs value (always use "val" given we have "len" too).
+- Revised cram_not_enough_bits function
+
+------------------------------------------------------------------------
+r4041 | jkbonfield | 2016-03-17 11:48:14 +0000 (Thu, 17 Mar 2016) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Lots of small tweaks pulled in from htslib.
+
+- Formatting corrections.
+- Improved AP_delta / pos_sorted usage, fixing decoder -> encoder
+  switching (htslib/e399970f7eac5abb2fc95331e6a2c5a3ba60e4c7)
+- Improvements in shutting down after a cram_compress_slice failure.
+  (htslib/ad3c4c5633fce4613cca4295ce25801694a298cf).
+- Various other minor things (errno, order of checks, etc).
+
+------------------------------------------------------------------------
+r4040 | jkbonfield | 2016-03-16 16:25:08 +0000 (Wed, 16 Mar 2016) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_bambam.c
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_structs.h
+
+Generation of CRAM read names is now consistent regardless of range.
+
+This also brings it in line with the htslib implementation.
+
+------------------------------------------------------------------------
+r4039 | jkbonfield | 2016-03-16 14:57:23 +0000 (Wed, 16 Mar 2016) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+
+Further fix to safe_ltf8_decode - we now actually call it!
+
+------------------------------------------------------------------------
+r4038 | jkbonfield | 2016-03-16 14:27:08 +0000 (Wed, 16 Mar 2016) | 8 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_decode.c
+   M /io_lib/trunk/io_lib/cram_io.c
+   M /io_lib/trunk/io_lib/cram_io.h
+   M /io_lib/trunk/io_lib/cram_structs.h
+   M /io_lib/trunk/progs/cram_dump.c
+
+Added a safe_ltf8_decode function to go along with the itf8 variant.
+
+Switched the record_counter from 32-bit to 64-bit.  This is as per the
+spec, but it was an error that we only stored it in 32-bit.
+
+(Plus a couple tiny minor tweaks to spacing, to make diffing to htslib
+easier.) 
+
+------------------------------------------------------------------------
+r4037 | jkbonfield | 2016-03-16 11:15:02 +0000 (Wed, 16 Mar 2016) | 13 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Applied htslib 97a79332d2f8089507b9f32aa31d5b95e72fad00
+
+    Bug fix to refs_from_header().
+    
+    The patch to hts_set_fai_filename() caused a new failure mode in this
+    function. If given a .fai file with sequence records that are not in
+    the same order as the @SQ lines in a SAM header, the code to parse the
+    @SQ header and potentially add new records that aren't in the original
+    .fai file was failing, returning -1.
+    
+    We now do a better job of merging the references together.
+
+
+------------------------------------------------------------------------
+r4036 | jkbonfield | 2016-03-16 10:50:15 +0000 (Wed, 16 Mar 2016) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_io.c
+
+Improved memory handling on failures.
+
+(Copied over from htslib.)
+
+------------------------------------------------------------------------
+r4017 | jkbonfield | 2016-02-22 18:07:24 +0000 (Mon, 22 Feb 2016) | 3 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Further fix to cram_encode_aux() when changing data sizes.
+(Thanks Joe Raynor)
+
+------------------------------------------------------------------------
+r4013 | jkbonfield | 2016-02-19 15:21:55 +0000 (Fri, 19 Feb 2016) | 2 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/bam.c
+
+Speed improvements to sam_next_seq() parsing.
+
+------------------------------------------------------------------------
+r4012 | jkbonfield | 2016-02-19 15:10:31 +0000 (Fri, 19 Feb 2016) | 4 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Improvement to the previous aux tag handling; one of the detections
+for overly-large aux tags (16 bit negative values between -128 and
+-255) always failed due to signed vs unsigned comparison.
+
+------------------------------------------------------------------------
+r4011 | jkbonfield | 2016-02-19 15:08:31 +0000 (Fri, 19 Feb 2016) | 5 lines
+Changed paths:
+   M /io_lib/trunk/progs/cram_dump.c
+
+Fixes a warning from clang.
+
+Hd was uninitialised, but it's never read back so the fix is purely to
+silence the warning.
+
+------------------------------------------------------------------------
+r4010 | jkbonfield | 2016-02-19 12:06:17 +0000 (Fri, 19 Feb 2016) | 7 lines
+Changed paths:
+   M /io_lib/trunk/tests/compare_sam.pl
+   A /io_lib/trunk/tests/data/aux#values1.bam
+   A /io_lib/trunk/tests/data/aux#values2.bam
+   A /io_lib/trunk/tests/data/aux#values4.bam
+   M /io_lib/trunk/tests/scram.test
+
+Added some hand-crafted BAMs to exercise the latest change to
+cram_encode.c (improved shrinkage of BAM aux sizes).
+
+This also needed a modification to the test environment so it could
+input BAM as well as SAM; potentially a useful extension for the
+future.
+
+------------------------------------------------------------------------
+r4009 | jkbonfield | 2016-02-19 11:20:54 +0000 (Fri, 19 Feb 2016) | 9 lines
+Changed paths:
+   M /io_lib/trunk/io_lib/cram_encode.c
+
+Fixed a bug in the CRAM encoding of BAM aux data.
+A 16-bit integer value that could be fitted into an 8-bit unsigned
+quantity caused an invalid aux block.  Thanks to Joe Rayner for
+spotting this.  (It hasn't been observed in the wild; likely nothing is
+producing BAMs of this nature.)
+
+In fixing this I also added code to shrink signed values where
+possible too.
+
+
+===============================================================================
 2016-02-18: RELEASE 1.14.7
 
 ------------------------------------------------------------------------

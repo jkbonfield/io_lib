@@ -1,3 +1,56 @@
+Version 1.14.8 (22nd April 2016)
+--------------
+
+* SAM: Small speed up to record parsing.
+
+* CRAM: Scramble now has -p and -P options to control whether to
+  force the BAM auxiliary sizes (8 vs 16 vs 32-bit integer quantities)
+  rather than reducing to smallest size required, and whether to
+  preserve the order of auxiliary tags including RG, NM and MD.
+
+  This latter option requires storing these values verbatim instead of
+  regenerating them on-the-fly, but note this only preserves tag order
+  with Scramble / Htslib.  Htsjdk will still produce these fields out
+  of order.
+
+* CRAM no longer stores data in the CORE block, permitting greater
+  flexibility in choosing which fields to decode.  (This change is
+  also mirrored in htslib and htsjdk.)
+
+* CRAM: ref.fai files in a different order to @SQ headers should now
+  work correctly.
+
+* CRAM required-fields parameters no longer forces quality decoding
+  when asking for sequence.
+
+* CRAM: More robustness / safety checks during decoding; itf8 bounds
+  checks, running out of memory, bounds checks in BETA codec, and
+  more.
+
+* CRAM auto-generated read names are consistent regardless of range
+  queries.  They also now match those produced by htslib.
+
+* CRAM: the rANS codec should now be slightly faster at decoding.
+
+* CRAM: there is a newer (faster than vanilla Zlib) crc32
+  implementation.  If you are linking against CloudFlare's optimised
+  Zlib you should configure with --disable-own-crc to utilise their
+  assembly PCLMUL CRC implementation.
+
+* CRAM bug fix: removed potential (but unobserved) possibility of
+  8-bit quantities stored as a 16-bit value in BAM being converted
+  incorrectly within CRAM.
+
+* CRAM bug fix: fixed field widths for cram_dump and cram_size.
+
+* SAM bug fix: no more complaining about "unknown" sort order.
+
+* A few compiler warnings in cram_dump / cram_size have gone away.
+  Many small CRAM code tweaks to aid comparisons to htslib.  It should
+  also be easier to build under Microsoft Visual Studio (although no
+  project file is provided).
+
+
 Version 1.14.7 (18th February 2016)
 --------------
 
