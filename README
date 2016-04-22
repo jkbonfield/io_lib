@@ -1,4 +1,4 @@
-			IO_LIB VERSION 1.14.7
+			IO_LIB VERSION 1.14.8
 			=====================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -29,36 +29,50 @@ too. See the file include/Read.h for the generic 'Read' structure.
 See the CHANGES for a summary of older updates or ChangeLog for the
 full details.
 
-Version 1.14.7 (18th February 2016)
+Version 1.14.8 (22nd April 2016)
 --------------
 
-* Some speed ups to BAM encoding, particularly when using uncompressed
-  BAM.
+* SAM: Small speed up to record parsing.
 
-* Scramble now has a lossy read-name method (scramble -n) when
-  outputting to CRAM.
+* CRAM: Scramble now has -p and -P options to control whether to
+  force the BAM auxiliary sizes (8 vs 16 vs 32-bit integer quantities)
+  rather than reducing to smallest size required, and whether to
+  preserve the order of auxiliary tags including RG, NM and MD.
 
-* Tidied up the formatting of cram_size.
+  This latter option requires storing these values verbatim instead of
+  regenerating them on-the-fly, but note this only preserves tag order
+  with Scramble / Htslib.  Htsjdk will still produce these fields out
+  of order.
 
-* Cram_dump now prints up the TD map.
+* CRAM no longer stores data in the CORE block, permitting greater
+  flexibility in choosing which fields to decode.  (This change is
+  also mirrored in htslib and htsjdk.)
 
-* CRAM bug fix: Scramble -N was sometimes failing when multi-threaded.
+* CRAM: ref.fai files in a different order to @SQ headers should now
+  work correctly.
 
-* CRAM bug fix: The code once again builds if CRAM_IO_CUSTOM_BUFFERING
-  is disabled.
+* CRAM required-fields parameters no longer forces quality decoding
+  when asking for sequence.
 
-* CRAM bug fix: avoid undefined behaviour in some uses of
-  CRAM_OPT_REQUIRED_FIELD (not readily noticable from command line
-  tools).
+* CRAM: More robustness / safety checks during decoding; itf8 bounds
+  checks, running out of memory, bounds checks in BETA codec, and
+  more.
 
-* CRAM bug fix: on very rare cases TLEN could change during decode
-  (albeit fixing it) for read-pairs that spanned references.
+* CRAM auto-generated read names are consistent regardless of range
+  queries.  They also now match those produced by htslib.
 
-* CRAM bug fix: CIGAR sequences with more than 2^27 operations are now
-  supported.
+* A few compiler warnings in cram_dump / cram_size have gone away.
+  Many small CRAM code tweaks to aid comparisons to htslib.  It should
+  also be easier to build under Microsoft Visual Studio (although no
+  project file is provided).
 
-* CRAM bug fix: fixed an assertion failure triggered with some
-  repeated templates.
+* CRAM: the rANS codec should now be slightly faster at decoding.
+
+* CRAM bug fix: removed potential (but unobserved) possibility of
+  8-bit quantities stored as a 16-bit value in BAM being converted
+  incorrectly within CRAM.
+
+* SAM bug fix: no more complaining about "unknown" sort order.
 
 
 
@@ -125,6 +139,7 @@ CFLAGS may also be changed a build time using (eg):
 The default installation location is /usr/local/bin and /usr/local/lib. These
 can be changed with the --prefix option to "configure".
 
+
 Windows
 -------
 
@@ -146,6 +161,21 @@ In this case you will also need to copy io_lib/os.h.in to io_lib/os.h
 and either remove the @SET_ENDIAN@ and adjacent @ lines (as these are
 normally filled out for you by autoconf) or add -DNO_AUTOCONF to your
 compiler options.
+
+The code should also build cleanly under a cross-compiler.  We use
+    ./configure \
+            --host=x86_64-w64-mingw32 \
+            --prefix=$DIST \
+            --with-io_lib=$DIST \
+            --with-tcl=$DIST/lib \
+            --with-tk=$DIST/lib \
+            --with-tklib=$DIST/lib/tklib0.5 \
+            --with-zlib=$DIST \
+            LDFLAGS=-L$DIST/lib
+
+with $DIST being pre-populated with already built and installed 3rd
+party dependencies, some from MSYS mentioned above.
+
 
 
 MacOS X
