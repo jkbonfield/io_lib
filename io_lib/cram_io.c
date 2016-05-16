@@ -2034,7 +2034,14 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		int best_sz = INT_MAX;
 
 		// Scale methods by cost
-		if (fd->level <= 3) {
+		if (fd->level <= 1) {
+		    metrics->sz_rans1  *= 1.08;
+		    metrics->sz_gz_rle *= 1.10;
+		    metrics->sz_gz_1   *= 1.12;
+		    metrics->sz_gz_def *= 1.15;
+		    metrics->sz_bzip2  *= 1.20;
+		    metrics->sz_lzma   *= 1.50;
+		} else if (fd->level <= 3) {
 		    metrics->sz_rans1  *= 1.02;
 		    metrics->sz_gz_1   *= 1.02;
 		    metrics->sz_gz_def *= 1.04;
