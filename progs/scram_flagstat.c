@@ -115,6 +115,8 @@ int main(int argc, char **argv) {
     int nthreads = 1;
     int benchmark = 0;
 
+    scram_init();
+
     memset(&st, 0, sizeof(st));
 
     /* Parse command line arguments */
@@ -247,8 +249,9 @@ int main(int argc, char **argv) {
     if (benchmark) {
 	s = NULL;
 	while (scram_get_seq(in, &s) >= 0);
-
-	return scram_eof(in) ? 0 : 1;
+	int ret = scram_eof(in) ? 0 : 1;
+	scram_close(in);
+	return ret;
     }
 
     s = NULL;
