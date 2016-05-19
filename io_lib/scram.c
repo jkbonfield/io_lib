@@ -432,3 +432,27 @@ int scram_line(scram_fd *fd) {
     else
 	return 0;
 }
+
+
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
+#endif
+
+/*! Advises the memory allocator of CRAM usage patterns
+ *
+ * CRAM decoding will typically allocate & deallocate blocks for each
+ * slice.  Under certain conditions this can cause a large number of
+ * page faults where malloc gives a page back to the OS (free) and
+ * then requests it again (the next malloc).  We could write our own
+ * memory cache layer on top of malloc to keep track of previously
+ * freed blocks, but it is complex in a multi-threaded environment and
+ * arguably this is what malloc does anyway.
+ *
+ * Under GNU malloc we can simply request it doesn't give back memory
+ * unless it is a larger amount.
+ */
+void scram_init(void) {
+#if defined(HAVE_MALLOPT) && defined(M_TOP_PAD)
+    mallopt(M_TOP_PAD, 10000000);
+#endif
+}

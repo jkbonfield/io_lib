@@ -150,6 +150,8 @@ int main(int argc, char **argv) {
     int preserve_aux_order = 0;
     int preserve_aux_size = 0;
 
+    scram_init();
+
     /* Parse command line arguments */
     while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPp")) != -1) {
 	switch (c) {
