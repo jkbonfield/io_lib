@@ -2525,6 +2525,7 @@ refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
 
     RP("refs_load_fai %s END (success)\n", fn);
 
+    fclose(fp);
     return r;
 
  err:
