@@ -37,6 +37,7 @@
 
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 
 #include "io_lib/os.h"
 #include "io_lib/zfio.h"
