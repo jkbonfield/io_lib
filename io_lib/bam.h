@@ -193,6 +193,9 @@ typedef struct {
 
     /* Quality binning */
     enum quality_binning binning;
+
+    /* Disabling CRC checks */
+    int ignore_chksum;
 } bam_file_t;
 
 /* BAM flags */
@@ -725,7 +728,8 @@ int bam_write_header(bam_file_t *out);
 
 enum bam_option {
     BAM_OPT_THREAD_POOL,
-    BAM_OPT_BINNING
+    BAM_OPT_BINNING,
+    BAM_OPT_IGNORE_CHKSUM
 };
 
 /*! Sets options on the bam_file_t.
