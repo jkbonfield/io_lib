@@ -409,6 +409,12 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 	return fd->is_bam
 	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
 	    : cram_set_option(fd->c, CRAM_OPT_BINNING, bin);
+    } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
+	int chk = va_arg(args, int);
+
+	return fd->is_bam
+	    ? bam_set_option (fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
+	    : cram_set_option(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
     }
 
     if (!fd->is_bam) {
