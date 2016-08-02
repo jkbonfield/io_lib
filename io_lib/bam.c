@@ -645,6 +645,7 @@ typedef struct {
     unsigned char comp[Z_BUFF_SIZE];
     unsigned char uncomp[Z_BUFF_SIZE];
     size_t comp_sz, uncomp_sz;
+    int ignore_chksum;
 } bgzf_decode_job;
 static bgzf_decode_job *last_job = NULL;
 
@@ -674,14 +675,16 @@ void *bgzf_decode_thread(void *arg) {
 	return NULL;
     }
 
-    uint32_t crc1 = iolib_crc32(0L, (unsigned char *)j->uncomp, s.total_out);
-    uint32_t crc2;
-    memcpy(&crc2, j->comp + j->comp_sz, 4);
-    crc2 = le_int2(crc2);
-    if (crc1 != crc2) {
-	fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
-		crc1, crc2);
-	return NULL;
+    if (!j->ignore_chksum) {
+	uint32_t crc1=iolib_crc32(0L, (unsigned char *)j->uncomp, s.total_out);
+	uint32_t crc2;
+	memcpy(&crc2, j->comp + j->comp_sz, 4);
+	crc2 = le_int2(crc2);
+	if (crc1 != crc2) {
+	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
+		    crc1, crc2);
+	    return NULL;
+	}
     }
 
     j->uncomp_sz  = s.total_out;
@@ -806,6 +809,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 
 		memcpy(j->comp, b->comp_p, bsize+8);
 		j->comp_sz = bsize;
+		j->ignore_chksum = b->ignore_chksum;
 
 		b->comp_p  += bsize + 8; // crc & isize
 		b->comp_sz -= bsize + 8; // crc & isize
