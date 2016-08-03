@@ -131,7 +131,9 @@ libstaden_read_la_SOURCES = \
 	thread_pool.h \
 	binning.h \
 	binning.c \
-	cram_bambam.c
+	cram_bambam.c \
+	bgzip.c \
+	bgzip.h
 
 libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
 

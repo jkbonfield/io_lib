@@ -58,6 +58,7 @@ extern "C" {
 #include "io_lib/hash_table.h"       // From io_lib aka staden-read
 #include "io_lib/thread_pool.h"
 #include "io_lib/mFILE.h"
+#include "io_lib/bgzip.h"
 
 #ifdef SAMTOOLS
 // From within samtools/HTSlib
@@ -613,7 +614,7 @@ typedef struct {
     int nref;              // number of ref_entry
 
     char *fn;              // current file opened
-    FILE *fp;              // and the FILE* to go with it.
+    bzi_FILE *fp;          // and the bzi_FILE* to go with it.
 
     int count;             // how many cram_fd sharing this refs struct
 

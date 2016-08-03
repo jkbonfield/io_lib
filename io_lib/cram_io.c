@@ -2356,7 +2356,7 @@ void refs_free(refs_t *r) {
 	free(r->ref_id);
 
     if (r->fp)
-	fclose(r->fp);
+	bzi_close(r->fp);
 
     pthread_mutex_destroy(&r->lock);
 
@@ -2424,13 +2424,13 @@ refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
     }
 
     if (r->fp)
-	fclose(r->fp);
+	bzi_close(r->fp);
     r->fp = NULL;
 
     if (!(r->fn = string_dup(r->pool, fn)))
 	goto err;
 
-    if (!(r->fp = fopen(fn, "r"))) {
+    if (!(r->fp = bzi_open(fn, "r"))) {
 	if (is_err)
 	    perror(fn);
 	goto err;
@@ -2784,18 +2784,18 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     /* Use cache if available */
     if (local_cache && *local_cache) {
 	struct stat sb;
-	FILE *fp;
+	bzi_FILE *fp;
 
 	expand_cache_path(path, local_cache, tag->str+3);
 
-	if (0 == stat(path, &sb) && (fp = fopen(path, "r"))) {
+	if (0 == stat(path, &sb) && (fp = bzi_open(path, "r"))) {
 	    r->length = sb.st_size;
 	    r->offset = r->line_length = r->bases_per_line = 0;
 
 	    r->fn = string_dup(fd->refs->pool, path);
 
 	    if (fd->refs->fp)
-		fclose(fd->refs->fp);
+		bzi_close(fd->refs->fp);
 	    fd->refs->fp = fp;
 	    fd->refs->fn = r->fn;
 
@@ -2831,7 +2831,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 	    : tag->str+3;
 
 	if (fd->refs->fp) {
-	    fclose(fd->refs->fp);
+	    bzi_close(fd->refs->fp);
 	    fd->refs->fp = NULL;
 	}
 	if (!(refs = refs_load_fai(fd->refs, fn, 0)))
@@ -2840,7 +2840,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 
 	fd->refs = refs;
 	if (fd->refs->fp) {
-	    fclose(fd->refs->fp);
+	    bzi_close(fd->refs->fp);
 	    fd->refs->fp = NULL;
 	}
 
@@ -2951,7 +2951,7 @@ void cram_ref_decr(refs_t *r, int id) {
  * Returns all or part of a reference sequence on success (malloced);
  *         NULL on failure.
  */
-char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
+char *load_ref_portion(bzi_FILE *fp, ref_entry *e, int start, int end) {
     off_t offset, len;
     char *seq;
 
@@ -2972,7 +2972,7 @@ char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
 	     (end-1) % e->bases_per_line
 	   : end-1) - offset + 1;
 
-    if (0 != fseeko(fp, offset, SEEK_SET)) {
+    if (0 != bzi_seek(fp, offset, SEEK_SET)) {
 	perror("fseeko() on reference file");
 	return NULL;
     }
@@ -2981,7 +2981,7 @@ char *load_ref_portion(FILE *fp, ref_entry *e, int start, int end) {
 	return NULL;
     }
 
-    if (len != fread(seq, 1, len, fp)) {
+    if (len != bzi_read(seq, 1, len, fp)) {
 	perror("fread() on reference file");
 	free(seq);
 	return NULL;
@@ -3052,9 +3052,9 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
     /* Open file if it's not already the current open reference */
     if (strcmp(r->fn, e->fn) || r->fp == NULL) {
 	if (r->fp)
-	    fclose(r->fp);
+	    bzi_close(r->fp);
 	r->fn = e->fn;
-	if (!(r->fp = fopen(r->fn, "r"))) {
+	if (!(r->fp = bzi_open(r->fn, "r"))) {
 	    perror(r->fn);
 	    return NULL;
 	}
@@ -3266,9 +3266,9 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     /* Open file if it's not already the current open reference */
     if (strcmp(fd->refs->fn, r->fn) || fd->refs->fp == NULL) {
 	if (fd->refs->fp)
-	    fclose(fd->refs->fp);
+	    bzi_close(fd->refs->fp);
 	fd->refs->fn = r->fn;
-	if (!(fd->refs->fp = fopen(fd->refs->fn, "r"))) {
+	if (!(fd->refs->fp = bzi_open(fd->refs->fn, "r"))) {
 	    perror(fd->refs->fn);
 	    pthread_mutex_unlock(&fd->refs->lock);
 	    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
