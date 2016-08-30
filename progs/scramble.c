@@ -121,6 +121,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
     fprintf(fp, "    -P             [Cram EXPERIMENTAL] Preserve all aux tags (incl RG,NM,MD)\n");
     fprintf(fp, "    -p             [Cram EXPERIMENTAL] Preserve aux tag sizes ('i', 's', 'c')\n");
+    fprintf(fp, "    -q             Don't add scramble @PG header line\n");
     fprintf(fp, "    -N integer     Stop decoding after 'integer' sequences\n");
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
@@ -148,12 +149,13 @@ int main(int argc, char **argv) {
     int bases_per_slice = 0;
     int lossy_read_names = 0;
     int preserve_aux_order = 0;
-    int preserve_aux_size = 0;
+    int preserve_aux_size = 0; 
+    int add_pg = 1;   
 
     scram_init();
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPp")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPpq")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -298,6 +300,10 @@ int main(int argc, char **argv) {
 
 	case 'p':
 	    preserve_aux_size = 1;
+	    break;
+
+	case 'q':
+	    add_pg = 0;
 	    break;
 
 	case 'N':
@@ -459,21 +465,23 @@ int main(int argc, char **argv) {
     }
 
     if (scram_get_header(out)) {
-	char *arg_list = stringify_argv(argc, argv);
+        if (add_pg) {
+	    char *arg_list = stringify_argv(argc, argv);
 
-	if (!arg_list)
-	    return 1;
+	    if (!arg_list)
+		return 1;
 
-	if (sam_hdr_add_PG(scram_get_header(out), "scramble",
-			   "VN", PACKAGE_VERSION,
-			   "CL", arg_list, NULL))
-	    return 1;
+	
+	    if (sam_hdr_add_PG(scram_get_header(out), "scramble",
+			       "VN", PACKAGE_VERSION,
+			       "CL", arg_list, NULL))
+	        return 1;
+
+	    free(arg_list);
+	}
 
 	if ((header || omode[1] != 's') && scram_write_header(out) != 0)
 	    return 1;
-
-	free(arg_list);
-
     }
 
 
