@@ -334,6 +334,12 @@ int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len) {
 	} else {
 	    h_type->prev = h_type->next = h_type;
 	    h_type->order = 0;
+	    if (!(type[0] == 'H' && type[1] == 'D')) {
+		// Whenever new type is added to hashtable record in
+		// type_order unless HD, which should always be first.
+		dstring_nappend(sh->type_order, type, 2);
+		sh->ntypes++;
+	    }
 	}
 
 	// Parse the tags on this line
@@ -456,6 +462,12 @@ int sam_hdr_vadd(SAM_hdr *sh, const char *type, va_list ap, ...) {
 	h_type->next = t;
 	h_type->order = p->order + 1;
     } else {
+	if (!(type[0] == 'H' && type[1] == 'D')) {
+	    // Whenever new type is added to hashtable record in
+	    // type_order unless HD, which should always be first.
+	    dstring_nappend(sh->type_order, type, 2);
+	    sh->ntypes++;
+	}
 	h_type->prev = h_type->next = h_type;
 	h_type->order = 0;
     }
@@ -793,6 +805,9 @@ int sam_hdr_rebuild(SAM_hdr *hdr) {
     HashIter *iter = HashTableIterCreate();
     dstring_t *ds = dstring_create(NULL);
 
+    char *type_order = DSTRING_STR(hdr->type_order);
+    int i, ntypes = hdr->ntypes;
+
     if (!iter || !ds)
 	return -1;
 
@@ -811,29 +826,34 @@ int sam_hdr_rebuild(SAM_hdr *hdr) {
 	    return -1;
     }
 
-    while ((hi = HashTableIterNext(hdr->h, iter))) {
-	SAM_hdr_type *t1, *t2;
-	if (hi->key[0] == 'H' && hi->key[1] == 'D')
-	    continue;
-
-	t1 = t2 = hi->data.p;
-	do {
-	    SAM_hdr_tag *tag;
-	    if (-1 == dstring_append_char(ds, '@'))
-		return -1;
-	    if (-1 == dstring_nappend(ds, hi->key, 2))
-		return -1;
-	    for (tag = t1->tag; tag; tag=tag->next) {
-		if (-1 == dstring_append_char(ds, '\t'))
+    for (i = 0; i < ntypes; i++) {
+	// output types according to type_order
+	if ((hi = HashTableSearch(hdr->h, type_order+i*2, 2))) {
+	    SAM_hdr_type *t1, *t2;
+	    if (hi->key[0] == 'H' && hi->key[1] == 'D')
+		continue;
+	    t1 = t2 = hi->data.p;
+	    do {
+		SAM_hdr_tag *tag;
+		if (-1 == dstring_append_char(ds, '@'))
 		    return -1;
-		if (-1 == dstring_nappend(ds, tag->str, tag->len))
+		if (-1 == dstring_nappend(ds, hi->key, 2))
 		    return -1;
-	    }
-	    if (-1 == dstring_append_char(ds, '\n'))
-		return -1;
-	    t1 = t1->next;
-	} while (t1 != t2);
+		for (tag = t1->tag; tag; tag=tag->next) {
+		    if (-1 == dstring_append_char(ds, '\t'))
+			return -1;
+		    if (-1 == dstring_nappend(ds, tag->str, tag->len))
+			return -1;
+		}
+		if (-1 == dstring_append_char(ds, '\n'))
+		    return -1;
+		t1 = t1->next;
+	    } while (t1 != t2);
+	}      
     }
+
+    // The above loop will have found all header entries as we cannot add to
+    // hdr->h without also adding to the type_order / ntypes.
 
     HashTableIterDestroy(iter);
 
@@ -856,6 +876,10 @@ SAM_hdr *sam_hdr_new() {
     if (!sh)
 	return NULL;
     
+    sh->ntypes = 0;
+    if (!(sh->type_order = dstring_create(NULL)))
+	goto err;
+
     sh->h = HashTableCreate(16, HASH_FUNC_HSIEH |
 			    HASH_DYNAMIC_SIZE);
     if (!sh->h)
@@ -902,6 +926,9 @@ SAM_hdr *sam_hdr_new() {
     return sh;
 
  err:
+    if (sh->type_order)
+	dstring_destroy(sh->type_order);
+
     if (sh->h)
 	HashTableDestroy(sh->h, 0);
 
@@ -1005,6 +1032,9 @@ void sam_hdr_free(SAM_hdr *hdr) {
 
     if (--hdr->ref_count > 0)
 	return;
+
+    if (hdr->type_order)
+	dstring_destroy(hdr->type_order);
 
     if (hdr->text)
 	dstring_destroy(hdr->text);
