@@ -108,7 +108,8 @@ pkginclude_HEADERS = \
 	io_lib_config.h \
 	io_lib/md5.h \
 	io_lib/thread_pool.h \
-	io_lib/binning.h
+	io_lib/binning.h \
+	io_lib/bgzip.h
 
 bin_SCRIPTS = io_lib-config
 
