@@ -1528,13 +1528,9 @@ cram_block *cram_read_block(cram_fd *fd) {
 	    return NULL;
 	}
 
-	crc = iolib_crc32(crc, b->data ? b->data : (uc *)"", b->alloc);
-	if (crc != b->crc32) {
-	    fprintf(stderr, "Block CRC32 failure\n");
-	    free(b->data);
-	    free(b);
-	    return NULL;
-	}
+	// Check later, if and only if we do decompression of this block
+	b->crc32_checked = 0;
+	b->crc_part = crc;
     }
 
     b->orig_method = b->method;
@@ -1608,6 +1604,15 @@ void cram_free_block(cram_block *b) {
 int cram_uncompress_block(cram_block *b) {
     char *uncomp;
     size_t uncomp_size = 0;
+
+    if (b->crc32_checked == 0) {
+	uint32_t crc = iolib_crc32(b->crc_part, b->data ? b->data : (uc *)"", b->alloc);
+	b->crc32_checked = 1;
+	if (crc != b->crc32) {
+	    fprintf(stderr, "Block CRC32 failure\n");
+	    return -1;
+	}
+    }
 
     if (b->uncomp_size == 0) {
 	// blank block

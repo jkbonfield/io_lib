@@ -260,6 +260,9 @@ typedef struct {
 
     // To aid compression
     cram_metrics *m; // used to track aux block compression only
+
+    int crc32_checked;
+    uint32_t crc_part;
 } cram_block;
 
 struct cram_codec; /* defined in cram_codecs.h */
