@@ -2242,6 +2242,73 @@ static void reset_all_codecs(cram_block_compression_hdr *hdr) {
     }
 }
 
+static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
+		       cram_record *cr, int rec, bam_seq_t **bam);
+
+/*
+ * Bulk conversion of an entire cram slice to an array of bam objects.
+ * (Assumption that fd->required_fields will not change from one
+ * cram_get_bam_seq() call to the  next.)
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+
+static int bam_size(SAM_hdr *bfd, cram_fd *fd, cram_record *cr) {
+    int name_len, rg_len;
+
+    if (fd->required_fields & SAM_QNAME) {
+	if (cr->name_len)
+	    name_len = cr->name_len;
+	else
+	    name_len = strlen(fd->prefix) + 20; // overestimate
+    } else {
+	name_len = 1;
+    }
+
+    rg_len = (cr->rg != -1) ? bfd->rg[cr->rg].name_len + 4 : 0;
+
+    return sizeof(bam_seq_t)
+	+ name_len + 1
+	+ round4(name_len+1)
+	+ 4 * cr->ncigar
+	+ (cr->len+1)/2
+	+ cr->len
+	+ cr->aux_size + rg_len + 1;
+}
+
+static int bulk_cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s) {
+    int i;
+    int r = 0;
+    int sizes[10000];
+
+    size_t len = 0;
+    for (i = 0; i < s->hdr->num_records; i++) {
+	int sz = bam_size(bfd, fd, &s->crecs[i]);
+	if (i < 10000)
+	    sizes[i] = sz;
+	len += sz;
+    }
+
+    s->bl = (bam_seq_t **)malloc(s->hdr->num_records * sizeof(*s->bl) + len);
+    if (!s->bl)
+	return -1;
+
+    char *x = ((char *)s->bl) + s->hdr->num_records * sizeof(*s->bl);
+    for (i = 0; i < s->hdr->num_records; i++) {
+	bam_seq_t *b = (bam_seq_t *)x, *o = b;
+	int bsize = i < 10000 ? sizes[i] : bam_size(bfd, fd, &s->crecs[i]);
+	b->alloc = bsize;
+	r |= (cram_to_bam(fd->header, fd, s, &s->crecs[i], i, &b) < 0);
+	// if we allocated enough, the above won't have resized b
+	assert(o == b && o->alloc == bsize);
+	x += bsize;
+	s->bl[i] = b;
+    }
+
+    return 0;
+}
+
 /*
  * Decode an entire slice from container blocks. Fills out s->crecs[] array.
  * Returns 0 on success
@@ -2822,6 +2889,17 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	}
     }
 
+    // If we're wanting BAM records, convert these up-front too.
+    // This is useful when we're streaming lots of data in a
+    // multi-threaded environment as the cram to bam conversion is
+    // then threaded too.
+    //
+    // Possible future optimisation - check range query and don't
+    // convert all reads to BAM.
+
+    if (fd->pool)
+	r |= bulk_cram_to_bam(bfd, fd, s);
+
     return r;
 }
 
@@ -3308,11 +3386,41 @@ int cram_get_bam_seq(cram_fd *fd, bam_seq_t **bam) {
     cram_container *c;
     cram_slice *s;
 
-    if (!(cr = cram_get_seq(fd)))
+    if (!(cr = cram_get_seq(fd))) {
+	//*bam=0;
 	return -1;
+    }
 
     c = fd->ctr;
     s = c->slice;
 
-    return cram_to_bam(fd->header, fd, s, cr, c->curr_rec-1, bam);
+    if (s->bl) {
+	//*bam = s->bl[c->curr_rec-1]; return 0;
+
+	// Ideally we'd just do: *bam = s->bl[c->curr_rec-1];
+	// That works, but it changes the API as the bam object is
+	// no longer a malloced block of memory and cannot be
+	// freed by the caller.  (Possibly we can do *bam=0
+	// in the case where cram_get_seq hits EOF, but this is
+	// also assuming that the *bam object was ours and not a
+	// result of, say, a merge with a bam file.)
+	//
+	// Hence instead we laboriously manage the memory and do a
+	// memcpy each time.  (This is around an extra 40% time taken
+	// in main to decode a CRAM file, harming parallel execution.)
+	int sz = s->bl[c->curr_rec-1]->alloc;
+	if (!*bam) {
+	    if (!(*bam = malloc(sz)))
+		return -1;
+	    (*bam)->alloc = sz;
+	} else if ((*bam)->alloc < sz) {
+	    if (!(*bam = realloc(*bam, sz)))
+		return -1;
+	    (*bam)->alloc = sz;
+	}
+	memcpy(*bam, s->bl[c->curr_rec-1], sz);
+	return 0;
+    }
+
+    return cram_to_bam(fd->header, fd, s, cr, c->curr_rec-1, bam) >= 0 ? 0 : -1;
 }
