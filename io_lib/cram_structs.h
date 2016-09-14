@@ -590,6 +590,9 @@ typedef struct cram_slice {
     // For going from BAM to CRAM; an array of auxiliary blocks per type
     int naux_block;
     cram_block **aux_block;
+
+    // Cache of converted BAM structs
+    bam_seq_t **bl;
 } cram_slice;
 
 /*-----------------------------------------------------------------------------

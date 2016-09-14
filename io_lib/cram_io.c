@@ -3853,6 +3853,9 @@ void cram_free_slice(cram_slice *s) {
     if (!s)
 	return;
 
+    if (s->bl)
+	free(s->bl);
+
     if (s->hdr_block)
 	cram_free_block(s->hdr_block);
 

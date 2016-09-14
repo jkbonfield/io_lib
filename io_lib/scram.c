@@ -454,11 +454,10 @@ int scram_line(scram_fd *fd) {
  * freed blocks, but it is complex in a multi-threaded environment and
  * arguably this is what malloc does anyway.
  *
- * Under GNU malloc we can simply request it doesn't give back memory
- * unless it is a larger amount.
+ * Under GNU malloc we can simply tune it to avoid too many page faults.
  */
 void scram_init(void) {
-#if defined(HAVE_MALLOPT) && defined(M_TOP_PAD)
-    mallopt(M_TOP_PAD, 10000000);
+#if defined(HAVE_MALLOPT) && defined(M_MMAP_MAX)
+    mallopt(M_MMAP_MAX, 0);
 #endif
 }
