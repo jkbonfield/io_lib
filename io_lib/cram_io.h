@@ -746,6 +746,8 @@ extern cram_fd_output_buffer *
 cram_io_allocate_output_buffer(size_t const bufsize);
 #endif
 
+char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size);
+
 /**@}*/
 
 #ifdef __cplusplus
