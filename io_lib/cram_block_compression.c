@@ -62,6 +62,7 @@
 #include "io_lib/os.h"
 #include "io_lib/rANS_static.h"
 #include "io_lib/hash_table.h"
+#include "io_lib/crc32.h"
 
 
 static cram_compressor **codecs = NULL;
@@ -76,6 +77,15 @@ int cram_uncompress_block(cram_slice *s, cram_block *b) {
     char *uncomp;
     size_t uncomp_size = 0;
     uint32_t method;
+
+    if (b->crc32_checked == 0) {
+	uint32_t crc = iolib_crc32(b->crc_part, b->data ? b->data : (uc *)"", b->alloc);
+	b->crc32_checked = 1;
+	if (crc != b->crc32) {
+	    fprintf(stderr, "Block CRC32 failure\n");
+	    return -1;
+	}
+    }
 
     if (b->uncomp_size == 0) {
 	// blank block
@@ -111,11 +121,14 @@ int cram_uncompress_block(cram_slice *s, cram_block *b) {
     case RANS0:
     case RANS1:
 	uncomp_size = b->uncomp_size;
-	uncomp = codecs[method]->uncompress_block(s, b->data, b->comp_size, &uncomp_size);
+	uncomp = (char *)codecs[method]->uncompress_block(s, b->data,b->comp_size,
+							  &uncomp_size);
 	if (!uncomp)
 	    return -1;
-	if ((int)uncomp_size != b->uncomp_size)
+	if ((int)uncomp_size != b->uncomp_size) {
+	    free(uncomp);
 	    return -1;
+	}
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = uncomp_size;
@@ -198,7 +211,9 @@ static char *cram_compress_by_method(char *in, size_t in_size,
     case LZMA:
     case RANS0:
     case RANS1:
-	return codecs[method]->compress_block(level, s, in, in_size, out_size);
+	return (char *)codecs[method]->compress_block(level, s,
+						      (uint8_t *)in, in_size,
+						      out_size);
 
     case RAW:
 	break;
@@ -222,6 +237,15 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
     size_t comp_size = 0;
     int strat;
     int m;
+
+    if (b->method != RAW) {
+	// Maybe already compressed if s->block[0] was compressed and
+	// we have e.g. s->block[DS_BA] set to s->block[0] due to only
+	// one base type present and hence using E_HUFFMAN on block 0.
+	// A second explicit attempt to compress the same block then
+	// occurs.
+	return 0;
+    }
 
     // Clear unavailable methods
     for (m = 0; m < 32; m++) {
@@ -281,14 +305,16 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
 			continue;
 		    c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 						&sz[m], s, m, level, strat);
-		    if (sz_best > sz[m]) {
+		    if (c && sz_best > sz[m]) {
 			sz_best = sz[m];
 			method_best = m;
 			if (c_best)
 			    free(c_best);
 			c_best = c;
-		    } else {
+		    } else if (c) {
 			free(c);
+		    } else {
+			sz[m] = b->uncomp_size*2+1000; // ie. worse than raw
 		    }
 		    
 		    //fprintf(stderr, "Method %d; Block %d; %d->%d\n", m, b->content_id, b->uncomp_size, sz[m]);
@@ -298,7 +324,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
 	    //fprintf(stderr, "sz_best = %d\n", sz_best);
 
 	    free(b->data);
-	    b->data = c_best;
+	    b->data = (uint8_t *)c_best;
 	    //printf("method_best = %s\n", cram_block_method2str(method_best));
 	    //b->method = method_best == GZIP_RLE ? GZIP : method_best;
 	    b->method = codecs[method_best]->code;
@@ -550,7 +576,8 @@ unsigned char *gzip_codec_compress(int level,
 				   size_t *out_size) {
     unsigned char *comp;
 
-    comp = zlib_mem_deflate(in, in_size, out_size, level, Z_FILTERED);
+    comp = (uint8_t *)zlib_mem_deflate((char *)in, in_size,
+				       out_size, level, Z_FILTERED);
     if (!comp)
         return NULL;
 
@@ -564,7 +591,8 @@ unsigned char *gzip_rle_codec_compress(int level,
 				       size_t *out_size) {
     unsigned char *comp;
 
-    comp = zlib_mem_deflate(in, in_size, out_size, 1, Z_RLE);
+    comp = (uint8_t *)zlib_mem_deflate((char *)in, in_size,
+				       out_size, 1, Z_RLE);
     if (!comp)
         return NULL;
 
@@ -575,9 +603,9 @@ unsigned char *gzip_codec_uncompress(cram_slice *s,
 				     unsigned char *in,
 				     size_t in_size,
 				     size_t *out_size) {
-    char *uncomp;
+    unsigned char *uncomp;
 
-    if (!(uncomp = zlib_mem_inflate(in, in_size, out_size)))
+    if (!(uncomp = (uint8_t *)zlib_mem_inflate((char *)in, in_size, out_size)))
         return NULL;
 
     return uncomp;
@@ -614,14 +642,14 @@ unsigned char *bzip2_codec_compress(int level,
 				    unsigned char *in,
 				    size_t in_size,
 				    size_t *out_size) {
-    int comp_size = 1.01*in_size+600;
+    unsigned int comp_size = 1.01*in_size+600;
     unsigned char *comp;
 
     if (!(comp = (unsigned char *)malloc(comp_size)))
         return NULL;
 
-    if (BZ_OK != BZ2_bzBuffToBuffCompress(comp, &comp_size,
-                                          in, in_size,
+    if (BZ_OK != BZ2_bzBuffToBuffCompress((char *)comp, &comp_size,
+                                          (char *)in, in_size,
                                           level, 0, 30)) {
         free(comp);
         return NULL;
@@ -635,22 +663,21 @@ unsigned char *bzip2_codec_uncompress(cram_slice *s,
 				      unsigned char *in,
 				      size_t in_size,
 				      size_t *out_size) {
-    int block_size, data_size;
-    unsigned char *uncomp;
-    int out_sz = *out_size;
+    char *uncomp;
+    unsigned int out_sz = *out_size;
 
-    if (!(uncomp = (unsigned char *)malloc(out_sz)))
+    if (!(uncomp = (char *)malloc(out_sz)))
         return NULL;
 
     if (BZ_OK != BZ2_bzBuffToBuffDecompress(uncomp, &out_sz,
-                                            in, in_size,
+                                            (char *)in, in_size,
                                             0, 0)) {
         free(uncomp);
         return NULL;
     }
 
     *out_size = out_sz;
-    return uncomp;
+    return (unsigned char *)uncomp;
 }
 
 static cram_compressor bzip2_codec = {
@@ -758,14 +785,14 @@ unsigned char *lzma_codec_compress(int level,
 				   unsigned char *in,
 				   size_t in_size,
 				   size_t *out_size) {
-    return lzma_mem_deflate(in, in_size, out_size, level);
+    return (uint8_t *)lzma_mem_deflate((char *)in, in_size, out_size, level);
 }
 
 unsigned char *lzma_codec_uncompress(cram_slice *s,
 				     unsigned char *in,
 				     size_t in_size,
 				     size_t *out_size) {
-    return lzma_mem_inflate(in, in_size, out_size);
+    return (uint8_t *)lzma_mem_inflate((char *)in, in_size, out_size);
 }
 
 static cram_compressor lzma_codec = {
@@ -795,10 +822,10 @@ unsigned char *rans0_codec_compress(int level,
 				    unsigned char *in,
 				    size_t in_size,
 				    size_t *out_size) {
-    int i_out_size = *out_size;
+    unsigned int i_out_size = *out_size;
     unsigned char *comp;
 
-    comp = rans_compress(in, in_size, &i_out_size, 0);
+    comp = (unsigned char *)rans_compress(in, in_size, &i_out_size, 0);
     *out_size = i_out_size;
 
     return comp;
@@ -809,7 +836,7 @@ unsigned char *rans1_codec_compress(int level,
 				    unsigned char *in,
 				    size_t in_size,
 				    size_t *out_size) {
-    int i_out_size = *out_size;
+    unsigned int i_out_size = *out_size;
     unsigned char *comp;
 
     comp = rans_compress(in, in_size, &i_out_size, 1);
@@ -822,7 +849,7 @@ unsigned char *rans_codec_uncompress(cram_slice *s,
 				     unsigned char *in,
 				     size_t in_size,
 				     size_t *out_size) {
-    int i_out_size = *out_size;
+    unsigned int i_out_size = *out_size;
     unsigned char *uncomp;
     
     uncomp = rans_uncompress(in, in_size, &i_out_size, 0/*FIXME: unused*/);
@@ -867,7 +894,7 @@ int cram_compression_codec_init(void) {
     DIR *dir;
     struct dirent *ent;
     char *plugins = getenv("CRAM_CODEC_DIR");
-    static init_done = 0;
+    static int init_done = 0;
 
     if (init_done)
 	return 0;

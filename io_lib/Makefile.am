@@ -125,17 +125,21 @@ libstaden_read_la_SOURCES = \
 	string_alloc.h \
 	md5.c \
 	md5.h \
+	crc32.c \
+	crc32.h \
 	scram.c \
 	scram.h \
 	thread_pool.c \
 	thread_pool.h \
 	binning.h \
 	binning.c \
-	cram_bambam.c
+	cram_bambam.c \
+	bgzip.c \
+	bgzip.h
 
 libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
 
 libstaden_read_la_LDFLAGS = -version-info @VERS_CURRENT@:@VERS_REVISION@:@VERS_AGE@ 
-libstaden_read_la_LIBADD = @LIBZ@ @LIBCURL@
+libstaden_read_la_LIBADD = @LIBZ@ @LIBCURL@ @LIBDL@
 
 INCLUDES = -I${top_srcdir}

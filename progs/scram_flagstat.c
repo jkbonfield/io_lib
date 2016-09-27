@@ -45,7 +45,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-#if defined(__MINGW32__) || defined(__FreeBSD__)
+#if defined(__MINGW32__) || defined(__FreeBSD__) || defined(__APPLE__)
 #   include <getopt.h>
 #endif
 
@@ -96,10 +96,10 @@ static void usage(FILE *fp) {
 }
 
 typedef struct {
-    long long n_reads[2], n_mapped[2], n_pair_all[2], n_pair_map[2], n_pair_good[2];
-    long long n_sgltn[2], n_read1[2], n_read2[2];
-    long long n_dup[2];
-    long long n_diffchr[2], n_diffhigh[2];
+    int64_t n_reads[2], n_mapped[2], n_pair_all[2], n_pair_map[2], n_pair_good[2];
+    int64_t n_sgltn[2], n_read1[2], n_read2[2];
+    int64_t n_dup[2];
+    int64_t n_diffchr[2], n_diffhigh[2];
 } bam_flagstat_t;
 
 int main(int argc, char **argv) {
@@ -114,6 +114,8 @@ int main(int argc, char **argv) {
     bam_flagstat_t st;
     int nthreads = 1;
     int benchmark = 0;
+
+    scram_init();
 
     memset(&st, 0, sizeof(st));
 
@@ -247,8 +249,9 @@ int main(int argc, char **argv) {
     if (benchmark) {
 	s = NULL;
 	while (scram_get_seq(in, &s) >= 0);
-
-	return scram_eof(in) ? 0 : 1;
+	int ret = scram_eof(in) ? 0 : 1;
+	scram_close(in);
+	return ret;
     }
 
     s = NULL;
@@ -297,17 +300,17 @@ int main(int argc, char **argv) {
     if (scram_close(in))
 	return 1;
 
-    printf("%lld + %lld in total (QC-passed reads + QC-failed reads)\n", st.n_reads[0], st.n_reads[1]);
-    printf("%lld + %lld duplicates\n", st.n_dup[0], st.n_dup[1]);
-    printf("%lld + %lld mapped (%.2f%%:%.2f%%)\n", st.n_mapped[0], st.n_mapped[1], (float)st.n_mapped[0] / st.n_reads[0] * 100.0, (float)st.n_mapped[1] / st.n_reads[1] * 100.0);
-    printf("%lld + %lld paired in sequencing\n", st.n_pair_all[0], st.n_pair_all[1]);
-    printf("%lld + %lld read1\n", st.n_read1[0], st.n_read1[1]);
-    printf("%lld + %lld read2\n", st.n_read2[0], st.n_read2[1]);
-    printf("%lld + %lld properly paired (%.2f%%:%.2f%%)\n", st.n_pair_good[0], st.n_pair_good[1], (float)st.n_pair_good[0] / st.n_pair_all[0] * 100.0, (float)st.n_pair_good[1] / st.n_pair_all[1] * 100.0);
-    printf("%lld + %lld with itself and mate mapped\n", st.n_pair_map[0], st.n_pair_map[1]);
-    printf("%lld + %lld singletons (%.2f%%:%.2f%%)\n", st.n_sgltn[0], st.n_sgltn[1], (float)st.n_sgltn[0] / st.n_pair_all[0] * 100.0, (float)st.n_sgltn[1] / st.n_pair_all[1] * 100.0);
-    printf("%lld + %lld with mate mapped to a different chr\n", st.n_diffchr[0], st.n_diffchr[1]);
-    printf("%lld + %lld with mate mapped to a different chr (mapQ>=5)\n", st.n_diffhigh[0], st.n_diffhigh[1]);
+    printf("%"PRId64" + %"PRId64" in total (QC-passed reads + QC-failed reads)\n", st.n_reads[0], st.n_reads[1]);
+    printf("%"PRId64" + %"PRId64" duplicates\n", st.n_dup[0], st.n_dup[1]);
+    printf("%"PRId64" + %"PRId64" mapped (%.2f%%:%.2f%%)\n", st.n_mapped[0], st.n_mapped[1], (float)st.n_mapped[0] / st.n_reads[0] * 100.0, (float)st.n_mapped[1] / st.n_reads[1] * 100.0);
+    printf("%"PRId64" + %"PRId64" paired in sequencing\n", st.n_pair_all[0], st.n_pair_all[1]);
+    printf("%"PRId64" + %"PRId64" read1\n", st.n_read1[0], st.n_read1[1]);
+    printf("%"PRId64" + %"PRId64" read2\n", st.n_read2[0], st.n_read2[1]);
+    printf("%"PRId64" + %"PRId64" properly paired (%.2f%%:%.2f%%)\n", st.n_pair_good[0], st.n_pair_good[1], (float)st.n_pair_good[0] / st.n_pair_all[0] * 100.0, (float)st.n_pair_good[1] / st.n_pair_all[1] * 100.0);
+    printf("%"PRId64" + %"PRId64" with itself and mate mapped\n", st.n_pair_map[0], st.n_pair_map[1]);
+    printf("%"PRId64" + %"PRId64" singletons (%.2f%%:%.2f%%)\n", st.n_sgltn[0], st.n_sgltn[1], (float)st.n_sgltn[0] / st.n_pair_all[0] * 100.0, (float)st.n_sgltn[1] / st.n_pair_all[1] * 100.0);
+    printf("%"PRId64" + %"PRId64" with mate mapped to a different chr\n", st.n_diffchr[0], st.n_diffchr[1]);
+    printf("%"PRId64" + %"PRId64" with mate mapped to a different chr (mapQ>=5)\n", st.n_diffhigh[0], st.n_diffhigh[1]);
 
     return 0;
 }

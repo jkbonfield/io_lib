@@ -109,6 +109,10 @@
 #include <fcntl.h> /* Only need on windows for _O_BINARY */
 #include <unistd.h>
 
+#ifdef _MSC_VER
+#include <io.h>
+#endif
+
 #include "io_lib/Read.h"
 #include "io_lib/mFILE.h"
 

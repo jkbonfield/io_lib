@@ -61,7 +61,9 @@
 #include "io_lib_config.h"
 #endif
 
+#ifndef NDEBUG
 #define NDEBUG /* disable asserts for production use */
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>

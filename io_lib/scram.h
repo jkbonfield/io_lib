@@ -257,6 +257,22 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...);
  *         0 for CRAM / BAM input.
  */
 int scram_line(scram_fd *fd);
+
+
+/*! Advises the memory allocator of CRAM usage patterns
+ *
+ * CRAM decoding will typically allocate & deallocate blocks for each
+ * slice.  Under certain conditions this can cause a large number of
+ * page faults where malloc gives a page back to the OS (free) and
+ * then requests it again (the next malloc).  We could write our own
+ * memory cache layer on top of malloc to keep track of previously
+ * freed blocks, but it is complex in a multi-threaded environment and
+ * arguably this is what malloc does anyway.
+ *
+ * Under GNU malloc we can simply request it doesn't give back memory
+ * unless it is a larger amount.
+ */
+void scram_init(void);
 #ifdef __cplusplus
 }
 #endif

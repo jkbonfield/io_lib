@@ -48,25 +48,17 @@ on 1 byte), but shoehorning those bytes into integers efficiently is messy.
 #endif
 
 #include "io_lib/jenkins_lookup3.h"
+#include "io_lib/os.h"
 
 /*
- * My best guess at if you are big-endian or little-endian.  This may
- * need adjustment.
+ * Endianness pulled in from os.h.
  */
-#if (defined(__BYTE_ORDER) && defined(__LITTLE_ENDIAN) && \
-     __BYTE_ORDER == __LITTLE_ENDIAN) || \
-    (defined(i386) || defined(__i386__) || defined(__i486__) || \
-     defined(__i586__) || defined(__i686__) || defined(vax) || defined(MIPSEL))
-# define HASH_LITTLE_ENDIAN 1
-# define HASH_BIG_ENDIAN 0
-#elif (defined(__BYTE_ORDER) && defined(__BIG_ENDIAN) && \
-       __BYTE_ORDER == __BIG_ENDIAN) || \
-      (defined(sparc) || defined(POWERPC) || defined(mc68000) || defined(sel))
-# define HASH_LITTLE_ENDIAN 0
-# define HASH_BIG_ENDIAN 1
+#if defined(SP_BIG_ENDIAN)
+#define HASH_LITTLE_ENDIAN 0
+#define HASH_BIG_ENDIAN 1
 #else
-# define HASH_LITTLE_ENDIAN 0
-# define HASH_BIG_ENDIAN 0
+#define HASH_LITTLE_ENDIAN 1
+#define HASH_BIG_ENDIAN 0
 #endif
 
 #define hashsize(n) ((uint32_t)1<<(n))

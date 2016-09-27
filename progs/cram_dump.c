@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
 	printf("\nContainer pos %"PRId64" size %d\n", (int64_t)pos, c->length);
 	printf("    Ref id:            %d\n", c->ref_seq_id);
 	printf("    Ref pos:           %d + %d\n", c->ref_seq_start, c->ref_seq_span);
-	printf("    Rec counter:       %d\n", c->record_counter);
+	printf("    Rec counter:       %"PRId64"\n", c->record_counter);
        	printf("    No. recs:          %d\n", c->num_records);
 	printf("    No. bases          %"PRId64"\n", c->num_bases);
 	printf("    No. blocks:        %d\n", c->num_blocks);
@@ -252,6 +252,10 @@ int main(int argc, char **argv) {
 	printf("        T: %.4s\n", c->comp_hdr->substitution_matrix[3]);
 	printf("        N: %.4s\n", c->comp_hdr->substitution_matrix[4]);
 
+	printf("      TD map:\n");
+	for (i = 0; i < c->comp_hdr->nTL; i++)
+	    printf("        %3d: %s\n", i, c->comp_hdr->TL[i]);
+
 	printf("\n      Record encoding map:\n");
 	DumpMap2(c->comp_hdr->rec_encoding_map, stdout, "\t", 
 		 (char *)c->comp_hdr_block->data, ds_h);
@@ -282,7 +286,7 @@ int main(int argc, char **argv) {
 		    printf("%02x", s->hdr->md5[i]);
 		putchar('\n');
 	    }
-	    printf("\tRec counter      %d\n", s->hdr->record_counter);
+	    printf("\tRec counter      %"PRId64"\n", s->hdr->record_counter);
 	    printf("\tNo. records      %d\n", s->hdr->num_records);
 	    printf("\tNo. blocks       %d\n", s->hdr->num_blocks);
 	    printf("\tBlk IDS:         {");
@@ -582,8 +586,14 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'I': { // Insertion (several bases); IN
-				char dat[100];
+				static char *dat = NULL;
+				static int dat_l = 0;
 				int32_t out_sz2 = 1;
+
+				if (dat_l < rl+1) {
+				    dat = realloc(dat, rl+1);
+				    dat_l = rl;
+				}
 
 				dat[0]='?';dat[1]=0;
 				r = c->comp_hdr->codecs[DS_IN]->decode(s,c->comp_hdr->codecs[DS_IN], b, dat, &out_sz2);
@@ -599,8 +609,14 @@ int main(int argc, char **argv) {
 			    }
 
 			    case 'b': { // Read bases; BB
+				static char *seq = NULL;
+				static int seq_l = 0;
 				int out_sz2;
-				char seq[256];
+
+				if (seq_l < rl) {
+				    seq = realloc(seq, rl);
+				    seq_l = rl;
+				}
 
 				r  = c->comp_hdr->codecs[DS_BB]->decode(s,c->comp_hdr->codecs[DS_BB], b, seq, &out_sz2);
 				printf("  %d: BB(b) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, seq, r, out_sz2);
@@ -609,7 +625,13 @@ int main(int argc, char **argv) {
 
 			    case 'q': { // Read bases; QQ
 				int out_sz2;
-				char qual[256];
+				static char *qual = NULL;
+				static int qual_l = 0;
+
+				if (qual_l < rl) {
+				    qual = realloc(qual, rl);
+				    qual_l = rl;
+				}
 
 				r  = c->comp_hdr->codecs[DS_QQ]->decode(s,c->comp_hdr->codecs[DS_QQ], b, qual, &out_sz2);
 				printf("  %d: QQ(b) = %.*s (ret %d, out_sz %d)\n", f, out_sz2, qual, r, out_sz2);
@@ -656,13 +678,17 @@ int main(int argc, char **argv) {
 
 			if (cf & CRAM_FLAG_PRESERVE_QUAL_SCORES) {
 			    char dat[1024];
-			    int32_t out_sz2 = rl, i;
+			    int len = rl;
 
-			    dat[0]='?';dat[1]=0;
-			    r = c->comp_hdr->codecs[DS_QS]->decode(s,c->comp_hdr->codecs[DS_QS], b, dat, &out_sz2);
-			    for (i = 0; i < rl; i++)
-				dat[i] += '!';
-			    printf("QS = %.*s (ret %d, out_sz %d)\n", out_sz2, dat, r, out_sz2);
+			    do {
+				int32_t out_sz2 = len > 1024 ? 1024 : len, i;
+				dat[0]='?';dat[1]=0;
+				r = c->comp_hdr->codecs[DS_QS]->decode(s,c->comp_hdr->codecs[DS_QS], b, dat, &out_sz2);
+				for (i = 0; i < out_sz2; i++)
+				    dat[i] += '!';
+				printf("QS = %.*s (ret %d, out_sz %d)\n", out_sz2, dat, r, out_sz2);
+				len -= 1024;
+			    } while (len > 0);
 			}
 		    } else {
 			puts("Unmapped");
@@ -682,7 +708,7 @@ int main(int argc, char **argv) {
 			    do {
 				int32_t out_sz2 = len > 1024 ? 1024 : len;
 				r = c->comp_hdr->codecs[DS_QS]->decode(s, c->comp_hdr->codecs[DS_QS], b, dat, &out_sz2);
-				for (i = 0; i < len; i++)
+				for (i = 0; i < out_sz2; i++)
 				    dat[i] += '!';
 				printf("QS = %.*s (out_sz %d)\n", out_sz2, dat, out_sz2);
 				len -= 1024;
@@ -693,7 +719,7 @@ int main(int argc, char **argv) {
 	    }
 
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
-		HashData hd;
+		HashData hd = {0};
 		cram_block *b = s->block[id];
 		printf("\n\tBlock %d/%d\n", id+1, s->hdr->num_blocks);
 		printf("\t    Size:         %d comp / %d uncomp\n",
@@ -789,11 +815,11 @@ int main(int argc, char **argv) {
 
 	    k = (intptr_t) hi->key;
 	    if (k == -1) {
-		printf("Block CORE          , total size %10ld\n", hi->data.i);
+		printf("Block CORE              , total size %11"PRId64"\n", hi->data.i);
 		continue;
 	    }
 
-	    printf("Block content_id %3d, total size %10ld ",
+	    printf("Block content_id %7d, total size %11"PRId64" ",
 		   (int) k, hi->data.i);
 
 	    struct {

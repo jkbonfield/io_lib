@@ -62,7 +62,25 @@ void ParseMap(cram_map **ma, char *data, HashTable *ds_h) {
 		hd.i = (unsigned char)data[m->offset + m->size-1];
 
 		k = (m->key << 8) | hd.i;
-		HashTableAdd(ds_h, (char *)k, 4, hd, NULL);
+
+		cram_codec *c = cram_decoder_init(m->encoding,
+						  data + m->offset,
+						  m->size, E_BYTE_ARRAY, 0);
+		int id1, id2;
+		if (c) {
+		    id1 = cram_codec_to_id(c, &id2);
+		    c->free(c);
+		    if (id1 >= 0) {
+			hd.i = id1;
+			HashTableAdd(ds_h, (char *)k, 4, hd, NULL);
+		    }
+		    if (id2 >= 0) {
+			hd.i = id2;
+			HashTableAdd(ds_h, (char *)k, 4, hd, NULL);
+		    }
+		} else {
+		    HashTableAdd(ds_h, (char *)k, 4, hd, NULL);
+		}
 	    }
 	}
     }
@@ -81,11 +99,11 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 
 	k = (intptr_t) hi->key;
 	if (k == -1) {
-	    printf("Block CORE          , total size %10ld\n", hi->data.i);
+	    printf("Block CORE              , total size %11"PRId64"\n", hi->data.i);
 	    continue;
 	}
 
-	printf("Block content_id %3d, total size %10ld ",
+	printf("Block content_id %7d, total size %11"PRId64" ",
 	       (int) k, hi->data.i);
 
 	struct {

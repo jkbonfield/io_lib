@@ -7,7 +7,7 @@ use strict;
 use Getopt::Long;
 
 my %opts;
-GetOptions(\%opts, 'noqual', 'noaux', 'notemplate', 'unknownrg', 'nomd', 'template-1', 'noflag', 'all');
+GetOptions(\%opts, 'noqual', 'noaux', 'notemplate', 'unknownrg', 'nomd', 'template-1', 'noflag', 'all', 'nopg');
 
 my ($fn1, $fn2) = @ARGV;
 open(my $fd1, "<", $fn1) || die $!;
@@ -18,7 +18,7 @@ my ($c1,$c2)=(1,1);
 my (@hd1, @hd2, $ln1, $ln2);
 while (<$fd1>) {
     if (/^@/) {
-	push(@hd1, $_);
+	push(@hd1, $_) unless exists $opts{nopg} && /^\@PG/;
     } else {
 	$ln1 = $_;
 	last;
@@ -28,7 +28,7 @@ while (<$fd1>) {
 
 while (<$fd2>) {
     if (/^@/) {
-	push(@hd2, $_);
+	push(@hd2, $_) unless exists $opts{nopg} && /^\@PG/;
     } else {
 	$ln2 = $_;
 	last;
@@ -64,6 +64,10 @@ while ($ln1 && $ln2) {
     # Fix BWA bug: unmapped data should have no alignments
     if ($ln1[1] & 4) { $ln1[4] = 0; $ln1[5] = "*"; }
     if ($ln2[1] & 4) { $ln2[4] = 0; $ln2[5] = "*"; }
+
+    # Canonicalise floating point numbers
+    map {s/^(..):f:(.*)/{"$1:f:".($2+0)}/e} @ln1[11..$#ln1];
+    map {s/^(..):f:(.*)/{"$1:f:".($2+0)}/e} @ln2[11..$#ln2];
 
     # Rationalise order of auxiliary fields
     if (exists $opts{noaux}) {

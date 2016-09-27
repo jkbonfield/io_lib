@@ -49,7 +49,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-#if defined(__MINGW32__) || defined(__FreeBSD__)
+#if defined(__MINGW32__) || defined(__FreeBSD__) || defined(__APPLE__)
 #   include <getopt.h>
 #endif
 
@@ -98,8 +98,11 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -1 to -9       Set compression level.\n");
     fprintf(fp, "    -0 or -u       No compression.\n");
     //fprintf(fp, "    -v             Verbose output.\n");
+    fprintf(fp, "    -H             [SAM] Do not print header\n");
     fprintf(fp, "    -R range       [Cram] Specifies the refseq:start-end range\n");
     fprintf(fp, "    -r ref.fa      [Cram] Specifies the reference file.\n");
+    fprintf(fp, "    -b integer     [Cram] Max. bases per slice, default %d.\n",
+	    BASES_PER_SLICE);
     fprintf(fp, "    -s integer     [Cram] Sequences per slice, default %d.\n",
 	    SEQS_PER_SLICE);
     fprintf(fp, "    -S integer     [Cram] Slices per container, default %d.\n",
@@ -115,6 +118,11 @@ static void usage(FILE *fp) {
 #ifdef HAVE_LIBLZMA
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
+    fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
+    fprintf(fp, "    -P             [Cram EXPERIMENTAL] Preserve all aux tags (incl RG,NM,MD)\n");
+    fprintf(fp, "    -p             [Cram EXPERIMENTAL] Preserve aux tag sizes ('i', 's', 'c')\n");
+    fprintf(fp, "    -q             Don't add scramble @PG header line\n");
+    fprintf(fp, "    -N integer     Stop decoding after 'integer' sequences\n");
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
     fprintf(fp, "    -!             Disable all checking of checksums\n");
@@ -137,9 +145,17 @@ int main(int argc, char **argv) {
     int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
     int sam_fields = 0; // all
+    int header = 1;
+    int bases_per_slice = 0;
+    int lossy_read_names = 0;
+    int preserve_aux_order = 0;
+    int preserve_aux_size = 0; 
+    int add_pg = 1;   
+
+    scram_init();
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPpq")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -158,12 +174,21 @@ int main(int argc, char **argv) {
 	    usage(stdout);
 	    return 0;
 
+	case 'H':
+	    header = 0;
+	    break;
+
 	case 'v':
 	    verbose++;
 	    break;
 
 	case 's':
 	    s_opt = atoi(optarg);
+	    bases_per_slice = s_opt * 500; // guesswork...
+	    break;
+
+	case 'b':
+	    bases_per_slice = atoi(optarg);
 	    break;
 
 	case 'S':
@@ -227,6 +252,10 @@ int main(int argc, char **argv) {
 	    ignore_md5 = 1;
 	    break;
 
+	case 'n':
+	    lossy_read_names = 1;
+	    break;
+
 	case 'M':
 	    multi_seq = 1;
 	    break;
@@ -265,7 +294,19 @@ int main(int argc, char **argv) {
 	    binning = BINNING_ILLUMINA;
 	    break;
 
-	case 'N': // For debugging
+	case 'P':
+	    preserve_aux_order = 1;
+	    break;
+
+	case 'p':
+	    preserve_aux_size = 1;
+	    break;
+
+	case 'q':
+	    add_pg = 0;
+	    break;
+
+	case 'N':
 	    max_reads = atoi(optarg);
 	    break;
 
@@ -335,6 +376,10 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_SLICES_PER_CONTAINER, S_opt))
 	    return 1;
 
+    if (bases_per_slice)
+	if (scram_set_option(out, CRAM_OPT_BASES_PER_SLICE, bases_per_slice))
+	    return 1;
+
     if (embed_ref)
 	if (scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref))
 	    return 1;
@@ -391,6 +436,19 @@ int main(int argc, char **argv) {
 	    return 1;
     }
     
+    if (lossy_read_names) {
+	if (scram_set_option(out, CRAM_OPT_LOSSY_READ_NAMES, lossy_read_names))
+	    return 1;
+    }
+
+    if (preserve_aux_order)
+	if (scram_set_option(out, CRAM_OPT_PRESERVE_AUX_ORDER, preserve_aux_order))
+	    return 1;
+
+    if (preserve_aux_size)
+	if (scram_set_option(out, CRAM_OPT_PRESERVE_AUX_SIZE, preserve_aux_size))
+	    return 1;
+
     if (sam_fields)
 	scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS, sam_fields);
 
@@ -407,21 +465,23 @@ int main(int argc, char **argv) {
     }
 
     if (scram_get_header(out)) {
-	char *arg_list = stringify_argv(argc, argv);
+        if (add_pg) {
+	    char *arg_list = stringify_argv(argc, argv);
 
-	if (!arg_list)
+	    if (!arg_list)
+		return 1;
+
+	
+	    if (sam_hdr_add_PG(scram_get_header(out), "scramble",
+			       "VN", PACKAGE_VERSION,
+			       "CL", arg_list, NULL))
+	        return 1;
+
+	    free(arg_list);
+	}
+
+	if ((header || omode[1] != 's') && scram_write_header(out) != 0)
 	    return 1;
-
-	if (sam_hdr_add_PG(scram_get_header(out), "scramble",
-			   "VN", PACKAGE_VERSION,
-			   "CL", arg_list, NULL))
-	    return 1;
-
-	if (scram_write_header(out))
-	    return 1;
-
-	free(arg_list);
-
     }
 
 

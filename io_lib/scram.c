@@ -409,6 +409,12 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 	return fd->is_bam
 	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
 	    : cram_set_option(fd->c, CRAM_OPT_BINNING, bin);
+    } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
+	int chk = va_arg(args, int);
+
+	return fd->is_bam
+	    ? bam_set_option (fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
+	    : cram_set_option(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
     }
 
     if (!fd->is_bam) {
@@ -431,4 +437,27 @@ int scram_line(scram_fd *fd) {
 	return fd->b->line;
     else
 	return 0;
+}
+
+
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
+#endif
+
+/*! Advises the memory allocator of CRAM usage patterns
+ *
+ * CRAM decoding will typically allocate & deallocate blocks for each
+ * slice.  Under certain conditions this can cause a large number of
+ * page faults where malloc gives a page back to the OS (free) and
+ * then requests it again (the next malloc).  We could write our own
+ * memory cache layer on top of malloc to keep track of previously
+ * freed blocks, but it is complex in a multi-threaded environment and
+ * arguably this is what malloc does anyway.
+ *
+ * Under GNU malloc we can simply tune it to avoid too many page faults.
+ */
+void scram_init(void) {
+#if defined(HAVE_MALLOPT) && defined(M_MMAP_MAX)
+    mallopt(M_MMAP_MAX, 0);
+#endif
 }

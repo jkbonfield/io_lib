@@ -51,22 +51,6 @@
 
 #include "io_lib/cram.h"
 
-static char *codec2str(enum cram_encoding codec) {
-    switch (codec) {
-    case E_NULL:            return "NULL";
-    case E_EXTERNAL:        return "EXTERNAL";
-    case E_GOLOMB:          return "GOLOMB";
-    case E_HUFFMAN:         return "HUFFMAN";
-    case E_BYTE_ARRAY_LEN:  return "BYTE_ARRAY_LEN";
-    case E_BYTE_ARRAY_STOP: return "BYTE_ARRAY_STOP";
-    case E_BETA:            return "BETA";
-    case E_SUBEXP:          return "SUBEXP";
-    case E_GOLOMB_RICE:     return "GOLOMB_RICE";
-    case E_GAMMA:           return "GAMMA";
-    default:                return "(unknown)";
-    }
-}
-
 /*
  * ---------------------------------------------------------------------------
  * Block bit-level I/O functions.
@@ -341,6 +325,10 @@ static char *cram_extract_block(cram_block *b, int size) {
  * ---------------------------------------------------------------------------
  * EXTERNAL
  */
+static void cram_external_decode_reset(cram_codec *c) {
+    c->external.b = NULL;
+}
+
 int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 			     cram_block *in, char *out, int *out_size) {
     int l;
@@ -382,7 +370,8 @@ int cram_external_decode_char(cram_slice *slice, cram_codec *c,
     if (!cp)
 	return -1;
 
-    memcpy(out, cp, *out_size);
+    if (out)
+	memcpy(out, cp, *out_size);
     return 0;
 }
 
@@ -442,6 +431,7 @@ cram_codec *cram_external_decode_init(char *data, int size,
 
     c->external.type = option;
     c->external.b = NULL;
+    c->reset = cram_external_decode_reset;
 
     return c;
 }
@@ -514,6 +504,8 @@ cram_codec *cram_external_encode_init(cram_stats *st,
  * ---------------------------------------------------------------------------
  * BETA
  */
+void cram_nop_decode_reset(cram_codec *c) {}
+
 int cram_beta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
     int32_t *out_i = (int32_t *)out;
     int i, n = *out_size;
@@ -539,11 +531,16 @@ int cram_beta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char
         if (cram_not_enough_bits(in, c->beta.nbits * n))
             return -1;
 
-	for (i = 0; i < n; i++)
-	    out[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
+	if (out)
+	    for (i = 0; i < n; i++)
+		out[i] = get_bits_MSB(in, c->beta.nbits) - c->beta.offset;
+	else
+	    for (i = 0; i < n; i++)
+		get_bits_MSB(in, c->beta.nbits);
     } else {
-	for (i = 0; i < n; i++)
-	    out[i] = -c->beta.offset;
+	if (out)
+	    for (i = 0; i < n; i++)
+		out[i] = -c->beta.offset;
     }
 
     return 0;
@@ -584,6 +581,8 @@ cram_codec *cram_beta_decode_init(char *data, int size,
 	free(c);
 	return NULL;
     }
+
+    c->reset = cram_nop_decode_reset;
 
     return c;
 }
@@ -654,7 +653,7 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
 	c->encode = cram_beta_encode_char;
     c->store  = cram_beta_encode_store;
 
-    if (dat) { // FIXME, supply external ID separate?
+    if (dat) {
 	min_val = ((int *)dat)[0];
 	max_val = ((int *)dat)[1];
     } else {
@@ -775,6 +774,8 @@ cram_codec *cram_subexp_decode_init(char *data, int size,
 	return NULL;
     }
 
+    c->reset = cram_nop_decode_reset;
+
     return c;
 }
 
@@ -837,6 +838,8 @@ cram_codec *cram_gamma_decode_init(char *data, int size,
 	return NULL;
     }
 
+    c->reset = cram_nop_decode_reset;
+
     return c;
 }
 
@@ -873,6 +876,9 @@ int cram_huffman_decode_char0(cram_slice *slice, cram_codec *c,
 			      cram_block *in, char *out, int *out_size) {
     int i, n;
 
+    if (!out)
+	return 0;
+
     /* Special case of 0 length codes */
     for (i = 0, n = *out_size; i < n; i++) {
 	out[i] = c->huffman.codes[0].symbol;
@@ -906,7 +912,8 @@ int cram_huffman_decode_char(cram_slice *slice, cram_codec *c,
 		return -1;
 
 	    if (codes[idx].code == val && codes[idx].len == len) {
-		out[i] = codes[idx].symbol;
+		if (out)
+		    out[i] = codes[idx].symbol;
 		break;
 	    }
 	}
@@ -1014,6 +1021,8 @@ cram_codec *cram_huffman_decode_init(char *data, int size,
 	free(h);
 	return NULL;
     }
+
+    h->reset = cram_nop_decode_reset;
 
     if (ncodes == 0) {
 	/* NULL huffman stream.  Ensure it returns an error if
@@ -1143,7 +1152,7 @@ int cram_huffman_encode_int(cram_slice *slice, cram_codec *c,
     int i, code, len, r = 0;
     int *syms = (int *)in;
 
-    do {
+    while (in_size--) {
 	int sym = *syms++;
 
 	if (sym >= -1 && sym < MAX_HUFF) {
@@ -1165,7 +1174,7 @@ int cram_huffman_encode_int(cram_slice *slice, cram_codec *c,
 	}
 
 	r |= store_bits_MSB(c->out, code, len);
-    } while (--in_size);
+    }
 
     return r;
 }
@@ -1415,10 +1424,10 @@ int cram_byte_array_len_decode(cram_slice *slice, cram_codec *c,
                                             in, (char *)&len, &one);
     //printf("ByteArray Len=%d\n", len);
 
-    if (!r && c->byte_array_len.value_codec && len >= 0) {
-	r = c->byte_array_len.value_codec->decode(slice,
-						  c->byte_array_len.value_codec,
-						  in, out, &len);
+    if (!r && c->byte_array_len.val_codec && len >= 0) {
+	r = c->byte_array_len.val_codec->decode(slice,
+						c->byte_array_len.val_codec,
+						in, out, &len);
     } else {
 	return -1;
     }
@@ -1434,10 +1443,15 @@ void cram_byte_array_len_decode_free(cram_codec *c) {
     if (c->byte_array_len.len_codec)
 	c->byte_array_len.len_codec->free(c->byte_array_len.len_codec);
 
-    if (c->byte_array_len.value_codec)
-	c->byte_array_len.value_codec->free(c->byte_array_len.value_codec);
+    if (c->byte_array_len.val_codec)
+	c->byte_array_len.val_codec->free(c->byte_array_len.val_codec);
 
     free(c);
+}
+
+static void cram_byte_array_len_decode_reset(cram_codec *c) {
+    c->byte_array_len.len_codec->reset(c->byte_array_len.len_codec);
+    c->byte_array_len.val_codec->reset(c->byte_array_len.val_codec);
 }
 
 cram_codec *cram_byte_array_len_decode_init(char *data, int size,
@@ -1471,14 +1485,16 @@ cram_codec *cram_byte_array_len_decode_init(char *data, int size,
     cp += safe_itf8_get(cp, endp, &sub_size);
     if (sub_size < 0 || endp - cp < sub_size)
         goto malformed;
-    c->byte_array_len.value_codec = cram_decoder_init(encoding, cp, sub_size,
-						      option, version);
-    if (c->byte_array_len.value_codec == NULL)
+    c->byte_array_len.val_codec = cram_decoder_init(encoding, cp, sub_size,
+						    option, version);
+    if (c->byte_array_len.val_codec == NULL)
         goto no_codec;
     cp += sub_size;
 
     if (cp - data != size)
         goto malformed;
+
+    c->reset = cram_byte_array_len_decode_reset;
 
     return c;
 
@@ -1578,6 +1594,10 @@ cram_codec *cram_byte_array_len_encode_init(cram_stats *st,
  * ---------------------------------------------------------------------------
  * BYTE_ARRAY_STOP
  */
+static void cram_byte_array_stop_decode_reset(cram_codec *c) {
+    c->byte_array_stop.b = NULL;
+}
+
 static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
 					    cram_block *in, char *out,
 					    int *out_size) {
@@ -1595,11 +1615,20 @@ static int cram_byte_array_stop_decode_char(cram_slice *slice, cram_codec *c,
 	return -1;
 
     cp = (char *)b->data + b->idx;
-    while ((ch = *cp) != (char)c->byte_array_stop.stop) {
-	if (cp - (char *)b->data >= b->uncomp_size)
-	    return -1;
-	*out++ = ch;
-	cp++;
+    if (out) {
+	while ((ch = *cp) != (char)c->byte_array_stop.stop) {
+	    if (cp - (char *)b->data >= b->uncomp_size)
+		return -1;
+	    *out++ = ch;
+	    cp++;
+	}
+    } else {
+	// Consume input, but produce no output
+	while ((ch = *cp) != (char)c->byte_array_stop.stop) {
+	    if (cp - (char *)b->data >= b->uncomp_size)
+		return -1;
+	    cp++;
+	}
     }
 
     *out_size = cp - (char *)(b->data + b->idx);
@@ -1694,6 +1723,7 @@ cram_codec *cram_byte_array_stop_decode_init(char *data, int size,
     }
 
     c->byte_array_stop.b = NULL;
+    c->reset = cram_byte_array_stop_decode_reset;
 
     return c;
 }
@@ -1767,7 +1797,7 @@ cram_codec *cram_byte_array_stop_encode_init(cram_stats *st,
  * ---------------------------------------------------------------------------
  */
 
-char *cram_encoding2str(enum cram_encoding t) {
+const char *cram_encoding2str(enum cram_encoding t) {
     switch (t) {
     case E_NULL:            return "NULL";
     case E_EXTERNAL:        return "EXTERNAL";
@@ -1807,7 +1837,7 @@ cram_codec *cram_decoder_init(enum cram_encoding codec,
     if (codec >= E_NULL && codec < E_NUM_CODECS && decode_init[codec]) {
 	return decode_init[codec](data, size, option, version);
     } else {
-	fprintf(stderr, "Unimplemented codec of type %s\n", codec2str(codec));
+	fprintf(stderr, "Unimplemented codec of type %s\n", cram_encoding2str(codec));
 	return NULL;
     }
 }
@@ -1842,7 +1872,7 @@ cram_codec *cram_encoder_init(enum cram_encoding codec,
 	    r->out = NULL;
 	return r;
     } else {
-	fprintf(stderr, "Unimplemented codec of type %s\n", codec2str(codec));
+	fprintf(stderr, "Unimplemented codec of type %s\n", cram_encoding2str(codec));
 	abort();
     }
 }
@@ -1871,7 +1901,7 @@ int cram_codec_to_id(cram_codec *c, int *id2) {
 	break;
     case E_BYTE_ARRAY_LEN:
 	bnum1 = cram_codec_to_id(c->byte_array_len.len_codec, NULL);
-	bnum2 = cram_codec_to_id(c->byte_array_len.value_codec, NULL);
+	bnum2 = cram_codec_to_id(c->byte_array_len.val_codec, NULL);
 	break;
     case E_BYTE_ARRAY_STOP:
 	bnum1 = c->byte_array_stop.content_id;

@@ -210,6 +210,10 @@ typedef struct {
     // @HD data
     enum sam_sort_order sort_order; //!< @HD SO: field
 
+    // Order of first occurence of @?? lines.
+    dstring_t *type_order;
+    int ntypes;
+
     // @cond internal
     char ID_buf[1024];  // temporary buffer
     int ID_cnt;

@@ -56,6 +56,12 @@
 #include "io_lib/bam.h"
 #include "io_lib/os.h"
 #include "io_lib/thread_pool.h"
+#include "io_lib/crc32.h"
+
+// If using Cloudflare's zlib, consider just switching to the zlib crc.
+// However this doesn't work on older machines.
+
+//#define iolib_crc32 crc32
 
 #define USE_MT
 
@@ -452,7 +458,6 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 		goto error;
 	}
 
-	setvbuf(b->fp, b->vbuf, _IOFBF, 4*Z_BUFF_SIZE);
 	return b;
     }
 
@@ -470,8 +475,6 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 	if (NULL == (b->fp = fopen(fn, "rb")))
 	    goto error;
     }
-
-    setvbuf(b->fp, b->vbuf, _IOFBF, 4*Z_BUFF_SIZE);
 
     /* Load first block so we can check */
     bam_more_input(b);
@@ -642,6 +645,7 @@ typedef struct {
     unsigned char comp[Z_BUFF_SIZE];
     unsigned char uncomp[Z_BUFF_SIZE];
     size_t comp_sz, uncomp_sz;
+    int ignore_chksum;
 } bgzf_decode_job;
 static bgzf_decode_job *last_job = NULL;
 
@@ -669,6 +673,18 @@ void *bgzf_decode_thread(void *arg) {
     if (err != Z_STREAM_END) {
 	fprintf(stderr, "Inflate returned error code %d\n", err);
 	return NULL;
+    }
+
+    if (!j->ignore_chksum) {
+	uint32_t crc1=iolib_crc32(0L, (unsigned char *)j->uncomp, s.total_out);
+	uint32_t crc2;
+	memcpy(&crc2, j->comp + j->comp_sz, 4);
+	crc2 = le_int2(crc2);
+	if (crc1 != crc2) {
+	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
+		    crc1, crc2);
+	    return NULL;
+	}
     }
 
     j->uncomp_sz  = s.total_out;
@@ -791,8 +807,9 @@ static int bam_uncompress_input(bam_file_t *b) {
 		    } while (b->comp_sz < bsize + 8);
 		}
 
-		memcpy(j->comp, b->comp_p, bsize);
-		j->comp_sz = bsize+1;
+		memcpy(j->comp, b->comp_p, bsize+8);
+		j->comp_sz = bsize;
+		j->ignore_chksum = b->ignore_chksum;
 
 		b->comp_p  += bsize + 8; // crc & isize
 		b->comp_sz -= bsize + 8; // crc & isize
@@ -930,8 +947,22 @@ static int bam_uncompress_input(bam_file_t *b) {
 	    b->comp_sz  -= bsize + 8;
 	    b->uncomp_sz  = b->s.total_out;
 	    b->uncomp_p   = b->uncomp;
+
+	    if (!b->ignore_chksum) {
+		uint32_t crc1 = iolib_crc32(0L, (unsigned char *)b->uncomp,
+					    b->uncomp_sz);
+		uint32_t crc2;
+		memcpy(&crc2, b->comp_p-8, 4);
+		crc2 = le_int2(crc2);
+		if (crc1 != crc2) {
+		    fprintf(stderr, "Invalid CRC in Deflate stream: "
+			    "%08x vs %08x\n", crc1, crc2);
+		    return -1;
+		}
+	    }
 	} else {
 	    /* Some other gzip variant, but possibly still having xlen */
+	    /* NB: we don't check CRCs here, but I don't think these BAMs exist either */
 	    while (xlen) {
 		int d = MIN(b->comp_sz, xlen);
 		xlen     -= d;
@@ -962,6 +993,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 
 		if (err == Z_STREAM_END) {
 		    b->z_finish = 1;
+
 		    /* Consume (ignore) CRC & ISIZE */
 		    if (b->comp_sz < 8)
 			bam_more_input(b);
@@ -1164,10 +1196,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     /* ref */
     cp = cpf;
-    //while (*cpf && *cpf != '\t')
-    //    CPF_SKIP();
-    while (*cpf > '\t')
-	cpf++;
+    CPF_SKIP();
     if (*cp == '*') {
 	/* Unmapped */
 	bs->ref = -1;
@@ -1267,10 +1296,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     
     /* mate ref name */
     cp = cpf;
-    //while (*cpf && *cpf != '\t')
-    //    CPF_SKIP();
-    while (*cpf > '\t')
-	cpf++;
+    CPF_SKIP();
     if (*cp == '*' && cp[1] == '\t') {
 	bs->mate_ref = -1;
     } else if (*cp == '=' && cp[1] == '\t') {
@@ -1379,9 +1405,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	cpf += 5;
 
 	value = cpf;
-	//CPF_SKIP();
-	while (*cpf > '\t')
-	    cpf++;
+	CPF_SKIP();
 
 	*cpt++ = key[0];
 	*cpt++ = key[1];
@@ -1434,15 +1458,13 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 
 	case 'Z':
 	    *cpt++ = 'Z';
-	    while (value != cpf)
-		*cpt++=*value++;
+	    memcpy(cpt, value, cpf-value); cpt += cpf-value;
 	    *cpt++ = 0;
 	    break;
 
 	case 'H':
 	    *cpt++ = 'H';
-	    while (value != cpf)
-		*cpt++=*value++;
+	    memcpy(cpt, value, cpf-value); cpt += cpf-value;
 	    *cpt++ = 0;
 	    break;
 
@@ -2840,8 +2862,8 @@ static int bgzf_encode(int level,
     blk[16] = ((cdata_size + 25) >> 0) & 0xff;
     blk[17] = ((cdata_size + 25) >> 8) & 0xff;
 
-    crc = crc32(0L, NULL, 0L);
-    crc = crc32(crc, (unsigned char *)buf, in_sz);
+    crc = iolib_crc32(0L, NULL, 0L);
+    crc = iolib_crc32(crc, (unsigned char *)buf, in_sz);
     blk[18+cdata_size+0] = (crc >> 0) & 0xff;
     blk[18+cdata_size+1] = (crc >> 8) & 0xff;
     blk[18+cdata_size+2] = (crc >>16) & 0xff;
@@ -3608,6 +3630,10 @@ int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args) {
 
     case BAM_OPT_BINNING:
 	fd->binning = va_arg(args, int);
+	break;
+
+    case BAM_OPT_IGNORE_CHKSUM:
+	fd->ignore_chksum = va_arg(args, int);
 	break;
     }
 

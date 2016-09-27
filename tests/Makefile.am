@@ -51,12 +51,21 @@ TESTS                   = \
 			scram.test \
 			scram_mt.test \
 			scram_v3.test \
-			cram_io.test
+			cram_io.test \
+			java.test
 
 cram_io_test_SOURCES = cram_io_test.c
 cram_io_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 INCLUDES= -I${top_srcdir}
+
+# Scram, scram_mt and scram_v3 are all the same input and output,
+# but with different options.  Hence they clash and cannot run
+# concurrently.
+# Similarly cram_io needs an output from one of the scram tests.
+scram_mt.log: scram.log
+scram_v3.log: scram_mt.log
+cram_io.log:  scram_v3.log
 
 dist-hook:
 	rm -rf `find $(distdir)/data -name .svn`

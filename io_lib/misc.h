@@ -111,6 +111,11 @@ extern "C" {
 #endif
 
 
+/* from files.c */
+#ifdef _WIN32
+FILE *tmpfile_win(void);
+#endif
+
 extern int is_directory(char * fn);
 extern int is_file(char * fn);
 extern int file_exists(char * fn);
@@ -153,15 +158,6 @@ extern void messout(char *fmt, ...);
 #define findfile(F,S) myfind((F),(S),file_exists)
 /*is_file fails for symbolic links*/
 /*#define findfile(F,S) myfind((F),(S),is_file)*/
-
-#if defined(min)
-#undef min
-#undef max
-#endif
-
-#define min(A,B) ( ( (A) < (B) ) ? (A) : (B) )
-#define max(A,B) ( ( (A) > (B) ) ? (A) : (B) )
-#define sgn(A) ( (A) ? ( ( (A) < 0 ) ? -1 : 1 ) : 0 )
 
 #ifdef MIN
 #undef MIN

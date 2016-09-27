@@ -96,7 +96,7 @@ typedef struct {
 
 typedef struct {
     struct cram_codec *len_codec;
-    struct cram_codec *value_codec;
+    struct cram_codec *val_codec;
 } cram_byte_array_len_decoder;
 
 typedef struct {
@@ -127,6 +127,8 @@ typedef struct cram_codec {
 		  char *in, int in_size);
     int (*store)(struct cram_codec *codec, cram_block *b, char *prefix,
 		 int version);
+    void (*reset)(struct cram_codec *codec); // used between slices in a container
+
     union {
 	cram_huffman_decoder         huffman;
 	cram_external_decoder        external;
@@ -144,7 +146,7 @@ typedef struct cram_codec {
     };
 } cram_codec;
 
-char *cram_encoding2str(enum cram_encoding t);
+const char *cram_encoding2str(enum cram_encoding t);
 
 cram_codec *cram_decoder_init(enum cram_encoding codec, char *data, int size,
 			      enum cram_external_type option,
@@ -168,10 +170,10 @@ cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st,
 
 static inline int cram_not_enough_bits(cram_block *blk, int nbits) {
     if (nbits < 0 ||
-	blk->byte >= blk->uncomp_size ||
+	(blk->byte >= blk->uncomp_size && nbits > 0) ||
 	(blk->uncomp_size - blk->byte <= INT32_MAX / 8 + 1 &&
 	 (blk->uncomp_size - blk->byte) * 8 + blk->bit - 7 < nbits)) {
-        return nbits != 0 ? 1 : 0;
+        return 1;
     }
     return 0;
 }

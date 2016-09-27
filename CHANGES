@@ -1,3 +1,139 @@
+Version 1.14.8 (22nd April 2016)
+--------------
+
+* SAM: Small speed up to record parsing.
+
+* CRAM: Scramble now has -p and -P options to control whether to
+  force the BAM auxiliary sizes (8 vs 16 vs 32-bit integer quantities)
+  rather than reducing to smallest size required, and whether to
+  preserve the order of auxiliary tags including RG, NM and MD.
+
+  This latter option requires storing these values verbatim instead of
+  regenerating them on-the-fly, but note this only preserves tag order
+  with Scramble / Htslib.  Htsjdk will still produce these fields out
+  of order.
+
+* CRAM no longer stores data in the CORE block, permitting greater
+  flexibility in choosing which fields to decode.  (This change is
+  also mirrored in htslib and htsjdk.)
+
+* CRAM: ref.fai files in a different order to @SQ headers should now
+  work correctly.
+
+* CRAM required-fields parameters no longer forces quality decoding
+  when asking for sequence.
+
+* CRAM: More robustness / safety checks during decoding; itf8 bounds
+  checks, running out of memory, bounds checks in BETA codec, and
+  more.
+
+* CRAM auto-generated read names are consistent regardless of range
+  queries.  They also now match those produced by htslib.
+
+* CRAM: the rANS codec should now be slightly faster at decoding.
+
+* CRAM: there is a newer (faster than vanilla Zlib) crc32
+  implementation.  If you are linking against CloudFlare's optimised
+  Zlib you should configure with --disable-own-crc to utilise their
+  assembly PCLMUL CRC implementation.
+
+* CRAM bug fix: removed potential (but unobserved) possibility of
+  8-bit quantities stored as a 16-bit value in BAM being converted
+  incorrectly within CRAM.
+
+* CRAM bug fix: fixed field widths for cram_dump and cram_size.
+
+* SAM bug fix: no more complaining about "unknown" sort order.
+
+* A few compiler warnings in cram_dump / cram_size have gone away.
+  Many small CRAM code tweaks to aid comparisons to htslib.  It should
+  also be easier to build under Microsoft Visual Studio (although no
+  project file is provided).
+
+
+Version 1.14.7 (18th February 2016)
+--------------
+
+* Some speed ups to BAM encoding, particularly when using uncompressed
+  BAM.
+
+* Scramble now has a lossy read-name method (scramble -n) when
+  outputting to CRAM.
+
+* Tidied up the formatting of cram_size.
+
+* Cram_dump now prints up the TD map.
+
+* CRAM bug fix: Scramble -N was sometimes failing when multi-threaded.
+
+* CRAM bug fix: The code once again builds if CRAM_IO_CUSTOM_BUFFERING
+  is disabled.
+
+* CRAM bug fix: avoid undefined behaviour in some uses of
+  CRAM_OPT_REQUIRED_FIELD (not readily noticable from command line
+  tools).
+
+* CRAM bug fix: on very rare cases TLEN could change during decode
+  (albeit fixing it) for read-pairs that spanned references.
+
+* CRAM bug fix: CIGAR sequences with more than 2^27 operations are now
+  supported.
+
+* CRAM bug fix: fixed an assertion failure triggered with some
+  repeated templates.
+
+
+Version 1.14.6 (6th November 2015)
+--------------
+
+* CRAM bug fix, reversing a bug introduced during 1.14.5.  Output from
+  cramtools could trigger a crash during decoding with scramble.  This
+  happened where a HUFFMAN codec was specified with zero symbols.
+  E.g. "DL => HUFFMAN {0, 0}" from cram_dump for a slice where there
+  are no D operators in the cigar strings for this slice.
+
+
+Version 1.14.5 (5th November 2015)
+--------------
+
+* Scramble now has a way to control the maximum number of bases per
+  slice (default 5Mb), forcing a new slice if this limit is hit before
+  hitting the existing max sequences per slice limit.  This improves
+  performance on very long read data. (PacBio, ONT, etc)
+
+* Improvements for MacOS X building.
+
+* Removed erroneous debugging output from Scramble.
+
+* Fixed cram_dump so it works on longer sequences, eg PacBio data.
+
+* Fixed cram_size (but not yet cram_dump summary output) to handle
+  multi-byte content_ids when reporting which block type is for which
+  data series.
+
+* Fixed a bug with multi-slice containers, broken since r3946
+  (1.14.1).
+
+* Bug fixes to the libmaus2/biobambam2 interface code.  Part of this
+  change includes simplifying how auxiliary tag content_ids are
+  assigned for CRAM.
+
+* This io_lib release should now work again when being used by the
+  current (albeit 2013) release of Staden Package.
+
+
+Version 1.14.4 (5th October 2015)
+--------------
+
+CRAM changes:
+
+* Fixed a CRAM encoding bug with compression level 6 and above where
+  the resulting CRAM file could not be decoded.  This has been in
+  existance since 1.13.8 (and possibly 1.13.6 under rarer conditions).
+
+* New scramble option -H to avoid printing header in SAM output.
+
+
 Version 1.14.3 (29th September 2015)
 --------------
 
