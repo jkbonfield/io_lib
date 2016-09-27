@@ -183,6 +183,12 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 
     st->nvals = nvals;
     assert(ntot == st->nsamp);
+    free(vals);
+    free(freqs);
+
+    // Crude and simple alternative.
+    return nvals > 1 ? E_EXTERNAL : E_HUFFMAN;
+
 
 #ifdef RANDOMISER
     // RANDOMISER
@@ -193,9 +199,6 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
     default: return E_EXTERNAL;
     }
 #endif
-
-    free(vals);
-    free(freqs);
 
     // Single value items are best served in HUFFMAN as this takes
     // zero bits to store (it's only needs the compression header).

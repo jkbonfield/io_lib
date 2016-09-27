@@ -118,6 +118,9 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
     {
 	HashData hd;
 
+	if (h->preservation_map)
+	    HashTableDestroy(h->preservation_map, 0);
+	    
 	if (!(h->preservation_map = HashTableCreate(4, HASH_NONVOLATILE_KEYS)))
 	    return NULL;
 
