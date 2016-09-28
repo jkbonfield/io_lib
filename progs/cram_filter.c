@@ -169,7 +169,7 @@ int ds_to_id(cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
 		cram_codec *c = cram_decoder_init(m->encoding,
 						  data + m->offset,
 						  m->size, E_BYTE_ARRAY, 0);
-		int id1, id2;
+		int id1 = 0, id2;
 		if (c) {
 		    id1 = cram_codec_to_id(c, &id2);
 		    c->free(c);
