@@ -112,11 +112,19 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 	} id_type = {k, 0};
 
 	enum cram_block_method methods[] = {GZIP, BZIP2, LZMA, RANS0, RANS1};
-	int count[1+sizeof(methods)/sizeof(*methods)] = {0};
+	//int count[1+sizeof(methods)/sizeof(*methods)] = {0};
+	int count[1+256] = {0};
 
 	int i;
 	for (i = 0; i < sizeof(methods)/sizeof(*methods); i++) {
 	    id_type.method = methods[i];
+	    if ((hi = HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))) {
+		count[0] += hi->data.i;
+		count[i+1] += hi->data.i;
+	    }
+	}
+	for (; i < 256; i++) {
+	    id_type.method = i;
 	    if ((hi = HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))) {
 		count[0] += hi->data.i;
 		count[i+1] += hi->data.i;
@@ -130,6 +138,8 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 		   " gblrR"[count[i]?i:0],
 		   "\033[0m");
 	}
+	for (i=' '; i < 256; i++)
+	    if (count[i]) printf("[%c]", i-1);
 
 	iter = HashTableIterCreate();
 	while ((hi = HashTableIterNext(ds_h, iter))) {
