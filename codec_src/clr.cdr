@@ -38,7 +38,7 @@ public:
 
  void StartDecode( void )    
  { 
-   low=0;  
+   code = low=0;  
    range=(uint)-1;
    DO(8) code = (code<<8) | *in_buf++;
  }

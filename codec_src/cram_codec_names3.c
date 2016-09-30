@@ -343,7 +343,7 @@ unsigned char *compress_block(int level,
     }
 
 
-    fprintf(stderr, "Comp_len=%d\n", (int)*comp_len);
+    //fprintf(stderr, "Comp_len=%d\n", (int)*comp_len);
 
     //*comp_len = 0; cp = comp;
     //*comp_len = cp-comp; cp = comp;
@@ -516,8 +516,8 @@ unsigned char *uncompress_block(cram_slice *s,
 }
 
 static cram_compressor c = {
-    'n', //FOUR_CC("\0N3n"),
-    1<<DS_RN, // all data series
+    'n',
+    1<<DS_RN, // Names only
     1.0,
     name,
     compress_block,

@@ -36,7 +36,8 @@ unsigned char *compress_block(int level,
     return comp;
 }
 
-unsigned char *uncompress_block(unsigned char *in,
+unsigned char *uncompress_block(cram_slice *s,
+				unsigned char *in,
 				size_t in_size,
 				size_t *out_size) {
     int block_size, data_size;
@@ -62,7 +63,7 @@ unsigned char *uncompress_block(unsigned char *in,
 }
 
 static cram_compressor c = {
-    FOUR_CC("\0BSC"),
+    'b',//FOUR_CC("\0BSC"),
     0, // all data series
     1.1,
     name,

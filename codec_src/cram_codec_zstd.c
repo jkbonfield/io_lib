@@ -17,8 +17,10 @@ unsigned char *compress_block(int level,
 			      size_t *out_size) {
     unsigned char *comp = (unsigned char *)malloc(ZSTD_compressBound(in_size));
 
+    int zlevel = level*2.6-1.3; // map 1-9 to 1-22 ish
+
     *out_size = ZSTD_compress(comp, ZSTD_compressBound(in_size),
-			      in, in_size);
+			      in, in_size, zlevel);
     if (*out_size <= 0) {
 	free(comp);
 	return NULL;
@@ -27,11 +29,10 @@ unsigned char *compress_block(int level,
     return comp;
 }
 
-unsigned char *uncompress_block(unsigned char *in,
-				// cram_slice *s,
+unsigned char *uncompress_block(cram_slice *s,
+				unsigned char *in,
 				size_t in_size,
 				size_t *out_size) {
-    int block_size, data_size;
     unsigned char *uncomp = malloc(*out_size);
 
     *out_size = ZSTD_decompress(uncomp, *out_size,
@@ -41,7 +42,7 @@ unsigned char *uncompress_block(unsigned char *in,
 }
 
 static cram_compressor c = {
-    'x', //FOUR_CC("ZSTD"),
+    'Z', //FOUR_CC("ZSTD"),
     0, // all data series
     1.0,
     name,
