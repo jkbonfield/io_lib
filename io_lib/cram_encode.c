@@ -1457,7 +1457,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     fd->version);
     } else {
 	int p[2] = {0, c->max_apos};
-	h->codecs[DS_AP] = cram_encoder_init(E_BETA, NULL, E_INT, p,
+	h->codecs[DS_AP] = cram_encoder_init(E_EXTERNAL, NULL, E_INT, p,
 					     fd->version);
     }
 
