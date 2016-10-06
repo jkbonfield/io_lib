@@ -8,6 +8,7 @@
 #include <io_lib/pooled_alloc.h>
 #include <io_lib/cram_block_compression.h>
 #include <bzlib.h>
+#include <assert.h>
 
 
 unsigned char *rans_compress(unsigned char *in, unsigned int in_size,
@@ -32,10 +33,12 @@ unsigned char *assign_trie_words(unsigned char trie_prefix[256],
 				 unsigned char *cp,
 				 trie_t *last, trie_t *t,
 				 int depth, int min_val) {
-    int j;
+    int j, next = 0;
     for (j = 0; j < 128; j++) {
 	if (!t->next[j])
 	    continue;
+
+	next = 1;
 
 	trie_prefix[depth] = j;
 	trie_prefix[depth+1] = 0;
@@ -50,9 +53,10 @@ unsigned char *assign_trie_words(unsigned char trie_prefix[256],
 
     if (t->count >= min_val) {
 	trie_prefix[depth] = 0;
-	if (!t->sym && *trie_counter < 254) {
+	if ((!t->sym || next == 0) && *trie_counter < 254) {
 	    t->sym = (*trie_counter)++;
 	    if (*trie_prefix) {
+		//fprintf(stderr, ">>%3d %5d %s<<\n", t->sym, t->count, trie_prefix);
 		unsigned char *cp2 = trie_prefix;
 		unsigned char *cpl = last_prefix;
 		int prefix_len = 0;
@@ -69,7 +73,6 @@ unsigned char *assign_trie_words(unsigned char trie_prefix[256],
 		while (*cp2++);
 
 		strncpy((char*)last_prefix, (char*)trie_prefix, 256);
-		//fprintf(stderr, ">>%3d %5d %s<<\n", t->sym, t->count, trie_prefix);
 	    }
 	}
     }
@@ -143,6 +146,8 @@ unsigned char *compress_block(int level,
 	}
     }
 
+    //fprintf(stderr, "Ulen=%d nlines=%d\n", (int)len, nlines);
+
     comp = malloc(4 + len*2 + nlines*3); // worst case?
     if (!comp) {
 	HashTableDestroy(h, 0);
@@ -164,7 +169,7 @@ unsigned char *compress_block(int level,
     *cp++ = (len>>16) & 0xff;
     *cp++ = (len>>24) & 0xff;
     //fprintf(stderr, "min_val = %d, nlines = %d\n", t_head->count/divi, nlines);
-
+    
     // Assign and store tokens
     cp = assign_trie_words(trie_prefix, last_prefix, &trie_counter,
 			   cp, NULL, t_head, 0, t_head->count/divi);
@@ -470,7 +475,7 @@ unsigned char *uncompress_block(cram_slice *s,
     // Uncompress text
     i = x = t = 0; do { t |= (data[i] & 0x7f)<<x; x+=7; } while (data[i++] & 128);
     text_len = t;
-    text = malloc(text_len=ulen*1.01+600); // FIXME GUESSWORK
+    text = malloc(text_len=ulen*1.1+600); // FIXME GUESSWORK
     BZ2_bzBuffToBuffDecompress((char *)text, &text_len, (char *)&data[i], text_len, 0, 0);
     //text = rans_uncompress(&data[i], text_len, &text_len);
     data += i;
@@ -482,15 +487,18 @@ unsigned char *uncompress_block(cram_slice *s,
     //fprintf(stderr, "nlines=%d\n", nlines);
     while (j < nlines) {
 	if (back[j]) {
+	    assert(j-back[j] >= 0 && j-back[j] < nlines);
 	    unsigned char *cp2 = lines[j-back[j]];
 	    //printf("BACK %.20s\n", cp2);
 	    do {
+		assert(cp-uncomp <= ulen);
 		*cp++ = *cp2;
 	    } while(*cp2++ > '\n');
 	    j++;
 	    continue;
 	}
 
+	assert(j >= 0 && j < nlines);
 	lines[j] = cp;
 	do {
 	    unsigned char c = text[i];
