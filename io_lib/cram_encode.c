@@ -3070,6 +3070,11 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	fd->last_slice = curr_rec - slice_rec;
 	c->slice_rec = c->curr_rec;
 
+	if (c->refs_used && bam_ref(b) >= 0 && bam_ref(b) >= fd->refs->nref) {
+	    fprintf(stderr, "Reference absent in header. Failing\n");
+	    return -1;
+	}
+
 	// Have we seen this reference before?
 	if (bam_ref(b) >= 0 && curr_ref >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref &&
 	    !fd->unsorted && multi_seq) {
