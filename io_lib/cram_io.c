@@ -2651,6 +2651,11 @@ static int refs_from_header(refs_t *r, cram_fd *fd, SAM_hdr *h) {
 	HashData hd;
 	int n;
 
+	if (!h->ref[i].name) {
+	    fprintf(stderr, "refs_from_header: no sequence name found for reference\n");
+	    return -1;
+	}
+
 	if (HashTableSearch(r->h_meta, h->ref[i].name, strlen(h->ref[i].name)))
 	    // Ref already known about
 	    continue;
