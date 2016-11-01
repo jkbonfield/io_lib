@@ -1869,6 +1869,8 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
     if (metrics) {
 	if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
+	if (fd->unsorted == 2)
+	    metrics->next_trial = 0; // force recheck on mode switch.
 	if (metrics->trial > 0 || --metrics->next_trial <= 0) {
 	    size_t sz_best = INT_MAX;
 	    size_t sz_gz_rle = 0;
@@ -2219,7 +2221,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     }
 
     if (fd->verbose)
-	fprintf(stderr, "Compressed block ID %d from %d to %d by method %s\n",
+	fprintf(stderr, "Compressed block ID %d from %d to %d by method %s",
 		b->content_id, b->uncomp_size, b->comp_size,
 		cram_block_method2str(b->method));
 

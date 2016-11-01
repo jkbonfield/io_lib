@@ -1064,6 +1064,12 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	    return -1;
     }
 
+    if (fd->unsorted == 2) {
+	if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
+	fd->unsorted = 1;
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
+    }
+
     return r ? -1 : 0;
 }
 
@@ -3077,7 +3083,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    } else if (c->refs_used && c->refs_used[bam_ref(b)]) {
 		fprintf(stderr, "Unsorted mode enabled\n");
 		if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
-		fd->unsorted = 1;
+		fd->unsorted = 2; // 2 is marker to reset block metrics stats
 		if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 		fd->multi_seq = 1;
 	    }
