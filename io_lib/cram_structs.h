@@ -226,6 +226,9 @@ typedef struct {
     int revised_method;
 
     double extra[CRAM_MAX_METHOD];
+
+    // Elapsed time spent on this block
+    int64_t tm;
 } cram_metrics;
 
 /* Block */

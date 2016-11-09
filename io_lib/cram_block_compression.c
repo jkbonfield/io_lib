@@ -56,6 +56,7 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "io_lib/cram_block_compression.h"
 #include "io_lib/cram.h"
@@ -69,6 +70,23 @@ static cram_compressor **codecs = NULL;
 static int ncodecs = 0;
 
 static HashTable *codec_hash = NULL;
+
+#ifdef DEBUG_TIME
+int64_t btm[1<<24] = {0};
+
+void dump_decode_time(void) {
+    int i;
+    for (i = 0; i < 1<<24; i++) {
+	if (!btm[i]) continue;
+	if (i < 256) {
+	    fprintf(stderr, "%6d: %f seconds\n", i, btm[i] / 1000000000.0);
+	} else {
+	    char key[3] = {i>>16, i>>8, i};
+	    fprintf(stderr, "   %.3s: %f seconds\n", key, btm[i] / 1000000000.0);
+	}
+    }
+}
+#endif
 
 /*
  * Uncompresses a CRAM block, if compressed.
@@ -92,6 +110,11 @@ int cram_uncompress_block(cram_slice *s, cram_block *b) {
 	b->method = RAW;
 	return 0;
     }
+
+#ifdef DEBUG_TIME
+    struct timespec ts1, ts2;
+    clock_gettime(CLOCK_REALTIME, &ts1);
+#endif
 
     switch ((method = b->method)) {
     case RAW:
@@ -135,6 +158,11 @@ int cram_uncompress_block(cram_slice *s, cram_block *b) {
 	b->method = RAW;
 	break;
     }
+
+#ifdef DEBUG_TIME
+    clock_gettime(CLOCK_REALTIME, &ts2);
+    btm[b->content_id] += (ts2.tv_sec - ts1.tv_sec) * 1000000000 + ts2.tv_nsec - ts1.tv_nsec;
+#endif
 
     return 0;
 }
@@ -237,6 +265,11 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
     size_t comp_size = 0;
     int strat;
     int m;
+
+#ifdef DEBUG_TIME
+    struct timespec ts1, ts2;
+    clock_gettime(CLOCK_REALTIME, &ts1);
+#endif
 
     if (b->method != RAW) {
 	// Maybe already compressed if s->block[0] was compressed and
@@ -431,6 +464,12 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
 
     if (b->method == RANS1)
 	b->method = RANS0; // Spec just has RANS (not 0/1) with auto-sensing
+
+#ifdef DEBUG_TIME
+    clock_gettime(CLOCK_REALTIME, &ts2);
+    if (metrics)
+	metrics->tm += (ts2.tv_sec - ts1.tv_sec) * 1000000000 + ts2.tv_nsec - ts1.tv_nsec;
+#endif
 
     return 0;
 }

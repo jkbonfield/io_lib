@@ -2602,6 +2602,12 @@ void cram_free_container(cram_container *c) {
 	    cram_tag_map *tm = (cram_tag_map *)hi->data.p;
 	    cram_codec *c = tm->codec;
 
+#ifdef DEBUG_TIME
+	    extern int64_t btm[1<<24];
+	    if (tm->m)
+		btm[(hi->key[0]<<16)+(hi->key[1]<<8)+hi->key[2]] += tm->m->tm;
+#endif
+
 	    if (c) c->free(c);
 	    free(tm);
 	}
@@ -4441,6 +4447,15 @@ int cram_close(cram_fd *fd) {
 	refs_free(fd->refs);
     if (fd->ref_free)
         free(fd->ref_free);
+
+#ifdef DEBUG_TIME
+    for (i = 0; i < DS_END; i++) {
+	if (!fd->m[i] || fd->m[i]->tm == 0)
+	    continue;
+	fprintf(stderr, "%6d: %f seconds\n", i, fd->m[i]->tm / 1000000000.0);
+    }
+    dump_decode_time();
+#endif
 
     for (i = 0; i < DS_END; i++)
 	if (fd->m[i])

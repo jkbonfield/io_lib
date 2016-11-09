@@ -50,6 +50,7 @@
 #include <math.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
@@ -829,6 +830,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 				method, level))
 	                        //1<<RANS1/*method*/, level))
 	    return -1;
+
 	if (cram_compress_block(fd, s, s->block[DS_BA], fd->m[DS_BA],
 				method, level))
 	    return -1;
