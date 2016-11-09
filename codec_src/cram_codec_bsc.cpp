@@ -1,14 +1,14 @@
-//g++ -g -fPIC -shared -fopenmp cram_compress_bsc.cpp  -o libcram_compress_bsc.so -I.. -I. -I/nfs/users/nfs_j/jkb/work/cram/plugins/bsc -L/nfs/users/nfs_j/jkb/work/cram/plugins/bsc -lbsc
+//g++ -g -fPIC -shared -fopenmp cram_compress_bsc.cpp  -o libcram_compress_bsc.so -I.. -I. -I$HOME/ftp/compression/libbsc/ -L$HOME/ftp/compression/libbsc/ -lbsc
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <cstdint>
+#include <limits>
 #include "io_lib/cram_block_compression.h"
 
-#define LIBBSC_SORT_TRANSFORM_SUPPORT
 #include <libbsc/libbsc.h>
 
 #define FEATURES LIBBSC_FEATURE_FASTMODE
-//#define FEATURES 0
 
 static const char *name(void) {
     return "LibBSC compression";
@@ -21,13 +21,14 @@ unsigned char *compress_block(int level,
 			      size_t *out_size) {
     unsigned char *comp = (unsigned char *)malloc(in_size+LIBBSC_HEADER_SIZE);
 
-    // ST3(1) to ST6(9) => ST 3+level/3
-    level = LIBBSC_BLOCKSORTER_ST3 + (int)(level/3);
     *out_size = bsc_compress(in, comp, in_size,
 			     0, // LZP hash size, 0 or 10..28
 			     0, // LZP min match, 0 or 4..255
-			     level, 
+			     LIBBSC_BLOCKSORTER_BWT,
+			     LIBBSC_CODER_QLFC_STATIC,
+			     //LIBBSC_CODER_QLFC_ADAPTIVE, // maybe 50% slower?
 			     FEATURES);
+
     if (*out_size <= 0) {
 	free(comp);
 	return NULL;
