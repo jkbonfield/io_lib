@@ -2604,8 +2604,10 @@ void cram_free_container(cram_container *c) {
 
 #ifdef DEBUG_TIME
 	    extern int64_t btm[1<<24];
-	    if (tm->m)
+	    if (tm->m) {
 		btm[(hi->key[0]<<16)+(hi->key[1]<<8)+hi->key[2]] += tm->m->tm;
+		tm->m->tm = 0;
+	    }
 #endif
 
 	    if (c) c->free(c);
@@ -4454,6 +4456,7 @@ int cram_close(cram_fd *fd) {
 	    continue;
 	fprintf(stderr, "%6d: %f seconds\n", i, fd->m[i]->tm / 1000000000.0);
     }
+    void dump_decode_time(void);
     dump_decode_time();
 #endif
 
