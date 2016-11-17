@@ -3,9 +3,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <string.h>
 #include "io_lib/cram_block_compression.h"
 #include "clr.cdr"
 #include "simple_model.h"
+
+// Comment out if you wish to not de-dup the last quality string.
+#define DEDUP
 
 static const char *name(void) {
     return "fqzcomp-qual";
@@ -241,14 +245,20 @@ unsigned char *compress_block_fqz2f(int level,
     SIMPLE_MODEL<256>  model_len[4];
     SIMPLE_MODEL<2>  model_strand;
     int delta = 5;
+#ifdef DEDUP
+    int last_len = 0;
+    SIMPLE_MODEL<2>  model_dup;
+#endif
 
     rc.output((char *)comp);
     rc.StartEncode();
 
+
     for (i = j = 0; i < in_size; i++, j--) {
 	if (j == 0) {
-	    // Quality buffer maybe longer than sum of reads if we've inserted a specific
-	    // base + quality pair.  FIXME: how to handle this?
+	    // Quality buffer maybe longer than sum of reads if we've
+	    // inserted a specific base + quality pair.
+	    // FIXME: how to handle this?
 	    int len = rec < s->hdr->num_records-1
 		? s->crecs[rec].len
 		: in_size - i;
@@ -257,7 +267,7 @@ unsigned char *compress_block_fqz2f(int level,
 
 	    if (s->crecs[rec].flags & BAM_FREVERSE) {
 		model_strand.encodeSymbol(&rc, 1);
-		// Reverse complement sequence
+		// Reverse complement sequence - note: modifies buffer
 		int I,J;
 		unsigned char *cp = in+i;
 		for (I = 0, J = len-1; I < J; I++, J--) {
@@ -273,9 +283,20 @@ unsigned char *compress_block_fqz2f(int level,
 	    rec++;
 	    j = len;
 	    delta = 5;
-	    last = 0;
+	    last = 0; // reset last too?
 
-	    // reset last too?
+#ifdef DEDUP
+	    // Possible dup of previous read?
+	    if (i && len == last_len && !memcmp(in+i-last_len, in+i, len)) {
+		model_dup.encodeSymbol(&rc, 1);
+		i += len-1;
+		j = 1;
+		continue;
+	    }
+	    model_dup.encodeSymbol(&rc, 0);
+
+	    last_len = len;
+#endif
 	}
 
 	unsigned char q = in[i] < QMAX ? in[i] : QMAX-1;
@@ -319,6 +340,9 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     SIMPLE_MODEL<2> model_strand;
     int delta = 5, rev = 0;
     unsigned char *seq_st = NULL, *seq_en = NULL;
+#ifdef DEDUP
+    SIMPLE_MODEL<2> model_dup;
+#endif
 
     uncomp = (unsigned char *)malloc(*out_size);
 
@@ -340,6 +364,17 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    len  = model_len[0].decodeSymbol(&rc);
 	    len |= model_len[1].decodeSymbol(&rc)<<8;
 	    rev = model_strand.decodeSymbol(&rc);
+
+#ifdef DEDUP
+	    if (model_dup.decodeSymbol(&rc)) {
+		// Dup of last line
+		memcpy(uncomp+i, uncomp+i-len, len);
+		i += len-1;
+		j = 1;
+		continue;
+	    }
+#endif
+
 	    seq_st = uncomp+i;
 	    seq_en = seq_st + len-1;
 
