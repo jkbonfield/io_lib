@@ -1291,7 +1291,8 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     }
     bam_set_cigar_len(bs, cigar_len);
     //printf("pos %d, %d..%d => bin %d\n", bs->pos, start, end, reg2bin(start, end));
-    bam_set_bin(bs, reg2bin(start,end));
+    // SAM spec changed 8th April 2014 (f7651377) for unmapped data.
+    bam_set_bin(bs, reg2bin(start, bs->flag & BAM_FUNMAP ? start+1 : end));
     if (!*cpf++) return -1;
     
     /* mate ref name */
