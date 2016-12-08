@@ -1453,15 +1453,12 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 //				    fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "AP_stats: ");
-    if (c->pos_sorted) {
+    if (c->pos_sorted)
 	h->codecs[DS_AP] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_AP]),
 					     c->stats[DS_AP], E_INT, NULL,
 					     fd->version);
-    } else {
-	int p[2] = {0, c->max_apos};
-	h->codecs[DS_AP] = cram_encoder_init(E_EXTERNAL, NULL, E_INT, p,
-					     fd->version);
-    }
+    else
+	h->codecs[DS_AP] = cram_encoder_init(E_EXTERNAL, NULL, E_INT, NULL, fd->version);
 
     if (fd->verbose > 1) fprintf(stderr, "RG_stats: ");
     h->codecs[DS_RG] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_RG]),
@@ -2496,8 +2493,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    cram_stats_add(c->stats[DS_AP], cr->apos - s->last_apos);
 	    s->last_apos = cr->apos;
 	}
-    } else {
-	//cram_stats_add(c->stats[DS_AP], cr->apos);
     }
     c->max_apos += (cr->apos > c->max_apos) * (cr->apos - c->max_apos);
 
@@ -3057,7 +3052,6 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	if (multi_seq) {
 	    fd->multi_seq = 1;
 	    c->multi_seq = 1;
-	    c->pos_sorted = 0; // required atm for multi_seq slices
 
 	    if (!c->refs_used) {
 		if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
