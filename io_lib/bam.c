@@ -57,6 +57,7 @@
 #include "io_lib/os.h"
 #include "io_lib/thread_pool.h"
 #include "io_lib/crc32.h"
+#include "io_lib/bgzip.h"
 
 // If using Cloudflare's zlib, consider just switching to the zlib crc.
 // However this doesn't work on older machines.
@@ -107,6 +108,7 @@
 static int bam_more_input(bam_file_t *b);
 static int bam_uncompress_input(bam_file_t *b);
 static int reg2bin(int start, int end);
+static int bgzf_block_write(bam_file_t *bf, int level, const void *buf, size_t count);
 static int bgzf_write(bam_file_t *bf, int level, const void *buf, size_t count);
 static int bgzf_write_mt(bam_file_t *bf, int level, const void *buf, size_t count);
 #ifdef USE_MT
@@ -415,6 +417,11 @@ static void bam_file_init(bam_file_t *b) {
     b->eof      = 0;
     b->nd_jobs    = 0;
     b->ne_jobs    = 0;
+    b->idx = NULL;
+    b->current_block = 0;
+    b->bgbuf_p = b->bgbuf;
+    b->bgbuf_sz = 0;
+    b->idx_fn = NULL;
 }
 
 /*! Opens a SAM or BAM file.
@@ -475,6 +482,9 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 	if (NULL == (b->fp = fopen(fn, "rb")))
 	    goto error;
     }
+
+    if (NULL == (b->idx = gzi_index_init()))
+      goto error;
 
     /* Load first block so we can check */
     bam_more_input(b);
@@ -556,7 +566,8 @@ int bam_close(bam_file_t *b) {
 
     if (b->mode & O_WRONLY) {
 	if (b->binary) {
-	    if (BGZF_WRITE(b, b->level, b->uncomp, b->uncomp_p - b->uncomp)) {
+	    if (bgzf_block_write(b, b->level, b->uncomp,
+				 b->uncomp_p - b->uncomp)) {
 		fprintf(stderr, "Write failed in bam_close()\n");
 	    }
 
@@ -578,6 +589,7 @@ int bam_close(bam_file_t *b) {
 
     if (b->bs)
 	free(b->bs);
+
     if (b->header)
 	sam_hdr_free(b->header);
 
@@ -589,6 +601,13 @@ int bam_close(bam_file_t *b) {
 
     if (b->fp)
 	r = fclose(b->fp);
+
+    if (b->idx) {
+	if ((b->mode == O_RDONLY) && b->idx_fn) {
+	    gzi_index_dump(b->idx, b->idx_fn, NULL);
+	}
+	gzi_index_free(b->idx);
+    }
 
     if (b->pool) {
 	/* Should be no BAM jobs left in the pool, but if we abort on
@@ -863,7 +882,10 @@ static int bam_uncompress_input(bam_file_t *b) {
 #endif
 	b->uncomp_sz = j->uncomp_sz;
 	t_pool_delete_result(res, 0);
-
+	if (b->idx){
+	    if (gzi_index_add_block(b->idx, j->comp_sz + 26, b->uncomp_sz))
+		return -1;
+	}
     } else {
 	/* Single threaded version, or non-bgzf format data */
 
@@ -927,7 +949,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 		    }
 		} while (b->comp_sz < bsize + 8);
 	    }
-	    
+
 	    b->s.avail_in  = bsize;
 	    b->s.next_in   = b->comp_p;
 	    b->s.avail_out = Z_BUFF_SIZE;
@@ -947,6 +969,11 @@ static int bam_uncompress_input(bam_file_t *b) {
 	    b->comp_sz  -= bsize + 8;
 	    b->uncomp_sz  = b->s.total_out;
 	    b->uncomp_p   = b->uncomp;
+
+	    if (b->idx){
+		if (gzi_index_add_block(b->idx, bsize + 26, b->uncomp_sz))
+		    return -1;
+	    }
 
 	    if (!b->ignore_chksum) {
 		uint32_t crc1 = iolib_crc32(0L, (unsigned char *)b->uncomp,
@@ -2879,6 +2906,44 @@ static int bgzf_encode(int level,
     return 0;
 }
 
+static int bgzf_block_write(bam_file_t *bf, int level,
+			    const void *buf, size_t count) {
+    if (!bf->idx)
+	return BGZF_WRITE(bf, level, buf, count);
+
+    const uint8_t *input = (const uint8_t*)buf;
+    // amount of uncompressed data to be fed into next block
+    uint64_t ublock_size;
+    ssize_t remaining = count;
+
+    while (remaining > 0) {
+	if ((bf->current_block) == (bf->idx->n)) { //
+	    fprintf(stderr, "ERROR: reached end of bgzip index with more data to write\n");
+	    return -1;
+	}
+	ublock_size = bf->idx->u_off[bf->current_block+1]
+	            - bf->idx->u_off[bf->current_block];
+
+	int copy_length = ublock_size - bf->bgbuf_sz;
+	if (copy_length > remaining)
+	    copy_length = remaining;
+
+	memcpy(bf->bgbuf_p + bf->bgbuf_sz, input, copy_length);
+	input += copy_length;
+	bf->bgbuf_sz += copy_length;
+	remaining -= copy_length;
+
+	if (bf->bgbuf_sz == ublock_size) {
+	    BGZF_WRITE(bf, level, bf->bgbuf_p, ublock_size);
+	    bf->bgbuf_sz=0;
+	    bf->current_block++;  // track the blocks
+	}
+    }
+
+    return 0;
+}
+
+
 static int bgzf_write(bam_file_t *bf, int level, const void *buf, size_t count) {
     unsigned char blk[Z_BUFF_SIZE+4];
     uint32_t len;
@@ -3425,12 +3490,12 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	int i, n = bam_cigar_len(b);
 #endif
 
-#define CF_FLUSH()					\
-	do {						\
-	    if (BGZF_WRITE(fp, fp->level, fp->uncomp,	\
-			   fp->uncomp_p - fp->uncomp))	\
-		return -1;				\
-	    fp->uncomp_p=fp->uncomp;			\
+#define CF_FLUSH()						\
+	do {							\
+	    if (bgzf_block_write(fp, fp->level, fp->uncomp,	\
+				 fp->uncomp_p - fp->uncomp))	\
+		return -1;					\
+	    fp->uncomp_p=fp->uncomp;				\
 	} while(0)
 
 	/* If big endian, byte swap inline, write it out, and byte swap back */
@@ -3580,7 +3645,7 @@ int bam_write_header(bam_file_t *out) {
 
 	while (len) {
 	    int sz = BGZF_BUFF_SIZE < len ? BGZF_BUFF_SIZE : len;
-	    if (BGZF_WRITE(out, out->level, cp, sz))
+	    if (bgzf_block_write(out, out->level, cp, sz))
 		return -1;
 	    cp  += sz;
 	    len -= sz;
@@ -3635,6 +3700,12 @@ int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args) {
 
     case BAM_OPT_IGNORE_CHKSUM:
 	fd->ignore_chksum = va_arg(args, int);
+	break;
+    case BAM_OPT_WITH_BGZIP_IDX:
+        fd->idx =  va_arg(args, gzi *);
+	break;
+    case BAM_OPT_OUTPUT_BGZIP_IDX:
+        fd->idx_fn =  va_arg(args, char *);
 	break;
     }
 

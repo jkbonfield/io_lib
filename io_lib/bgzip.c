@@ -59,12 +59,6 @@
  * bgzip .gzi index support
  */
 
-typedef struct gzi {
-    uint64_t n;
-    uint64_t *c_off;
-    uint64_t *u_off;
-} gzi;
-
 /* Loads an bgzip index and returns it.
  * Returns NULL on failure.
  */
@@ -121,6 +115,87 @@ void gzi_index_free(gzi *idx) {
 	free(idx->u_off);
 	free(idx);
     }
+}
+
+gzi *gzi_index_init() {
+    gzi *idx = calloc(1, sizeof(*idx));
+    return idx;
+}
+
+/*
+ * Adds a compressed / uncompressed map to the gzi structure.
+ * Returns 0 on success;
+ *        -1 on failure.
+ */
+int gzi_index_add_block(gzi *idx, uint64_t c_off, uint64_t u_off) {
+    uint64_t n;
+    idx->n++;
+    n = idx->n;
+    idx->c_off = realloc(idx->c_off, 8*n+8);
+    idx->u_off = realloc(idx->u_off, 8*n+8);
+    if (!idx->c_off || !idx->u_off)
+	return -1;
+    if (n == 1){
+	idx->c_off[n-1] = c_off;
+	idx->u_off[n-1] = u_off;
+    } else {
+	idx->c_off[n-1] = c_off+idx->c_off[n-2];
+	idx->u_off[n-1] = u_off+idx->u_off[n-2];
+    }
+    return 0;
+}
+
+
+/*
+ * Writes a gzi file to a file with basename 'bname' and optional suffix
+ * (or NULL if unused).
+ *
+ * Returns 0 on success;
+ *        -1 on failure.
+ */
+int gzi_index_dump(gzi *idx, const char *bname, const char *suffix) {
+    char *tmp = (char *)bname;
+    if (!idx)
+        return -1;
+
+    if (suffix) {
+        int blen = strlen(bname);
+        int slen = strlen(suffix);
+        if (!(tmp = (char*) malloc(blen + slen + 1)))
+	    return -1;
+        memcpy(tmp, bname, blen);
+        memcpy(tmp+blen, suffix, slen+1);
+    }
+
+    FILE *idx_f = fopen(tmp, "wb");
+    if (!idx_f) {
+	perror(tmp);
+	if (tmp != bname)
+	    free(tmp);
+	return -1;
+    }
+    if (tmp != bname)
+	free(tmp);
+
+    int i;
+    uint64_t n = idx->n;
+    if (fwrite(le_int8(&n), sizeof(n), 1, idx_f) < 0)
+	goto fail;
+    for (i=0; i<idx->n; i++) {
+	if (fwrite(le_int8(&idx->c_off[i]), sizeof idx->c_off[i], 1, idx_f) < 0)
+	    goto fail;
+	if (fwrite(le_int8(&idx->u_off[i]), sizeof idx->u_off[i], 1, idx_f) < 0)
+	    goto fail;
+    }
+
+    if (fclose(idx_f) < 0)
+        return -1;
+
+    return 0;
+
+ fail:
+    fclose(idx_f);
+    return -1;
 }
 
 /*

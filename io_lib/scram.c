@@ -415,6 +415,14 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 	return fd->is_bam
 	    ? bam_set_option (fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
 	    : cram_set_option(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
+    } else if (opt == CRAM_OPT_WITH_BGZIP_INDEX) {
+        gzi *idx = va_arg(args, gzi *);
+        if (fd->is_bam)
+	    return bam_set_option (fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
+    } else if (opt == CRAM_OPT_OUTPUT_BGZIP_IDX) {
+        int idx_fn = va_arg(args, char *);
+        if (fd->is_bam)
+	    return bam_set_option (fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
     }
 
     if (!fd->is_bam) {
