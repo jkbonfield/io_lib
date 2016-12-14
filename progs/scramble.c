@@ -119,19 +119,21 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
-    fprintf(fp, "    -P             [Cram EXPERIMENTAL] Preserve all aux tags (incl RG,NM,MD)\n");
-    fprintf(fp, "    -p             [Cram EXPERIMENTAL] Preserve aux tag sizes ('i', 's', 'c')\n");
+    fprintf(fp, "    -P             Preserve all aux tags (incl RG,NM,MD)\n");
+    fprintf(fp, "    -p             Preserve aux tag sizes ('i', 's', 'c')\n");
     fprintf(fp, "    -q             Don't add scramble @PG header line\n");
     fprintf(fp, "    -N integer     Stop decoding after 'integer' sequences\n");
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
     fprintf(fp, "    -!             Disable all checking of checksums\n");
+    fprintf(fp, "    -g FILE        Convert to Bam using index (file.gzi)\n");
+    fprintf(fp, "    -G FILE        Out put Bam index when bam input(file.gzi)\n");
 }
 
 int main(int argc, char **argv) {
     scram_fd *in, *out;
     bam_seq_t *s;
-    char imode[10], *in_f = "", omode[10], *out_f = "";
+    char imode[10], *in_f = "", omode[10], *out_f = "", *index_fn = NULL, *index_out_fn = NULL;
     int level = '\0'; // nul terminate string => auto level
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
@@ -142,6 +144,7 @@ int main(int argc, char **argv) {
     refs_t *refs;
     int nthreads = 1;
     t_pool *p = NULL;
+    gzi *idx =NULL;
     int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
     int sam_fields = 0; // all
@@ -155,7 +158,7 @@ int main(int argc, char **argv) {
     scram_init();
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPpq")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPpqg:G:")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -310,6 +313,14 @@ int main(int argc, char **argv) {
 	    max_reads = atoi(optarg);
 	    break;
 
+	case 'g':
+	    index_fn = optarg;
+	    break;
+
+	case 'G':
+	    index_out_fn = optarg;
+	    break;
+
 	case '?':
 	    fprintf(stderr, "Unrecognised option: -%c\n", optopt);
 	    usage(stderr);
@@ -414,6 +425,20 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
 	if (scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md))
+	    return 1;
+    }
+
+    if (index_fn) {
+	if (NULL == (idx = gzi_index_load(index_fn))) {
+	    fprintf(stderr, "Cannot open index file.\n");
+	    return 1;
+	}
+	if (scram_set_option(out, CRAM_OPT_WITH_BGZIP_INDEX, idx))
+	    return 1;
+    }
+
+    if (index_out_fn) {
+	if (scram_set_option(in, CRAM_OPT_OUTPUT_BGZIP_IDX, index_out_fn))
 	    return 1;
     }
 

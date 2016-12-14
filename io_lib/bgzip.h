@@ -34,9 +34,15 @@
 #ifndef _BGZIP_H_
 #define _BGZIP_H_
 
-struct gzi;
-typedef struct gzi gzi;
+typedef struct gzi {
+    uint64_t n;
+    uint64_t *c_off;
+    uint64_t *u_off;
+} gzi;
 
+int gzi_index_add_block(gzi *idx, uint64_t c_off, uint64_t u_off);
+int gzi_index_dump(gzi *idx, const char *bname, const char *suffix);
+gzi *gzi_index_init();
 gzi *gzi_index_load(const char *fn);
 void gzi_index_free(gzi *idx);
 uint64_t gzi_load(FILE *fp, gzi *idx, uint64_t ustart, uint64_t uend, char *out);

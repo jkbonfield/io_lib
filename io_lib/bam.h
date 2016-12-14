@@ -56,6 +56,7 @@ extern "C" {
 #include "io_lib/sam_header.h"
 #include "io_lib/thread_pool.h"
 #include "io_lib/binning.h"
+#include "io_lib/bgzip.h"
 
 /* BAM header structs */
 typedef struct tag_list {
@@ -138,6 +139,7 @@ typedef struct {
 #define BGZF_BUFF_SIZE 65273 // 65535 - MIN_LOOKAHEAD to avoid fill_window()
 typedef struct {
     FILE *fp;
+
     int mode, binary, level;
     z_stream s;
 
@@ -196,6 +198,14 @@ typedef struct {
 
     /* Disabling CRC checks */
     int ignore_chksum;
+
+    /* Used when gzi files are supplied. */
+    gzi *idx;
+    char *idx_fn;
+    uint64_t current_block;
+    unsigned char bgbuf[Z_BUFF_SIZE];
+    unsigned char *bgbuf_p;
+    size_t bgbuf_sz;
 } bam_file_t;
 
 /* BAM flags */
@@ -729,7 +739,9 @@ int bam_write_header(bam_file_t *out);
 enum bam_option {
     BAM_OPT_THREAD_POOL,
     BAM_OPT_BINNING,
-    BAM_OPT_IGNORE_CHKSUM
+    BAM_OPT_IGNORE_CHKSUM,
+    BAM_OPT_WITH_BGZIP_IDX,
+    BAM_OPT_OUTPUT_BGZIP_IDX
 };
 
 /*! Sets options on the bam_file_t.
