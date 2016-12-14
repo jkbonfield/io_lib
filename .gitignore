@@ -1,0 +1,20 @@
+# Everything generated from ./bootstrap (autoconf)
+Makefile.in
+aclocal.m4
+autom4te.cache
+compile
+config.guess
+config.sub
+configure
+depcomp
+install-sh
+io_lib/Makefile.in
+io_lib_config.h.in
+ltmain.sh
+missing
+progs/Makefile.in
+test-driver
+tests/Makefile.in
+
+# Skip local build sub-directories per OS.
+build.*

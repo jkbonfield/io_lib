@@ -1,5 +1,5 @@
-			IO_LIB VERSION 1.14.8
-			=====================
+Io_lib:  Version 1.14.8
+=======================
 
 Io_lib is a library of file reading and writing code to provide a general
 purpose trace file (and Experiment File) reading interface. The programmer
@@ -163,6 +163,7 @@ normally filled out for you by autoconf) or add -DNO_AUTOCONF to your
 compiler options.
 
 The code should also build cleanly under a cross-compiler.  We use
+
     ./configure \
             --host=x86_64-w64-mingw32 \
             --prefix=$DIST \
