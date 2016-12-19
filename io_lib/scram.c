@@ -420,7 +420,7 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
         if (fd->is_bam)
 	    return bam_set_option (fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
     } else if (opt == CRAM_OPT_OUTPUT_BGZIP_IDX) {
-        int idx_fn = va_arg(args, char *);
+        char *idx_fn = va_arg(args, char *);
         if (fd->is_bam)
 	    return bam_set_option (fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
     }
