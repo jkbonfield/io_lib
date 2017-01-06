@@ -64,16 +64,22 @@
  */
 gzi *gzi_index_load(const char *fn) {
     gzi *idx = malloc(sizeof(*idx));
-    char fn2[8192];
-    snprintf(fn2, 8192, "%s.gzi", fn);
+    FILE *fp;
 
-    FILE *fp = fopen(fn2, "rb");
+    if (strlen(fn) >= 4 && strcmp(fn+strlen(fn)-4, ".gzi") == 0) {
+	// We were given the .gzi filename itself
+	fp = fopen(fn, "rb");
+    } else {
+	// Append .gzi suffix and hope it exists
+	char fn2[8192];
+	snprintf(fn2, 8192, "%s.gzi", fn);
+
+	fp = fopen(fn2, "rb");
+    }
+
     if (!fp) {
-	fp = fopen(fn, "rb"); // Assume they gave us the .gzi
-	if (!fp) {
-	    perror(fn);
-	    goto err;
-	}
+	perror(fn);
+	goto err;
     }
 
     uint64_t n, i;
@@ -81,6 +87,9 @@ gzi *gzi_index_load(const char *fn) {
     if (8 != fread(&n, 1, 8, fp))
 	goto err;
     n = le_int8(n);
+
+    if (n < 0 || n >= INT_MAX/8 - 1)
+	goto err;
 
     idx->n = n;
     idx->c_off = malloc(8*n+8);

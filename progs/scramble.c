@@ -127,7 +127,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
     fprintf(fp, "    -!             Disable all checking of checksums\n");
     fprintf(fp, "    -g FILE        Convert to Bam using index (file.gzi)\n");
-    fprintf(fp, "    -G FILE        Out put Bam index when bam input(file.gzi)\n");
+    fprintf(fp, "    -G FILE        Output Bam index when bam input(file.gzi)\n");
 }
 
 int main(int argc, char **argv) {
