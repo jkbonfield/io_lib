@@ -10,7 +10,6 @@
 #include <bzlib.h>
 #include <assert.h>
 
-
 unsigned char *rans_compress(unsigned char *in, unsigned int in_size,
 			     unsigned int *out_size, int order);
 unsigned char *rans_uncompress(unsigned char *in, unsigned int in_size,
@@ -478,7 +477,7 @@ unsigned char *uncompress_block(cram_slice *s,
     text = malloc(text_len=ulen*1.1+600); // FIXME GUESSWORK
     BZ2_bzBuffToBuffDecompress((char *)text, &text_len, (char *)&data[i], text_len, 0, 0);
     //text = rans_uncompress(&data[i], text_len, &text_len);
-    data += i;
+    //data += i;
 
     // Decode text
     int j;
@@ -535,3 +534,67 @@ static cram_compressor c = {
 cram_compressor *cram_compressor_init(void) {
     return &c;
 }
+
+
+// A simple test harness for compressing files of the command line.
+//
+// cc -g cram_codec_names3.c -DTEST_MAIN -I../ -I../build.x86_64 -L../build.x86_64/io_lib/.libs -lstaden-read -lbz2
+
+#ifdef TEST_MAIN
+#ifndef BLK_SIZE
+#    define BLK_SIZE 1013*1047
+#endif
+
+typedef unsigned char uc;
+
+int main(int argc, char **argv) {
+    char in[BLK_SIZE], *out;
+    size_t in_len, out_len;
+
+    if (argc > 1 && strcmp(argv[1], "-d") == 0) {
+	// decode
+	unsigned int i4;
+	while (4 == fread(&i4, 1, 4, stdin)) {
+	    assert(i4 < BLK_SIZE);
+	    if (i4 != fread(in, 1, i4, stdin)) {
+		fprintf(stderr, "Decode error\n");
+		return 1;
+	    }
+	    out = (char *)uncompress_block(NULL, (uc *)in, i4, &out_len);
+
+	    // Convert \0 to \n; for easy commmand line testing
+	    size_t i;
+	    for (i = 0; i < out_len; i++)
+		if (out[i] == 0)
+		    out[i] = '\n';
+	    fwrite(out, 1, out_len, stdout);
+	}
+    } else {
+	// encode
+	size_t offset = 0;
+	while ((in_len = fread(in+offset, 1, BLK_SIZE-offset, stdin)) > 0) {
+	    // Only encode whole number of lines
+	    in_len += offset;
+	    char *cp = in + in_len-1;
+	    while (*cp > '\n' && cp > in)
+		cp--;
+	    offset = in_len - (cp - in + 1);
+	    in_len = cp - in + 1;
+
+	    out = (char *)compress_block(0, NULL, (uc *)in, in_len, &out_len);
+	    unsigned int i4 = out_len;
+	    fwrite(&i4, 1, 4, stdout); // don't care about byte swapping for demo.
+	    fwrite(out, 1, out_len, stdout);
+
+	    free(out);
+
+	    assert(offset >= 0);
+	    assert(in_len+offset <= BLK_SIZE);
+	    memmove(in, in + in_len, offset);
+	}
+    }
+
+    return 0;
+}
+
+#endif
