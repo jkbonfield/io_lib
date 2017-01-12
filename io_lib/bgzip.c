@@ -69,6 +69,7 @@ gzi *gzi_index_load(const char *fn) {
     if (strlen(fn) >= 4 && strcmp(fn+strlen(fn)-4, ".gzi") == 0) {
 	// We were given the .gzi filename itself
 	fp = fopen(fn, "rb");
+	if (!fp) perror(fn);
     } else {
 	// Append .gzi suffix and hope it exists
 	char fn2[8192];
@@ -77,10 +78,8 @@ gzi *gzi_index_load(const char *fn) {
 	fp = fopen(fn2, "rb");
     }
 
-    if (!fp) {
-	perror(fn);
+    if (!fp)
 	goto err;
-    }
 
     uint64_t n, i;
 
