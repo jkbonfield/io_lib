@@ -2067,8 +2067,10 @@ int bam_aux_iter(bam_seq_t *b, char **iter_handle,
     char k3[3];
     int r = bam_aux_iter_full(b, iter_handle, k3, type, val);
 
-    key[0] = k3[0];
-    key[1] = k3[1];
+    if (r == 0) {
+	key[0] = k3[0];
+	key[1] = k3[1];
+    }
 
     return r;
 }

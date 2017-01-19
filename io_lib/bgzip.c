@@ -248,7 +248,7 @@ static int64_t gzi_uoff_to_voff(gzi *idx, uint64_t uoff, int *sz) {
 }
 
 uint64_t gzi_load(FILE *fp, gzi *idx, uint64_t ustart, uint64_t uend, char *out) {
-    int csz, err;
+    int csz = 0, err;
     int64_t vstart = gzi_uoff_to_voff(idx, ustart, 0);
     int64_t vend   = gzi_uoff_to_voff(idx, uend, &csz);
 
