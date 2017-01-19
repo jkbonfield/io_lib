@@ -59,6 +59,25 @@
 #include "io_lib/crc32.h"
 #include "io_lib/bgzip.h"
 
+// On later gcc releases the ALLOW_UAC code causes the vectorizor to
+// use aligned SIMD instructions on unaligned memory access.  This is due
+// to our own abuse of char to int aliasing, but doing things the legal
+// way is still slower overall (5-14% depending on system and compiler).
+// However by explicitly altering the alignment of the integer types
+// we can persuade the compiler to generate the unaligned SIMD
+// instructions instead.
+#if defined(__GNUC__) && !(defined(__clang__) || defined(__ICC))
+typedef  int16_t  int16_u __attribute__ ((aligned (1)));
+typedef uint16_t uint16_u __attribute__ ((aligned (1)));
+typedef  int32_t  int32_u __attribute__ ((aligned (1)));
+typedef uint32_t uint32_u __attribute__ ((aligned (1)));
+#else
+typedef  int16_t  int16_u;
+typedef uint16_t uint16_u;
+typedef  int32_t  int32_u;
+typedef uint32_t uint32_u;
+#endif
+
 // If using Cloudflare's zlib, consider just switching to the zlib crc.
 // However this doesn't work on older machines.
 
@@ -3026,14 +3045,6 @@ static int bgzf_flush(bam_file_t *bf) {
  * Returns 0 on success
  *        -1 on failure
  */
-#if defined(__GNUC__) && !(defined(__clang__) || defined(__ICC))
-// On later gcc releases the ALLOW_UAC code causes the vectorizor to
-// use SIMD instructions on unaligned memory access.  This is due to
-// our own abuse of char to int aliasing, but doing things the legal
-// way is still slower overall (5-14% depending on system and
-// compiler).
-__attribute__((optimize("no-tree-vectorize")))
-#endif
 int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
     char *auxh, aux_key[3], type;
     bam_aux_t val;
@@ -3227,7 +3238,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		int n = b->len & ~1;
 		for (i = 0; i < n; i+=2) {
 #ifdef ALLOW_UAC
-		    *(int16_t *)cp = le_int2(code2base[*dat++]);
+		    *(int16_u *)cp = le_int2(code2base[*dat++]);
 		    cp += 2;
 #else
 		    cp[0] = "=ACMGRSVTWYHKDBN"[*dat >> 4];
@@ -3288,7 +3299,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		    int n = b->len & ~3;
 		    for (; i < n; i+=4) {
 			//*cp++ = *dat++ + '!';
-			*(uint32_t *)cp = *(uint32_t *)dat + 0x21212121;
+			*(uint32_u *)cp = *(uint32_u *)dat + 0x21212121;
 			cp  += 4;
 			dat += 4;
 		    }
