@@ -165,21 +165,32 @@ void dstring_empty(dstring_t *ds) {
  */
 int dstring_resize(dstring_t *ds, size_t length) {
     char *str;
+    size_t length2;
 
     if (length+1 <= ds->allocated)
 	return 0;
 
     /*
      * Allocate with additional overhead so as to reduce calling this
-     * to often. Increase to next power of 2.
+     * to often. Increase to next power of 2 minus a little bit to
+     * allow for malloc overheads.
+     *
+     * If we are doing a very significant jump here, don't resize
+     * much as it's likely we already know the size rather than growing
+     * it line by line.
      */
-    length = pow(2, ceil(log(length+1)/log(2)));
+    if (length > 4*ds->length && length > 4096) {
+	length2 = length+1023;
+    } else {
+	length2 = pow(2, ceil(log(length+1)/log(2)));
+	if (length2 > 4096 && length2-32 > length) length2 -= 32;
+    }
     /* length++;*/
-    str = realloc(ds->str, length);
+    str = realloc(ds->str, length2);
     if (!str)
 	return -1;
     else {
-	ds->allocated = length;
+	ds->allocated = length2;
 	/* If this is first alloc, make sure we null terminate */
 	if (!ds->str) {
 	    str[0] = 0;
