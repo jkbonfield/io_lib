@@ -1532,6 +1532,8 @@ cram_block *cram_read_block(cram_fd *fd) {
 	// Check later, if and only if we do decompression of this block
 	b->crc32_checked = fd->ignore_md5;
 	b->crc_part = crc;
+    } else {
+	b->crc32_checked = 1; // CRC not present
     }
 
     b->orig_method = b->method;
