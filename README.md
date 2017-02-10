@@ -1,15 +1,20 @@
-Io_lib:  Version 1.14.8
+Io_lib:  Version 1.14.9
 =======================
 
 Io_lib is a library of file reading and writing code to provide a general
-purpose trace file (and Experiment File) reading interface. The programmer
-simply calls the (eg) read_reading to create a "Read" C structure with the
-data loaded into memory. It has been compiled and tested on a variety
-of unix systems, MacOS X and MS Windows.
+purpose SAM/BAM/CRAM, trace file (and Experiment File) reading
+interface.  Programmatically {S,B,CR}AM can be manipulated using the
+scram_*() API functions while DNA Chromatogram ("trace") files  can be
+read using the read_reading() function.
+
+It has been compiled and tested on a variety of unix systems, MacOS X
+and MS Windows.
 
 The directories below here contain the io_lib code. These support the
 following file formats:
 
+	SAM/BAM sequence files
+	CRAM sequence files
 	SCF trace files
 	ABI trace files
 	ALF trace files
@@ -18,62 +23,73 @@ following file formats:
 	SRF trace archives
 	Experiment files
 	Plain text files
-	SAM/BAM sequence files
-	CRAM sequence files
 
 These link together to form a single "libstaden-read" library supporting
 all the file formats via a single read_reading (or fread_reading or
 mfread_reading) function call and analogous write_reading functions
 too. See the file include/Read.h for the generic 'Read' structure.
 
-See the CHANGES for a summary of older updates or ChangeLog for the
+See the CHANGES for a summary of older updates or git logs for the
 full details.
 
-Version 1.14.8 (22nd April 2016)
+Version 1.14.9 (9th February 2017)
 --------------
 
-* SAM: Small speed up to record parsing.
+Updates:
 
-* CRAM: Scramble now has -p and -P options to control whether to
-  force the BAM auxiliary sizes (8 vs 16 vs 32-bit integer quantities)
-  rather than reducing to smallest size required, and whether to
-  preserve the order of auxiliary tags including RG, NM and MD.
+* BAM: Added CRC checking.  Bizarrely this was absent here and in most
+  other BAM implementations too.  Pure BAM decode of an uncompressed
+  BAM is around 9% slower and compressed BAM to compressed BAM is
+  almost identical.  The most significant hit is reading uncompressed
+  BAM (and doing nothing else) which is 120% slower as CRC dominates.
+  Options are available to disable the CRC checking incase this is an
+  issue (scramble -!).
 
-  This latter option requires storing these values verbatim instead of
-  regenerating them on-the-fly, but note this only preserves tag order
-  with Scramble / Htslib.  Htsjdk will still produce these fields out
-  of order.
+* CRAM: Now supports bgziped fasta references.
 
-* CRAM no longer stores data in the CORE block, permitting greater
-  flexibility in choosing which fields to decode.  (This change is
-  also mirrored in htslib and htsjdk.)
+* CRAM/SAM: Headers are now kept in the same basic type order while
+  transcoding. (Eg all @PG before all @SQ, or vice versa, depending on
+  input ordering.)
 
-* CRAM: ref.fai files in a different order to @SQ headers should now
-  work correctly.
+* CRAM: Compression level 1 is now faster but larger. (The old -1 and
+  -2 were too similar.)
 
-* CRAM required-fields parameters no longer forces quality decoding
-  when asking for sequence.
+* CRAM: Improved compression efficiency in some files, when switching
+  from sorted to unsorted data.
 
-* CRAM: More robustness / safety checks during decoding; itf8 bounds
-  checks, running out of memory, bounds checks in BETA codec, and
-  more.
+* CRAM: Various speedups relating to memory handling,
+  multi-threaded performance and the rANS codec.
 
-* CRAM auto-generated read names are consistent regardless of range
-  queries.  They also now match those produced by htslib.
+* CRAM: Block CRC checks are now only done when the block is used,
+  speeding up multi-threading and tools that do not decode all blocks
+  (eg flagstat).
 
-* A few compiler warnings in cram_dump / cram_size have gone away.
-  Many small CRAM code tweaks to aid comparisons to htslib.  It should
-  also be easier to build under Microsoft Visual Studio (although no
-  project file is provided).
+* Scramble -g and -G options to generate and reuse bgzip indices when
+  reading and writing BAM files.
 
-* CRAM: the rANS codec should now be slightly faster at decoding.
+* Scramble -q option to omit updating the @PG header records.
 
-* CRAM bug fix: removed potential (but unobserved) possibility of
-  8-bit quantities stored as a 16-bit value in BAM being converted
-  incorrectly within CRAM.
+* Experimental cram_filter tool has been added, to rapidly produce
+  cram subsets.
 
-* SAM bug fix: no more complaining about "unknown" sort order.
+* Migrated code base to git.  Use github for primary repository.
 
+Bug fixes:
+
+* BAM: Fixed the bin value calculation for placed but unmapped reads.
+
+* CRAM: Fixed file descriptor leak in refs_load_fai().
+
+* CRAM: Fixed a crash in MD5 calculation for sequences beyond the
+  reference end.
+
+* CRAM: Bug fixes when encoding malformed @SQ records.
+
+* CRAM: Fixed a rare renormalisation bug in rANS codec.
+
+* Fixed tests so make -j worked.
+
+* Removed ancient, broken and unused popen() code.
 
 
 Building

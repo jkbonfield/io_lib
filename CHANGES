@@ -1,3 +1,75 @@
+Version 1.14.9 (9th February 2017)
+--------------
+
+Updates:
+
+* BAM: Added CRC checking.  Bizarrely this was absent here and in most
+  other BAM implementations too.  Pure BAM decode of an uncompressed
+  BAM is around 9% slower and compressed BAM to compressed BAM is
+  almost identical.  The most significant hit is reading uncompressed
+  BAM (and doing nothing else) which is 120% slower as CRC dominates.
+  Options are available to disable the CRC checking incase this is an
+  issue (scramble -!).
+
+* CRAM: Now supports bgziped fasta references.
+
+* CRAM/SAM: Headers are now kept in the same basic type order while
+  transcoding. (Eg all @PG before all @SQ, or vice versa, depending on
+  input ordering.)
+
+* CRAM: Compression level 1 is now faster but larger. (The old -1 and
+  -2 were too similar.)
+
+* CRAM: Improved compression efficiency in some files, when switching
+  from sorted to unsorted data.
+
+* CRAM: Speedups and improvements to memory handling under GNU
+  malloc.  See the scram_init() function.
+
+* CRAM: Sped up the rANS codecs on x86_64 platforms (assembly code).
+
+* CRAM: Improved multi-threading performance during decode.
+
+* CRAM: Block CRC checks are now only done when the block is used,
+  speeding up multi-threading and tools that do not decode all blocks
+  (eg flagstat).
+
+* Scramble -g and -G options to generate and reuse bgzip indices when
+  reading and writing BAM files.
+
+* Scramble -q option to omit updating the @PG header records.
+
+* Experimental cram_filter tool has been added, to rapidly produce
+  cram subsets.
+
+* Migrated code base to git.  Use github for primary repository.
+  Dropped ChangeLog file (recommend git clone and  "git log
+  --abbrev-commit --pretty=medium --stat" for an svn similar log
+  style).
+
+* BAM: minor improvements to gcc SIMD auto-vectorisation.
+
+* Minor improvements to dstring memory usage (potentially reducing
+  memory usage when loading very large BAM headers).
+
+Bug fixes:
+
+* BAM: Fixed the bin value calculation for placed but unmapped reads.
+
+* CRAM: Fixed file descriptor leak in refs_load_fai().
+
+* CRAM: Fixed a crash in MD5 calculation for sequences beyond the
+  reference end.
+
+* CRAM: Bug fixes when encoding malformed @SQ records.
+
+* CRAM: Fixed a rare renormalisation bug in rANS codec.
+
+* Fixed tests so make -j worked.
+
+* Removed ancient, broken and unused popen() code.
+
+
 Version 1.14.8 (22nd April 2016)
 --------------
 
