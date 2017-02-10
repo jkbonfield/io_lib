@@ -92,7 +92,7 @@ cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
 					   cram_block_compression_hdr *ch) {
     int i;
 
-    if (!ch || !ch->codecs)
+    if (!ch)
 	return -1;
 
     for (i = 0; i < DS_END; i++) {
@@ -105,27 +105,25 @@ cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
     }
 
     // Fix tag encoding map.
-    if (ch->tag_encoding_map) {
-	if (!(c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
-	    return -1;
+    if (!(c->tags_used = HashTableCreate(16, HASH_DYNAMIC_SIZE)))
+	return -1;
 
-	for (i = 0; i < CRAM_MAP_HASH; i++) {
-	    cram_map *m;
-	    HashData hd;
-	    for (m = ch->tag_encoding_map[i]; m; m = m->next) {
-		cram_tag_map *tm = calloc(1, sizeof(*tm));
-		if (!tm) return -1;
-		unsigned char key[3];
-		tm->codec = m->codec;
-		if (-1 == cram_codec_decoder2encoder(fd, tm->codec))
-		    return -1;
-		hd.p = tm;
-		key[0] = (m->key>>16)&0xff;
-		key[1] = (m->key>> 8)&0xff;
-		key[2] = (m->key>> 0)&0xff;
+    for (i = 0; i < CRAM_MAP_HASH; i++) {
+	cram_map *m;
+	HashData hd;
+	for (m = ch->tag_encoding_map[i]; m; m = m->next) {
+	    cram_tag_map *tm = calloc(1, sizeof(*tm));
+	    if (!tm) return -1;
+	    unsigned char key[3];
+	    tm->codec = m->codec;
+	    if (-1 == cram_codec_decoder2encoder(fd, tm->codec))
+		return -1;
+	    hd.p = tm;
+	    key[0] = (m->key>>16)&0xff;
+	    key[1] = (m->key>> 8)&0xff;
+	    key[2] = (m->key>> 0)&0xff;
 		
-		HashTableAdd(c->tags_used, (char *)key, 3, hd, NULL);
-	    }
+	    HashTableAdd(c->tags_used, (char *)key, 3, hd, NULL);
 	}
     }
 

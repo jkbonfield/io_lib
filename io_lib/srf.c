@@ -331,9 +331,9 @@ int srf_write_cont_hdr(srf_t *srf, srf_cont_hdr_t *ch) {
 
     /* Header size */
     sz =  9
-	+ (ch->version ? strlen(ch->version) : 0) + 1
-	+ (ch->base_caller ? strlen(ch->base_caller) : 0) + 1
-	+ (ch->base_caller_version ? strlen(ch->base_caller_version) : 0) + 1;
+	+ strlen(ch->version) + 1
+	+ strlen(ch->base_caller) + 1
+	+ strlen(ch->base_caller_version) + 1;
     if (0 != srf_write_uint32(srf, sz))
 	return -1;
 
@@ -497,7 +497,7 @@ int srf_write_trace_hdr(srf_t *srf, srf_trace_hdr_t *th) {
 
     /* Size */
     sz = 1 + 4 + 1
-	+ (th->id_prefix ? strlen(th->id_prefix) : 0) + 1
+	+ strlen(th->id_prefix) + 1
 	+ th->trace_hdr_size;
     if (-1 == srf_write_uint32(srf, sz))
 	return -1;
@@ -1007,8 +1007,8 @@ int srf_index_write(srf_t *srf, srf_index_t *idx) {
 
     /* Compute index size and bucket offsets */
     hdr.size = 34 +
-	1 + (idx->ch_file ? strlen(idx->ch_file) : 0) +
-	1 + (idx->th_file ? strlen(idx->th_file) : 0);
+	1 + strlen(idx->ch_file) +
+	1 + strlen(idx->th_file);
     hdr.size += 8*(ArrayMax(idx->ch_pos) +
 		   ArrayMax(idx->th_pos) +
 		   h->nbuckets);
@@ -1033,14 +1033,8 @@ int srf_index_write(srf_t *srf, srf_index_t *idx) {
     hdr.n_container = ArrayMax(idx->ch_pos);
     hdr.n_data_block_hdr = ArrayMax(idx->th_pos);
     hdr.n_buckets = h->nbuckets;
-    if (idx->th_file)
-	strncpy(hdr.dbh_file,  idx->th_file, 255);
-    else
-	hdr.dbh_file[0] = 0;
-    if (idx->ch_file)
-	strncpy(hdr.cont_file, idx->ch_file, 255);
-    else
-	hdr.cont_file[0] = 0;
+    strncpy(hdr.dbh_file,  idx->th_file, 255);
+    strncpy(hdr.cont_file, idx->ch_file, 255);
     if (0 != srf_write_index_hdr(srf, &hdr))
 	return -1;
 

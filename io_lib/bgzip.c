@@ -87,7 +87,7 @@ gzi *gzi_index_load(const char *fn) {
 	goto err;
     n = le_int8(n);
 
-    if (n < 0 || n >= INT_MAX/8 - 1)
+    if (n >= INT_MAX/8 - 1)
 	goto err;
 
     idx->n = n;
@@ -187,12 +187,12 @@ int gzi_index_dump(gzi *idx, const char *bname, const char *suffix) {
 
     int i;
     uint64_t n = idx->n;
-    if (fwrite(le_int8(&n), sizeof(n), 1, idx_f) < 0)
+    if (fwrite(le_int8(&n), sizeof(n), 1, idx_f) != 1)
 	goto fail;
     for (i=0; i<idx->n; i++) {
-	if (fwrite(le_int8(&idx->c_off[i]), sizeof idx->c_off[i], 1, idx_f) < 0)
+	if (fwrite(le_int8(&idx->c_off[i]), sizeof idx->c_off[i], 1, idx_f) != 1)
 	    goto fail;
-	if (fwrite(le_int8(&idx->u_off[i]), sizeof idx->u_off[i], 1, idx_f) < 0)
+	if (fwrite(le_int8(&idx->u_off[i]), sizeof idx->u_off[i], 1, idx_f) != 1)
 	    goto fail;
     }
 
@@ -329,11 +329,11 @@ uint64_t gzi_load(FILE *fp, gzi *idx, uint64_t ustart, uint64_t uend, char *out)
  * due to no cachine and pointless seeks!  It got bolted on without
  * the necessary redesigns.
  */
-typedef struct bzi_FILE {
+struct bzi_FILE {
     FILE *fp;
     gzi  *idx;
     uint64_t pos;
-} bzi_FILE;
+};
 
 void bzi_close(bzi_FILE *zp) {
     if (!zp)

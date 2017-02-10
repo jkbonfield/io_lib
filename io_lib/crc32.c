@@ -617,6 +617,7 @@ const uint32_t Crc32Lookup[16][256] =
 };
 
 /// swap endianess
+#ifdef SP_BIG_ENDIAN
 static inline uint32_t swap(uint32_t x)
 {
 #if defined(__GNUC__) || defined(__clang__)
@@ -628,6 +629,7 @@ static inline uint32_t swap(uint32_t x)
          (x << 24);
 #endif
 }
+#endif
 
 /// compute CRC32 (Slicing-by-16 algorithm)
 uint32_t crc32_16bytes(const void* data, size_t length, uint32_t previousCrc32)
