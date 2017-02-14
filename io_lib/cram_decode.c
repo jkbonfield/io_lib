@@ -527,6 +527,19 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
+	} else if (key[0] == 'm' && key[1] == 'q') {
+	    if (!(hdr->codecs[DS_mq] = cram_decoder_init(encoding, cp, size, E_INT,
+						    fd->version))) {
+		cram_free_compression_header(hdr);
+		return NULL;
+	    }
+	} else if (key[0] == 'c' && key[1] == 'g') {
+	    if (!(hdr->codecs[DS_cg] = cram_decoder_init(encoding, cp, size,
+							 E_BYTE_ARRAY_BLOCK,
+							 fd->version))) {
+		cram_free_compression_header(hdr);
+		return NULL;
+	    }
 	} else if (key[0] == 'R' && key[1] == 'N') {
 	    if (!(hdr->codecs[DS_RN] = cram_decoder_init(encoding, cp, size,
 							 E_BYTE_ARRAY_BLOCK,
@@ -634,7 +647,7 @@ int cram_dependent_data_series(cram_fd *fd,
 	DS_BF, DS_AP, DS_FP, DS_RL, DS_DL, DS_NF, DS_BA, DS_QS,
 	DS_FC, DS_FN, DS_BS, DS_IN, DS_RG, DS_MQ, DS_TL, DS_RN,
 	DS_NS, DS_NP, DS_TS, DS_MF, DS_CF, DS_RI, DS_RS, DS_PD,
-	DS_HC, DS_SC, DS_BB, DS_QQ,
+	DS_HC, DS_SC, DS_BB, DS_QQ, DS_mq, DS_cg,
     };
     uint32_t orig_ds;
 
@@ -2815,6 +2828,37 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    } else {
 		if (ds & CRAM_RL)
 		    memset(qual, 255, cr->len);
+	    }
+
+	    if ((ds & CRAM_MQ) && c->comp_hdr->codecs[DS_mq]) {
+		r |= c->comp_hdr->codecs[DS_mq]
+		    ->decode(s, c->comp_hdr->codecs[DS_mq], blk,
+			     (char *)&cr->mqual, &out_sz);
+	    } else {
+		cr->mqual = 0;
+	    }
+
+	    if (c->comp_hdr->codecs[DS_cg]) {
+		cram_block *cig_blk = cram_new_block(EXTERNAL, DS_cg);
+		r |= c->comp_hdr->codecs[DS_cg]
+		    ->decode(s, c->comp_hdr->codecs[DS_cg], blk,
+			     (char *)cig_blk, &out_sz);
+
+		uint32_t *cigar = s->cigar;
+		uint32_t cigar_alloc = s->cigar_alloc;
+		if (s->ncigar+2 >= cigar_alloc) {
+		    cigar_alloc = cigar_alloc ? cigar_alloc*2 : 1024;
+		    if (!(cigar = realloc(cigar, cigar_alloc * sizeof(*cigar))))
+			return -1;
+		    s->cigar = cigar;
+		    s->cigar_alloc = cigar_alloc;
+		}
+		memcpy(s->cigar + s->ncigar, BLOCK_DATA(cig_blk), out_sz);
+		cr->cigar = s->ncigar;
+		cr->ncigar = out_sz / sizeof(*s->cigar);
+		s->ncigar += cr->ncigar;
+
+		cram_free_block(cig_blk);
 	    }
 	}
 

@@ -151,8 +151,15 @@ enum cram_DS_ID {
     DS_HC,
     DS_BB,
     DS_QQ,
+    DS_TN,
 
-    DS_TN, // end loop
+    DS_nm,  // NM delta; 0 if not present, 0xff if present but matching, ITF8 val if delta
+    DS_md,  // MD delta; 0 if not present, 0xff if present but matching, C-string if delta
+    DS_cg,  // CIGAR delta; C-string ("" implies no delta)
+    DS_bf,  // FLAG delta; 0 if not present, otherwise value+1
+    DS_mq,  // MQ delta; unmapped only, value ITF8
+
+    DS_STATS, // end stats loop
 
     DS_RN_len,
     DS_SC_len,
@@ -162,7 +169,7 @@ enum cram_DS_ID {
     DS_TC, // CRAM v1.0 tags
     DS_TM, // test
     DS_TV, // test
-    
+
     DS_END,
 };
 

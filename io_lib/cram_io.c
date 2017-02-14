@@ -3396,7 +3396,7 @@ cram_container *cram_new_container(int nrec, int nslice) {
 	goto err;
     c->comp_hdr_block = NULL;
 
-    for (id = DS_RN; id < DS_TN; id++)
+    for (id = DS_RN; id < DS_STATS; id++)
 	if (!(c->stats[id] = cram_stats_create())) goto err;
     
     //c->aux_B_stats = cram_stats_create();
@@ -3446,7 +3446,7 @@ void cram_free_container(cram_container *c) {
 	free(c->slices);
     }
 
-    for (id = DS_RN; id < DS_TN; id++)
+    for (id = DS_RN; id < DS_STATS; id++)
 	if (c->stats[id]) cram_stats_free(c->stats[id]);
 
     //if (c->aux_B_stats) cram_stats_free(c->aux_B_stats);

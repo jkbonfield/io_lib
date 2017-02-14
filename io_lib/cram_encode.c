@@ -351,6 +351,16 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 	    return NULL;
 	mc++;
     }
+    if (h->codecs[DS_mq]) {
+	if (-1 == h->codecs[DS_mq]->store(h->codecs[DS_mq], map, "mq", fd->version))
+	    return NULL;
+	mc++;
+    }
+    if (h->codecs[DS_cg]) {
+	if (-1 == h->codecs[DS_cg]->store(h->codecs[DS_cg], map, "cg", fd->version))
+	    return NULL;
+	mc++;
+    }
     if (h->codecs[DS_RN]) {
 	if (-1 == h->codecs[DS_RN]->store(h->codecs[DS_RN], map, "RN", fd->version))
 	    return NULL;
@@ -709,6 +719,13 @@ static int cram_encode_slice_read(cram_fd *fd,
 	char *seq = (char *)BLOCK_DATA(s->seqs_blk) + cr->seq;
 	if (cr->len)
 	    r |= h->codecs[DS_BA]->encode(s, h->codecs[DS_BA], seq, cr->len);
+	r |= h->codecs[DS_mq]->encode(s, h->codecs[DS_mq],
+				      (char *)&cr->mqual, 1);
+
+	// Normally blank!  Do we want a separate control code (cigar present)?
+	r |= h->codecs[DS_cg]->encode(s, h->codecs[DS_cg],
+				      (char *)(s->cigar + cr->cigar),
+				      cr->ncigar * sizeof(*s->cigar));
     }
 
     return r ? -1 : 0;
@@ -945,7 +962,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     /*
      * All the data-series blocks if appropriate. 
      */
-    for (id = DS_BF; id < DS_TN; id++) {
+    for (id = DS_BF; id < DS_STATS; id++) {
 	if (h->codecs[id] && (h->codecs[id]->codec == E_EXTERNAL ||
 			      h->codecs[id]->codec == E_BYTE_ARRAY_STOP ||
 			      h->codecs[id]->codec == E_BYTE_ARRAY_LEN)) {
@@ -1471,6 +1488,24 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     h->codecs[DS_MQ] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_MQ]),
 					 c->stats[DS_MQ], E_INT, NULL,
 					 fd->version);
+
+    h->codecs[DS_mq] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_mq]),
+					 c->stats[DS_mq], E_INT, NULL,
+					 fd->version);
+
+    {
+	cram_byte_array_len_encoder e;
+
+	e.len_encoding = E_EXTERNAL;
+	e.len_dat = (void *)DS_cg; // same block; why BB vs BB_len elsewhere? CHECK. Also tags use huffman. Why?
+
+	e.val_encoding = E_EXTERNAL;
+	e.val_dat = (void *)DS_cg;
+
+	h->codecs[DS_cg] = cram_encoder_init(E_BYTE_ARRAY_LEN, NULL,
+					     E_BYTE_ARRAY, (void *)&e,
+					     fd->version);
+    }
 
     //fprintf(stderr, "=== NS ===\n");
     if (fd->verbose > 1) fprintf(stderr, "NS_stats: ");
@@ -2572,19 +2607,10 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
     /* Copy and parse */
     if (!(cr->flags & BAM_FUNMAP)) {
-	uint32_t *cig_to, *cig_from;
+	uint32_t *cig_from;
 	int apos = cr->apos-1, spos = 0;
 
-	cr->cigar       = s->ncigar;
 	cr->ncigar      = bam_cigar_len(b);
-	while (cr->cigar + cr->ncigar >= s->cigar_alloc) {
-	    s->cigar_alloc = s->cigar_alloc ? s->cigar_alloc*2 : 1024;
-	    s->cigar = realloc(s->cigar, s->cigar_alloc * sizeof(*s->cigar));
-	    if (!s->cigar)
-		return -1;
-	}
-
-	cig_to = (uint32_t *)s->cigar;
 	cig_from = (uint32_t *)bam_cigar(b);
 
 	cr->feature = 0;
@@ -2592,7 +2618,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	for (i = 0; i < cr->ncigar; i++) {
 	    enum cigar_op cig_op = cig_from[i] & BAM_CIGAR_MASK;
 	    uint32_t cig_len = cig_from[i] >> BAM_CIGAR_SHIFT;
-	    cig_to[i] = cig_from[i];
 
 	    /* Can also generate events from here for CRAM diffs */
 
@@ -2761,6 +2786,21 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	for (i = 0; i < cr->len; i++)
 	    cram_stats_add(c->stats[DS_BA], seq[i]);
 	fake_qual = 0;
+
+	if (bam_cigar_len(b)) {
+	    // Unmapped data shouldn't have cigar, but some broken aligners still emit it.
+	    cr->cigar       = s->ncigar;
+	    cr->ncigar      = bam_cigar_len(b);
+	    while (cr->cigar + cr->ncigar >= s->cigar_alloc) {
+		s->cigar_alloc = s->cigar_alloc ? s->cigar_alloc*2 : 1024;
+		s->cigar = realloc(s->cigar, s->cigar_alloc * sizeof(*s->cigar));
+		if (!s->cigar)
+		    return -1;
+	    }
+
+	    memcpy(s->cigar + s->ncigar, bam_cigar(b), cr->ncigar*sizeof(*s->cigar));
+	    s->ncigar += cr->ncigar;
+	}
     }
 
     /*
@@ -2978,7 +3018,10 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     }
 
     cr->mqual       = bam_map_qual(b);
-    cram_stats_add(c->stats[DS_MQ], cr->mqual);
+    if (cr->flags & BAM_FUNMAP)
+	cram_stats_add(c->stats[DS_mq], cr->mqual);
+    else
+	cram_stats_add(c->stats[DS_MQ], cr->mqual);
 
     cr->mate_ref_id = bam_mate_ref(b);
 
