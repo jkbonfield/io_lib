@@ -433,7 +433,7 @@ static inline void RansDecRenorm(RansState* r, uint8_t** pptr)
     if (x >= RANS_BYTE_L) return;
     uint8_t* ptr = *pptr;
     x = (x << 8) | *ptr++;
-    while (x < RANS_BYTE_L) x = (x << 8) | *ptr++;
+    if (x < RANS_BYTE_L) x = (x << 8) | *ptr++;
     *pptr = ptr;
 #endif /* __clang__ */
 
@@ -686,7 +686,7 @@ unsigned char *rans_uncompress_O0(unsigned char *in, unsigned int in_size,
     
     in_sz  = ((in[0])<<0) | ((in[1])<<8) | ((in[2])<<16) | ((in[3])<<24);
     out_sz = ((in[4])<<0) | ((in[5])<<8) | ((in[6])<<16) | ((in[7])<<24);
-    if (in_sz != in_size-9)
+    if (in_sz != in_size-9 || out_sz < 0 || in_sz < 0)
 	return NULL;
 
     out_buf = malloc(out_sz);
@@ -706,6 +706,9 @@ unsigned char *rans_uncompress_O0(unsigned char *in, unsigned int in_size,
 	}
 	C = x;
 
+	if (F > TOTFREQ)
+	    return NULL;
+
         for (y = 0; y < F; y++) {
             ssym [y + C] = j;
             sfreq[y + C] = F;
@@ -719,12 +722,15 @@ unsigned char *rans_uncompress_O0(unsigned char *in, unsigned int in_size,
 	} else if (rle) {
 	    rle--;
 	    j++;
+	    if (j > 255)
+		return NULL;
 	} else {
 	    j = *cp++;
 	}
     } while(j);
 
-    assert(x < TOTFREQ);
+    if (x < TOTFREQ-1 || x > TOTFREQ)
+	return NULL;
 
     RansDecInit(&R[0], &cp);
     RansDecInit(&R[1], &cp);
@@ -1057,7 +1063,7 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
 
     in_sz  = ((in[0])<<0) | ((in[1])<<8) | ((in[2])<<16) | ((in[3])<<24);
     out_sz = ((in[4])<<0) | ((in[5])<<8) | ((in[6])<<16) | ((in[7])<<24);
-    if (in_sz != in_size-9)
+    if (in_sz != in_size-9 || in_sz < 0 || out_sz < 0)
 	return NULL;
 
 #ifdef USE_HEAP
@@ -1096,10 +1102,11 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
 
 	    /* Build reverse lookup table */
 	    //if (!D[i].R) D[i].R = (unsigned char *)malloc(TOTFREQ);
+	    if (x + F > TOTFREQ)
+		goto cleanup;
+
 	    memset(&D[m_i].R[x], j, F);
 	    x += F;
-
-	    assert(x <= TOTFREQ);
 
 	    if (!rle_j && j+1 == *cp) {
 		j = *cp++;
@@ -1107,6 +1114,8 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
 	    } else if (rle_j) {
 		rle_j--;
 		j++;
+		if (j > 255)
+		    goto cleanup;
 	    } else {
 		j = *cp++;
 	    }
@@ -1118,10 +1127,15 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
 	} else if (rle_i) {
 	    rle_i--;
 	    i++;
+	    if (i > 255)
+		goto cleanup;
 	} else {
 	    i = *cp++;
 	}
     } while (i);
+
+    if (x < TOTFREQ-1 || x > TOTFREQ)
+	goto cleanup;
 
     // Precompute reverse lookup of frequency.
 

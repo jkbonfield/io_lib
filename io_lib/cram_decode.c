@@ -986,7 +986,9 @@ void cram_decode_estimate_sizes(cram_block_compression_hdr *hdr, cram_slice *s,
     *name_size = 0;
 
     /* Qual */
-    cd = hdr->codecs[DS_QS];
+    if (!(cd = hdr->codecs[DS_QS]))
+	return;
+
     bnum1 = cram_codec_to_id(cd, &bnum2);
     if (bnum1 < 0 && bnum2 >= 0) bnum1 = bnum2;
     if (cram_ds_unique(hdr, cd, bnum1)) {
@@ -2392,6 +2394,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    s->ref = (char *)BLOCK_DATA(b);
 	    s->ref_start = s->hdr->ref_seq_start;
 	    s->ref_end   = s->hdr->ref_seq_start + s->hdr->ref_seq_span-1;
+	    if (s->ref_end - s->ref_start > b->uncomp_size) {
+		fprintf(stderr, "Embedded reference is too small.\n");
+		return -1;
+	    }
 	} else if (!fd->no_ref) {
 	    //// Avoid Java cramtools bug by loading entire reference seq 
 	    //s->ref = cram_get_ref(fd, s->hdr->ref_seq_id, 1, 0);
