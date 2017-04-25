@@ -479,6 +479,9 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 
 	if (strcmp(fn, "-") == 0) {
 	    b->fp = stdout; /* Stdout */
+#ifdef _WIN32
+	    _setmode(1, _O_BINARY);
+#endif
 	} else {
 	    if (NULL == (b->fp = fopen(fn, "wb")))
 		goto error;

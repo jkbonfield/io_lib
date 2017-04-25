@@ -44,6 +44,8 @@ while (<$fd2>) {
 while ($ln1 && $ln2) {
     chomp($ln1);
     chomp($ln2);
+    $ln1 =~ s/\r$//;
+    $ln2 =~ s/\r$//;
 
     # Java CRAM adds RG:Z:UNKNOWN when the read-group is absent
     if (exists $opts{unknownrg}) {
