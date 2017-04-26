@@ -163,22 +163,32 @@ Under Microsoft Windows we recommend the use of MSYS and MINGW as a
 build environment.
 
 These contain enough tools to build using the configure script as per
-Linux. Visit http://sourceforge.net/projects/mingw/files/ and
-download/install Automated MinGW Installer (eg MinGW-5.1.4.exe), MSYS
-Base System (eg MSYS-1.0.11.exe) and MSYS Supplementary Tools (eg
-msysDTK-1.0.1.exe).
+Linux. The latest msys can be downloaded here:
+
+   http://repo.msys2.org/distrib/msys2-x86_64-latest.exe
+
+Once installed and setup ("pacman -Syu"; close window & relaunch msys;
+"pacman -Syu" again), install mingw64 compilers via "pacman -S
+--needed man base-devel git mingw-w64-x86_64-toolchain".
+
+This should then be sufficient to configure and compile.  However note
+that you may need to use "./configure --disable-shared" for the test
+harness to work due to deficiences in the libtool wrapper script.
 
 If you wish to use Microsoft Visual Studio you may need to add the
 MSVC_includes subdirectory to your C include search path.  This
 adds several missing header files (eg unistd.h and sys/time.h) needed
-to build this software.  We do not have a MSVC project file available.
+to build this software.  We do not have a MSVC project file available
+and have not tested the build under this environment for a number of
+years.
 
 In this case you will also need to copy io_lib/os.h.in to io_lib/os.h
 and either remove the @SET_ENDIAN@ and adjacent @ lines (as these are
 normally filled out for you by autoconf) or add -DNO_AUTOCONF to your
 compiler options.
 
-The code should also build cleanly under a cross-compiler.  We use
+The code should also build cleanly under a cross-compiler.  This has
+not been tested recently, but a past successful invocation was:
 
     ./configure \
             --host=x86_64-w64-mingw32 \
