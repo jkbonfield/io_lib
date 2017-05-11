@@ -475,7 +475,7 @@ static int cram_index_build_multiref(cram_fd *fd,
 
 	ref = s->crecs[i].ref_id;
 	ref_start = s->crecs[i].apos;
-	ref_end = INT_MIN;
+	ref_end   = s->crecs[i].aend;
     }
 
     if (ref != -2) {
@@ -601,7 +601,7 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
 	zfclose(fp);
 	return -1;
     }
-	
+
 
     return (zfclose(fp) >= 0) ? 0 : -1;
 }
