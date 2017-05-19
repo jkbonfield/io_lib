@@ -762,8 +762,14 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	method |= 1<<BZIP2;
 
     if (fd->use_rans) {
-	method  |= (1<<RANS0) | (1<<RANS1);
+	//method  |= (1<<RANS0) | (1<<RANS1);
 	methodF |= (1<<RANS0) | (1<<RANS1);
+
+	method  |= (1<<RANS_PR0)   | (1<<RANS_PR1);
+	method  |= (1<<RANS_PR64)  | (1<<RANS_PR65);
+	method  |= (1<<RANS_PR128) | (1<<RANS_PR129);
+	method  |= (1<<RANS_PR192) | (1<<RANS_PR193);
+	//method  |= (1<<RANS_PR1) | (1<<RANS_PR193);
     }
 
     if (fd->use_lzma)
@@ -774,10 +780,15 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     //methodF = method = 1<<RANS1;
     //methodF = method = 1<<GZIP; // name, tags, etc only?
 
-    method |= 0xfffc0000; // any custom codecs found
+    method |= 0xffc00000; // any custom codecs found
 
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
+    if (level < 3)
+	methodF &= ~((1<<RANS_PR0)   | (1<<RANS_PR1) |
+		     (1<<RANS_PR64)  | (1<<RANS_PR65) |
+		     (1<<RANS_PR128) | (1<<RANS_PR129) |
+		     (1<<RANS_PR192) | (1<<RANS_PR193));
     if (level >= 6)
 	method |= 1<<GZIP_1;
     if (level >= 6)

@@ -86,7 +86,8 @@ typedef struct {
     // The compressed block size is returned in *out_size
     // Returns malloced buffer on success;
     //         NULL on failure
-    unsigned char *(*compress_block)(int level,
+    unsigned char *(*compress_block)(int method,
+                                     int level,
                                      cram_slice *s,
                                      unsigned char *in,
                                      size_t in_size,

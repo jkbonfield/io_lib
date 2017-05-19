@@ -62,6 +62,7 @@
 #include "io_lib/cram.h"
 #include "io_lib/os.h"
 #include "io_lib/rANS_static.h"
+#include "io_lib/rANS_static4x16.h"
 #include "io_lib/hash_table.h"
 #include "io_lib/crc32.h"
 
@@ -143,6 +144,7 @@ int cram_uncompress_block(cram_slice *s, cram_block *b) {
     case LZMA:
     case RANS0:
     case RANS1:
+    case RANS_PR0:
 	uncomp_size = b->uncomp_size;
 	uncomp = (char *)codecs[method]->uncompress_block(s, b->data,b->comp_size,
 							  &uncomp_size);
@@ -239,7 +241,16 @@ static char *cram_compress_by_method(char *in, size_t in_size,
     case LZMA:
     case RANS0:
     case RANS1:
-	return (char *)codecs[method]->compress_block(level, s,
+    case RANS_PR0:
+    case RANS_PR1:
+    case RANS_PR64:
+    case RANS_PR65:
+    case RANS_PR128:
+    case RANS_PR129:
+    case RANS_PR192:
+    case RANS_PR193:
+	return (char *)codecs[method]->compress_block(method,
+						      level, s,
 						      (uint8_t *)in, in_size,
 						      out_size);
 
@@ -608,7 +619,8 @@ static const char *gzip_rle_codec_name(void) {
     return "Gzip (RLE)";
 }
 
-unsigned char *gzip_codec_compress(int level,
+unsigned char *gzip_codec_compress(int method,
+				   int level,
 				   cram_slice *s,
 				   unsigned char *in,
 				   size_t in_size,
@@ -623,7 +635,8 @@ unsigned char *gzip_codec_compress(int level,
     return comp;
 }
 
-unsigned char *gzip_rle_codec_compress(int level,
+unsigned char *gzip_rle_codec_compress(int method,
+				       int level,
 				       cram_slice *s,
 				       unsigned char *in,
 				       size_t in_size,
@@ -676,7 +689,8 @@ static const char *bzip2_codec_name(void) {
     return "Bzip2";
 }
 
-unsigned char *bzip2_codec_compress(int level,
+unsigned char *bzip2_codec_compress(int method,
+				    int level,
 				    cram_slice *s,
 				    unsigned char *in,
 				    size_t in_size,
@@ -819,7 +833,8 @@ static const char *lzma_codec_name(void) {
     return "LZMA";
 }
 
-unsigned char *lzma_codec_compress(int level,
+unsigned char *lzma_codec_compress(int method,
+				   int level,
 				   cram_slice *s,
 				   unsigned char *in,
 				   size_t in_size,
@@ -856,7 +871,8 @@ static const char *rans1_codec_name(void) {
     return "RANS1";
 }
 
-unsigned char *rans0_codec_compress(int level,
+unsigned char *rans0_codec_compress(int method,
+				    int level,
 				    cram_slice *s,
 				    unsigned char *in,
 				    size_t in_size,
@@ -870,7 +886,8 @@ unsigned char *rans0_codec_compress(int level,
     return comp;
 }
 
-unsigned char *rans1_codec_compress(int level,
+unsigned char *rans1_codec_compress(int method,
+				    int level,
 				    cram_slice *s,
 				    unsigned char *in,
 				    size_t in_size,
@@ -915,6 +932,57 @@ static cram_compressor rans1_codec = {
     rans_codec_uncompress,
 };
 
+/* -----------------------------------------------------------------------------
+ * RANS 4x16 "PR".
+ * Order 0 / order 1
+ * With / without bit "P"acking
+ * With / without "R"LE.
+ *
+ * Hence 2x2x2 = 8 variants.  We use the same functions for each with different
+ * parameters.
+ */
+static const char *rans_pr_codec_name(void) {
+    return "RANS_PR";
+}
+
+unsigned char *rans_pr_codec_compress(int method,
+				      int level,
+				      cram_slice *s,
+				      unsigned char *in,
+				      size_t in_size,
+				      size_t *out_size) {
+    unsigned int i_out_size = *out_size;
+    unsigned char *comp;
+    static int rmethod[] = {0,1,64,65,128,129,192,193};
+
+    comp = (unsigned char *)rans_compress_4x16(in, in_size, &i_out_size,
+					       rmethod[method-RANS_PR0]);
+    *out_size = i_out_size;
+
+    return comp;
+}
+
+unsigned char *rans_pr_codec_uncompress(cram_slice *s,
+					unsigned char *in,
+					size_t in_size,
+					size_t *out_size) {
+    unsigned int i_out_size = *out_size;
+    unsigned char *uncomp;
+    
+    uncomp = rans_uncompress_4x16(in, in_size, &i_out_size, 0/*FIXME: unused*/);
+    *out_size = i_out_size;
+
+    return uncomp;
+}
+
+static cram_compressor rans4x16pr_codec = {
+    RANS_PR0, //FOUR_CC("RANS"),
+    0,
+    1.0,
+    rans_pr_codec_name,
+    rans_pr_codec_compress,
+    rans_pr_codec_uncompress,
+};
 
 
 /* -----------------------------------------------------------------------------
@@ -949,7 +1017,7 @@ int cram_compression_codec_init(void) {
     if (!codecs)
 	return -1;
     //ncodecs = BLOCK_METHOD_END;
-    ncodecs = 18; // matches 0xfffc0000 in cram_encode.c
+    ncodecs = 21; // matches 0xfffc0000 in cram_encode.c
 
     codecs[GZIP]     = &gzip_codec;
 #ifdef HAVE_LIBBZ2
@@ -958,8 +1026,16 @@ int cram_compression_codec_init(void) {
 #ifdef HAVE_LIBLZMA
     codecs[LZMA]     = &lzma_codec;
 #endif
-    codecs[RANS0]    = &rans0_codec;
-    codecs[RANS1]    = &rans1_codec;
+    codecs[RANS0]       = &rans0_codec;
+    codecs[RANS1]       = &rans1_codec;
+    codecs[RANS_PR0]    = &rans4x16pr_codec;
+    codecs[RANS_PR1]    = &rans4x16pr_codec;
+    codecs[RANS_PR64]   = &rans4x16pr_codec;
+    codecs[RANS_PR65]   = &rans4x16pr_codec;
+    codecs[RANS_PR128]  = &rans4x16pr_codec;
+    codecs[RANS_PR129]  = &rans4x16pr_codec;
+    codecs[RANS_PR192]  = &rans4x16pr_codec;
+    codecs[RANS_PR193]  = &rans4x16pr_codec;
     codecs[GZIP_RLE] = &gzip_rle_codec;
 
     if (!plugins || !*plugins)
