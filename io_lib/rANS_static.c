@@ -732,10 +732,10 @@ unsigned char *rans_uncompress_O0(unsigned char *in, unsigned int in_size,
     if (x < TOTFREQ-1 || x > TOTFREQ)
 	return NULL;
 
-    RansDecInit(&R[0], &cp);
-    RansDecInit(&R[1], &cp);
-    RansDecInit(&R[2], &cp);
-    RansDecInit(&R[3], &cp);
+    RansDecInit(&R[0], &cp); if (R[0] < RANS_BYTE_L) return NULL;
+    RansDecInit(&R[1], &cp); if (R[1] < RANS_BYTE_L) return NULL;
+    RansDecInit(&R[2], &cp); if (R[2] < RANS_BYTE_L) return NULL;
+    RansDecInit(&R[3], &cp); if (R[3] < RANS_BYTE_L) return NULL;
 
     int out_end = (out_sz&~3);
     for (i=0; i < out_end; i+=4) {
@@ -1141,10 +1141,10 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
 
     RansState rans0, rans1, rans2, rans3;
     uint8_t *ptr = cp;
-    RansDecInit(&rans0, &ptr);
-    RansDecInit(&rans1, &ptr);
-    RansDecInit(&rans2, &ptr);
-    RansDecInit(&rans3, &ptr);
+    RansDecInit(&rans0, &ptr); if (rans0 < RANS_BYTE_L) return NULL;
+    RansDecInit(&rans1, &ptr); if (rans1 < RANS_BYTE_L) return NULL;
+    RansDecInit(&rans2, &ptr); if (rans2 < RANS_BYTE_L) return NULL;
+    RansDecInit(&rans3, &ptr); if (rans3 < RANS_BYTE_L) return NULL;
 
     RansState R[4];
     R[0] = rans0;

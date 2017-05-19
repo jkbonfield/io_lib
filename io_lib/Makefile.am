@@ -102,6 +102,8 @@ libstaden_read_la_SOURCES = \
 	cram.h \
 	rANS_static.c \
 	rANS_static.h \
+	rANS_static4x16pr.c \
+	rANS_static4x16.h \
 	cram_codecs.c \
 	cram_codecs.h \
 	cram_encode.c \
