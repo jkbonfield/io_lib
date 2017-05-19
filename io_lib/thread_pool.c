@@ -470,6 +470,12 @@ t_pool *t_pool_init(int qsize, int tsize) {
     pthread_mutex_lock(&p->pool_m);
 
 #ifdef IN_ORDER
+    // rANS needs ~3Mb unless we rewrite to use malloc.
+    pthread_attr_t attr;
+    if (pthread_attr_init(&attr) < 0)
+	return NULL;
+    pthread_attr_setstacksize(&attr, 4*1024*1024);
+
     if (!(p->t_stack = malloc(tsize * sizeof(*p->t_stack))))
 	return NULL;
     p->t_stack_top = -1;
@@ -481,9 +487,10 @@ t_pool *t_pool_init(int qsize, int tsize) {
 	w->idx = i;
 	w->wait_time = 0;
 	pthread_cond_init(&w->pending_c, NULL);
-	if (0 != pthread_create(&w->tid, NULL, t_pool_worker, w))
+	if (0 != pthread_create(&w->tid, &attr, t_pool_worker, w))
 	    return NULL;
     }
+    pthread_attr_destroy(&attr);
 #else
     pthread_cond_init(&p->pending_c, NULL);
 

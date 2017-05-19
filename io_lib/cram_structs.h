@@ -192,6 +192,17 @@ enum cram_block_method {
     RANS1  = 10,   // Not externalised; stored as RANS (generic)
     GZIP_RLE = 11, // Z_RLE, NB: not externalised in CRAM
     GZIP_1 = 12,   // Z_DEFAULT_STRATEGY level 1, NB: not externalised in CRAM
+
+    RANS_PR0   = 13, // Parameterised r4x16pr rANS codecs.
+    RANS_PR1   = 14,
+    RANS_PR64  = 15,
+    RANS_PR65  = 16,
+    RANS_PR128 = 17,
+    RANS_PR129 = 18,
+    RANS_PR192 = 19,
+    RANS_PR193 = 20,
+
+    BLOCK_METHOD_END = 31
 };
 
 enum cram_content_type {
