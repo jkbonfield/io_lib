@@ -1928,7 +1928,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     // Data is either the original data, bit-packed packed, rle literals or
     // packed + rle literals.
 
-    if (do_pack) {
+    if (do_pack && in_size) {
 	// PACK 2, 4 or 8 symbols into one byte.
 	int pmeta_len;
 	uint64_t packed_len;
@@ -1947,7 +1947,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	}
     }
 
-    if (do_rle) {
+    if (do_rle && in_size) {
 	// RLE 'in' -> rle_length + rle_literals arrays
 	unsigned int rmeta_len, c_rmeta_len;
 	uint64_t rle_len;
