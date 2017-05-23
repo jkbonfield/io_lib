@@ -3173,7 +3173,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    uint32_t c = *(uint32_t *)dat;
 	    if (end-fp->uncomp_p < 13) BF_FLUSH();
 	    fp->uncomp_p = append_int(fp->uncomp_p, c>>4);
-	    *fp->uncomp_p++="MIDNSHP=X"[c&15];
+	    *fp->uncomp_p++="MIDNSHP=X???????"[c&15];
 	}
 	if (n==0) {
 	    if (end-fp->uncomp_p < 2) BF_FLUSH();
