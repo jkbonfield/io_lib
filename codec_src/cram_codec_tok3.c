@@ -344,7 +344,10 @@ static int x4_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_l
 	i4[j] = j*len4;
 	olen = *out_len - (o-o_orig);
 	int64_t clen = uncompress_t3(i, in_len, o, &olen);
-	if (clen < 0) return -1;
+	if (clen < 0) {
+	    free(o_orig);
+	    return -1;
+	}
 	i += clen;
 	o += olen;
     }
@@ -357,6 +360,8 @@ static int x4_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_l
 	out[j++] = o_orig[i4[2]++];
 	out[j++] = o_orig[i4[3]++];
     }
+
+    free(o_orig);
 
     *out_len = j;
     return i-in;
@@ -565,7 +570,7 @@ typedef struct {
     enum name_type last_token_type[MAX_TOKENS];
     int last_token_int[MAX_TOKENS];
     int last_token_str[MAX_TOKENS];
-    int last_token_delta[MAX_TOKENS];
+    //int last_token_delta[MAX_TOKENS];
 } last_context;
 
 typedef struct {
@@ -576,6 +581,7 @@ typedef struct {
 
     // Trie used in encoder only
     trie_t *t_head;
+    pool_alloc_t *pool;
 } name_context;
 
 name_context *create_context(int max_names) {
@@ -586,13 +592,20 @@ name_context *create_context(int max_names) {
     ctx->t_head = NULL;
 
     ctx->lc = (last_context *)(((char *)ctx) + sizeof(*ctx));
+    ctx->pool = NULL;
 
     return ctx;
 }
 
+void free_trie(trie_t *t);
 void free_context(name_context *ctx) {
     if (!ctx)
 	return;
+
+//    if (ctx->t_head)
+//	free_trie(ctx->t_head);
+    if (ctx->pool)
+	pool_destroy(ctx->pool);
 
     free(ctx);
 }
@@ -941,17 +954,18 @@ static int encode_token_diff(name_context *ctx, uint32_t val) {
 typedef struct trie {
     char c;
     int count;
-    struct trie *next[128];
+    //struct trie *next[128];
+    struct trie *next, *sibling;
     int n; // Nth line
 } trie_t;
 
 //static trie_t *t_head = NULL;
 
 void free_trie(trie_t *t) {
-    int j;
-    for (j = 0; j < 128; j++) {
-	if (t->next[j])
-	    free_trie(t->next[j]);
+    trie_t *x, *n;
+    for (x = t->next; x; x = n) {
+	n = x->sibling;
+	free_trie(x);
     }
     free(t);
 }
@@ -974,12 +988,24 @@ int build_trie(name_context *ctx, char *data, size_t len, int n) {
 		//fprintf(stderr, "8-bit ASCII is unsupported\n");
 		abort();
 	    c &= 127;
-	    if (!t->next[c])  {
-		//t->next[c] = (trie_t *)pool_calloc(t_pool, sizeof(*t));
-		t->next[c] = calloc(1, sizeof(*t));
-		t->next[c]->n = n;
+
+	    trie_t *x = t->next, *l = NULL;
+	    while (x && x->c != c) {
+		l = x; x = x->sibling;
 	    }
-	    t = t->next[c];
+	    if (!x) {
+		if (!ctx->pool)
+		    ctx->pool = pool_create(sizeof(trie_t));
+		x = (trie_t *)pool_alloc(ctx->pool);
+		memset(x, 0, sizeof(*x));
+		if (!l)
+		    x = t->next    = x;
+		else
+		    x = l->sibling = x;
+		x->n = n;
+		x->c = c;
+	    }
+	    t = x;
 	    t->c = c;
 	    t->count++;
 	}
@@ -1009,7 +1035,16 @@ void dump_trie(trie_t *t, int depth) {
 //	    *cp++ = cj;
 //	    goto patricia;
 //	}
-	    
+
+	trie_t *x;
+	for (x = t->next; x; x = x->sibling) {
+	    printf("    p_%p [label=\"%c\"];\n", x, x->c);
+	    printf("    p_%p -- p_%p [label=\"%d\", penwidth=\"%f\"];\n", tp, x, x->count, MAX((log(x->count)-3)*2,1));
+	    //if (depth <= 11)
+		dump_trie(x, depth+1);
+	}
+
+#if 0	    
 	for (j = 0; j < 128; j++) {
 	    trie_t *tn;
 
@@ -1037,6 +1072,7 @@ void dump_trie(trie_t *t, int depth) {
 	    if (depth <= 11)
 		dump_trie(tn, depth+1);
 	}
+#endif
     }
 }
 
@@ -1086,14 +1122,14 @@ int search_trie(name_context *ctx, char *data, size_t len, int n, int *exact, in
 		//fprintf(stderr, "8-bit ASCII is unsupported\n");
 		abort();
 	    c &= 127;
-	    assert(t->next[c]);
-	    if (!t->next[c])  {
-		//t->next[c] = (trie_t *)pool_calloc(t_pool, sizeof(*t));
-		t->next[c] = calloc(1, sizeof(*t));
-		if (j == -1)
-		    j = i;
-	    }
-	    t = t->next[c];
+
+	    trie_t *x = t->next;
+	    while (x && x->c != c)
+		x = x->sibling;
+	    t = x;
+
+//	    t = t->next[c];
+
 	    from = t->n;
 	    if (i == prefix_len) p3 = t->n;
 	    //if (t->count >= .0035*ctx->t_head->count && t->n != n) p3 = t->n; // pacbio
@@ -1146,9 +1182,10 @@ static int encode_name(name_context *ctx, char *name, int len) {
 	ctx->lc[cnum].last_name = name;
 	ctx->lc[cnum].last_ntok = ctx->lc[pnum].last_ntok;
 	// FIXME: optimise this
-	memcpy(ctx->lc[cnum].last_token_type, ctx->lc[pnum].last_token_type, MAX_TOKENS * sizeof(int));
-	memcpy(ctx->lc[cnum].last_token_int , ctx->lc[pnum].last_token_int , MAX_TOKENS * sizeof(int));
-	memcpy(ctx->lc[cnum].last_token_str , ctx->lc[pnum].last_token_str , MAX_TOKENS * sizeof(int));
+	int nc = ctx->lc[cnum].last_ntok ? ctx->lc[cnum].last_ntok : MAX_TOKENS;
+	memcpy(ctx->lc[cnum].last_token_type, ctx->lc[pnum].last_token_type, nc * sizeof(int));
+	memcpy(ctx->lc[cnum].last_token_int , ctx->lc[pnum].last_token_int , nc * sizeof(int));
+	memcpy(ctx->lc[cnum].last_token_str , ctx->lc[pnum].last_token_str , nc * sizeof(int));
 	return 0;
     }
 
@@ -1388,9 +1425,10 @@ static int decode_name(name_context *ctx, char *name) {
 	// FIXME: optimise this
 	ctx->lc[cnum].last_name = name;
 	ctx->lc[cnum].last_ntok = ctx->lc[pnum].last_ntok;
-	memcpy(ctx->lc[cnum].last_token_type, ctx->lc[pnum].last_token_type, MAX_TOKENS * sizeof(int));
-	memcpy(ctx->lc[cnum].last_token_int , ctx->lc[pnum].last_token_int , MAX_TOKENS * sizeof(int));
-	memcpy(ctx->lc[cnum].last_token_str , ctx->lc[pnum].last_token_str , MAX_TOKENS * sizeof(int));
+	int nc = ctx->lc[cnum].last_ntok ? ctx->lc[cnum].last_ntok : MAX_TOKENS;
+	memcpy(ctx->lc[cnum].last_token_type, ctx->lc[pnum].last_token_type, nc * sizeof(int));
+	memcpy(ctx->lc[cnum].last_token_int , ctx->lc[pnum].last_token_int , nc * sizeof(int));
+	memcpy(ctx->lc[cnum].last_token_str , ctx->lc[pnum].last_token_str , nc * sizeof(int));
 
 	return strlen(name);
     }
@@ -1503,6 +1541,7 @@ static int decode_name(name_context *ctx, char *name) {
 	    ctx->lc[cnum].last_token_type[ntok] = N_END;
 	    // FIXME: avoid using memcpy, just keep pointer into buffer?
 	    ctx->lc[cnum].last_name = name;
+	    ctx->lc[cnum].last_ntok = ntok;
 	    
 	    return len;
 
@@ -1608,7 +1647,7 @@ static char *decode_block(unsigned char *dat, size_t dat_size, size_t *out_size)
 	    line += ret+1;
 	}
 
-	free(ctx);
+	free_context(ctx);
 
 	for (i = 0; i < MAX_DESCRIPTORS; i++) {
 	    if (desc[i].buf) {
@@ -1658,13 +1697,12 @@ static char *encode_block(char *blk, int len, size_t *out_size) {
 
 	blk[i] = '\0';
 	if (encode_name(ctx, &blk[j], i-j) < 0) {
-	    free_trie(ctx->t_head);
 	    free_context(ctx);
 	    return NULL;
 	}
     }
 
-    //dump_trie(t_head, 0);
+    //dump_trie(ctx->t_head, 0);
 
     // Serialise descriptors
     int last_tnum = -1;
@@ -1763,7 +1801,6 @@ static char *encode_block(char *blk, int len, size_t *out_size) {
 	free(desc[i].buf);
     }
 
-    free_trie(ctx->t_head);
     free_context(ctx);
     
     *out_size = out - out_blk;
