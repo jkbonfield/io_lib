@@ -728,9 +728,9 @@ static int decode_freq_d(uint8_t *cp, int *F0, int *F, RansDecSymbol *syms, unsi
 unsigned int rans_compress_bound_4x16(unsigned int size, int order) {
     return (order == 0
 	? 1.05*size + 257*3 + 4
-	: 1.05*size + 257*257*3 + 4) +
+	: 1.05*size + 257*257*3 + 4 + 257*3+4) +
 	((order & X_PACK) ? 1 : 0) + 
-	((order & X_RLE) ? 1 : 0) + 5;
+	((order & X_RLE) ? 1 + 257*3+4: 0) + 5;
 }
 
 unsigned char *rans_compress_O0_4x16(unsigned char *in, unsigned int in_size,
@@ -1012,8 +1012,8 @@ static uint8_t *rle_encode(uint8_t *data, int64_t len,
     int64_t saved[256] = {0};
     for (i = 0; i < len; i++) {
 	if (data[i] == last) {
-	    saved[data[i]]+=run_len;
-	    //saved[data[i]]++;
+	    //saved[data[i]]+=run_len;
+	    saved[data[i]]++;
 	    run_len++;
 	} else {
 	    saved[data[i]]--;
@@ -1034,6 +1034,16 @@ static uint8_t *rle_encode(uint8_t *data, int64_t len,
 	    out[k++] = i; // fixme store in meta instead?
 	}
     }
+    // FIXME: sym-list out should be in out_meta instead?
+
+//    for (k = 1, i = j = 0; i < 256; i++) {
+//	if (saved[i] > 0) {
+//	    //fprintf(stderr, "Saved '%c' = %d\n", (uint8_t)i, (int)saved[i]);
+//	    j++;
+//	    out[k++] = i; // fixme store in meta instead?
+//	}
+//    }
+//    out[0] = j;
 
     for (i = j = 0; i < len; i++) {
 	out[k++] = data[i];
@@ -1966,6 +1976,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	    rle = NULL;
 	} else {
 	    // Compress lengths with O0 and literals with O0/O1 ("order" param)
+	    c_rmeta_len = *out_size - c_meta_len-4;
 	    rans_compress_O0_4x16(meta, rmeta_len, out+c_meta_len+4, &c_rmeta_len);
 	    *(uint32_t *)(out+c_meta_len) = c_rmeta_len;
 	    c_meta_len += 4 + c_rmeta_len;

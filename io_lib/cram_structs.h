@@ -98,7 +98,9 @@ enum cram_encoding {
     E_SUBEXP             = 7,
     E_GOLOMB_RICE        = 8,
     E_GAMMA              = 9,
-    E_NUM_CODECS         = 10, /* Number of codecs, not a real one. */
+    E_RLE                = 10,
+    E_PACK               = 11,
+    E_NUM_CODECS, /* Number of codecs, not a real one. */
 };
 
 enum cram_external_type {
@@ -158,6 +160,7 @@ enum cram_DS_ID {
     DS_SC_len,
     DS_BB_len,
     DS_QQ_len,
+    DS_QS_len,
 
     DS_TC, // CRAM v1.0 tags
     DS_TM, // test
@@ -572,6 +575,7 @@ typedef struct cram_slice {
     cram_block *name_blk;
     cram_block *seqs_blk;
     cram_block *qual_blk;
+    cram_block *qual_len_blk;
     cram_block *base_blk;
     cram_block *soft_blk;
     cram_block *aux_blk;  // BAM aux block, used when going from CRAM to BAM

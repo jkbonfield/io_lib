@@ -755,7 +755,9 @@ int main(int argc, char **argv) {
 			    for (m = ma[t]; m; m = m->next) {
 				if (m->encoding != E_EXTERNAL &&
 				    m->encoding != E_BYTE_ARRAY_STOP &&
-				    m->encoding != E_BYTE_ARRAY_LEN)
+				    m->encoding != E_BYTE_ARRAY_LEN &&
+				    m->encoding != E_RLE &&
+				    m->encoding != E_PACK)
 				    continue;
 				if (data[m->offset + m->size-1] !=
 				    b->content_id)

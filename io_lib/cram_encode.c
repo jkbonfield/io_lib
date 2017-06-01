@@ -762,8 +762,11 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	method |= 1<<BZIP2;
 
     if (fd->use_rans) {
-	//method  |= (1<<RANS0) | (1<<RANS1);
-	methodF |= (1<<RANS0) | (1<<RANS1);
+//	method  |= (1<<RANS0) | (1<<RANS1);
+//	methodF |= (1<<RANS0) | (1<<RANS1);
+
+//	method  |= (1<<RANS_PR0) | (1<<RANS_PR1);
+//	methodF |= (1<<RANS_PR0) | (1<<RANS_PR1);
 
 	method  |= (1<<RANS_PR0)   | (1<<RANS_PR1);
 	method  |= (1<<RANS_PR64)  | (1<<RANS_PR65);
@@ -805,6 +808,9 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     /* Specific compression methods for certain block types */
     if (cram_compress_block(fd, s, s->block[DS_IN], fd->m[DS_IN], //IN (seq)
 			    method, level))
+	return -1;
+
+    if (c->comp_hdr->codecs[DS_QS]->flush(s, c->comp_hdr->codecs[DS_QS], s->block[DS_QS]) < 0)
 	return -1;
 
     if (fd->level == 0) {
@@ -1040,6 +1046,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     s->block[DS_QS] = s->qual_blk; s->qual_blk = NULL;
     s->block[DS_RN] = s->name_blk; s->name_blk = NULL;
     s->block[DS_SC] = s->soft_blk; s->soft_blk = NULL;
+    s->block[DS_QS_len] = s->qual_len_blk; s->qual_len_blk = NULL;
 
     // Ensure block sizes are up to date.
     for (id = 1; id < s->hdr->num_blocks; id++) {
@@ -1617,9 +1624,89 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     fd->version);
     }
 
+#if 0
     h->codecs[DS_QS] = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
 					 (void *)DS_QS,
 					 fd->version);
+#elif 0
+    // QS as bit packing
+    {
+	cram_pack_encoder e;
+
+	cram_stats st;
+	memset(&st, 0, sizeof(st));
+	int i;
+	for (i = 0; i < c->curr_slice; i++) {
+	    cram_slice *s = c->slices[i];
+	    uint8_t *dat = BLOCK_DATA(s->qual_blk);
+	    size_t j, j_end = BLOCK_SIZE(s->qual_blk);
+	    for (j = 0; j < j_end; j++)
+		st.freqs[dat[j]]++;
+	    st.nvals = 1; // wrong, but sufficient
+	}
+
+	e.pack_encoding = E_EXTERNAL;
+	e.pack_dat = (void *)DS_QS;
+	h->codecs[DS_QS] = cram_encoder_init(E_PACK, &st,
+					     E_BYTE, (void *)&e,
+					     fd->version);
+    }
+#elif 1
+    // Consider:
+    //
+    // PACK(RLE(QS)); => rle first then pack.
+    // vs
+    // RLE(PACK(QS)); PACK first and rle second.
+    
+    // During decode PACK{blah,RLE(blah)) is treated as
+    // depack and then return c->pack_codec->decode(); =>
+    // unpack followed by unrle.  So it's outer to inner DECODE.
+    // (Opposite to expected if we view as a nested function.)
+    {
+	cram_pack_encoder e;
+
+	cram_stats st;
+	memset(&st, 0, sizeof(st));
+	int i;
+	for (i = 0; i < c->curr_slice; i++) {
+	    cram_slice *s = c->slices[i];
+	    uint8_t *dat = BLOCK_DATA(s->qual_blk);
+	    size_t j, j_end = BLOCK_SIZE(s->qual_blk);
+	    for (j = 0; j < j_end; j++)
+		st.freqs[dat[j]]++;
+	    st.nvals = 1; // wrong, but sufficient
+	}
+
+	cram_rle_encoder r;
+
+	r.len_encoding = E_EXTERNAL;
+	r.len_dat = (void *)DS_QS_len;
+
+	r.lit_encoding = E_EXTERNAL;
+	r.lit_dat = (void *)DS_QS;
+
+	e.pack_encoding = E_RLE;
+	e.pack_dat = (void *)&r;
+	h->codecs[DS_QS] = cram_encoder_init(E_PACK, &st,
+					     E_BYTE, (void *)&e,
+					     fd->version);
+    }
+#elif 0
+    // QS as rle -> {lit,len} and compression of each stream independently.
+    {
+	cram_rle_encoder e;
+
+	e.len_encoding = E_EXTERNAL;
+	e.len_dat = (void *)DS_QS_len;
+
+	e.lit_encoding = E_EXTERNAL;
+	e.lit_dat = (void *)DS_QS;
+
+	h->codecs[DS_QS] = cram_encoder_init(E_RLE, NULL,
+					     E_BYTE, (void *)&e,
+					     fd->version);
+    }
+#endif
 
     {
 	int i2[2] = {0, DS_RN};
@@ -2800,7 +2887,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		s->SD_crc += crc32(0L, (Bytef *) to, cr->len);
 
 #if 0
-	    // Reverse. Experimental to see the impact on file size
+	    // Reverse. Experimental to see the impact on file size.
+	    // With new 4x16pr rans It's tiny; maybe .2%?
 	    if (cr->flags & BAM_FREVERSE) {
 		int i, j;
 		for (i = 0, j = cr->len-1; i < j; i++, j--) {

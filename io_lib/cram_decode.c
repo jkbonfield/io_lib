@@ -613,6 +613,68 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     return hdr;
 }
 
+/*
+ * Scans through blocks and un-RLEs them if they are required.
+ * This also then resets the codec.
+ *
+ * FIXME: This shouldn't be necessary.
+ * We can set the codec[DS_QS]->decode() function to be the unrle
+ * code.  On first call it decodes and then subsequently resets the
+ * decode function to be the next layer of decompression, peeling
+ * off one layer from the "compression codec onion".
+ */
+#if 0
+static int un_rle(cram_block_compression_hdr *hdr, cram_slice *s) {
+    int i;
+    static int i_to_id[] = {
+	DS_BF, DS_AP, DS_FP, DS_RL, DS_DL, DS_NF, DS_BA, DS_QS,
+	DS_FC, DS_FN, DS_BS, DS_IN, DS_RG, DS_MQ, DS_TL, DS_RN,
+	DS_NS, DS_NP, DS_TS, DS_MF, DS_CF, DS_RI, DS_RS, DS_PD,
+	DS_HC, DS_SC, DS_BB, DS_QQ,
+    };
+
+    for (i = 0; i < sizeof(i_to_id)/sizeof(*i_to_id); i++) {
+	int bnum1, bnum2, j;
+	cram_codec *c = hdr->codecs[i_to_id[i]];
+
+	if (!(hdr->data_series & (1<<i)))
+	    continue;
+
+	if (!c || c->codec != E_RLE)
+	    continue;
+
+	bnum1 = cram_codec_to_id(c, &bnum2);
+
+	cram_block *lit = cram_get_block_by_id(s, bnum1);
+	cram_block *rle = cram_get_block_by_id(s, bnum2);
+	cram_block *b = cram_unrle_block(lit, rle, c->rle.saved);
+
+	if (s->block_by_id) {
+	    s->block_by_id[bnum1] = b;
+	} else {
+	    int j;
+	    for (j = 0; j < s->hdr->num_blocks; j++)
+		if (s->block[j] && s->block[j]->content_type == EXTERNAL
+		    && s->block[j]->content_id == bnum1)
+		    break;
+	    assert(j < s->hdr->num_blocks);
+
+	    s->block[j] = b;
+	}
+
+	cram_free_block(lit);
+	//cram_free_block(rle); // free when we destroy DS_QS_len codec
+	
+	hdr->codecs[i_to_id[i]] = c->rle.lit_codec;
+	c->rle.lit_codec = NULL;
+	c->free(c);
+
+	
+    }
+
+    return 0;
+}
+#endif
 
 /*
  * Note we also need to scan through the record encoding map to
@@ -700,7 +762,7 @@ int cram_dependent_data_series(cram_fd *fd,
 		return -1;
 	}
 
-	return 0;
+	//return un_rle(hdr, s);
     }
 
     block_used = calloc(s->hdr->num_blocks+1, sizeof(int));
@@ -933,6 +995,7 @@ int cram_dependent_data_series(cram_fd *fd,
 
     free(block_used);
     return 0;
+    //return un_rle(hdr, s);
 }
 
 /*

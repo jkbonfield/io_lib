@@ -114,6 +114,39 @@ typedef struct {
     struct cram_codec *val_codec;
 } cram_byte_array_len_encoder;
 
+typedef struct {
+    struct cram_codec *len_codec;
+    struct cram_codec *lit_codec;
+    //uint32_t len;
+    //uint8_t lit;
+    int64_t saved[256];
+} cram_rle_decoder;
+
+typedef struct {
+    enum cram_encoding len_encoding;
+    enum cram_encoding lit_encoding;
+    void *len_dat;
+    void *lit_dat;
+    struct cram_codec *len_codec;
+    struct cram_codec *lit_codec;
+    int64_t saved[256];
+} cram_rle_encoder;
+
+typedef struct {
+    struct cram_codec *pack_codec;
+    int nsym;
+    int map[256]; // map 8/4/2/1/0 bits (256,16,8,4,2,1) to new values
+} cram_pack_decoder;
+
+typedef struct {
+    enum cram_encoding pack_encoding;
+    void *pack_dat;
+    struct cram_codec *pack_codec;
+    int nsym;
+    uint8_t sym[16];
+    int map[256]; // map values < 256 to bits/bytes; -1 is unused.
+} cram_pack_encoder;
+
 /*
  * A generic codec structure.
  */
@@ -128,6 +161,7 @@ typedef struct cram_codec {
     int (*store)(struct cram_codec *codec, cram_block *b, char *prefix,
 		 int version);
     void (*reset)(struct cram_codec *codec); // used between slices in a container
+    int (*flush)(cram_slice *slice, struct cram_codec *codec, cram_block *b);
 
     union {
 	cram_huffman_decoder         huffman;
@@ -137,12 +171,16 @@ typedef struct cram_codec {
 	cram_subexp_decoder          subexp;
 	cram_byte_array_len_decoder  byte_array_len;
 	cram_byte_array_stop_decoder byte_array_stop;
+	cram_rle_decoder             rle;
+	cram_pack_decoder            pack;
 
 	cram_huffman_encoder         e_huffman;
 	cram_external_decoder        e_external;
 	cram_byte_array_stop_decoder e_byte_array_stop;
 	cram_byte_array_len_encoder  e_byte_array_len;
 	cram_beta_decoder            e_beta;
+	cram_rle_encoder             e_rle;
+	cram_pack_encoder            e_pack;
     };
 } cram_codec;
 

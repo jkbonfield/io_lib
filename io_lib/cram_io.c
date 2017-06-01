@@ -1401,14 +1401,22 @@ char *cram_block_method2str(enum cram_block_method m) {
     static char mc;
 
     switch(m) {
-    case RAW:	   return "RAW";
-    case GZIP:	   return "GZIP";
-    case BZIP2:	   return "BZIP2";
-    case LZMA:     return "LZMA";
-    case RANS0:    return "RANS0";
-    case RANS1:    return "RANS1";
-    case GZIP_RLE: return "GZIP_RLE";
-    case GZIP_1:   return "GZIP-1";
+    case RAW:	     return "RAW";
+    case GZIP:	     return "GZIP";
+    case BZIP2:	     return "BZIP2";
+    case LZMA:       return "LZMA";
+    case RANS0:      return "RANS0";
+    case RANS1:      return "RANS1";
+    case GZIP_RLE:   return "GZIP_RLE";
+    case GZIP_1:     return "GZIP-1";
+    case RANS_PR0:   return "RANS_PR0";
+    case RANS_PR1:   return "RANS_PR1";
+    case RANS_PR64:  return "RANS_PR64";
+    case RANS_PR65:  return "RANS_PR65";
+    case RANS_PR128: return "RANS_PR128";
+    case RANS_PR129: return "RANS_PR129";
+    case RANS_PR192: return "RANS_PR192";
+    case RANS_PR193: return "RANS_PR193";
     default:  break;
     }
     mc=m;
@@ -3051,6 +3059,9 @@ void cram_free_slice(cram_slice *s) {
     if (s->qual_blk)
 	cram_free_block(s->qual_blk);
 
+    if (s->qual_len_blk)
+	cram_free_block(s->qual_len_blk);
+
     if (s->name_blk)
 	cram_free_block(s->name_blk);
 
@@ -3126,6 +3137,7 @@ cram_slice *cram_new_slice(enum cram_content_type type, int nrecs) {
     if (!(s->aux_blk  = cram_new_block(EXTERNAL, DS_aux)))  goto err;
     if (!(s->base_blk = cram_new_block(EXTERNAL, DS_IN)))   goto err;
     if (!(s->soft_blk = cram_new_block(EXTERNAL, DS_SC)))   goto err;
+    if (!(s->qual_len_blk = cram_new_block(EXTERNAL, DS_QS_len)))   goto err;
 
     s->features = NULL;
     s->nfeatures = s->afeatures = 0;
@@ -3238,6 +3250,7 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     if (!(s->aux_blk  = cram_new_block(EXTERNAL, DS_aux))) goto err;
     if (!(s->base_blk = cram_new_block(EXTERNAL, DS_IN)))  goto err;
     if (!(s->soft_blk = cram_new_block(EXTERNAL, DS_SC)))  goto err;
+    if (!(s->qual_len_blk = cram_new_block(EXTERNAL, DS_QS_len)))   goto err;
 
     s->crecs = NULL;
 

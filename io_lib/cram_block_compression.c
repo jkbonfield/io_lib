@@ -154,6 +154,11 @@ int cram_uncompress_block(cram_slice *s, cram_block *b) {
 	    free(uncomp);
 	    return -1;
 	}
+	if (method == RANS0)
+	    b->orig_method = (b->data[0]&1) ? RANS1 : RANS0;
+	else if (method == RANS_PR0)
+	    b->orig_method = RANS_PR0 + (b->data[0]&1)
+		+ 2*((b->data[0]&0x40)>0) + 4*((b->data[0]&0x80)>0);
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = uncomp_size;
@@ -349,6 +354,10 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
 			continue;
 		    c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 						&sz[m], s, m, level, strat);
+		    if (fd->verbose > 1)
+			fprintf(stderr, "Try compression of block ID %d from %d to %d by method %s\n",
+				b->content_id, b->uncomp_size, sz[m], cram_block_method2str(m));
+
 		    if (c && sz_best > sz[m]) {
 			sz_best = sz[m];
 			method_best = m;
