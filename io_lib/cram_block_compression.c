@@ -356,7 +356,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s, cram_block *b, cram_metrics 
 						&sz[m], s, m, level, strat);
 		    if (fd->verbose > 1)
 			fprintf(stderr, "Try compression of block ID %d from %d to %d by method %s\n",
-				b->content_id, b->uncomp_size, sz[m], cram_block_method2str(m));
+				b->content_id, b->uncomp_size, (int)sz[m], cram_block_method2str(m));
 
 		    if (c && sz_best > sz[m]) {
 			sz_best = sz[m];

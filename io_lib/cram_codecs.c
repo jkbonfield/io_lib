@@ -1870,15 +1870,13 @@ static cram_block *cram_unrle_block(cram_block *lit, cram_block *run, int64_t *s
 	uint8_t s = *lit_d++;
 	if (saved[s]) {
 	    int len;
-	    run_d += safe_itf8_get(run_d, run_end, &len);
-	    //fprintf(stderr, "%d + %d\n", s, len);
+	    run_d += safe_itf8_get((char *)run_d, (char *)run_end, &len);
 	    len++;
 	    BLOCK_GROW(out, len);
 	    memset(BLOCK_DATA(out)+BLOCK_SIZE(out), s, len);
 	    BLOCK_SIZE(out) += len;
 	} else {
 	    BLOCK_APPEND_CHAR(out, s);
-	    //fprintf(stderr, "%d\n", s);
 	}
     }
 
@@ -2031,7 +2029,7 @@ int cram_rle_encode_store(cram_codec *c, cram_block *b,
     }
 
     // List of symbol values to RLE encode
-    int nsaved = 0, i, j;
+    int i, j;
     uint8_t slist[257];
     for (i = 0, j = 1; i < 256; i++)
 	if (c->e_rle.saved[i]>0)
@@ -2062,7 +2060,7 @@ int cram_rle_encode_store(cram_codec *c, cram_block *b,
 }
 
 // Determine which symbols are worth encoding using RLE.
-void compute_rle_symbols(cram_block *b, uint64_t *saved) {
+static void compute_rle_symbols(cram_block *b, int64_t *saved) {
     memset(saved, 0, 256*sizeof(*saved));
     uint8_t *data = BLOCK_DATA(b);
     size_t i, len = BLOCK_SIZE(b);
@@ -2228,7 +2226,6 @@ int cram_pack_decode(cram_slice *slice, cram_codec *c,
     else
 	return -1;
 
-    cram_block *b = NULL;
     int out_len = (in->uncomp_size * 8 + 7)/ nbits;
     uint8_t *dat_out = malloc(out_len);
     if (!dat_out)
@@ -2351,7 +2348,7 @@ cram_codec *cram_pack_decode_init(char *data, int size,
 				  int version) {
     cram_codec *c;
     unsigned char *cp = (unsigned char *)data;
-    unsigned char *endp = data + size;
+    unsigned char *endp = cp + size;
 
     if (!(c = malloc(sizeof(*c))))
 	return NULL;
@@ -2371,12 +2368,12 @@ cram_codec *cram_pack_decode_init(char *data, int size,
 
     int32_t encoding = 0;
     int32_t sub_size = -1;
-    cp += safe_itf8_get(cp, endp, &encoding);
-    cp += safe_itf8_get(cp, endp, &sub_size);
+    cp += safe_itf8_get((char *)cp, (char *)endp, &encoding);
+    cp += safe_itf8_get((char *)cp, (char *)endp, &sub_size);
     if (sub_size < 0 || endp - cp < sub_size)
         goto malformed;
 
-    c->pack.pack_codec = cram_decoder_init(encoding, cp, sub_size,
+    c->pack.pack_codec = cram_decoder_init(encoding, (char *)cp, sub_size,
 					   option, version);
     if (c->pack.pack_codec == NULL)
         goto no_codec;
@@ -2406,10 +2403,6 @@ static int cram_pack_block(cram_codec *c, cram_block *data_b) {
     // turn only make sense if 16 or fewer symbols.
     assert(n <= 16);
 
-    // E-EE---EE-EE-3------E3E333EE3333E333EE3E3E3E33E3E333EEE333EEE3EEEEE3EEEEEEE3E-E3E3EEEE3---EEEEE--E--
-    // \366v\366\213v\413\313\313\413\
-    // !-3E => 0123
-
     if (n > 4) {
 	// 2 values per byte
 	for (i = j = 0; i < (len & ~1); i += 2)
@@ -2433,7 +2426,7 @@ static int cram_pack_block(cram_codec *c, cram_block *data_b) {
 
     } else if (n > 1) {
 	// 8 values per byte
-	for (i = 0; i < (len & ~7); i+=8)
+	for (i = j = 0; i < (len & ~7); i+=8)
 	    dat[j++] = (map[dat[i  ]]<<7) | (map[dat[i+1]]<<6)
 		     | (map[dat[i+2]]<<5) | (map[dat[i+3]]<<4)
 		     | (map[dat[i+4]]<<3) | (map[dat[i+5]]<<2)
@@ -2528,9 +2521,7 @@ cram_codec *cram_pack_encode_init(cram_stats *st,
 	return NULL;
     c->codec = E_PACK;
     c->free = cram_pack_encode_free;
-    //c->encode = cram_pack_encode;
-    c->encode = NULL; // FIXME: add a flush method that performs
-                      // the packing at the end.
+    c->encode = NULL; // cram_pack_encode;
     c->store = cram_pack_encode_store;
     c->flush = cram_pack_encode_flush;
     
@@ -2695,7 +2686,7 @@ int cram_codec_to_id(cram_codec *c, int *id2) {
 	bnum2 = cram_codec_to_id(c->rle.len_codec, NULL);
 	break;
     case E_PACK:
-	bnum1 = cram_codec_to_id(c->pack.pack_codec, NULL);
+	bnum1 = cram_codec_to_id(c->pack.pack_codec, &bnum2);
 	break;
     default:
 	fprintf(stderr, "Unknown codec type %d\n", c->codec);

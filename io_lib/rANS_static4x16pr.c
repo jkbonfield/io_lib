@@ -742,8 +742,7 @@ unsigned char *rans_compress_O0_4x16(unsigned char *in, unsigned int in_size,
     RansState rans1;
     RansState rans3;
     uint8_t* ptr;
-    int F[256+MAGIC] = {0}, i, j, tab_size = 0, rle, x, fsum = 0;
-    int m = 0, M = 0;
+    int F[256+MAGIC] = {0}, i, j, tab_size = 0, rle, x;
     int bound = rans_compress_bound_4x16(in_size,0)-5; // -5 for order/size
 
     if (!out) {
@@ -852,7 +851,7 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     /* Load in the static tables */
     unsigned char *cp = in + 4;
     unsigned char *cp_end = in + in_size - 8; // within 8 => be extra safe
-    int i, j, x, y, out_sz, rle;
+    int i, j, x, y, out_sz;
     uint16_t sfreq[TOTFREQ+32];
     uint16_t sbase[TOTFREQ+32]; // faster to use 32-bit on clang
     uint8_t  ssym [TOTFREQ+64]; // faster to use 16-bit on clang
@@ -1001,7 +1000,7 @@ static void hist1_4(unsigned char *in, unsigned int in_size,
 //-----------------------------------------------------------------------------
 #if 1
 static uint8_t *rle_encode(uint8_t *data, int64_t len,
-			   uint8_t *out_meta, int *out_meta_len, int64_t *out_len) {
+			   uint8_t *out_meta, unsigned int *out_meta_len, uint64_t *out_len) {
     uint64_t i, j, k = 0;
     int last = -1;
     unsigned char *out = malloc(len*2);
@@ -1068,16 +1067,8 @@ static uint8_t *rle_encode(uint8_t *data, int64_t len,
     return out;
 }
 
-static unsigned char *grow(unsigned char *b, uint64_t *alloc, uint64_t used, uint64_t growth) {
-    while (used + growth > *alloc) {
-	*alloc *= 2;
-	b = realloc(b, *alloc);
-    }
-    return b;
-}
-
-static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, unsigned char *out, int64_t *out_len) {
-    uint64_t o_len = in_len;
+static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, unsigned char *out,
+			   uint64_t *out_len) {
     uint64_t i, j, m;
 
     int saved[256] = {0};
@@ -1155,14 +1146,6 @@ static uint8_t *rle_encode(uint8_t *data, int64_t len,
     return out;
 }
 
-static unsigned char *grow(unsigned char *b, uint64_t *alloc, uint64_t used, uint64_t growth) {
-    while (used + growth > *alloc) {
-	*alloc *= 2;
-	b = realloc(b, *alloc);
-    }
-    return b;
-}
-
 static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, unsigned char *out, int64_t *out_len) {
     uint64_t o_len = in_len;
     uint64_t i, j, m;
@@ -1202,9 +1185,9 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, unsigned 
 
 //-----------------------------------------------------------------------------
 static uint8_t *pack(uint8_t *data, int64_t len,
-		     uint8_t *out_meta, int *out_meta_len, int64_t *out_len) {
+		     uint8_t *out_meta, int *out_meta_len, uint64_t *out_len) {
     int p[256] = {0}, n;
-    int64_t i, j;
+    uint64_t i, j;
     uint8_t *out = malloc(len+1);
     if (!out)
 	return NULL;
@@ -1578,7 +1561,7 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, in
 unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
 				     unsigned char *out, unsigned int *out_size) {
     unsigned char *cp, *out_end, *op;
-    unsigned int tab_size, rle_i, rle_j;
+    unsigned int tab_size, rle_i;
     RansEncSymbol syms[256][256];
     int bound = rans_compress_bound_4x16(in_size,1)-5; // -5 for order/size
 
@@ -1618,7 +1601,6 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
     
     // Normalise so T[i] == TOTFREQ_O1
     for (rle_i = i = 0; i < 256; i++) {
-	int t2, m, M;
 	unsigned int x;
 
 	if (T[i] == 0)
@@ -1758,8 +1740,8 @@ typedef struct {
 unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_size,
 					  unsigned char *out, unsigned int *out_size) {
     /* Load in the static tables */
-    unsigned char *cp = in + 4, *out_orig = NULL;
-    int i, j = -999, x, y, out_sz, rle_i, rle_j;
+    unsigned char *cp = in + 4;
+    int i, j = -999, x, y, out_sz, rle_i;
     sb_t sfb[256][TOTFREQ_O1+32];
     // uint16_t for ssym sometimes works faster, but considter 8-bit if cache is tight
     uint16_t ssym [256][TOTFREQ_O1+32];
@@ -2032,7 +2014,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     unsigned int tmp1_size = *out_size;
     unsigned int tmp2_size = *out_size;
     unsigned int tmp3_size = *out_size;
-    unsigned char *tmp1, *tmp2, *tmp3, *tmp = NULL;
+    unsigned char *tmp1 = NULL, *tmp2 = NULL, *tmp3 = NULL, *tmp = NULL;
 
     // Need In, Out and Tmp buffers with temporary buffer of the same size
     // as output.  All use rANS, but with optional transforms (none, RLE,
@@ -2081,8 +2063,8 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     
     // Decode the bit-packing map.
     uint8_t map[16];
-    int npacked_sym;
-    uint64_t unpacked_sz;
+    int npacked_sym = 0;
+    uint64_t unpacked_sz = 0;
     if (do_pack) {
 	// FIXME: may need original size somewhere?
 	c_meta_size = unpack_meta(in, *out_size, map, &npacked_sym, &unpacked_sz);
@@ -2116,7 +2098,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 //	if (!rle_decode_unpack(tmp1, tmp1_size, meta, npacked_sym, map, tmp3, unpacked_sz))
 //	    return NULL;
 //	tmp3_size = unpacked_sz;
-//    } else {
+//    } else
     if (do_rle) {
 	// Unpack RLE.  tmp1 -> tmp2.
 	uint64_t unrle_size;

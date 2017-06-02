@@ -772,7 +772,6 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	method  |= (1<<RANS_PR64)  | (1<<RANS_PR65);
 	method  |= (1<<RANS_PR128) | (1<<RANS_PR129);
 	method  |= (1<<RANS_PR192) | (1<<RANS_PR193);
-	//method  |= (1<<RANS_PR1) | (1<<RANS_PR193);
     }
 
     if (fd->use_lzma)
@@ -1624,12 +1623,12 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     fd->version);
     }
 
-#if 0
+#if 1
     h->codecs[DS_QS] = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
 					 (void *)DS_QS,
 					 fd->version);
 #elif 0
-    // QS as bit packing
+    // QS as bit packing only
     {
 	cram_pack_encoder e;
 
@@ -1652,16 +1651,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     fd->version);
     }
 #elif 1
-    // Consider:
-    //
-    // PACK(RLE(QS)); => rle first then pack.
-    // vs
-    // RLE(PACK(QS)); PACK first and rle second.
-    
-    // During decode PACK{blah,RLE(blah)) is treated as
-    // depack and then return c->pack_codec->decode(); =>
-    // unpack followed by unrle.  So it's outer to inner DECODE.
-    // (Opposite to expected if we view as a nested function.)
+    // Pack bits and then RLE the packed esult:
+    // PACK(RLE(QS))
     {
 	cram_pack_encoder e;
 
@@ -1692,7 +1683,14 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     fd->version);
     }
 #elif 0
-    // QS as rle -> {lit,len} and compression of each stream independently.
+    // RLE the values and pack the literals.
+    // Cannot do at present as we compute the frequency
+    // table up-front.
+    //
+    // This is necessary as the encoder operates on multiple blocks
+    // if we have 2+ slicers per container.
+#elif 0
+    // QS as rle only -> {lit,len} and compression of each stream independently.
     {
 	cram_rle_encoder e;
 
