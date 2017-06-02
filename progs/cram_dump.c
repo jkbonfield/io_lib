@@ -744,6 +744,14 @@ int main(int argc, char **argv) {
 		    int t, m;
 		    enum cram_fields cf = 0;
 		    char fields[1024], *fp = fields;
+		    if (isprint((b->content_id>>16)&0xff) &&
+			isprint((b->content_id>> 8)&0xff) &&
+			isprint((b->content_id>> 0)&0xff)) {
+			*fp++ = (b->content_id>>16)&0xff;
+			*fp++ = (b->content_id>> 8)&0xff;
+			*fp++ = (b->content_id>> 0)&0xff;
+			*fp++ = ' ';
+		    }
 		    for (m = 0; m < 2; m++) {
 			cram_map **ma = m
 			    ? c->comp_hdr->tag_encoding_map
