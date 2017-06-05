@@ -528,7 +528,7 @@ static int uncompress_t3(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *o
     case C_PACK_RLE0:
     case C_PACK_RLE1: {
 	int rmethods[] = {0,1,128,129,64,65,192,193}, m;
-	return rans_decode(in, in_len, out, out_len, rmethods[*in - RANS0]);
+	return rans_decode(in, in_len, out, out_len, rmethods[*in - C_RANS0]);
     }
 
 //    case RANS0:
@@ -573,6 +573,14 @@ typedef struct {
     //int last_token_delta[MAX_TOKENS];
 } last_context;
 
+
+typedef struct {
+    uint8_t *buf;
+    size_t buf_a, buf_l; // alloc and used length.
+    int tnum, ttype;
+    int dup_from;
+} descriptor;
+
 typedef struct {
     last_context *lc;
 
@@ -582,6 +590,10 @@ typedef struct {
     // Trie used in encoder only
     trie_t *t_head;
     pool_alloc_t *pool;
+
+    // FIXME: inefficient to have a large MAX size
+    //descriptor *desc;
+    descriptor desc[MAX_DESCRIPTORS];
 } name_context;
 
 name_context *create_context(int max_names) {
@@ -593,6 +605,9 @@ name_context *create_context(int max_names) {
 
     ctx->lc = (last_context *)(((char *)ctx) + sizeof(*ctx));
     ctx->pool = NULL;
+
+    memset(ctx->desc, 0, MAX_DESCRIPTORS * sizeof(*ctx->desc));
+    //ctx->desc = desc;
 
     return ctx;
 }
@@ -609,16 +624,6 @@ void free_context(name_context *ctx) {
 
     free(ctx);
 }
-
-
-typedef struct {
-    uint8_t *buf;
-    size_t buf_a, buf_l; // alloc and used length.
-    int tnum, ttype;
-    int dup_from;
-} descriptor;
-
-static descriptor desc[MAX_DESCRIPTORS];
 
 //-----------------------------------------------------------------------------
 // Fast unsigned integer printing code.
@@ -706,9 +711,9 @@ static int encode_token_type(name_context *ctx, int ntok,
 			     enum name_type type) {
     int id = ntok<<4;
 
-    if (descriptor_grow(&desc[id], 1) < 0) return -1;
+    if (descriptor_grow(&ctx->desc[id], 1) < 0) return -1;
 
-    desc[id].buf[desc[id].buf_l++] = type;
+    ctx->desc[id].buf[ctx->desc[id].buf_l++] = type;
 
     return 0;
 }
@@ -723,8 +728,8 @@ static int encode_token_end(name_context *ctx, int ntok) {
 
 static enum name_type decode_token_type(name_context *ctx, int ntok) {
     int id = ntok<<4;
-    if (desc[id].buf_l >= desc[id].buf_a) return -1;
-    return desc[id].buf[desc[id].buf_l++];
+    if (ctx->desc[id].buf_l >= ctx->desc[id].buf_a) return -1;
+    return ctx->desc[id].buf[ctx->desc[id].buf_l++];
 }
 
 // int stored as 32-bit quantities
@@ -733,11 +738,11 @@ static int encode_token_int(name_context *ctx, int ntok,
     int id = (ntok<<4) | type;
 
     if (encode_token_type(ctx, ntok, type) < 0) return -1;
-    if (descriptor_grow(&desc[id], 4) < 0)	return -1;
+    if (descriptor_grow(&ctx->desc[id], 4) < 0)	return -1;
 
     // Assumes little endian and unalign access OK.
-    *(uint32_t *)(desc[id].buf + desc[id].buf_l) = val;
-    desc[id].buf_l += 4;
+    *(uint32_t *)(ctx->desc[id].buf + ctx->desc[id].buf_l) = val;
+    ctx->desc[id].buf_l += 4;
 
     return 0;
 }
@@ -749,8 +754,8 @@ static int decode_token_int(name_context *ctx, int ntok,
     // FIXME: add checks
 
     // Assumes little endian and unalign access OK.
-    *val = *(uint32_t *)(desc[id].buf + desc[id].buf_l);
-    desc[id].buf_l += 4;
+    *val = *(uint32_t *)(ctx->desc[id].buf + ctx->desc[id].buf_l);
+    ctx->desc[id].buf_l += 4;
 
     return 0;
 }
@@ -761,9 +766,9 @@ static int encode_token_int1(name_context *ctx, int ntok,
     int id = (ntok<<4) | type;
 
     if (encode_token_type(ctx, ntok, type) < 0) return -1;
-    if (descriptor_grow(&desc[id], 1) < 0)	return -1;
+    if (descriptor_grow(&ctx->desc[id], 1) < 0)	return -1;
 
-    desc[id].buf[desc[id].buf_l++] = val;
+    ctx->desc[id].buf[ctx->desc[id].buf_l++] = val;
 
     return 0;
 }
@@ -772,9 +777,9 @@ static int encode_token_int1_(name_context *ctx, int ntok,
 			      enum name_type type, uint32_t val) {
     int id = (ntok<<4) | type;
 
-    if (descriptor_grow(&desc[id], 1) < 0)	return -1;
+    if (descriptor_grow(&ctx->desc[id], 1) < 0)	return -1;
 
-    desc[id].buf[desc[id].buf_l++] = val;
+    ctx->desc[id].buf[ctx->desc[id].buf_l++] = val;
 
     return 0;
 }
@@ -785,7 +790,7 @@ static int decode_token_int1(name_context *ctx, int ntok,
     int id = (ntok<<4) | type;
     // FIXME: add checks
 
-    *val = desc[id].buf[desc[id].buf_l++];
+    *val = ctx->desc[id].buf[ctx->desc[id].buf_l++];
 
     return 0;
 }
@@ -796,15 +801,15 @@ static int encode_token_int4(name_context *ctx, int ntok,
     int id = (ntok<<4) | type;
 
     if (encode_token_type(ctx, ntok, type) < 0) return -1;
-    if (descriptor_grow(&desc[id  ], 1) < 0)	return -1;
-    if (descriptor_grow(&desc[id+1], 1) < 0)	return -1;
-    if (descriptor_grow(&desc[id+2], 1) < 0)	return -1;
-    if (descriptor_grow(&desc[id+3], 1) < 0)	return -1;
+    if (descriptor_grow(&ctx->desc[id  ], 1) < 0)	return -1;
+    if (descriptor_grow(&ctx->desc[id+1], 1) < 0)	return -1;
+    if (descriptor_grow(&ctx->desc[id+2], 1) < 0)	return -1;
+    if (descriptor_grow(&ctx->desc[id+3], 1) < 0)	return -1;
 
-    desc[id  ].buf[desc[id  ].buf_l++] = val>>0;
-    desc[id+1].buf[desc[id+1].buf_l++] = val>>8;
-    desc[id+2].buf[desc[id+2].buf_l++] = val>>16;
-    desc[id+3].buf[desc[id+3].buf_l++] = val>>24; 
+    ctx->desc[id  ].buf[ctx->desc[id  ].buf_l++] = val>>0;
+    ctx->desc[id+1].buf[ctx->desc[id+1].buf_l++] = val>>8;
+    ctx->desc[id+2].buf[ctx->desc[id+2].buf_l++] = val>>16;
+    ctx->desc[id+3].buf[ctx->desc[id+3].buf_l++] = val>>24; 
 
     return 0;
 }
@@ -816,10 +821,10 @@ static int decode_token_int4(name_context *ctx, int ntok,
     // FIXME: add checks
 
     *val = 
-	(desc[id  ].buf[desc[id  ].buf_l++] << 0 ) |
-	(desc[id+1].buf[desc[id+1].buf_l++] << 8 ) |
-	(desc[id+2].buf[desc[id+2].buf_l++] << 16) |
-	(desc[id+3].buf[desc[id+3].buf_l++] << 24);
+	(ctx->desc[id  ].buf[ctx->desc[id  ].buf_l++] << 0 ) |
+	(ctx->desc[id+1].buf[ctx->desc[id+1].buf_l++] << 8 ) |
+	(ctx->desc[id+2].buf[ctx->desc[id+2].buf_l++] << 16) |
+	(ctx->desc[id+3].buf[ctx->desc[id+3].buf_l++] << 24);
 
     return 0;
 }
@@ -830,10 +835,10 @@ static int encode_token_int7(name_context *ctx, int ntok,
     int id = (ntok<<4) | type;
 
     if (encode_token_type(ctx, ntok, type) < 0) return -1;
-    if (descriptor_grow(&desc[id], 5) < 0)	return -1;
+    if (descriptor_grow(&ctx->desc[id], 5) < 0)	return -1;
 
     do {
-	desc[id].buf[desc[id].buf_l++] = (val & 0x7f) | ((val >= 0x80)<<7);
+	ctx->desc[id].buf[ctx->desc[id].buf_l++] = (val & 0x7f) | ((val >= 0x80)<<7);
 	val >>= 7;
     } while (val);
 
@@ -849,7 +854,7 @@ static int decode_token_int7(name_context *ctx, int ntok,
 
     // FIXME: add checks
     do {
-	c = desc[id].buf[desc[id].buf_l++];
+	c = ctx->desc[id].buf[ctx->desc[id].buf_l++];
 	v |= (c & 0x7f) << s;
 	s += 7;
     } while (c & 0x80);
@@ -875,10 +880,10 @@ static int encode_token_alpha(name_context *ctx, int ntok,
     int id = (ntok<<4) | N_ALPHA;
 
     if (encode_token_type(ctx, ntok, N_ALPHA) < 0)  return -1;
-    if (descriptor_grow(&desc[id], len+1) < 0) return -1;
-    memcpy(&desc[id].buf[desc[id].buf_l], str, len);
-    desc[id].buf[desc[id].buf_l+len] = 0;
-    desc[id].buf_l += len+1;
+    if (descriptor_grow(&ctx->desc[id], len+1) < 0) return -1;
+    memcpy(&ctx->desc[id].buf[ctx->desc[id].buf_l], str, len);
+    ctx->desc[id].buf[ctx->desc[id].buf_l+len] = 0;
+    ctx->desc[id].buf_l += len+1;
 
     return 0;
 }
@@ -890,12 +895,12 @@ static int encode_token_alpha(name_context *ctx, int ntok,
 //    int id = (ntok<<4) | N_ALPHA;
 //
 //    if (encode_token_type(ctx, ntok, N_ALPHA) < 0)  return -1;
-//    if (descriptor_grow(&desc[id],   len) < 0) return -1;
-//    if (descriptor_grow(&desc[id+1], 1) < 0) return -1;
-//    memcpy(&desc[id].buf[desc[id].buf_l], str, len);
-//    desc[id].buf[desc[id].buf_l+len] = 0;
-//    desc[id].buf_l += len;
-//    desc[id+1].buf[desc[id+1].buf_l++] = len;
+//    if (descriptor_grow(&ctx->desc[id],   len) < 0) return -1;
+//    if (descriptor_grow(&ctx->desc[id+1], 1) < 0) return -1;
+//    memcpy(&ctx->desc[id].buf[ctx->desc[id].buf_l], str, len);
+//    ctx->desc[id].buf[ctx->desc[id].buf_l+len] = 0;
+//    ctx->desc[id].buf_l += len;
+//    ctx->desc[id+1].buf[ctx->desc[id+1].buf_l++] = len;
 //
 //    return 0;
 //}
@@ -909,7 +914,7 @@ static int decode_token_alpha(name_context *ctx, int ntok, char *str) {
     int len = 0;
     do {
 	// FIXME: add checks
-	c = desc[id].buf[desc[id].buf_l++];
+	c = ctx->desc[id].buf[ctx->desc[id].buf_l++];
 	str[len++] = c;
     } while(c);
 
@@ -920,8 +925,8 @@ static int encode_token_char(name_context *ctx, int ntok, char c) {
     int id = (ntok<<4) | N_CHAR;
 
     if (encode_token_type(ctx, ntok, N_CHAR) < 0) return -1;
-    if (descriptor_grow(&desc[id], 1) < 0)    return -1;
-    desc[id].buf[desc[id].buf_l++] = c;
+    if (descriptor_grow(&ctx->desc[id], 1) < 0)    return -1;
+    ctx->desc[id].buf[ctx->desc[id].buf_l++] = c;
 
     return 0;
 }
@@ -932,7 +937,7 @@ static int decode_token_char(name_context *ctx, int ntok, char *str) {
     int id = (ntok<<4) | N_CHAR;
 
     // FIXME: add checks
-    *str = desc[id].buf[desc[id].buf_l++];
+    *str = ctx->desc[id].buf[ctx->desc[id].buf_l++];
 
     return 1;
 }
@@ -1558,24 +1563,30 @@ static int decode_name(name_context *ctx, char *name) {
 #ifndef BLK_SIZE
 #  define BLK_SIZE 10*1024*1024
 #endif
-static char blk[BLK_SIZE*2]; // temporary fix for decoder, which needs more space
 
 static char *decode_block(unsigned char *dat, size_t dat_size, size_t *out_size) {
     dstring_t *ds = dstring_create(NULL);
+    char *blk = malloc(BLK_SIZE*2); // FIXME
+
+    if (!blk)
+	return NULL;
 
     uint32_t sz;
     while (dat_size > 0) {
 	sz = *(uint32_t *)dat;
 	dat += 4; dat_size -= 4;
 
-	if (sz > dat_size)
+	if (sz > dat_size) {
+	    free(blk);
 	    return NULL;
+	}
 
 	uint8_t *in = dat;
 	dat += sz;
 	dat_size -= sz;
 	
-	name_context *ctx;
+	// 2.0-2.3 / 1.1-1.2
+	name_context *ctx = create_context(MAX_NAMES);
 	char *line;
 	int i, c, o = 0;
 
@@ -1591,11 +1602,11 @@ static char *decode_block(unsigned char *dat, size_t dat_size, size_t *out_size)
 		    tnum++;
 		i = (tnum<<4) | ttype;
 
-		desc[i].buf_l = 0;
-		desc[i].buf_a = desc[j].buf_a;
-		desc[i].buf = malloc(desc[i].buf_a);
-		memcpy(desc[i].buf, desc[j].buf, desc[i].buf_a);
-		//fprintf(stderr, "Copy ttype %d, i=%d,j=%d, size %d\n", ttype, i, j, (int)desc[i].buf_a);
+		ctx->desc[i].buf_l = 0;
+		ctx->desc[i].buf_a = ctx->desc[j].buf_a;
+		ctx->desc[i].buf = malloc(ctx->desc[i].buf_a);
+		memcpy(ctx->desc[i].buf, ctx->desc[j].buf, ctx->desc[i].buf_a);
+		//fprintf(stderr, "Copy ttype %d, i=%d,j=%d, size %d\n", ttype, i, j, (int)ctx->desc[i].buf_a);
 		continue;
 	    }
 
@@ -1608,19 +1619,21 @@ static char *decode_block(unsigned char *dat, size_t dat_size, size_t *out_size)
 	    uint8_t ctype[10];
 	    int nb;
 	    uint64_t clen, ulen = uncompressed_size(&in[o], sz-o);
-	    if (ulen < 0)
+	    if (ulen < 0) {
+		free(blk);
 		return NULL;
+	    }
 	    i = (tnum<<4) | ttype;
 
-	    desc[i].buf_l = 0;
-	    desc[i].buf = malloc(ulen);
+	    ctx->desc[i].buf_l = 0;
+	    ctx->desc[i].buf = malloc(ulen);
 
-	    desc[i].buf_a = ulen;
-	    clen = uncompress_t3(&in[o], sz-o, desc[i].buf, &desc[i].buf_a);
-	    assert(desc[i].buf_a == ulen);
+	    ctx->desc[i].buf_a = ulen;
+	    clen = uncompress_t3(&in[o], sz-o, ctx->desc[i].buf, &ctx->desc[i].buf_a);
+	    assert(ctx->desc[i].buf_a == ulen);
 
 //	    fprintf(stderr, "%d: Decode tnum %d type %d clen %d ulen %d via %d\n",
-//		    o, tnum, ttype, (int)clen, (int)desc[i].buf_a, desc[i].buf[0]);
+//		    o, tnum, ttype, (int)clen, (int)ctx->desc[i].buf_a, ctx->desc[i].buf[0]);
 
 	    o += clen;
 
@@ -1635,35 +1648,33 @@ static char *decode_block(unsigned char *dat, size_t dat_size, size_t *out_size)
 
 	int ret;
 
-	// 2.3-3.3 / 3.6-3.8
-	//ctx = calloc(1, sizeof(*ctx));
-
-	// 2.0-2.3 / 1.1-1.2
-	ctx = create_context(MAX_NAMES);
-
 	line = blk;
 	while ((ret = decode_name(ctx, line)) > 0) {
 	    dstring_nappend(ds, line, strlen(line)+1);
 	    line += ret+1;
 	}
 
-	free_context(ctx);
-
 	for (i = 0; i < MAX_DESCRIPTORS; i++) {
-	    if (desc[i].buf) {
-		free(desc[i].buf);
-		desc[i].buf = 0;
+	    if (ctx->desc[i].buf) {
+		free(ctx->desc[i].buf);
+		ctx->desc[i].buf = 0;
 	    }
 	}
 
-	if (ret < 0)
+	free_context(ctx);
+
+	if (ret < 0) {
+	    free(blk);
 	    return NULL;
+	}
     }
 
     char *uncomp = DSTRING_STR(ds);
     DSTRING_STR(ds) = NULL;
 
     dstring_destroy(ds);
+    free(blk);
+
     return uncomp;
 }
 
@@ -1684,7 +1695,7 @@ static char *encode_block(char *blk, int len, size_t *out_size) {
 	build_trie(ctx, &blk[j], i-j, ctr++);
     }
 
-    memset(&desc[0], 0, MAX_DESCRIPTORS * sizeof(desc[0]));
+    memset(&ctx->desc[0], 0, MAX_DESCRIPTORS * sizeof(ctx->desc[0]));
 
     //fprintf(stderr, "Processed %d of %d in block, line %d\n", last_start, len, ctr);
 
@@ -1709,7 +1720,7 @@ static char *encode_block(char *blk, int len, size_t *out_size) {
     uint32_t tot_size = 0;
     int ndesc = 0;
     for (i = 0; i < MAX_DESCRIPTORS; i++) {
-	if (!desc[i].buf_l) continue;
+	if (!ctx->desc[i].buf_l) continue;
 
 	ndesc++;
 
@@ -1721,51 +1732,51 @@ static char *encode_block(char *blk, int len, size_t *out_size) {
 	    last_tnum = tnum;
 	}
 
-	uint64_t out_len = 1.5 * rans_compress_bound_4x16(desc[i].buf_l, 1); // guesswork
+	uint64_t out_len = 1.5 * rans_compress_bound_4x16(ctx->desc[i].buf_l, 1); // guesswork
 	uint8_t *out = malloc(out_len);
 	assert(out);
 
 	//uint8_t ttype8 = ttype;
 	//write(1, &ttype8, 1);
 
-	if (compress_t3(desc[i].buf, desc[i].buf_l, out, &out_len, 0) < 0)
+	if (compress_t3(ctx->desc[i].buf, ctx->desc[i].buf_l, out, &out_len, 0) < 0)
 	    abort();
 
-	free(desc[i].buf);
-	desc[i].buf = out;
-	desc[i].buf_l = out_len;
-	desc[i].tnum = tnum;
-	desc[i].ttype = ttype;
+	free(ctx->desc[i].buf);
+	ctx->desc[i].buf = out;
+	ctx->desc[i].buf_l = out_len;
+	ctx->desc[i].tnum = tnum;
+	ctx->desc[i].ttype = ttype;
 
 	// Find dups
 	int j;
 	for (j = 0; j < i; j++) {
-	    if (!desc[j].buf)
+	    if (!ctx->desc[j].buf)
 		continue;
-	    if (desc[i].buf_l != desc[j].buf_l)
+	    if (ctx->desc[i].buf_l != ctx->desc[j].buf_l)
 		continue;
-	    if (memcmp(desc[i].buf, desc[j].buf, desc[i].buf_l) == 0)
+	    if (memcmp(ctx->desc[i].buf, ctx->desc[j].buf, ctx->desc[i].buf_l) == 0)
 		break;
 	}
 	if (j < i) {
-	    //fprintf(stderr, "Dup %d %d size %d\n", i, j, (int)desc[i].buf_l);
-	    desc[i].dup_from = j;
+	    //fprintf(stderr, "Dup %d %d size %d\n", i, j, (int)ctx->desc[i].buf_l);
+	    ctx->desc[i].dup_from = j;
 	    tot_size += 4; // flag, dup_from, ttype
 	    //fprintf(stderr, "Desc %d %d/%d => DUP %d\n", i, tnum, ttype, j);
 	} else {
-	    desc[i].dup_from = 0;
+	    ctx->desc[i].dup_from = 0;
 	    tot_size += out_len + 1; // ttype
-	    //fprintf(stderr, "Desc %d %d/%d => %d\n", i, tnum, ttype, (int)desc[i].buf_l);
+	    //fprintf(stderr, "Desc %d %d/%d => %d\n", i, tnum, ttype, (int)ctx->desc[i].buf_l);
 	}
 	    
 	//	    fprintf(stderr, "Encode tnum %d type %d ulen %d clen %d via %d\n",
-	//		    tnum, ttype, (int)desc[i].buf_l, (int)out_len, *out);
+	//		    tnum, ttype, (int)ctx->desc[i].buf_l, (int)out_len, *out);
 
 	//if (out_len != write(1, out, out_len))
 	//    abort();
 
 	//free(out);
-	//free(desc[i].buf);
+	//free(ctx->desc[i].buf);
     }
     //fprintf(stderr, "Serialised %d descriptors\n", ndesc);
 
@@ -1774,31 +1785,31 @@ static char *encode_block(char *blk, int len, size_t *out_size) {
     out += 4;
     //write(1, &tot_size, 4);
     for (i = 0; i < MAX_DESCRIPTORS; i++) {
-	if (!desc[i].buf_l) continue;
-	uint8_t ttype8 = desc[i].ttype;
-	if (desc[i].dup_from) {
+	if (!ctx->desc[i].buf_l) continue;
+	uint8_t ttype8 = ctx->desc[i].ttype;
+	if (ctx->desc[i].dup_from) {
 	    *out++ = 255;
-	    *(uint16_t *)out = desc[i].dup_from;
+	    *(uint16_t *)out = ctx->desc[i].dup_from;
 	    out+=2;
 	    *out++ = ttype8;
 	    //uint8_t x = 255;
 	    //write(1, &x, 1);
-	    //uint16_t y = desc[i].dup_from;
+	    //uint16_t y = ctx->desc[i].dup_from;
 	    //write(1, &y, 2);
 	    //write(1, &ttype8, 1);
 	} else {
 	    *out++ = ttype8;
-	    memcpy(out, desc[i].buf, desc[i].buf_l);
-	    out += desc[i].buf_l;
+	    memcpy(out, ctx->desc[i].buf, ctx->desc[i].buf_l);
+	    out += ctx->desc[i].buf_l;
 	    //write(1, &ttype8, 1);
-	    //write(1, desc[i].buf, desc[i].buf_l);
+	    //write(1, ctx->desc[i].buf, ctx->desc[i].buf_l);
 	}
     }
 
     // Tidy up memory
     for (i = 0; i < MAX_DESCRIPTORS; i++) {
-	if (!desc[i].buf_l) continue;
-	free(desc[i].buf);
+	if (!ctx->desc[i].buf_l) continue;
+	free(ctx->desc[i].buf);
     }
 
     free_context(ctx);

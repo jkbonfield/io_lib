@@ -55,6 +55,9 @@ gzi *gzi_index_load(const char *fn) {
 	goto err;
     n = le_int8(n);
 
+    if (n >= INT_MAX/8 - 1)
+        goto err;
+
     idx->n = n;
     idx->c_off = malloc(8*n+8);
     idx->u_off = malloc(8*n+8);
