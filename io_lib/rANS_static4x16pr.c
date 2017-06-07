@@ -655,9 +655,9 @@ static int decode_freq0(uint8_t *cp, int *F) {
 // be empty in F.  Thus we run-length encode the 0 frequencies.
 static int encode_freq_d(uint8_t *cp, int *F0, int *F) {
     uint8_t *op = cp;
-    int rle, j, dz;
+    int j, dz;
 
-    for (dz = rle = j = 0; j < 256; j++) {
+    for (dz = j = 0; j < 256; j++) {
 	if (F0[j]) {
 	    if (F[j] != 0) {
 		if (dz) {
@@ -690,11 +690,11 @@ static int encode_freq_d(uint8_t *cp, int *F0, int *F) {
     return cp - op;
 }
 
-static int decode_freq_d(uint8_t *cp, int *F0, int *F, RansDecSymbol *syms, unsigned char *R, int *total) {
+static int decode_freq_d(uint8_t *cp, int *F0, int *F, int *total) {
     uint8_t *op = cp;
-    int j, dz, x, T = 0;
+    int j, dz, T = 0;
 
-    for (x = j = dz = 0; j < 256; j++) {
+    for (j = dz = 0; j < 256; j++) {
 	//if (F0[j]) fprintf(stderr, "F0[%d]=%d\n", j, F0[j]);
 	if (!F0[j])
 	    continue;
@@ -704,23 +704,13 @@ static int decode_freq_d(uint8_t *cp, int *F0, int *F, RansDecSymbol *syms, unsi
 	    f = 0;
 	    dz--;
 	} else {
-	    if ((f = *cp++) >= 128) {
-		f &= ~128;
-		f = ((f & 127) << 8) | *cp++;
-	    }
+	    if ((f = *cp++) & 0x80)
+		f = ((f & 0x7f) << 8) | *cp++;
 	    if (f == 0)
 		dz = *cp++;
 	}
 	F[j] = f;
 	T += f;
-
-	if (syms && F[j]) {
-	    RansDecSymbolInit(&syms[j], x, F[j]);
-	    if (x + F[j] > TOTFREQ_O1)
-		return -1;
-	    memset(&R[x], j, F[j]);
-	    x += F[j];
-	}
     }
 
     if (total) *total = T;
@@ -884,13 +874,14 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
 	}
     }
 
-    assert(x <= TOTFREQ);
+    if (x != TOTFREQ)
+	return NULL;
 
     RansState R[4];
-    RansDecInit(&R[0], &cp);
-    RansDecInit(&R[1], &cp);
-    RansDecInit(&R[2], &cp);
-    RansDecInit(&R[3], &cp);
+    RansDecInit(&R[0], &cp); if (R[0] < RANS_BYTE_L) return NULL;
+    RansDecInit(&R[1], &cp); if (R[1] < RANS_BYTE_L) return NULL;
+    RansDecInit(&R[2], &cp); if (R[2] < RANS_BYTE_L) return NULL;
+    RansDecInit(&R[3], &cp); if (R[3] < RANS_BYTE_L) return NULL;
 
     int out_end = (out_sz&~3);
     const uint32_t mask = (1u << TF_SHIFT)-1;
@@ -1726,6 +1717,7 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
 }
 
 typedef struct {
+    uint16_t c;
     uint16_t f;
     uint16_t b;
 } sb_t;
@@ -1735,24 +1727,16 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     /* Load in the static tables */
     unsigned char *cp = in + 4;
     int i, j = -999, x, y, out_sz, rle_i;
-    // NB this is ~2Mb.  Consider replacing with malloc?
+    // NB this is ~3Mb.  Consider replacing with malloc?
     // Also see pthread_attr_setstacksize call in thread_pool.c as this
     // impacts on that.
-    sb_t sfb[256][TOTFREQ_O1+32];
-    // uint16_t for ssym sometimes works faster, but considter 8-bit if cache is tight
-    uint16_t ssym [256][TOTFREQ_O1+32];
+    sb_t sfb[256][TOTFREQ_O1+4];
 
-    // If we wish to reduce the large stack size, we may want ONE malloc and
-    // some pointer shenanigans, but this only seems to help GNU malloc and only
-    // then in some scenarios.  You're better off just making the stack big enough.
+    // If we wish to reduce the large stack size, we may want malloc instead.
+    // But note this can have a significant performance hit on some systems. (Up to
+    // 10% in rare cases.)
     //
-    //    uint16_t (*ssym)[TOTFREQ_O1];
-    //    sb_t (*sfb) [TOTFREQ_O1] = malloc(256*sizeof(*sfb) + 256*sizeof(*ssym));
-    //    ssym = (uint16_t (*)[TOTFREQ_O1])((char*)sfb + 256*sizeof(*sfb));
-    // vs
-    //    sb_t (*sfb) [TOTFREQ_O1] = malloc(256*sizeof(*sfb));
-    //    uint16_t (*ssym)[TOTFREQ_O1] = malloc(256*sizeof(*ssym));
-    
+    // sb_t (*sfb) [TOTFREQ_O1] = malloc(256*sizeof(*sfb));
 
     //memset(D, 0, 256*sizeof(*D));
 
@@ -1786,7 +1770,7 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     i = *cp++;
     do {
 	int F[256] = {0}, T;
-	int r = decode_freq_d(cp, F0, F, NULL, NULL, &T);
+	int r = decode_freq_d(cp, F0, F, &T);
 	if (r < 0)
 	    return NULL;
 	cp += r;
@@ -1800,13 +1784,16 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 		if (x + F[j] > TOTFREQ_O1)
 		    return NULL;
 		for (y = 0; y < F[j]; y++) {
-		    ssym[i][y + x]   = j;
-		    sfb [i][y + x].f = F[j];
-		    sfb [i][y + x].b = y;
+		    sfb[i][y + x].c = j;
+		    sfb[i][y + x].f = F[j];
+		    sfb[i][y + x].b = y;
 		}
 		x += F[j];
 	    }
 	}
+	if (x != TOTFREQ_O1)
+	    return NULL;
+
 
 	if (!rle_i && i+1 == *cp) {
 	    i = *cp++;
@@ -1814,6 +1801,8 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 	} else if (rle_i) {
 	    rle_i--;
 	    i++;
+	    if (i > 255)
+		return NULL;
 	} else {
 	    i = *cp++;
 	}
@@ -1826,10 +1815,10 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 
     RansState rans0, rans1, rans2, rans3;
     uint8_t *ptr = cp, *ptr_end = in + in_size - 8;
-    RansDecInit(&rans0, &ptr);
-    RansDecInit(&rans1, &ptr);
-    RansDecInit(&rans2, &ptr);
-    RansDecInit(&rans3, &ptr);
+    RansDecInit(&rans0, &ptr); if (rans0 < RANS_BYTE_L) return NULL;
+    RansDecInit(&rans1, &ptr); if (rans1 < RANS_BYTE_L) return NULL;
+    RansDecInit(&rans2, &ptr); if (rans2 < RANS_BYTE_L) return NULL;
+    RansDecInit(&rans3, &ptr); if (rans3 < RANS_BYTE_L) return NULL;
 
     int isz4 = out_sz>>2;
     int l0 = 0, l1 = 0, l2 = 0, l3 = 0;
@@ -1848,19 +1837,19 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 
 	m[0] = R[0] & mask;
 	R[0] = sfb[l0][m[0]].f * (R[0]>>TF_SHIFT_O1) + sfb[l0][m[0]].b;
-	c[0] = ssym[l0][m[0]];
+	c[0] = sfb[l0][m[0]].c;
 
 	m[1] = R[1] & mask;
 	R[1] = sfb[l1][m[1]].f * (R[1]>>TF_SHIFT_O1) + sfb[l1][m[1]].b;
-	c[1] = ssym[l1][m[1]];
+	c[1] = sfb[l1][m[1]].c;
 
 	m[2] = R[2] & mask;
 	R[2] = sfb[l2][m[2]].f * (R[2]>>TF_SHIFT_O1) + sfb[l2][m[2]].b;
-	c[2] = ssym[l2][m[2]];
+	c[2] = sfb[l2][m[2]].c;
 
 	m[3] = R[3] & mask;
 	R[3] = sfb[l3][m[3]].f * (R[3]>>TF_SHIFT_O1) + sfb[l3][m[3]].b;
-	c[3] = ssym[l3][m[3]];
+	c[3] = sfb[l3][m[3]].c;
 
 	// TODO: inline expansion of 4-way packing here is about 4% faster.
 	out[i4[0]] = c[0];
@@ -1889,7 +1878,7 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     // Remainder
     for (; i4[3] < out_sz; i4[3]++) {
 	uint32_t m3 = R[3] & ((1u<<TF_SHIFT_O1)-1);
-	unsigned char c3 = ssym[l3][m3];
+	unsigned char c3 = sfb[l3][m3].c;
 	out[i4[3]] = c3;
 	R[3] = sfb[l3][m3].f * (R[3]>>TF_SHIFT_O1) + sfb[l3][m3].b;
 	RansDecRenormSafe(&R[3], &ptr, ptr_end + 8);
