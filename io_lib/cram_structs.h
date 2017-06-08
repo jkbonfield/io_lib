@@ -215,6 +215,9 @@ enum cram_content_type {
     CORE               = 5,
 };
 
+/* Maximum simultaneous codecs allowed, 1 per bit */
+#define CRAM_MAX_METHOD 32
+
 /* Compression metrics */
 typedef struct {
     // number of trials and time to next trial
@@ -222,35 +225,17 @@ typedef struct {
     int next_trial;
 
     // aggregate sizes during trials
-    int sz_gz_rle;
-    int sz_gz_def;
-    int sz_gz_1;
-    int sz_rans0;
-    int sz_rans1;
-    int sz_bzip2;
-    int sz_lzma;
+    int sz[CRAM_MAX_METHOD];
 
     // resultant method from trials
     int method;
     int strat;
 
     // Revisions of method, to allow culling of continually failing ones.
-    int gz_rle_cnt;
-    int gz_def_cnt;
-    int gz_1_cnt;
-    int rans0_cnt;
-    int rans1_cnt;
-    int bzip2_cnt;
-    int lzma_cnt;
+    int cnt[CRAM_MAX_METHOD];
     int revised_method;
 
-    double gz_rle_extra;
-    double gz_def_extra;
-    double gz_1_extra;
-    double rans0_extra;
-    double rans1_extra;
-    double bzip2_extra;
-    double lzma_extra;
+    double extra[CRAM_MAX_METHOD];
 } cram_metrics;
 
 /* Block */

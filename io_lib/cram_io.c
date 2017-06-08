@@ -90,6 +90,7 @@
 #include "io_lib/crc32.h"
 #include "io_lib/open_trace_file.h"
 #include "io_lib/rANS_static.h"
+#include "io_lib/rANS_static4x16.h"
 
 #if defined(HAVE_STDIO_EXT_H)
 #include <stdio_ext.h>
@@ -1705,9 +1706,9 @@ int cram_uncompress_block(cram_block *b) {
 	break;
     }
 
-    case RANS1: {
+    case RANS_PR0: {
 	unsigned int usize = b->uncomp_size, usize2;
-	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 1);
+	uncomp = (char *)rans_uncompress_4x16(b->data, b->comp_size, &usize2, 0);
 	if (!uncomp || usize != usize2)
 	    return -1;
 	free(b->data);
@@ -1810,19 +1811,35 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 	return NULL;
 #endif
 
-    case RANS0: {
+    case RANS0:
+    case RANS1: {
 	unsigned int out_size_i;
 	unsigned char *cp;
-	cp = rans_compress((unsigned char *)in, in_size, &out_size_i, 0);
+
+	cp = rans_compress((unsigned char *)in, in_size, &out_size_i,
+			   method == RANS0 ? 0 : 1);
 	*out_size = out_size_i;
 	return (char *)cp;
     }
 
-    case RANS1: {
+    case RANS_PR0:
+    case RANS_PR1:
+    case RANS_PR64:
+    case RANS_PR65:
+    case RANS_PR128:
+    case RANS_PR129:
+    case RANS_PR192:
+    case RANS_PR193: {
 	unsigned int out_size_i;
 	unsigned char *cp;
 	
-	cp = rans_compress((unsigned char *)in, in_size, &out_size_i, 1);
+	// see enum cram_block. We map RANS_* methods to order bit-fields
+	static int methmap[] = {
+	    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, // non-ranspr
+	    0,1, 64,65, 128,129, 192,193
+	};
+
+	cp = rans_compress_4x16((unsigned char *)in, in_size, &out_size_i, methmap[method]);
 	*out_size = out_size_i;
 	return (char *)cp;
     }
@@ -1850,7 +1867,19 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
     char *comp = NULL;
     size_t comp_size = 0;
-    int strat;
+    int strat = 0;
+
+    // Internally we have parameterised methods that externally map
+    // to the same CRAM method value.
+    // See enum_cram_block_method.
+    int methmap[] = {
+	RAW, GZIP, BZIP2, LZMA, RANS0,
+	BM_ERROR, BM_ERROR, BM_ERROR, BM_ERROR, BM_ERROR,
+	RANS0, // RANS1
+	GZIP, GZIP, // GZIP_RLE and GZIP_1
+	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0, // RANS_PR1-193
+	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0,
+    };
 
     if (b->method != RAW) {
 	// Maybe already compressed if s->block[0] was compressed and
@@ -1875,14 +1904,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	if (fd->unsorted == 2)
 	    metrics->next_trial = 0; // force recheck on mode switch.
 	if (metrics->trial > 0 || --metrics->next_trial <= 0) {
+	    int m;
 	    size_t sz_best = INT_MAX;
-	    size_t sz_gz_rle = 0;
-	    size_t sz_gz_1 = 0;
-	    size_t sz_gz_def = 0;
-	    size_t sz_rans0 = 0;
-	    size_t sz_rans1 = 0;
-	    size_t sz_bzip2 = 0;
-	    size_t sz_lzma = 0;
+	    size_t sz[CRAM_MAX_METHOD] = {0};
 	    int method_best = 0;
 	    char *c_best = NULL, *c = NULL;
 
@@ -1894,134 +1918,40 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    if (metrics->next_trial <= 0) {
 		metrics->next_trial = TRIAL_SPAN;
 		metrics->trial = NTRIALS;
-		metrics->sz_gz_rle /= 2;
-		metrics->sz_gz_1   /= 2;
-		metrics->sz_gz_def /= 2;
-		metrics->sz_rans0  /= 2;
-		metrics->sz_rans1  /= 2;
-		metrics->sz_bzip2  /= 2;
-		metrics->sz_lzma   /= 2;
+		for (m = 0; m < CRAM_MAX_METHOD; m++)
+		    metrics->sz[m] /= 2;
 	    }
 
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    
-	    if (method & (1<<GZIP_RLE)) {
-		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
-					    &sz_gz_rle, GZIP, 1, Z_RLE);
-		if (c && sz_best > sz_gz_rle) {
-		    sz_best = sz_gz_rle;
-		    method_best = GZIP_RLE;
-		    if (c_best)
-			free(c_best);
-		    c_best = c;
-		} else if (c) {
-		    free(c);
-		} else {
-		    sz_gz_rle = b->uncomp_size*2+1000;
-		}
+            // Compress this block using the best method
+            for (m = 0; m < CRAM_MAX_METHOD; m++) {
+		if (method & (1<<m)) {
+		    int lvl = level;
+		    switch (m) {
+		    case GZIP:     strat = Z_FILTERED; break;
+		    case GZIP_1:   strat = Z_DEFAULT_STRATEGY; lvl = 1; break;
+		    case GZIP_RLE: strat = Z_RLE; break;
+		    default:       strat = 0;
+		    }
 
-		//fprintf(stderr, "Block %d; %d->%d\n", b->content_id, b->uncomp_size, sz_gz_rle);
-	    }
+		    c = cram_compress_by_method((char *)b->data, b->uncomp_size,
+						&sz[m], m, lvl, strat);
+                    if (fd->verbose > 1)
+                        fprintf(stderr, "Try compression of block ID %d from %d to %d by method %s\n",
+                                b->content_id, b->uncomp_size, (int)sz[m], cram_block_method2str(m));
 
-	    if (method & (1<<GZIP)) {
-		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
-					    &sz_gz_def, GZIP, level,
-					    Z_FILTERED);
-		if (c && sz_best > sz_gz_def) {
-		    sz_best = sz_gz_def;
-		    method_best = GZIP;
-		    if (c_best)
-			free(c_best);
-		    c_best = c;
-		} else if (c) {
-		    free(c);
-		} else {
-		    sz_gz_def = b->uncomp_size*2+1000;
-		}
-
-		//fprintf(stderr, "Block %d; %d->%d\n", b->content_id, b->uncomp_size, sz_gz_def);
-	    }
-
-	    // Doesn't seem to buy us much, but occasionally we get data sets where
-	    // trying to LZ match less hard is both a CPU and size win. (eg mc:i: tags)
-	    if (method & (1<<GZIP_1)) {
-		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
-					    &sz_gz_1, GZIP, 1,
-					    Z_DEFAULT_STRATEGY);
-		if (sz_best > sz_gz_1) {
-		    sz_best = sz_gz_1;
-		    method_best = GZIP_1;
-		    if (c_best)
-			free(c_best);
-		    c_best = c;
-		} else {
-		    free(c);
-		}
-
-		//fprintf(stderr, "Block %d; %d->%d\n", b->content_id, b->uncomp_size, sz_gz_1);
-	    }
-
-	    if (method & (1<<RANS0)) {
-		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
-					    &sz_rans0, RANS0, 0, 0);
-		if (c && sz_best > sz_rans0) {
-		    sz_best = sz_rans0;
-		    method_best = RANS0;
-		    if (c_best)
-			free(c_best);
-		    c_best = c;
-		} else if (c) {
-		    free(c);
-		} else {
-		    sz_rans0 = b->uncomp_size*2+1000;
-		}
-	    }
-
-	    if (method & (1<<RANS1)) {
-		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
-					    &sz_rans1, RANS1, 0, 0);
-		if (c && sz_best > sz_rans1) {
-		    sz_best = sz_rans1;
-		    method_best = RANS1;
-		    if (c_best)
-			free(c_best);
-		    c_best = c;
-		} else if (c) {
-		    free(c);
-		} else {
-		    sz_rans1 = b->uncomp_size*2+1000;
-		}
-	    }
-
-	    if (method & (1<<BZIP2)) {
-		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
-					    &sz_bzip2, BZIP2, level, 0);
-		if (c && sz_best > sz_bzip2) {
-		    sz_best = sz_bzip2;
-		    method_best = BZIP2;
-		    if (c_best)
-			free(c_best);
-		    c_best = c;
-		} else if (c) {
-		    free(c);
-		} else {
-		    sz_bzip2 = b->uncomp_size*2+1000;
-		}
-	    }
-
-	    if (method & (1<<LZMA)) {
-		c = cram_compress_by_method((char *)b->data, b->uncomp_size,
-					    &sz_lzma, LZMA, level, 0);
-		if (c && sz_best > sz_lzma) {
-		    sz_best = sz_lzma;
-		    method_best = LZMA;
-		    if (c_best)
-			free(c_best);
-		    c_best = c;
-		} else if (c) {
-		    free(c);
-		} else {
-		    sz_lzma = b->uncomp_size*2+1000;
+		    if (c && sz_best > sz[m]) {
+			sz_best = sz[m];
+			method_best = m;
+			if (c_best)
+			    free(c_best);
+			c_best = c;
+		    } else if (c) {
+			free(c);
+		    } else {
+			sz[m] = b->uncomp_size*2+1000; // arbitrarily worse than raw
+		    }
 		}
 	    }
 
@@ -2030,75 +1960,64 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    free(b->data);
 	    b->data = (unsigned char *)c_best;
 	    //printf("method_best = %s\n", cram_block_method2str(method_best));
-	    b->method = (method_best == GZIP_RLE || method_best == GZIP_1)
-		? GZIP : method_best;
+
+	    b->method = methmap[method_best];
 	    b->comp_size = sz_best;
 
+	    // Accumulate stats for all methods tried
 	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
-	    metrics->sz_gz_rle += sz_gz_rle;
-	    metrics->sz_gz_1   += sz_gz_1;
-	    metrics->sz_gz_def += sz_gz_def;
-	    metrics->sz_rans0  += sz_rans0;
-	    metrics->sz_rans1  += sz_rans1;
-	    metrics->sz_bzip2  += sz_bzip2;
-	    metrics->sz_lzma   += sz_lzma;
+            for (m = 0; m < CRAM_MAX_METHOD; m++)
+                metrics->sz[m] += sz[m];
+
+	    // When enough trials performed, find the best on average
 	    if (--metrics->trial == 0) {
 		int best_method = RAW;
 		int best_sz = INT_MAX;
 
-		// Scale methods by cost
+		// Relative costs of methods. See enum_cram_block_method.
+		int meth_cost[32] = {
+		    1,    // raw
+		    1.04, // gzip
+		    1.08, // bzip2
+		    1.10, // lzma
+		    1.00, // rans0
+		    1,1,1,1,1,               // unused
+		    1.02, // rans1
+		    1.00, // gzip rle
+		    1.02, // gzip -1
+		    1.00, // rans_pr0
+		    1.03, // rans_pr1
+		    1.00, // rans_pr64; if smaller, usually fast
+		    1.00, // rans_pr65
+		    1.00, // rans_pr128
+		    1.00, // rans_pr129
+		    1.00, // rans_pr192
+		    1.00, // rans_pr193
+		    1,1,1,1,1,1,1,1,1,1,1    // unused
+		};
+
+		// Scale methods by cost based on compression level
 		if (fd->level <= 1) {
-		    metrics->sz_rans1  *= 1.08;
-		    metrics->sz_gz_rle *= 1.10;
-		    metrics->sz_gz_1   *= 1.12;
-		    metrics->sz_gz_def *= 1.15;
-		    metrics->sz_bzip2  *= 1.20;
-		    metrics->sz_lzma   *= 1.50;
+		    for (m = 0; m < CRAM_MAX_METHOD; m++)
+			metrics->sz[m] *= 1+(meth_cost[m]-1)*4;
 		} else if (fd->level <= 3) {
-		    metrics->sz_rans1  *= 1.02;
-		    metrics->sz_gz_1   *= 1.02;
-		    metrics->sz_gz_def *= 1.04;
-		    metrics->sz_bzip2  *= 1.08;
-		    metrics->sz_lzma   *= 1.10;
+		    for (m = 0; m < CRAM_MAX_METHOD; m++)
+			metrics->sz[m] *= 1+(meth_cost[m]-1);
 		} else if (fd->level <= 6) {
-		    metrics->sz_rans1  *= 1.01;
-		    metrics->sz_gz_1   *= 1.01;
-		    metrics->sz_gz_def *= 1.02;
-		    metrics->sz_bzip2  *= 1.03;
-		    metrics->sz_lzma   *= 1.05;
+		    for (m = 0; m < CRAM_MAX_METHOD; m++)
+			metrics->sz[m] *= 1+(meth_cost[m]-1)/2;
+		} // else cost is ignored
+
+                for (m = 0; m < CRAM_MAX_METHOD; m++) {
+		    if ((!metrics->sz[m]) || (!(method & (1<<m))))
+			continue;
+
+		    if (best_sz > metrics->sz[m])
+			best_sz = metrics->sz[m], best_method = m;
 		}
 
-		if (method & (1<<GZIP_RLE) && best_sz > metrics->sz_gz_rle)
-		    best_sz = metrics->sz_gz_rle, best_method = GZIP_RLE;
-
-		if (method & (1<<GZIP_1) && best_sz > metrics->sz_gz_1)
-		    best_sz = metrics->sz_gz_1, best_method = GZIP_1;
-
-		if (method & (1<<GZIP) && best_sz > metrics->sz_gz_def)
-		    best_sz = metrics->sz_gz_def, best_method = GZIP;
-
-		if (method & (1<<RANS0) && best_sz > metrics->sz_rans0)
-		    best_sz = metrics->sz_rans0, best_method = RANS0;
-
-		if (method & (1<<RANS1) && best_sz > metrics->sz_rans1)
-		    best_sz = metrics->sz_rans1, best_method = RANS1;
-
-		if (method & (1<<BZIP2) && best_sz > metrics->sz_bzip2)
-		    best_sz = metrics->sz_bzip2, best_method = BZIP2;
-
-		if (method & (1<<LZMA) && best_sz > metrics->sz_lzma)
-		    best_sz = metrics->sz_lzma, best_method = LZMA;
-
-		if (best_method == GZIP_RLE) {
-		    metrics->method = GZIP;
-		    metrics->strat  = Z_RLE;
-		} else if (best_method == GZIP_1) {
-		    metrics->method = GZIP;
-		    metrics->strat  = Z_DEFAULT_STRATEGY;
-		} else {
-		    metrics->method = best_method;
-		    metrics->strat  = Z_FILTERED;
-		}
+		metrics->method = best_method;
+		metrics->strat  = strat;
 
 		// If we see at least MAXFAIL trials in a row for a specific
 		// compression method with more than MAXDELTA aggregate
@@ -2106,75 +2025,17 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		// for this block type.
 #define MAXDELTA 0.20
 #define MAXFAILS 4
-		if (best_method == GZIP_RLE) {
-		    metrics->gz_rle_cnt = 0;
-		    metrics->gz_rle_extra = 0;
-		} else if (best_sz < metrics->sz_gz_rle) {
-		    double r = (double)metrics->sz_gz_rle / best_sz - 1;
-		    if (++metrics->gz_rle_cnt >= MAXFAILS && 
-			(metrics->gz_rle_extra += r) >= MAXDELTA)
-			method &= ~(1<<GZIP_RLE);
-		}
-
-		if (best_method == GZIP_1) {
-		    metrics->gz_1_cnt = 0;
-		    metrics->gz_1_extra = 0;
-		} else if (best_sz < metrics->sz_gz_1) {
-		    double r = (double)metrics->sz_gz_1 / best_sz - 1;
-		    if (++metrics->gz_1_cnt >= MAXFAILS && 
-			(metrics->gz_1_extra += r) >= MAXDELTA)
-			method &= ~(1<<GZIP_1);
-		}
-
-		if (best_method == GZIP) {
-		    metrics->gz_def_cnt = 0;
-		    metrics->gz_def_extra = 0;
-		} else if (best_sz < metrics->sz_gz_def) {
-		    double r = (double)metrics->sz_gz_def / best_sz - 1;
-		    if (++metrics->gz_def_cnt >= MAXFAILS &&
-			(metrics->gz_def_extra += r) >= MAXDELTA)
-			method &= ~(1<<GZIP);
-		}
-
-		if (best_method == RANS0) {
-		    metrics->rans0_cnt = 0;
-		    metrics->rans0_extra = 0;
-		} else if (best_sz < metrics->sz_rans0) {
-		    double r = (double)metrics->sz_rans0 / best_sz - 1;
-		    if (++metrics->rans0_cnt >= MAXFAILS &&
-			(metrics->rans0_extra += r) >= MAXDELTA)
-			method &= ~(1<<RANS0);
-		}
-
-		if (best_method == RANS1) {
-		    metrics->rans1_cnt = 0;
-		    metrics->rans1_extra = 0;
-		} else if (best_sz < metrics->sz_rans1) {
-		    double r = (double)metrics->sz_rans1 / best_sz - 1;
-		    if (++metrics->rans1_cnt >= MAXFAILS &&
-			(metrics->rans1_extra += r) >= MAXDELTA)
-			method &= ~(1<<RANS1);
-		}
-
-		if (best_method == BZIP2) {
-		    metrics->bzip2_cnt = 0;
-		    metrics->bzip2_extra = 0;
-		} else if (best_sz < metrics->sz_bzip2) {
-		    double r = (double)metrics->sz_bzip2 / best_sz - 1;
-		    if (++metrics->bzip2_cnt >= MAXFAILS &&
-			(metrics->bzip2_extra += r) >= MAXDELTA)
-			method &= ~(1<<BZIP2);
-		}
-
-		if (best_method == LZMA) {
-		    metrics->lzma_cnt = 0;
-		    metrics->lzma_extra = 0;
-		} else if (best_sz < metrics->sz_lzma) {
-		    double r = (double)metrics->sz_lzma / best_sz - 1;
-		    if (++metrics->lzma_cnt >= MAXFAILS &&
-			(metrics->lzma_extra += r) >= MAXDELTA)
-			method &= ~(1<<LZMA);
-		}
+                for (m = 0; m < CRAM_MAX_METHOD; m++) {
+                    if (best_method == m) {
+                        metrics->cnt[m] = 0;
+                        metrics->extra[m] = 0;
+                    } else if (best_sz < metrics->sz[m]) {
+                        double r = (double)metrics->sz[m] / best_sz - 1;
+                        if (++metrics->cnt[m] >= MAXFAILS && 
+                            (metrics->extra[m] += r) >= MAXDELTA)
+                            method &= ~(1<<m);
+                    }
+                }
 
 		//if (method != metrics->revised_method)
 		//    fprintf(stderr, "%d: method from %x to %x\n",
@@ -2189,7 +2050,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
 					   &comp_size, method,
-					   strat==Z_FILTERED?level:1,
+					   method == GZIP_1 ? 1 : level,
 					   strat);
 	    if (!comp)
 		return -1;
@@ -2198,7 +2059,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		free(b->data);
 		b->data = (unsigned char *)comp;
 		b->comp_size = comp_size;
-		b->method = method;
+		b->method = methmap[method];
 	    } else {
 		free(comp);
 	    }
@@ -2228,9 +2089,6 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		b->content_id, b->uncomp_size, b->comp_size,
 		cram_block_method2str(b->method));
 
-    if (b->method == RANS1)
-	b->method = RANS0; // Spec just has RANS (not 0/1) with auto-sensing
-
     return 0;
 }
 
@@ -2249,15 +2107,23 @@ cram_metrics *cram_new_metrics(void) {
 
 char *cram_block_method2str(enum cram_block_method m) {
     switch(m) {
-    case RAW:	   return "RAW";
-    case GZIP:	   return "GZIP";
-    case BZIP2:	   return "BZIP2";
-    case LZMA:     return "LZMA";
-    case RANS0:    return "RANS0";
-    case RANS1:    return "RANS1";
-    case GZIP_RLE: return "GZIP_RLE";
-    case GZIP_1:   return "GZIP-1";
-    case BM_ERROR: break;
+    case RAW:	     return "RAW";
+    case GZIP:	     return "GZIP";
+    case BZIP2:	     return "BZIP2";
+    case LZMA:       return "LZMA";
+    case RANS0:      return "RANS0";
+    case RANS1:      return "RANS1";
+    case GZIP_RLE:   return "GZIP_RLE";
+    case GZIP_1:     return "GZIP-1";
+    case RANS_PR0:   return "RANS_PR0";
+    case RANS_PR1:   return "RANS_PR1";
+    case RANS_PR64:  return "RANS_PR64";
+    case RANS_PR65:  return "RANS_PR65";
+    case RANS_PR128: return "RANS_PR128";
+    case RANS_PR129: return "RANS_PR129";
+    case RANS_PR192: return "RANS_PR192";
+    case RANS_PR193: return "RANS_PR193";
+    default:         break;
     }
     return "?";
 }

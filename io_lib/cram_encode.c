@@ -763,13 +763,15 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
 
-    if (fd->use_rans) {
-	methodF |= (1<<RANS0) | (1<<RANS1);
+    int method_rans   = (1<<RANS0) | (1<<RANS1);
+    int method_ranspr = (1<<RANS_PR0)   | (1<<RANS_PR1)
+	              | (1<<RANS_PR64)  | (1<<RANS_PR65)
+	              | (1<<RANS_PR128) | (1<<RANS_PR129)
+	              | (1<<RANS_PR192) | (1<<RANS_PR193);
 
-	method  |= (1<<RANS_PR0)   | (1<<RANS_PR1);
-	method  |= (1<<RANS_PR64)  | (1<<RANS_PR65);
-	method  |= (1<<RANS_PR128) | (1<<RANS_PR129);
-	method  |= (1<<RANS_PR192) | (1<<RANS_PR193);
+    if (fd->use_rans) {
+	methodF |= method_ranspr;
+	method  |= method_ranspr;
     }
 
     if (fd->use_lzma)
@@ -778,10 +780,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
     if (level < 3)
-	methodF &= ~((1<<RANS_PR0)   | (1<<RANS_PR1) |
-		     (1<<RANS_PR64)  | (1<<RANS_PR65) |
-		     (1<<RANS_PR128) | (1<<RANS_PR129) |
-		     (1<<RANS_PR192) | (1<<RANS_PR193));
+	methodF &= ~method_ranspr;
     if (level >= 6)
 	method |= 1<<GZIP_1;
     if (level >= 6)
@@ -848,10 +847,10 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	}
     }
 
-    // NAME: best is generally xz, bzip2, zlib then rans1
+    // NAME: best is generally xz, bzip2 and zlib.
     // It benefits well from a little bit extra compression level.
     if (cram_compress_block(fd, s->block[DS_RN], fd->m[DS_RN],
-			    method & ~(1<<RANS0 | 1<<GZIP_RLE),
+			    method & ~(method_rans | method_ranspr | 1<<GZIP_RLE),
 			    level))
 	return -1;
 
