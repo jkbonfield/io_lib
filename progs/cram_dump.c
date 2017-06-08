@@ -744,6 +744,14 @@ int main(int argc, char **argv) {
 		    int t, m;
 		    enum cram_fields cf = 0;
 		    char fields[1024], *fp = fields;
+		    if (isprint((b->content_id>>16)&0xff) &&
+			isprint((b->content_id>> 8)&0xff) &&
+			isprint((b->content_id>> 0)&0xff)) {
+			*fp++ = (b->content_id>>16)&0xff;
+			*fp++ = (b->content_id>> 8)&0xff;
+			*fp++ = (b->content_id>> 0)&0xff;
+			*fp++ = ' ';
+		    }
 		    for (m = 0; m < 2; m++) {
 			cram_map **ma = m
 			    ? c->comp_hdr->tag_encoding_map
@@ -841,6 +849,23 @@ int main(int argc, char **argv) {
 
 	    id_type.method = RANS1;
 	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'R':' ');
+
+	    id_type.method = RANS_PR0;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'0':' ');
+	    id_type.method = RANS_PR1;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'1':' ');
+	    id_type.method = RANS_PR64;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'4':' ');
+	    id_type.method = RANS_PR65;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'5':' ');
+	    id_type.method = RANS_PR128;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'8':' ');
+	    id_type.method = RANS_PR129;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'9':' ');
+	    id_type.method = RANS_PR192;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'2':' ');
+	    id_type.method = RANS_PR193;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'3':' ');
 
 	    iter = HashTableIterCreate();
 	    while ((hi = HashTableIterNext(ds_h, iter))) {
