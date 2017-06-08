@@ -794,6 +794,10 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     squash_qual(s->block[DS_QS]);
 #endif
 
+    for (i = 0; i < DS_END; i++)
+	fd->m[i]->stats = c->stats[i];
+
+
     /* Specific compression methods for certain block types */
     if (cram_compress_block(fd, s->block[DS_IN], fd->m[DS_IN], //IN (seq)
 			    method, level))

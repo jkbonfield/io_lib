@@ -1785,6 +1785,8 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 				     int level, int strat) {
     switch (method) {
     case GZIP:
+    case GZIP_RLE:
+    case GZIP_1:
 	return zlib_mem_deflate(in, in_size, out_size, level, strat);
 
     case BZIP2: {
@@ -1838,7 +1840,7 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 	
 	// see enum cram_block. We map RANS_* methods to order bit-fields
 	static int methmap[] = {
-	    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, // non-ranspr
+	    0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, // non-ranspr
 	    0,1, 64,65, 128,129, 192,193
 	};
 
@@ -1928,6 +1930,17 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    
             // Compress this block using the best method
+	    if (metrics->stats && metrics->stats->nvals > 16) {
+		// No point trying bit-pack if 17+ symbols.
+		if (method & (1<<RANS_PR128))
+		    method = (method|(1<<RANS_PR0))&~(1<<RANS_PR128);
+		if (method & (1<<RANS_PR129))
+		    method = (method|(1<<RANS_PR1))&~(1<<RANS_PR129);
+		if (method & (1<<RANS_PR192))
+		    method = (method|(1<<RANS_PR64))&~(1<<RANS_PR192);
+		if (method & (1<<RANS_PR193))
+		    method = (method|(1<<RANS_PR65))&~(1<<RANS_PR193);
+	    }
             for (m = 0; m < CRAM_MAX_METHOD; m++) {
 		if (method & (1<<m)) {
 		    int lvl = level;
@@ -1964,8 +1977,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    b->data = (unsigned char *)c_best;
 	    //printf("method_best = %s\n", cram_block_method2str(method_best));
 
-	    b->method = methmap[method_best];
+	    b->method = method_best;
 	    b->comp_size = sz_best;
+	    assert(sz_best != INT_MAX);
 
 	    // Accumulate stats for all methods tried
 	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
@@ -2019,6 +2033,21 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 			best_sz = metrics->sz[m], best_method = m;
 		}
 
+		if (fd->verbose > 1)
+		    fprintf(stderr, "Choosing method %s (was %s), strat %d for block ID %d\n",
+			    cram_block_method2str(best_method),
+			    cram_block_method2str(metrics->method),
+			    strat, b->content_id);
+
+		if (best_method != metrics->method) {
+		    metrics->trial = (NTRIALS+1)/2; // be sure
+		    //metrics->next_trial /= 1.5;
+		    metrics->consistency = 0;
+		} else {
+		    metrics->next_trial *= MIN(2, 1+metrics->consistency/4.0);
+		    metrics->consistency++;
+		}
+
 		metrics->method = best_method;
 		metrics->strat  = strat;
 
@@ -2040,9 +2069,9 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
                     }
                 }
 
-		//if (method != metrics->revised_method)
-		//    fprintf(stderr, "%d: method from %x to %x\n",
-		//	    b->content_id, metrics->revised_method, method);
+		if (fd->verbose > 1 && method != metrics->revised_method)
+		    fprintf(stderr, "%d: revising method from %x to %x\n",
+			    b->content_id, metrics->revised_method, method);
 		metrics->revised_method = method;
 	    }
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
@@ -2062,7 +2091,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		free(b->data);
 		b->data = (unsigned char *)comp;
 		b->comp_size = comp_size;
-		b->method = methmap[method];
+		b->method = method;
 	    } else {
 		free(comp);
 	    }
@@ -2088,9 +2117,11 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     }
 
     if (fd->verbose)
-	fprintf(stderr, "Compressed block ID %d from %d to %d by method %s",
+	fprintf(stderr, "Compressed block ID %d from %d to %d by method %s\n",
 		b->content_id, b->uncomp_size, b->comp_size,
 		cram_block_method2str(b->method));
+
+    b->method = methmap[b->method];
 
     return 0;
 }
@@ -2099,11 +2130,13 @@ cram_metrics *cram_new_metrics(void) {
     cram_metrics *m = calloc(1, sizeof(*m));
     if (!m)
 	return NULL;
-    m->trial = NTRIALS-1;
-    m->next_trial = TRIAL_SPAN;
+    m->trial = NTRIALS;
+    m->next_trial = TRIAL_SPAN/2; // learn quicker at start
     m->method = RAW;
     m->strat = 0;
     m->revised_method = 0;
+    m->consistency = 0;
+    m->stats = NULL;
 
     return m;
 }
