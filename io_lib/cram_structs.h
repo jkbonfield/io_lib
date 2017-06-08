@@ -223,6 +223,7 @@ typedef struct {
     // number of trials and time to next trial
     int trial;
     int next_trial;
+    int consistency;
 
     // aggregate sizes during trials
     int sz[CRAM_MAX_METHOD];
@@ -236,6 +237,8 @@ typedef struct {
     int revised_method;
 
     double extra[CRAM_MAX_METHOD];
+
+    cram_stats *stats;
 } cram_metrics;
 
 /* Block */
