@@ -770,8 +770,8 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	              | (1<<RANS_PR192) | (1<<RANS_PR193);
 
     if (fd->use_rans) {
-	methodF |= method_ranspr;
-	method  |= method_ranspr;
+	methodF |= CRAM_MAJOR_VERS(fd->version) >= 4 ? method_ranspr : method_rans;
+	method  |= CRAM_MAJOR_VERS(fd->version) >= 4 ? method_ranspr : method_rans;
     }
 
     if (fd->use_lzma)
@@ -779,8 +779,6 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
-    if (level < 3)
-	methodF &= ~method_ranspr;
     if (level >= 6)
 	method |= 1<<GZIP_1;
     if (level >= 6)

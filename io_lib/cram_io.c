@@ -4027,9 +4027,9 @@ cram_file_def *cram_read_file_def(cram_fd *fd) {
 	return NULL;
     }
 
-    if (def->major_version > 3) {
+    if (def->major_version > 4) {
 	fprintf(stderr, "CRAM version number mismatch\n"
-		"Expected 1.x, 2.x or 3.x, got %d.%d\n",
+		"Expected 1.x, 2.x, 3.x or 4.x, got %d.%d\n",
 		def->major_version, def->minor_version);
 	free(def);
 	return NULL;
@@ -5345,9 +5345,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	}
 	if (!((major == 1 &&  minor == 0) ||
 	      (major == 2 && (minor == 0 || minor == 1)) ||
-	      (major == 3 &&  minor == 0))) {
+	      (major == 3 &&  minor == 0) ||
+	      (major == 4 &&  minor == 0))) {
 	    fprintf(stderr, "Unknown version string; "
-		    "use 1.0, 2.0, 2.1 or 3.0\n");
+		    "use 1.0, 2.0, 2.1, 3.0 or 4.0\n");
 	    errno = EINVAL;
 	    return -1;
 	}

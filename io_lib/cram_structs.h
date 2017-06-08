@@ -178,7 +178,7 @@ typedef struct {
 #define CRAM_MINOR_VERS(v) ((v) & 0xff)
 #define IS_CRAM_1_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==1)
 #define IS_CRAM_2_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==2)
-#define IS_CRAM_3_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==3)
+#define IS_CRAM_3_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)>=3)
 
 struct cram_slice;
 
