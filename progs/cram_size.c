@@ -111,7 +111,11 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 	    enum cram_block_method method;
 	} id_type = {k, 0};
 
-	enum cram_block_method methods[] = {GZIP, BZIP2, LZMA, RANS0, RANS1};
+	enum cram_block_method methods[] = {
+	    GZIP, BZIP2, LZMA, RANS0, RANS1,
+	    RANS_PR0, RANS_PR1, RANS_PR64, RANS_PR65,
+	    RANS_PR128, RANS_PR129, RANS_PR192, RANS_PR193
+	};
 	int count[1+sizeof(methods)/sizeof(*methods)] = {0};
 
 	int i;
@@ -127,7 +131,7 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 	    printf("%s%s%c%s",
 		   (count[i]+0.01)/(count[0]+0.01) >= 0.50 ? "\033[7m":"",
 		   (count[i]+0.01)/(count[0]+0.01) >= 0.10 ? "\033[4m":"",
-		   " gblrR"[count[i]?i:0],
+		   " gblrR01458923"[count[i]?i:0],
 		   "\033[0m");
 	}
 
@@ -223,6 +227,19 @@ int process_sizes(cram_fd *fd,
 		    s->block[id]->orig_method == RANS0 &&
 		    s->block[id]->data[0] != 0)
 		    s->block[id]->orig_method = RANS1;
+	    }
+
+	    // Hack for ransPR*
+	    for (id = 0; id < s->hdr->num_blocks; id++) {
+		if (s->block[id]->comp_size >= 2 &&
+		    s->block[id]->orig_method == RANS_PR0 &&
+		    s->block[id]->data[0] != 0) {
+		    // Assumption: PR1 to PR193 are consecutive
+		    s->block[id]->orig_method = RANS_PR1-1;
+		    s->block[id]->orig_method +=    s->block[id]->data[0]&0x01;
+		    s->block[id]->orig_method += 2*((s->block[id]->data[0]&0x40)>0);
+		    s->block[id]->orig_method += 4*((s->block[id]->data[0]&0x80)>0);
+		}
 	    }
 
 	    // Accumulate per {id, compression_method} combo
