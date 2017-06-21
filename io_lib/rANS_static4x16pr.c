@@ -1170,7 +1170,6 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 	}
     }
     j = n+1;
-    out_meta[j++] = 0;
 
     //fprintf(stderr, "n=%d\n", n);
     // 1 value per byte
@@ -1183,13 +1182,30 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 	return out;
     }
 
+    // Work out how many values per byte to encode.
+    int val_per_byte;
+    if (n > 4)
+	val_per_byte = 2;
+    else if (n > 2)
+	val_per_byte = 4;
+    else if (n > 1)
+	val_per_byte = 8;
+    else
+	val_per_byte = 0; // infinite
+
+    // We have 3 bits to hold number of symbols per byte
+    // and 5 bits for the number of symbols used.
+    // Eg if we pack 2 values per byte, meaning 4 bits per
+    // symbol, we have up to 16 symbols in the map, but perhaps
+    // only need 6.  (This avoids a termination byte.)
+    out_meta[0] = val_per_byte ? val_per_byte - 1 : 2;
+    out_meta[0] |= n<<3;
+
     *out_meta_len = j;
     j = 0;
 
-    // 2 values per byte; max 16
-    if (n > 4) {
-	out_meta[0] = 2;
-	//if (n == 16) j--; // exact amount implies no termination needed
+    switch (val_per_byte) {
+    case 2:
 	for (i = 0; i < (len & ~1); i+=2)
 	    out[j++] = (p[data[i]]<<4) | (p[data[i+1]]<<0);
 	switch (len-i) {
@@ -1197,12 +1213,8 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 	}
 	*out_len = j;
 	return out;
-    }
 
-    // 4 values per byte; max 4
-    if (n > 2) {
-	out_meta[0] = 4;
-	//if (n == 4) j--; // exact amount implies no termination needed
+    case 4: {
 	for (i = 0; i < (len & ~3); i+=4)
 	    out[j++] = (p[data[i]]<<6) | (p[data[i+1]]<<4) | (p[data[i+2]]<<2) | (p[data[i+3]]<<0);
 	out[j] = 0;
@@ -1217,10 +1229,7 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 	return out;
     }
 
-    // 8 values per byte; max 2
-    if (n > 1) {
-	out_meta[0] = 8;
-	//if (n == 2) j--; // exact amount implies no termination needed
+    case 8: {
 	for (i = 0; i < (len & ~7); i+=8)
 	    out[j++] = (p[data[i+0]]<<7) | (p[data[i+1]]<<6) | (p[data[i+2]]<<5) | (p[data[i+3]]<<4)
 		     | (p[data[i+4]]<<3) | (p[data[i+5]]<<2) | (p[data[i+6]]<<1) | (p[data[i+7]]<<0);
@@ -1240,28 +1249,29 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 	return out;
     }
 
-    // infinite values as only 1 type present.
-    out_meta[0] = 0;
-    //j--;
-    *out_len = j;
-    return out;
+    case 0:
+	*out_len = j;
+	return out;
+    }
+
+    return NULL;
 }
 
 // expands the unpack meta data and returns the number of bytes read.
-static uint8_t unpack_meta(uint8_t *data, uint64_t udata_len, uint8_t *map, int *nsym /*, uint64_t *unpacked_len*/) {
-    *nsym = data[0];
+// nsym is number of symbols per byte, with the symbol values
+// themselve sreturned in map.
+static uint8_t unpack_meta(uint8_t *data, uint64_t udata_len, uint8_t *map, int *nsym) {
+    *nsym = (data[0] & 7)+1;
+    if (*nsym == 3) *nsym = 0;
 
-    if (*nsym == 1) {
-	//*unpacked_len = udata_len;
+    if (*nsym == 1)
 	return 1; // raw data
-    }
 
     // Decode symbol map
     int j = 1, c = 0;
     do {
 	map[c++] = data[j++];
-    } while (data[j] != 0);
-    j++;
+    } while (j-1 < (data[0]>>3));
 
     return j;
 }
@@ -1974,15 +1984,17 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	    rle = NULL;
 	} else {
 	    // Compress lengths with O0 and literals with O0/O1 ("order" param)
-	    int sz = u32tou7(out+c_meta_len, rmeta_len), sz2;
+	    int sz = u32tou7(out+c_meta_len, rmeta_len*2), sz2;
 	    sz += u32tou7(out+c_meta_len+sz, rle_len);
 	    c_rmeta_len = *out_size - (c_meta_len+sz+5);
 	    rans_compress_O0_4x16(meta, rmeta_len, out+c_meta_len+sz+5, &c_rmeta_len);
 	    if (c_rmeta_len < rmeta_len) {
-		sz2 = u32tou7(out+c_meta_len+sz, c_rmeta_len*2);
+		sz2 = u32tou7(out+c_meta_len+sz, c_rmeta_len);
 		memmove(out+c_meta_len+sz+sz2, out+c_meta_len+sz+5, c_rmeta_len);
 	    } else {
-		sz2 = u32tou7(out+c_meta_len+sz, rmeta_len*2+1);
+		// Uncompressed RLE meta-data as too small
+		sz = u32tou7(out+c_meta_len, rmeta_len*2+1);
+		sz2 = u32tou7(out+c_meta_len+sz, rle_len);
 		memcpy(out+c_meta_len+sz+sz2, meta, rmeta_len);
 		c_rmeta_len = rmeta_len;
 	    }
@@ -2141,13 +2153,13 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	uint32_t u_meta_size, c_meta_size, rle_len, sz;
 	sz  = u7tou32(in,    &u_meta_size);
 	sz += u7tou32(in+sz, &rle_len);
-	sz += u7tou32(in+sz, &c_meta_size);
-	if (c_meta_size & 1) {
+	if (u_meta_size & 1) {
 	    meta = in + sz;
+	    c_meta_size = u_meta_size/2;
 	} else {
+	    sz += u7tou32(in+sz, &c_meta_size);
 	    meta_free = meta = rans_uncompress_O0_4x16(in+sz, in_size-sz, NULL, u_meta_size);
 	}
-	c_meta_size /= 2;
 	in      += c_meta_size+sz;
 	in_size -= c_meta_size+sz;
 	tmp1_size = rle_len;
