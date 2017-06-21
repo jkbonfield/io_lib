@@ -5,6 +5,7 @@
 // top bits in order byte
 #define X_PACK 0x80
 #define X_RLE  0x40
+#define X_CAT  0x20
 
 /*-------------------------------------------------------------------------- */
 /* rans_byte.h from https://github.com/rygorous/ryg_rans */
@@ -717,6 +718,37 @@ static int decode_freq_d(uint8_t *cp, int *F0, int *F, int *total) {
     return cp - op;
 }
 
+static int u32tou7(uint8_t *cp, uint32_t i) {
+    uint8_t *op = cp;
+    int s = 0;
+    uint32_t o = i;
+
+    do {
+	s += 7;
+	o >>= 7;
+    } while (o);
+
+    do {
+	s -= 7;
+	*cp++ = ((i>>s)&0x7f) + (s?128:0);
+    } while (s);
+
+    return cp-op;
+}
+
+static int u7tou32(uint8_t *cp, uint32_t *i) {
+    uint8_t *op = cp, c;
+    uint32_t j = 0;
+
+    do {
+	c = *cp++;
+	j = (j<<7) | (c & 0x7f);
+    } while (c & 0x80);
+
+    *i = j;
+    return cp-op;
+}
+
 unsigned int rans_compress_bound_4x16(unsigned int size, int order) {
     return (order == 0
 	? 1.05*size + 257*3 + 4
@@ -725,6 +757,10 @@ unsigned int rans_compress_bound_4x16(unsigned int size, int order) {
 	((order & X_RLE) ? 1 + 257*3+4: 0) + 5;
 }
 
+// Compresses in_size bytes from 'in' to *out_size bytes in 'out'.
+//
+// NB: The output buffer does not hold the original size, so it is up to
+// the caller to store this.
 unsigned char *rans_compress_O0_4x16(unsigned char *in, unsigned int in_size,
 				     unsigned char *out, unsigned int *out_size) {
     unsigned char *cp, *out_end;
@@ -756,8 +792,6 @@ unsigned char *rans_compress_O0_4x16(unsigned char *in, unsigned int in_size,
     normalise_freq(F, in_size, TOTFREQ);
 
     // Encode statistics.
-    cp = out+4;
-
     for (x = rle = j = 0; j < 256; j++) {
 	if (F[j]) {
 	    RansEncSymbolInit(&syms[j], x, F[j], TF_SHIFT);
@@ -765,6 +799,7 @@ unsigned char *rans_compress_O0_4x16(unsigned char *in, unsigned int in_size,
 	}
     }
 
+    cp = out;
     cp += encode_freq(cp, F);
     tab_size = cp-out;
     //write(2, out+4, cp-(out+4));
@@ -823,12 +858,6 @@ unsigned char *rans_compress_O0_4x16(unsigned char *in, unsigned int in_size,
     // Finalise block size and return it
     *out_size = (out_end - ptr) + tab_size;
 
-    cp = out;
-    *cp++ = (in_size>> 0) & 0xff;
-    *cp++ = (in_size>> 8) & 0xff;
-    *cp++ = (in_size>>16) & 0xff;
-    *cp++ = (in_size>>24) & 0xff;
-
     memmove(out + tab_size, ptr, out_end-ptr);
 
     return out;
@@ -839,21 +868,19 @@ typedef struct {
 } ari_decoder;
 
 unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
-				       unsigned char *out, unsigned int *out_size) {
+				       unsigned char *out, unsigned int out_sz) {
     /* Load in the static tables */
-    unsigned char *cp = in + 4;
+    unsigned char *cp = in;
     unsigned char *cp_end = in + in_size - 8; // within 8 => be extra safe
-    int i, j, x, y, out_sz;
+    int i, j, x, y;
     uint16_t sfreq[TOTFREQ+32];
     uint16_t sbase[TOTFREQ+32]; // faster to use 32-bit on clang
     uint8_t  ssym [TOTFREQ+64]; // faster to use 16-bit on clang
 
-    out_sz = ((in[0])<<0) | ((in[1])<<8) | ((in[2])<<16) | ((in[3])<<24);
-    if (!out) {
+    if (!out)
 	out = malloc(out_sz);
-	*out_size = out_sz;
-    }
-    if (!out || out_sz > *out_size)
+
+    if (!out)
 	return NULL;
 
     // Precompute reverse lookup of frequency.
@@ -928,7 +955,6 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
         break;
     }
 
-    *out_size = out_sz;
     return out;
 }
 
@@ -1108,7 +1134,7 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, unsigned 
 	    memset(outp, b, run_len);
 	    outp += run_len;
 	} else {
-	    if (outp > out_end)
+	    if (outp >= out_end)
 		break;
 	    *outp++ = b;
 	}
@@ -1119,6 +1145,12 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, unsigned 
 }
 
 //-----------------------------------------------------------------------------
+
+// Bit packing symbols to take 0, 1(8 sym), 2(4 sym), or 4(16) bits.
+//
+// TODO:
+// The first byte holds the number of symbols (4 lower bits) and the
+// number of remaining symbols packed into last byte (4 higher bits).
 static uint8_t *pack(uint8_t *data, int64_t len,
 		     uint8_t *out_meta, int *out_meta_len, uint64_t *out_len) {
     int p[256] = {0}, n;
@@ -1151,19 +1183,13 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 	return out;
     }
 
-    // Encode original length. 
-    int64_t len_copy = len;
-    do {
-	out_meta[j++] = (len_copy & 0x7f) | ((len_copy >= 0x80) << 7);
-	len_copy >>= 7;
-    } while (len_copy);
-
     *out_meta_len = j;
     j = 0;
 
-    // 2 values per byte
+    // 2 values per byte; max 16
     if (n > 4) {
 	out_meta[0] = 2;
+	//if (n == 16) j--; // exact amount implies no termination needed
 	for (i = 0; i < (len & ~1); i+=2)
 	    out[j++] = (p[data[i]]<<4) | (p[data[i+1]]<<0);
 	switch (len-i) {
@@ -1173,9 +1199,10 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 	return out;
     }
 
-    // 4 values per byte
+    // 4 values per byte; max 4
     if (n > 2) {
 	out_meta[0] = 4;
+	//if (n == 4) j--; // exact amount implies no termination needed
 	for (i = 0; i < (len & ~3); i+=4)
 	    out[j++] = (p[data[i]]<<6) | (p[data[i+1]]<<4) | (p[data[i+2]]<<2) | (p[data[i+3]]<<0);
 	out[j] = 0;
@@ -1190,9 +1217,10 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 	return out;
     }
 
-    // 8 values per byte
+    // 8 values per byte; max 2
     if (n > 1) {
 	out_meta[0] = 8;
+	//if (n == 2) j--; // exact amount implies no termination needed
 	for (i = 0; i < (len & ~7); i+=8)
 	    out[j++] = (p[data[i+0]]<<7) | (p[data[i+1]]<<6) | (p[data[i+2]]<<5) | (p[data[i+3]]<<4)
 		     | (p[data[i+4]]<<3) | (p[data[i+5]]<<2) | (p[data[i+6]]<<1) | (p[data[i+7]]<<0);
@@ -1214,16 +1242,17 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 
     // infinite values as only 1 type present.
     out_meta[0] = 0;
+    //j--;
     *out_len = j;
     return out;
 }
 
 // expands the unpack meta data and returns the number of bytes read.
-static uint8_t unpack_meta(uint8_t *data, uint64_t udata_len, uint8_t *map, int *nsym, uint64_t *unpacked_len) {
+static uint8_t unpack_meta(uint8_t *data, uint64_t udata_len, uint8_t *map, int *nsym /*, uint64_t *unpacked_len*/) {
     *nsym = data[0];
 
     if (*nsym == 1) {
-	*unpacked_len = udata_len;
+	//*unpacked_len = udata_len;
 	return 1; // raw data
     }
 
@@ -1234,16 +1263,6 @@ static uint8_t unpack_meta(uint8_t *data, uint64_t udata_len, uint8_t *map, int 
     } while (data[j] != 0);
     j++;
 
-    // Decode original length
-    uint64_t out_len = 0;
-    int shift = 0;
-    do {
-	c = data[j++];
-	out_len |= (c & 0x7f) << shift;
-	shift += 7;
-    } while (c & 0x80);
-
-    *unpacked_len = out_len;
     return j;
 }
 
@@ -1557,7 +1576,6 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
 	return NULL;
 
     out_end = out + bound;
-    cp = out+4;
 
     int F[256][256] = {{0}}, T[256+MAGIC] = {0}, i, j;
 
@@ -1566,7 +1584,7 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
 
     hist1_4(in, in_size, F, T);
 
-    op = cp;
+    op = cp = out;
     *cp++ = 0; // uncompressed header marker
 
     // Encode the order-0 symbols for use in the order-1 frequency tables
@@ -1630,14 +1648,17 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
     }
     *cp++ = 0;
 
-    if (cp - op > 1000 && cp - op < 100000) {
+    if (cp - op > 1000) {
 	// try rans0 compression of header
+	unsigned int u_freq_sz = cp-(op+1);
 	unsigned int c_freq_sz;
-	unsigned char *c_freq = rans_compress_O0_4x16(op+1, cp-(op+1), NULL, &c_freq_sz);
-	if (c_freq && c_freq_sz < 65536 && c_freq_sz + 3 < cp-op) {
+	unsigned char *c_freq = rans_compress_O0_4x16(op+1, u_freq_sz, NULL, &c_freq_sz);
+	if (c_freq && c_freq_sz + 6 < cp-op) {
 	    *op++ = 1; // compressed
-	    *op++ = c_freq_sz & 0xff;
-	    *op++ = c_freq_sz>>8;
+	    op += u32tou7(op, u_freq_sz);
+	    op += u32tou7(op, c_freq_sz);
+	    //*op++ = c_freq_sz & 0xff;
+	    //*op++ = c_freq_sz>>8;
 	    memcpy(op, c_freq, c_freq_sz);
 	    cp = op+c_freq_sz;
 	}
@@ -1706,11 +1727,6 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
     *out_size = (out_end - ptr) + tab_size;
 
     cp = out;
-    *cp++ = (in_size>> 0) & 0xff;
-    *cp++ = (in_size>> 8) & 0xff;
-    *cp++ = (in_size>>16) & 0xff;
-    *cp++ = (in_size>>24) & 0xff;
-
     memmove(out + tab_size, ptr, out_end-ptr);
 
     return out;
@@ -1723,10 +1739,10 @@ typedef struct {
 } sb_t;
 
 unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_size,
-					  unsigned char *out, unsigned int *out_size) {
+					  unsigned char *out, unsigned int out_sz) {
     /* Load in the static tables */
-    unsigned char *cp = in + 4;
-    int i, j = -999, x, y, out_sz, rle_i;
+    unsigned char *cp = in;
+    int i, j = -999, x, y, rle_i;
     // NB this is ~3Mb.  Consider replacing with malloc?
     // Also see pthread_attr_setstacksize call in thread_pool.c as this
     // impacts on that.
@@ -1740,12 +1756,10 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 
     //memset(D, 0, 256*sizeof(*D));
 
-    out_sz = ((in[0])<<0) | ((in[1])<<8) | ((in[2])<<16) | ((in[3])<<24);
-    if (!out) {
+    if (!out)
 	out = malloc(out_sz);
-	*out_size = out_sz;
-    }
-    if (!out || out_sz > *out_size)
+
+    if (!out)
 	return NULL;
 
     //fprintf(stderr, "out_sz=%d\n", out_sz);
@@ -1754,10 +1768,11 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     unsigned char *tab_end = NULL;
     unsigned char *c_freq = NULL;
     if (*cp++ == 1) {
-	unsigned int c_freq_sz = cp[0] | (cp[1]<<8), u_freq_sz;
-	cp += 2;
+	uint32_t u_freq_sz, c_freq_sz;
+	cp += u7tou32(cp, &u_freq_sz);
+	cp += u7tou32(cp, &c_freq_sz);
 	tab_end = cp + c_freq_sz;
-	c_freq = rans_uncompress_O0_4x16(cp, c_freq_sz, NULL, &u_freq_sz);
+	c_freq = rans_uncompress_O0_4x16(cp, c_freq_sz, NULL, u_freq_sz);
 	cp = c_freq;
     }
 
@@ -1885,8 +1900,6 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 	l3 = c3;
     }
     
-    *out_size = out_sz;
-
     return out;
 }
 
@@ -1910,10 +1923,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     out[0] = order;
     c_meta_len = 1;
 
-    if (do_pack || do_rle) {
-	*(uint32_t *)(&out[1]) = in_size;
-	c_meta_len += 4;
-    }
+    c_meta_len += u32tou7(&out[1], in_size);
 
     order &= 0xf;
 
@@ -1930,15 +1940,21 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	if (pmeta_len == 1 && out[c_meta_len] == 1) {
 	    out[0] &= ~X_PACK;
 	    do_pack = 0;
-	    if (!do_rle)
-		c_meta_len -= 4;
 	    free(packed);
 	    packed = NULL;
 	} else {
 	    in = packed;
 	    in_size = packed_len;
 	    c_meta_len += pmeta_len;
+
+	    // Could derive this rather than storing verbatim.
+	    // Orig size * 8/nbits (+1 if not multiple of 8/n)
+	    int sz = u32tou7(out+c_meta_len, in_size);
+	    c_meta_len += sz;
+	    *out_size -= sz;
 	}
+    } else if (do_pack) {
+	out[0] &= ~X_PACK;
     }
 
     if (do_rle && in_size) {
@@ -1954,22 +1970,34 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	    // Not worth the speed hit.
 	    out[0] &= ~X_RLE;
 	    do_rle = 0;
-	    if (!do_pack)
-		c_meta_len -= 4;
 	    free(rle);
 	    rle = NULL;
 	} else {
 	    // Compress lengths with O0 and literals with O0/O1 ("order" param)
-	    c_rmeta_len = *out_size - c_meta_len-4;
-	    rans_compress_O0_4x16(meta, rmeta_len, out+c_meta_len+4, &c_rmeta_len);
-	    *(uint32_t *)(out+c_meta_len) = c_rmeta_len;
-	    c_meta_len += 4 + c_rmeta_len;
+	    int sz = u32tou7(out+c_meta_len, rmeta_len), sz2;
+	    sz += u32tou7(out+c_meta_len+sz, rle_len);
+	    c_rmeta_len = *out_size - (c_meta_len+sz+5);
+	    rans_compress_O0_4x16(meta, rmeta_len, out+c_meta_len+sz+5, &c_rmeta_len);
+	    if (c_rmeta_len < rmeta_len) {
+		sz2 = u32tou7(out+c_meta_len+sz, c_rmeta_len*2);
+		memmove(out+c_meta_len+sz+sz2, out+c_meta_len+sz+5, c_rmeta_len);
+	    } else {
+		sz2 = u32tou7(out+c_meta_len+sz, rmeta_len*2+1);
+		memcpy(out+c_meta_len+sz+sz2, meta, rmeta_len);
+		c_rmeta_len = rmeta_len;
+	    }
+
+	    //*(uint32_t *)(out+c_meta_len) = c_rmeta_len;
+	    //c_meta_len += 4 + c_rmeta_len;
+	    c_meta_len += sz + sz2 + c_rmeta_len;
 
 	    in = rle;
 	    in_size = rle_len;
 	}
 
 	free(meta);
+    } else if (do_rle) {
+	out[0] &= ~X_RLE;
     }
 
     *out_size -= c_meta_len;
@@ -1981,10 +2009,19 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	rans_compress_O1_4x16(in, in_size, out+c_meta_len, out_size);
     else
 	rans_compress_O0_4x16(in, in_size, out+c_meta_len, out_size);
+
+    if (*out_size >= in_size) {
+	out[0] &= ~3;
+	out[0] |= X_CAT;
+	memcpy(out+c_meta_len, in, in_size);
+	*out_size = in_size;
+    }
+
     free(rle);
     free(packed);
 
     *out_size += c_meta_len;
+    
     return out;
 }
 
@@ -1999,18 +2036,28 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     int do_pack = order & X_PACK;
     int do_rle  = order & X_RLE;
+    int do_cat  = order & X_CAT;
     order &= 0xf;
 
+    int sz = 0;
+    unsigned int osz;
+    sz = u7tou32(in, &osz);
+    in += sz;
+    in_size -= sz;
+
     if (!out) {
-	// FIXME: check
-	*out_size = ((in[0])<<0) | ((in[1])<<8) | ((in[2])<<16) | ((in[3])<<24);
+	*out_size = osz;
 	out = malloc(*out_size);
+    } else {
+	if (*out_size < osz)
+	    return NULL;
+	*out_size = osz;
     }
 
-    if (do_pack || do_rle) {
-	in += 4; // size field not needed when pure rANS
-	in_size -= 4;
-    }
+//    if (do_pack || do_rle) {
+//	in += sz; // size field not needed when pure rANS
+//	in_size -= sz;
+//    }
 
     uint32_t c_meta_size = 0;
     unsigned int tmp1_size = *out_size;
@@ -2072,29 +2119,49 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     // Decode the bit-packing map.
     uint8_t map[16];
     int npacked_sym = 0;
-    uint64_t unpacked_sz = 0;
+    uint64_t unpacked_sz = 0; // FIXME: rename to packed_per_byte
     if (do_pack) {
-	// FIXME: may need original size somewhere?
-	c_meta_size = unpack_meta(in, *out_size, map, &npacked_sym, &unpacked_sz);
+	c_meta_size = unpack_meta(in, *out_size, map, &npacked_sym);
+	unpacked_sz = osz;
 	in      += c_meta_size;
 	in_size -= c_meta_size;
+
+	// New unpacked size.  We could derive this bit from *out_size
+	// and npacked_sym.
+	unsigned int osz;
+	sz = u7tou32(in, &osz);
+	in += sz;
+	in_size -= sz;
+	tmp1_size = osz;
     }
 
-    uint8_t *meta = NULL;
+    uint8_t *meta = NULL, *meta_free = NULL;
     if (do_rle) {
 	// Uncompress meta data
-	c_meta_size = *(uint32_t *)in;
-	uint32_t meta_size;
-	meta = rans_uncompress_O0_4x16(in+4, in_size-4, NULL, &meta_size);
-	in      += c_meta_size+4;
-	in_size -= c_meta_size+4;
+	uint32_t u_meta_size, c_meta_size, rle_len, sz;
+	sz  = u7tou32(in,    &u_meta_size);
+	sz += u7tou32(in+sz, &rle_len);
+	sz += u7tou32(in+sz, &c_meta_size);
+	if (c_meta_size & 1) {
+	    meta = in + sz;
+	} else {
+	    meta_free = meta = rans_uncompress_O0_4x16(in+sz, in_size-sz, NULL, u_meta_size);
+	}
+	c_meta_size /= 2;
+	in      += c_meta_size+sz;
+	in_size -= c_meta_size+sz;
+	tmp1_size = rle_len;
     }
    
     // uncompress RLE data.  in -> tmp1
     if (in_size) {
-	tmp1 = order
-	    ? rans_uncompress_O1sfb_4x16(in, in_size, tmp1, &tmp1_size)
-	    : rans_uncompress_O0_4x16(in, in_size, tmp1, &tmp1_size);
+	if (do_cat) {
+	    memcpy(tmp1, in, tmp1_size);
+	} else {
+	    tmp1 = order
+		? rans_uncompress_O1sfb_4x16(in, in_size, tmp1, tmp1_size)
+		: rans_uncompress_O0_4x16(in, in_size, tmp1, tmp1_size);
+	}
     } else {
 	tmp1 = NULL;
 	tmp1_size = 0;
@@ -2107,7 +2174,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	if (!rle_decode_unpack(tmp1, tmp1_size, meta, npacked_sym, map, tmp3, unpacked_sz))
 	    return NULL;
 	tmp3_size = unpacked_sz;
-	free(meta);
+	free(meta_free);
     } else {
 #endif
     if (do_rle) {
@@ -2116,7 +2183,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	if (!rle_decode(tmp1, tmp1_size, meta, tmp2, &unrle_size))
 	    return NULL;
 	tmp3_size = tmp2_size = unrle_size;
-	free(meta);
+	free(meta_free);
     }
     if (do_pack) {
 	// Unpack bits via pack-map.  tmp2 -> tmp3
