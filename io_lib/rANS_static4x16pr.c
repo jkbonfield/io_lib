@@ -6,6 +6,7 @@
 #define X_PACK 0x80
 #define X_RLE  0x40
 #define X_CAT  0x20
+#define X_NOSZ 0x10
 
 /*-------------------------------------------------------------------------- */
 /* rans_byte.h from https://github.com/rygorous/ryg_rans */
@@ -1924,6 +1925,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     int do_pack = order & X_PACK;
     int do_rle  = order & X_RLE;
+    int no_size = order & X_NOSZ;
 
     if (!out) {
 	*out_size = rans_compress_bound_4x16(in_size, order); //fixme, +pack, +rle
@@ -1933,7 +1935,8 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     out[0] = order;
     c_meta_len = 1;
 
-    c_meta_len += u32tou7(&out[1], in_size);
+    if (!no_size)
+	c_meta_len += u32tou7(&out[1], in_size);
 
     order &= 0xf;
 
@@ -1999,8 +2002,6 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 		c_rmeta_len = rmeta_len;
 	    }
 
-	    //*(uint32_t *)(out+c_meta_len) = c_rmeta_len;
-	    //c_meta_len += 4 + c_rmeta_len;
 	    c_meta_len += sz + sz2 + c_rmeta_len;
 
 	    in = rle;
@@ -2024,7 +2025,8 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     if (*out_size >= in_size) {
 	out[0] &= ~3;
-	out[0] |= X_CAT;
+	out[0] |= X_CAT | no_size;
+	//fprintf(stderr, "size small => cat\n");
 	memcpy(out+c_meta_len, in, in_size);
 	*out_size = in_size;
     }
@@ -2049,11 +2051,15 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     int do_pack = order & X_PACK;
     int do_rle  = order & X_RLE;
     int do_cat  = order & X_CAT;
+    int no_size = order & X_NOSZ;
     order &= 0xf;
 
     int sz = 0;
     unsigned int osz;
-    sz = u7tou32(in, &osz);
+    if (!no_size)
+	sz = u7tou32(in, &osz);
+    else
+	sz = 0, osz = *out_size;
     in += sz;
     in_size -= sz;
 
