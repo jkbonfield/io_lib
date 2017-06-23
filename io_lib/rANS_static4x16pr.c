@@ -3,10 +3,17 @@
 // reduction in some data sets.
 
 // top bits in order byte
-#define X_PACK 0x80
-#define X_RLE  0x40
-#define X_CAT  0x20
-#define X_NOSZ 0x10
+#define X_PACK 0x80    // Pack 2,4,8 or infinite symbols into a byte.
+#define X_RLE  0x40    // Run length encoding with runs & lits encoded separately
+#define X_CAT  0x20    // Nop; for tiny segments where rANS overhead is too big
+#define X_NOSZ 0x10    // Don't store the original size; used by X4 mode
+#define X_4    0x08    // For 4-byte integer data; rotate & encode 4 streams.
+
+// FIXME Can we get decoder to return the compressed sized read, avoiding
+// us needing to store it?  Yes we can.  See c-size comments.  If we added all these
+// together we could get rans_uncompress_to_4x16 to return the number of bytes
+// consumed, avoiding the calling code from needed to explicitly stored the size.
+// However the effect on name tokeniser is to save 0.1 to 0.2% so not worth it.
 
 /*-------------------------------------------------------------------------- */
 /* rans_byte.h from https://github.com/rygorous/ryg_rans */
@@ -955,6 +962,8 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     default:
         break;
     }
+
+    //fprintf(stderr, "    0 Decoded %d bytes\n", (int)(cp-in)); //c-size
 
     return out;
 }
@@ -1911,17 +1920,69 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 	l3 = c3;
     }
     
+    //fprintf(stderr, "    1 Decoded %d bytes\n", (int)(ptr-in)); //c-size
+
     return out;
 }
 
 /*-----------------------------------------------------------------------------
  * Simple interface to the order-0 vs order-1 encoders and decoders.
+ *
+ * Smallest is method, <in_size> <input>, so worst case 2 bytes longer.
  */
 unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 				     unsigned char *out, unsigned int *out_size,
 				     int order) {
     unsigned int c_meta_len;
     uint8_t *meta = NULL, *rle = NULL, *packed = NULL;
+
+    if (in_size%4 != 0 || in_size <= 20)
+	order &= ~X_4;
+
+    if (order & X_4) {
+	unsigned char *in4 = malloc(in_size);
+	unsigned int len4 = in_size/4, i4[4];
+	int i;
+
+	for (i = 0; i < 4; i++)
+	    i4[i] = i*len4;
+	for (i = 0; i4[0] < len4; i4[0]++, i4[1]++, i4[2]++, i4[3]++, i+=4) {
+	    in4[i4[0]] = in[i+0];
+	    in4[i4[1]] = in[i+1];
+	    in4[i4[2]] = in[i+2];
+	    in4[i4[3]] = in[i+3];
+	}
+
+	unsigned int olen2;
+	unsigned char *out2;
+	c_meta_len = 1;
+	*out = order;
+	c_meta_len += u32tou7(out+c_meta_len, in_size);
+	out2 = out+26;
+	for (i = 0; i < 4; i++) {
+	    // Brute force try all methods.
+	    int j, m[] = {0,1,128,129,64,65,192,193}, best_j = 0, best_sz = in_size+10;
+	    for (j = 0; j < 8; j++) {
+		if ((order & m[j]) != m[j])
+		    continue;
+		olen2 = *out_size - (out2 - out);
+		rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, m[j] | X_NOSZ);
+		if (best_sz > olen2) {
+		    best_sz = olen2;
+		    best_j = j;
+		}
+	    }	
+	    olen2 = *out_size - (out2 - out);
+	    rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, m[best_j] | X_NOSZ);
+	    //rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, (order & ~X_4) | X_NOSZ);
+	    out2 += olen2;
+	    c_meta_len += u32tou7(out+c_meta_len, olen2);
+	}
+	memmove(out+c_meta_len, out+26, out2-(out+26));
+	free(in4);
+	*out_size = c_meta_len + out2-(out+26);
+	return out;
+    }
 
     int do_pack = order & X_PACK;
     int do_rle  = order & X_RLE;
@@ -2026,7 +2087,6 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     if (*out_size >= in_size) {
 	out[0] &= ~3;
 	out[0] |= X_CAT | no_size;
-	//fprintf(stderr, "size small => cat\n");
 	memcpy(out+c_meta_len, in, in_size);
 	*out_size = in_size;
     }
@@ -2035,7 +2095,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     free(packed);
 
     *out_size += c_meta_len;
-    
+
     return out;
 }
 
@@ -2046,8 +2106,41 @@ unsigned char *rans_compress_4x16(unsigned char *in, unsigned int in_size,
 
 unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 				       unsigned char *out, unsigned int *out_size) {
-    int order = *in++;  in_size--;
+    //unsigned char *orig_in = in;
 
+    if (*in & X_4) {
+	unsigned int ulen, olen, clen4[4];
+	int c_meta_len = 1, i, j;
+
+	// Decode lengths
+	c_meta_len += u7tou32(in+c_meta_len, &ulen);
+	for (i = 0; i < 4; i++)
+	    c_meta_len += u7tou32(in+c_meta_len, &clen4[i]);
+
+	//fprintf(stderr, "    x4 meta %d\n", c_meta_len); //c-size
+
+	// Uncompress the 4 streams
+	unsigned char *out4 = malloc(ulen);
+	for (i = 0; i < 4; i++) {
+	    olen = ulen/4;
+	    rans_uncompress_to_4x16(in+c_meta_len, in_size-c_meta_len, out4 + i*(ulen/4), &olen);
+	    c_meta_len += clen4[i];
+	}
+
+	unsigned int i4[4] = {0*(ulen/4), 1*(ulen/4), 2*(ulen/4), 3*(ulen/4)};
+	j = 0;
+	while (j < ulen) {
+	    out[j++] = out4[i4[0]++];
+	    out[j++] = out4[i4[1]++];
+	    out[j++] = out4[i4[2]++];
+	    out[j++] = out4[i4[3]++];
+	}
+	free(out4);
+	*out_size = ulen;
+	return out;
+    }
+
+    int order = *in++;  in_size--;
     int do_pack = order & X_PACK;
     int do_rle  = order & X_RLE;
     int do_cat  = order & X_CAT;
@@ -2171,9 +2264,12 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	tmp1_size = rle_len;
     }
    
+    //fprintf(stderr, "    meta_size %d bytes\n", (int)(in - orig_in)); //c-size
+
     // uncompress RLE data.  in -> tmp1
     if (in_size) {
 	if (do_cat) {
+	    //fprintf(stderr, "    CAT %d\n", tmp1_size); //c-size
 	    memcpy(tmp1, in, tmp1_size);
 	} else {
 	    tmp1 = order
