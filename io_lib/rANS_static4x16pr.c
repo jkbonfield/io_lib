@@ -397,10 +397,8 @@ static inline void RansDecRenorm(RansState* r, uint8_t** pptr)
 
 static inline void RansDecRenormSafe(RansState* r, uint8_t** pptr, uint8_t *ptr_end)
 {
-    // renormalize
     uint32_t x = *r;
-
-    if (x >= RANS_BYTE_L) return;
+    if (x >= RANS_BYTE_L || *pptr+1 >= ptr_end) return;
     uint16_t* ptr = *(uint16_t **)pptr;
     x = (x << 16) | *ptr++;
     *pptr = (uint8_t *)ptr;
@@ -512,8 +510,11 @@ static void present8(unsigned char *in, unsigned int in_size, int F0[256]) {
 	F0[i] += F1[i] + F2[i] + F3[i] + F4[i] + F5[i] + F6[i] + F7[i];
 }
 
-static void normalise_freq(int *F, int size, int tot) {
+static int normalise_freq(int *F, int size, int tot) {
     int m = 0, M = 0, fsum = 0, j;
+    if (!size)
+	return -1;
+
     uint64_t tr = ((uint64_t)tot<<31)/size + (1<<30)/size;
 
     for (m = M = j = 0; j < 256; j++) {
@@ -549,7 +550,7 @@ static void normalise_freq(int *F, int size, int tot) {
     }
 
     //printf("F[%d]=%d\n", M, F[M]);
-    assert(F[M]>0);
+    return F[M]>0 ? 0 : -1;
 }
 
 static int encode_freq(uint8_t *cp, int *F) {
@@ -586,10 +587,14 @@ static int encode_freq(uint8_t *cp, int *F) {
     return cp - op;
 }
 
-static int decode_freq(uint8_t *cp, int *F) {
+static int decode_freq(uint8_t *cp, uint8_t *cp_end, int *F) {
+    if (cp == cp_end)
+	return 0;
+
     uint8_t *op = cp;
     int rle = 0;
     int j = *cp++;
+
     do {
 	int f;
 	if ((f = *cp++) >= 128) {
@@ -604,10 +609,12 @@ static int decode_freq(uint8_t *cp, int *F) {
 	} else if (rle) {
 	    rle--;
 	    j++;
+	    if (j > 255)
+		return 0;
 	} else {
 	    j = *cp++;
 	}
-    } while(j);
+    } while(j && cp < cp_end);
 
     return cp - op;
 }
@@ -639,10 +646,16 @@ static int encode_freq0(uint8_t *cp, int *F) {
     return cp - op;
 }
 
-static int decode_freq0(uint8_t *cp, int *F) {
+static int decode_freq0(uint8_t *cp, uint8_t *cp_end, int *F) {
+    if (cp == cp_end)
+	return 0;
+
     uint8_t *op = cp;
     int rle = 0;
     int j = *cp++;
+    if (cp+2 >= cp_end)
+	goto carefully;
+
     do {
 	F[j] = 1;
 	if (!rle && j+1 == *cp) {
@@ -651,10 +664,33 @@ static int decode_freq0(uint8_t *cp, int *F) {
 	} else if (rle) {
 	    rle--;
 	    j++;
+	    if (j > 255)
+		return 0;
 	} else {
 	    j = *cp++;
 	}
-    } while(j);
+    } while(j && cp+2 < cp_end);
+
+ carefully:
+    if (j) {
+	do {
+	    F[j] = 1;
+	    if(cp >= cp_end) return 0;
+	    if (!rle && j+1 == *cp) {
+		if (cp+1 >= cp_end) return 0;
+		j = *cp++;
+		rle = *cp++;
+	    } else if (rle) {
+		rle--;
+		j++;
+		if (j > 255)
+		    return 0;
+	    } else {
+		if (cp >= cp_end) return 0;
+		j = *cp++;
+	    }
+	} while(j && cp < cp_end);
+    }
 
     return cp - op;
 }
@@ -699,11 +735,14 @@ static int encode_freq_d(uint8_t *cp, int *F0, int *F) {
     return cp - op;
 }
 
-static int decode_freq_d(uint8_t *cp, int *F0, int *F, int *total) {
+static int decode_freq_d(uint8_t *cp, uint8_t *cp_end, int *F0, int *F, int *total) {
+    if (cp == cp_end)
+	return 0;
+
     uint8_t *op = cp;
     int j, dz, T = 0;
 
-    for (j = dz = 0; j < 256; j++) {
+    for (j = dz = 0; j < 256 && cp < cp_end; j++) {
 	//if (F0[j]) fprintf(stderr, "F0[%d]=%d\n", j, F0[j]);
 	if (!F0[j])
 	    continue;
@@ -713,10 +752,22 @@ static int decode_freq_d(uint8_t *cp, int *F0, int *F, int *total) {
 	    f = 0;
 	    dz--;
 	} else {
-	    if ((f = *cp++) & 0x80)
-		f = ((f & 0x7f) << 8) | *cp++;
-	    if (f == 0)
-		dz = *cp++;
+	    if (cp+3 >= cp_end) {
+		if (cp >= cp_end) return 0;
+		if ((f = *cp++) & 0x80) {
+		    if (cp >= cp_end) return 0;
+		    f = ((f & 0x7f) << 8) | *cp++;
+		}
+		if (f == 0) {
+		    if (cp >= cp_end) return 0;
+		    dz = *cp++;
+		}
+	    } else {
+		if ((f = *cp++) & 0x80)
+		    f = ((f & 0x7f) << 8) | *cp++;
+		if (f == 0)
+		    dz = *cp++;
+	    }
 	}
 	F[j] = f;
 	T += f;
@@ -744,14 +795,19 @@ static int u32tou7(uint8_t *cp, uint32_t i) {
     return cp-op;
 }
 
-static int u7tou32(uint8_t *cp, uint32_t *i) {
+static int u7tou32(uint8_t *cp, uint8_t *cp_end, uint32_t *i) {
     uint8_t *op = cp, c;
     uint32_t j = 0;
+
+    if (cp >= cp_end) {
+	*i = 0;
+	return 0;
+    }
 
     do {
 	c = *cp++;
 	j = (j<<7) | (c & 0x7f);
-    } while (c & 0x80);
+    } while ((c & 0x80) && cp < cp_end);
 
     *i = j;
     return cp-op;
@@ -797,7 +853,8 @@ unsigned char *rans_compress_O0_4x16(unsigned char *in, unsigned int in_size,
     hist8(in, in_size, F);
 
     // Normalise so T[i] == TOTFREQ
-    normalise_freq(F, in_size, TOTFREQ);
+    if (normalise_freq(F, in_size, TOTFREQ) < 0)
+	return NULL;
 
     // Encode statistics.
     for (x = rle = j = 0; j < 256; j++) {
@@ -877,6 +934,9 @@ typedef struct {
 
 unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
 				       unsigned char *out, unsigned int out_sz) {
+    if (in_size < 16) // 4-states at least
+	return NULL;
+
     /* Load in the static tables */
     unsigned char *cp = in;
     unsigned char *cp_end = in + in_size - 8; // within 8 => be extra safe
@@ -893,7 +953,10 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
 
     // Precompute reverse lookup of frequency.
     int F[256] = {0};
-    cp += decode_freq(cp, F);
+    int fsz = decode_freq(cp, cp_end, F);
+    if (!fsz)
+	return NULL;
+    cp += fsz;
 
     // Build symbols; fixme, do as part of decode, see the _d variant
     for (j = x = 0; j < 256; j++) {
@@ -910,6 +973,9 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     }
 
     if (x != TOTFREQ)
+	return NULL;
+
+    if (cp+16 > cp_end)
 	return NULL;
 
     RansState R[4];
@@ -1034,6 +1100,8 @@ static uint8_t *rle_encode(uint8_t *data, int64_t len,
     uint64_t i, j, k;
     int last = -1;
     unsigned char *out = malloc(len*2);
+    if (!out)
+	return NULL;
 
     // Two pass:  Firstly compute which symbols are worth using RLE on.
     int64_t saved[256+MAGIC] = {0};
@@ -1116,9 +1184,13 @@ static uint8_t *rle_encode(uint8_t *data, int64_t len,
 
 // On input *out_len holds the allocated size of out[].
 // On output it holds the used size of out[].
-static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, unsigned char *out,
-			   uint64_t *out_len) {
+static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t meta_sz,
+			   unsigned char *out, uint64_t *out_len) {
     uint64_t j, m;
+    uint8_t *meta_end = meta + meta_sz;
+
+    if (meta_sz == 0 || meta[0] >= meta_sz)
+	return NULL;
 
     int saved[256] = {0};
     for (m = 0, j = meta[m++]; j; j--)
@@ -1135,6 +1207,8 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, unsigned 
 	    uint32_t run_len = 0;
 	    unsigned char c;
 	    do {
+		if (meta >= meta_end)
+		    return NULL;
 		c = *meta++;
 		run_len = (run_len<<7) | (c & 0x7f);
 	    } while (c & 0x80);
@@ -1270,7 +1344,14 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 // expands the unpack meta data and returns the number of bytes read.
 // nsym is number of symbols per byte, with the symbol values
 // themselve sreturned in map.
-static uint8_t unpack_meta(uint8_t *data, uint64_t udata_len, uint8_t *map, int *nsym) {
+//
+// Returns number of bytes of data[] consumed on success,
+//         zero on failure.
+static uint8_t unpack_meta(uint8_t *data, uint32_t data_len,
+			   uint64_t udata_len, uint8_t *map, int *nsym) {
+    if (data_len == 0)
+	return 0;
+
     *nsym = (data[0] & 7)+1;
     if (*nsym == 3) *nsym = 0;
 
@@ -1279,11 +1360,14 @@ static uint8_t unpack_meta(uint8_t *data, uint64_t udata_len, uint8_t *map, int 
 
     // Decode symbol map
     int j = 1, c = 0;
+    if (data_len <= 1)
+	return 0;
+
     do {
 	map[c++] = data[j++];
-    } while (j-1 < (data[0]>>3));
+    } while (j-1 < (data[0]>>3) && c < 16 && j < data_len);
 
-    return j;
+    return j-1 < (data[0]>>3) ? 0 : j;
 }
 
 static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_len, int nsym, uint8_t *p) {
@@ -1293,15 +1377,16 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 
     if (nsym == 1) {
 	// raw data; FIXME: shortcut the need for malloc & memcpy here
-	//if (!(out = malloc(len))) return NULL;
 	memcpy(out, data, len);
 	return out;
     }
 
     switch(nsym) {
     case 8:
+	if ((out_len+7)/8 > len)
+	    return NULL;
 	olen = out_len & ~7;
-	for (i = 0; i < olen; i+=8) {
+	for (i = j = 0; i < olen; i+=8) {
 	    c = data[j++];
 	    out[i+0] = p[(c>>7)&1];
 	    out[i+1] = p[(c>>6)&1];
@@ -1344,8 +1429,10 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 	    }
 	}
 #else
+	if ((out_len+3)/4 > len)
+	    return NULL;
 	olen = out_len & ~3;
-	for (i = 0; i < olen; i+=4) {
+	for (i = j = 0; i < olen; i+=4) {
 	    c = data[j++];
 	    out[i+0] = p[(c>>6)&3];
 	    out[i+1] = p[(c>>4)&3];
@@ -1365,8 +1452,10 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 	break;
 
     case 2:
+	if ((out_len+1)/2 > len)
+	    return NULL;
 	olen = out_len & ~1;
-	for (i = 0; i < olen; i+=2) {
+	for (i = j = 0; i < olen; i+=2) {
 	    c = data[j++];
 	    out[i+0] = p[(c>>4)&15];
 	    out[i+1] = p[(c>>0)&15];
@@ -1382,7 +1471,6 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 	break;
 
     default:
-	free(out);
 	return NULL;
     }
 
@@ -1391,14 +1479,20 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 
 // Faster than two independent loops to unrle and then unpack.
 // NB: nsym is number of symbols per byte
-static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, int nsym, uint8_t *p,
-				  unsigned char *out, int64_t out_len) {
-    uint64_t i, j, m;
+static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t meta_sz,
+				  int nsym, uint8_t *p, unsigned char *out, int64_t out_len) {
+    int64_t i, j, m;
+
+    if (meta_sz == 0 || meta[0] >= meta_sz)
+	return NULL;
 
     int saved[256] = {0};
     for (m = 0, j = meta[m++]; j; j--)
 	saved[meta[m++]]=1;
 
+    // We protect below from overstepping meta using a ?: instruction which
+    // hopefully translates to an efficient branchless cmov.  We continue
+    // blindly in such errors, checking only outside the loop at the end.
     i = j = 0;
     switch (nsym) {
     case 0:
@@ -1412,15 +1506,16 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, in
 		uint32_t run_len = 0;
 		unsigned char c;
 		do {
-		    c = meta[m++];
+		    c = meta[m<=meta_sz-1?m:meta_sz-1];
+		    c &= ~((++m>meta_sz)<<7);
 		    run_len = (run_len<<7) | (c & 0x7f);
 		} while (c & 0x80);
 		run_len++;
 
-		if (j+run_len <= out_len)
-		    memset(&out[j], b, run_len);
-		else
-		    memset(&out[j], b, out_len-j);
+		if (j + run_len > out_len)
+		    return NULL;
+
+		memset(&out[j], b, run_len);
 		j += run_len;
 	    } else if (j < out_len) {
 		out[j++] = b;
@@ -1435,7 +1530,8 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, in
 		uint32_t run_len = 0;
 		unsigned char c;
 		do {
-		    c = meta[m++];
+		    c = meta[m<=meta_sz-1?m:meta_sz-1];
+		    c &= ~((++m>meta_sz)<<7);
 		    run_len = (run_len<<7) | (c & 0x7f);
 		} while (c & 0x80);
 
@@ -1470,10 +1566,10 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, in
 		uint32_t run_len = 0;
 		unsigned char c;
 		do {
-		    c = meta[m++];
+		    c = meta[m<=meta_sz-1?m:meta_sz-1];
+		    c &= ~((++m>meta_sz)<<7);
 		    run_len = (run_len<<7) | (c & 0x7f);
 		} while (c & 0x80);
-
 		int z;
 		uint8_t w[4] = {p[(b>>6)&3],
 				p[(b>>4)&3],
@@ -1515,7 +1611,8 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, in
 		uint32_t run_len = 0;
 		unsigned char c;
 		do {
-		    c = meta[m++];
+		    c = meta[m<=meta_sz-1?m:meta_sz-1];
+		    c &= ~((++m>meta_sz)<<7);
 		    run_len = (run_len<<7) | (c & 0x7f);
 		} while (c & 0x80);
 
@@ -1531,7 +1628,7 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, in
 		// Faster than a "&& j < out_len-8" clause, but on this
 		// variant only.
 		int rl2 = (out_len-j)/8 < run_len ? (out_len-j)/8 : run_len;
-		for (z = 0; z <= rl2; z++, j+=8) {
+		for (z = 0; z < rl2; z++, j+=8) {
 		    out[j+0] = w[0];
 		    out[j+1] = w[1];
 		    out[j+2] = w[2];
@@ -1550,6 +1647,7 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, in
 		    if (j+5 < out_len) out[j+5] = w[5];
 		    if (j+6 < out_len) out[j+6] = w[6];
 		    if (j+7 < out_len) out[j+7] = w[7];
+		    j+=8;
 		}
 	    } else if (j < out_len-8) {
 		out[j+0] = p[(b>>7)&1];
@@ -1576,7 +1674,10 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, in
     }
     }
 
-    return out;
+    if (j < out_len)
+	memset(&out[j], 0, out_len-j);
+
+    return (m > meta_sz) ? NULL : out;
 }
 
 //-----------------------------------------------------------------------------
@@ -1643,7 +1744,8 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
 	}
 
 #ifdef FAST
-	normalise_freq(F[i], T[i], TOTFREQ_O1);
+	if (normalise_freq(F[i], T[i], TOTFREQ_O1) < 0)
+	    return NULL;
 	cp += encode_freq_d(cp, F0, F[i]);
 #else
 	// Order-1 frequencies often end up totalling under TOTFREQ.
@@ -1651,12 +1753,14 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
 	// prior to normalisation and normalise after (with an extra
 	// normalisation step needed in the decoder too).
 	if (T[i] > TOTFREQ_O1)
-	    normalise_freq(F[i], T[i], TOTFREQ_O1);
+	    if (normalise_freq(F[i], T[i], TOTFREQ_O1) < 0)
+		return NULL;
 
 	cp += encode_freq_d(cp, F0, F[i]);
 
 	if (T[i] < TOTFREQ_O1)
-	    normalise_freq(F[i], T[i], TOTFREQ_O1);
+	    if (normalise_freq(F[i], T[i], TOTFREQ_O1) < 0)
+		return NULL;
 #endif
 
 	int *F_i_ = F[i];
@@ -1760,64 +1864,77 @@ typedef struct {
 
 unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_size,
 					  unsigned char *out, unsigned int out_sz) {
-    /* Load in the static tables */
-    unsigned char *cp = in;
-    int i, j = -999, x, y, rle_i;
-    // NB this is ~3Mb.  Consider replacing with malloc?
-    // Also see pthread_attr_setstacksize call in thread_pool.c as this
-    // impacts on that.
-    sb_t sfb[256][TOTFREQ_O1+4];
+    if (in_size < 16) // 4-states at least
+	return NULL;
 
-    // If we wish to reduce the large stack size, we may want malloc instead.
-    // But note this can have a significant performance hit on some systems. (Up to
-    // 10% in rare cases.)
-    //
-    // sb_t (*sfb) [TOTFREQ_O1] = malloc(256*sizeof(*sfb));
+    /* Load in the static tables */
+    unsigned char *cp = in, *cp_end = in+in_size, *out_free = NULL;
+    int i, j = -999, x, y, rle_i;
+
+    // This is 17% faster on linux with MALLOC_MMAP_MAX_=0 defined.
+    // Consider reusing (thread local storage) this with appropriate
+    // memsets to get the speed without needing malloc hacks.
+    sb_t *sfb_ = calloc(256*TOTFREQ_O1, sizeof(*sfb_));
+    if (!sfb_)
+	return NULL;
+    sb_t *sfb[256];
+    for (i = 0; i < 256; i++)
+	sfb[i]=  sfb_ + i*TOTFREQ_O1;
 
     //memset(D, 0, 256*sizeof(*D));
 
     if (!out)
-	out = malloc(out_sz);
+	out_free = out = malloc(out_sz);
 
     if (!out)
-	return NULL;
+	goto err;
 
     //fprintf(stderr, "out_sz=%d\n", out_sz);
 
     // compressed header? If so uncompress it
     unsigned char *tab_end = NULL;
     unsigned char *c_freq = NULL;
+    unsigned char *c_freq_end = cp_end;
     if (*cp++ == 1) {
 	uint32_t u_freq_sz, c_freq_sz;
-	cp += u7tou32(cp, &u_freq_sz);
-	cp += u7tou32(cp, &c_freq_sz);
+	cp += u7tou32(cp, cp_end, &u_freq_sz);
+	cp += u7tou32(cp, cp_end, &c_freq_sz);
+	if (c_freq_sz >= cp_end - cp - 16)
+	    goto err;
 	tab_end = cp + c_freq_sz;
-	c_freq = rans_uncompress_O0_4x16(cp, c_freq_sz, NULL, u_freq_sz);
+	if (!(c_freq = rans_uncompress_O0_4x16(cp, c_freq_sz, NULL, u_freq_sz)))
+	    goto err;
 	cp = c_freq;
+	c_freq_end = c_freq + u_freq_sz;
     }
 
     // Decode order-0 symbol list; avoids needing in order-1 tables
     int F0[256] = {0};
-    cp += decode_freq0(cp, F0);
+    int fsz = decode_freq0(cp, c_freq_end, F0);
+    if (!fsz)
+	goto err;
+    cp += fsz;
 
-    //i = *cp++;
     rle_i = 0;
+    if (cp >= c_freq_end)
+	goto err;
     i = *cp++;
     do {
 	int F[256] = {0}, T;
-	int r = decode_freq_d(cp, F0, F, &T);
-	if (r < 0)
-	    return NULL;
-	cp += r;
+	fsz = decode_freq_d(cp, c_freq_end, F0, F, &T);
+	if (!fsz)
+	    goto err;
+	cp += fsz;
 
 	if (T < TOTFREQ_O1)
-	    normalise_freq(F, T, TOTFREQ_O1);
+	    if (normalise_freq(F, T, TOTFREQ_O1) < 0)
+		goto err;
 
 	// Build symbols; fixme, do as part of decode, see the _d variant
 	for (j = x = 0; j < 256; j++) {
 	    if (F[j]) {
 		if (x + F[j] > TOTFREQ_O1)
-		    return NULL;
+		    goto err;
 		for (y = 0; y < F[j]; y++) {
 		    sfb[i][y + x].c = j;
 		    sfb[i][y + x].f = F[j];
@@ -1827,18 +1944,20 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 	    }
 	}
 	if (x != TOTFREQ_O1)
-	    return NULL;
+	    goto err;
 
 
-	if (!rle_i && i+1 == *cp) {
+	if (!rle_i && cp+3 < c_freq_end && i+1 == *cp) {
 	    i = *cp++;
 	    rle_i = *cp++;
 	} else if (rle_i) {
 	    rle_i--;
 	    i++;
 	    if (i > 255)
-		return NULL;
+		goto err;
 	} else {
+	    if (cp >= c_freq_end)
+		goto err;
 	    i = *cp++;
 	}
     } while (i);
@@ -1848,12 +1967,15 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     if (c_freq)
 	free(c_freq);
 
+    if (cp+16 > cp_end)
+	goto err;
+
     RansState rans0, rans1, rans2, rans3;
     uint8_t *ptr = cp, *ptr_end = in + in_size - 8;
-    RansDecInit(&rans0, &ptr); if (rans0 < RANS_BYTE_L) return NULL;
-    RansDecInit(&rans1, &ptr); if (rans1 < RANS_BYTE_L) return NULL;
-    RansDecInit(&rans2, &ptr); if (rans2 < RANS_BYTE_L) return NULL;
-    RansDecInit(&rans3, &ptr); if (rans3 < RANS_BYTE_L) return NULL;
+    RansDecInit(&rans0, &ptr); if (rans0 < RANS_BYTE_L) goto err;
+    RansDecInit(&rans1, &ptr); if (rans1 < RANS_BYTE_L) goto err;
+    RansDecInit(&rans2, &ptr); if (rans2 < RANS_BYTE_L) goto err;
+    RansDecInit(&rans3, &ptr); if (rans3 < RANS_BYTE_L) goto err;
 
     int isz4 = out_sz>>2;
     int l0 = 0, l1 = 0, l2 = 0, l3 = 0;
@@ -1922,7 +2044,14 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     
     //fprintf(stderr, "    1 Decoded %d bytes\n", (int)(ptr-in)); //c-size
 
+    free(sfb_);
     return out;
+
+ err:
+    free(sfb_);
+    free(out_free);
+
+    return NULL;
 }
 
 /*-----------------------------------------------------------------------------
@@ -1941,6 +2070,8 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     if (order & X_4) {
 	unsigned char *in4 = malloc(in_size);
+	if (!in4)
+	    return NULL;
 	unsigned int len4 = in_size/4, i4[4];
 	int i;
 
@@ -1990,7 +2121,8 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     if (!out) {
 	*out_size = rans_compress_bound_4x16(in_size, order); //fixme, +pack, +rle
-	out = malloc(*out_size);
+	if (!(out = malloc(*out_size)))
+	    return NULL;
     }
 
     out[0] = order;
@@ -2106,24 +2238,50 @@ unsigned char *rans_compress_4x16(unsigned char *in, unsigned int in_size,
 
 unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 				       unsigned char *out, unsigned int *out_size) {
-    //unsigned char *orig_in = in;
+    unsigned char *in_end = in + in_size;
+    unsigned char *out_free = NULL;
+
+    if (in_size == 0)
+	return NULL;
 
     if (*in & X_4) {
 	unsigned int ulen, olen, clen4[4];
 	int c_meta_len = 1, i, j;
 
 	// Decode lengths
-	c_meta_len += u7tou32(in+c_meta_len, &ulen);
+	c_meta_len += u7tou32(in+c_meta_len, in_end, &ulen);
+	if (!out) {
+	    if (!(out_free = out = malloc(ulen)))
+		return NULL;
+	    *out_size = ulen;
+	}
+	if (ulen != *out_size || (ulen%4 != 0)) {
+	    free(out_free);
+	    return NULL;
+	}
+
 	for (i = 0; i < 4; i++)
-	    c_meta_len += u7tou32(in+c_meta_len, &clen4[i]);
+	    c_meta_len += u7tou32(in+c_meta_len, in_end, &clen4[i]);
 
 	//fprintf(stderr, "    x4 meta %d\n", c_meta_len); //c-size
 
 	// Uncompress the 4 streams
 	unsigned char *out4 = malloc(ulen);
+	if (!out4) {
+	    free(out_free);
+	    return NULL;
+	}
 	for (i = 0; i < 4; i++) {
 	    olen = ulen/4;
-	    rans_uncompress_to_4x16(in+c_meta_len, in_size-c_meta_len, out4 + i*(ulen/4), &olen);
+	    if (in_size < c_meta_len)
+		return NULL;
+	    if (!rans_uncompress_to_4x16(in+c_meta_len, in_size-c_meta_len,
+					 out4 + i*(ulen/4), &olen)
+		|| olen != ulen/4) {
+		free(out_free);
+		free(out4);
+		return NULL;
+	    }
 	    c_meta_len += clen4[i];
 	}
 
@@ -2150,15 +2308,19 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     int sz = 0;
     unsigned int osz;
     if (!no_size)
-	sz = u7tou32(in, &osz);
+	sz = u7tou32(in, in_end, &osz);
     else
 	sz = 0, osz = *out_size;
     in += sz;
     in_size -= sz;
 
+    if (no_size && !out)
+	return NULL; // Need one or the other
+
     if (!out) {
 	*out_size = osz;
-	out = malloc(*out_size);
+	if (!(out = malloc(*out_size)))
+	    return NULL;
     } else {
 	if (*out_size < osz)
 	    return NULL;
@@ -2195,8 +2357,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     // followed by rANS compressed data.
 
     if (do_pack || do_rle) {
-	tmp = malloc(*out_size); // FIXME: check
-	if (!tmp)
+	if (!(tmp = malloc(*out_size)))
 	    return NULL;
 	if (do_pack && do_rle) {
 #define JOINT_PACK_RLE
@@ -2228,11 +2389,14 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     
     // Decode the bit-packing map.
-    uint8_t map[16];
+    uint8_t map[16] = {0};
     int npacked_sym = 0;
     uint64_t unpacked_sz = 0; // FIXME: rename to packed_per_byte
     if (do_pack) {
-	c_meta_size = unpack_meta(in, *out_size, map, &npacked_sym);
+	c_meta_size = unpack_meta(in, in_size, *out_size, map, &npacked_sym);
+	if (c_meta_size == 0)
+	    return NULL;
+
 	unpacked_sz = osz;
 	in      += c_meta_size;
 	in_size -= c_meta_size;
@@ -2240,25 +2404,36 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	// New unpacked size.  We could derive this bit from *out_size
 	// and npacked_sym.
 	unsigned int osz;
-	sz = u7tou32(in, &osz);
+	sz = u7tou32(in, in_end, &osz);
 	in += sz;
 	in_size -= sz;
+	if (osz > tmp1_size)
+	    return NULL;
 	tmp1_size = osz;
     }
 
     uint8_t *meta = NULL, *meta_free = NULL;
+    uint32_t u_meta_size = 0;
     if (do_rle) {
 	// Uncompress meta data
-	uint32_t u_meta_size, c_meta_size, rle_len, sz;
-	sz  = u7tou32(in,    &u_meta_size);
-	sz += u7tou32(in+sz, &rle_len);
+	uint32_t c_meta_size, rle_len, sz;
+	sz  = u7tou32(in,    in_end, &u_meta_size);
+	sz += u7tou32(in+sz, in_end, &rle_len);
+	if (rle_len > tmp1_size) // should never grow
+	    return NULL;
 	if (u_meta_size & 1) {
 	    meta = in + sz;
-	    c_meta_size = u_meta_size/2;
+	    u_meta_size = u_meta_size/2 > (in_end-meta) ? (in_end-meta) : u_meta_size/2;
+	    c_meta_size = u_meta_size;
 	} else {
-	    sz += u7tou32(in+sz, &c_meta_size);
+	    sz += u7tou32(in+sz, in_end, &c_meta_size);
+	    u_meta_size /= 2;
 	    meta_free = meta = rans_uncompress_O0_4x16(in+sz, in_size-sz, NULL, u_meta_size);
+	    if (!meta)
+		return NULL;
 	}
+	if (c_meta_size+sz > in_size)
+	    return NULL;
 	in      += c_meta_size+sz;
 	in_size -= c_meta_size+sz;
 	tmp1_size = rle_len;
@@ -2270,11 +2445,17 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     if (in_size) {
 	if (do_cat) {
 	    //fprintf(stderr, "    CAT %d\n", tmp1_size); //c-size
+	    if (tmp1_size > in_size)
+		return NULL;
+	    if (tmp1_size > *out_size)
+		return NULL;
 	    memcpy(tmp1, in, tmp1_size);
 	} else {
 	    tmp1 = order
 		? rans_uncompress_O1sfb_4x16(in, in_size, tmp1, tmp1_size)
 		: rans_uncompress_O0_4x16(in, in_size, tmp1, tmp1_size);
+	    if (!tmp1)
+		return NULL;
 	}
     } else {
 	tmp1 = NULL;
@@ -2285,7 +2466,8 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 #ifdef JOINT_PACK_RLE
     if (do_rle && do_pack) {
 	// Unrle and unpack in one step
-	if (!rle_decode_unpack(tmp1, tmp1_size, meta, npacked_sym, map, tmp3, unpacked_sz))
+	if (!rle_decode_unpack(tmp1, tmp1_size, meta, u_meta_size,
+			       npacked_sym, map, tmp3, unpacked_sz))
 	    return NULL;
 	tmp3_size = unpacked_sz;
 	free(meta_free);
@@ -2294,7 +2476,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     if (do_rle) {
 	// Unpack RLE.  tmp1 -> tmp2.
 	uint64_t unrle_size = *out_size;
-	if (!rle_decode(tmp1, tmp1_size, meta, tmp2, &unrle_size))
+	if (!rle_decode(tmp1, tmp1_size, meta, u_meta_size, tmp2, &unrle_size))
 	    return NULL;
 	tmp3_size = tmp2_size = unrle_size;
 	free(meta_free);
@@ -2326,6 +2508,12 @@ unsigned char *rans_uncompress_4x16(unsigned char *in, unsigned int in_size,
 }
 
 
+/*-----------------------------------------------------------------------------
+ * Main
+ */
+// A simple test harness for compression and decompression via the command line.
+//
+// This also permits us to fuzz test the decoder on random (invalid) inputs.
 #ifdef TEST_MAIN
 
 #ifndef BLK_SIZE
@@ -2335,9 +2523,6 @@ unsigned char *rans_uncompress_4x16(unsigned char *in, unsigned int in_size,
 // Room to allow for expanded BLK_SIZE on worst case compression.
 #define BLK_SIZE2 ((105LL*BLK_SIZE)/100)
 
-/*-----------------------------------------------------------------------------
- * Main
- */
 static unsigned char in_buf[BLK_SIZE2+257*257*3];
 
 int main(int argc, char **argv) {
@@ -2472,15 +2657,19 @@ int main(int argc, char **argv) {
 
 	    if (4 != fread(&in_size, 1, 4, infp))
 		break;
+	    if (in_size > BLK_SIZE)
+		exit(1);
+
 	    if (in_size != fread(in_buf, 1, in_size, infp)) {
 		fprintf(stderr, "Truncated input\n");
 		exit(1);
 	    }
 	    out = rans_uncompress_4x16(in_buf, in_size, &out_size);
 	    if (!out)
-		abort();
+		exit(1);
 
 	    fwrite(out, 1, out_size, outfp);
+	    fflush(outfp);
 	    free(out);
 
 	    bytes += out_size;
@@ -2554,3 +2743,111 @@ BWT doesn't save much, so qlfc alone is sufficient for good ratio.
 However both bsc and qlfc are an order of magnitude slower. 
 
  */
+
+
+// Encode, decode, compare and abort is different.
+//
+// This is designed for use within AFL to check all inputs can be round-tripped.
+#ifdef TEST_MAIN2
+
+#ifndef BLK_SIZE
+#  define BLK_SIZE 1013*1047
+#endif
+
+// Room to allow for expanded BLK_SIZE on worst case compression.
+#define BLK_SIZE2 ((105LL*BLK_SIZE)/100)
+
+/*-----------------------------------------------------------------------------
+ * Main
+ */
+static unsigned char in_buf[BLK_SIZE2+257*257*3];
+
+int main(int argc, char **argv) {
+    int opt, order = 0;
+    int decode = 0, test = 0;
+    FILE *infp = stdin, *outfp = stdout;
+    struct timeval tv1, tv2, tv3, tv4;
+    size_t bytes = 0;
+
+    extern char *optarg;
+    extern int optind;
+
+    //order = order ? 1 : 0; // Only support O(0) and O(1)
+
+    if (optind < argc) {
+	if (!(infp = fopen(argv[optind], "rb"))) {
+	    perror(argv[optind]);
+	    return 1;
+	}
+	optind++;
+    }
+
+    if (optind < argc) {
+	if (!(outfp = fopen(argv[optind], "wb"))) {
+	    perror(argv[optind]);
+	    return 1;
+	}
+	optind++;
+    }
+
+    gettimeofday(&tv1, NULL);
+
+    if (1) {
+	size_t len, in_sz = 0, out_sz = 0;
+	typedef struct {
+	    unsigned char *blk;
+	    uint32_t sz;
+	} blocks;
+	blocks *b = NULL, *bc = NULL, *bu = NULL;
+	int nb = 0, i;
+
+	while ((len = fread(in_buf, 1, BLK_SIZE, infp)) != 0) {
+	    // inefficient, but it'll do for testing
+	    b = realloc(b, (nb+1)*sizeof(*b));
+	    bu = realloc(bu, (nb+1)*sizeof(*bu));
+	    bc = realloc(bc, (nb+1)*sizeof(*bc));
+	    b[nb].blk = malloc(len);
+	    b[nb].sz = len;
+	    memcpy(b[nb].blk, in_buf, len);
+	    bc[nb].sz = rans_compress_bound_4x16(BLK_SIZE, order);
+	    bc[nb].blk = malloc(bc[nb].sz);
+	    bu[nb].sz = BLK_SIZE;
+	    bu[nb].blk = malloc(BLK_SIZE);
+	    nb++;
+	    in_sz += len;
+	}
+	fprintf(stderr, "Testing %d blocks\n", nb);
+
+	int O=0;
+	int order_map[] = {0,1,64,65,128,129,192,193};
+	for (O=0; O<32; O++) {
+	    order = order_map[O&7];
+
+	    order |= (O&8) ? X_NOSZ : 0;
+	    order |= (O&16) ? X_4 : 0;
+
+	    out_sz = 0;
+	    for (i = 0; i < nb; i++) {
+		unsigned int csz = bc[i].sz;
+		bc[i].blk = rans_compress_to_4x16(b[i].blk, b[i].sz, bc[i].blk, &csz, order);
+		assert(csz <= bc[i].sz);
+		out_sz += 5 + csz;
+		fprintf(stderr, "%08x C %d -> %d\n", order, b[i].sz, csz);
+	    }
+	    for (i = 0; i < nb; i++) {
+		bu[i].blk = rans_uncompress_to_4x16(bc[i].blk, bc[i].sz, bu[i].blk, &bu[i].sz);
+		fprintf(stderr, "%08x D %d -> %d\n", order, bc[i].sz, bu[i].sz);
+	    }
+
+	    for (i = 0; i < nb; i++) {
+		if (b[i].sz != bu[i].sz || memcmp(b[i].blk, bu[i].blk, b[i].sz)) {
+		    fprintf(stderr, "Mismatch in block %d, sz %d/%d\n", i, b[i].sz, bu[i].sz);
+		    abort();
+		}
+	    }
+	}
+    }
+
+    return 0;
+}
+#endif

@@ -1,3 +1,36 @@
+/*
+ * Copyright (c) 2016,2017 Genome Research Ltd.
+ * Author(s): James Bonfield
+ * 
+ * Redistribution and use in source and binary forms, with or without 
+ * modification, are permitted provided that the following conditions are met:
+ * 
+ *    1. Redistributions of source code must retain the above copyright notice,
+ *       this list of conditions and the following disclaimer.
+ * 
+ *    2. Redistributions in binary form must reproduce the above
+ *       copyright notice, this list of conditions and the following
+ *       disclaimer in the documentation and/or other materials provided
+ *       with the distribution.
+ * 
+ *    3. Neither the names Genome Research Ltd and Wellcome Trust Sanger
+ *    Institute nor the names of its contributors may be used to endorse
+ *    or promote products derived from this software without specific
+ *    prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY GENOME RESEARCH LTD AND CONTRIBUTORS "AS
+ * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL GENOME RESEARCH
+ * LTD OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 // cc -I. -g -O3 tokenise_name3.c codec_orig.c rANS_static4x16pr.c pooled_alloc.c -lm
 
 // As per tokenise_name2 but has the entropy encoder built in already,
@@ -54,11 +87,16 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <time.h>
-#include <pooled_alloc.h>
 
-#include "rANS_static4x16.h"
+#include "io_lib/pooled_alloc.h"
+#include "io_lib/rANS_static4x16.h"
+#include "io_lib/tokenise_name3.h"
 
-// FIXME
+// 128 is insufficient for SAM names (max 256 bytes) as
+// we may alternate a0a0a0a0a0 etc.  However if we fail,
+// we just give up and switch to another codec, so this
+// isn't a serious limit.  Maybe up to 256 to permit all
+// SAM names?
 #define MAX_TOKENS 128
 #define MAX_TBLOCKS (MAX_TOKENS<<4)
 
@@ -104,7 +142,10 @@ typedef struct {
 } name_context;
 
 name_context *create_context(int max_names) {
-    name_context *ctx = malloc(sizeof(*ctx) + max_names*sizeof(*ctx->lc));
+    if (max_names <= 0)
+	return NULL;
+
+    name_context *ctx = malloc(sizeof(*ctx) + ++max_names*sizeof(*ctx->lc));
     if (!ctx) return NULL;
 
     ctx->counter = 0;
@@ -123,8 +164,8 @@ void free_context(name_context *ctx) {
     if (!ctx)
 	return;
 
-//    if (ctx->t_head)
-//	free_trie(ctx->t_head);
+    if (ctx->t_head)
+	free(ctx->t_head);
     if (ctx->pool)
 	pool_destroy(ctx->pool);
 
@@ -290,7 +331,9 @@ static int encode_token_int(name_context *ctx, int ntok,
 static int decode_token_int(name_context *ctx, int ntok,
 			    enum name_type type, uint32_t *val) {
     int id = (ntok<<4) | type;
-    // FIXME: add checks
+
+    if (ctx->desc[id].buf_l + 4 > ctx->desc[id].buf_a)
+	return -1;
 
     // Assumes little endian and unalign access OK.
     *val = *(uint32_t *)(ctx->desc[id].buf + ctx->desc[id].buf_l);
@@ -327,8 +370,9 @@ static int encode_token_int1_(name_context *ctx, int ntok,
 static int decode_token_int1(name_context *ctx, int ntok,
 			     enum name_type type, uint32_t *val) {
     int id = (ntok<<4) | type;
-    // FIXME: add checks
 
+    if (ctx->desc[id].buf_l  >= ctx->desc[id].buf_a)
+	return -1;
     *val = ctx->desc[id].buf[ctx->desc[id].buf_l++];
 
     return 0;
@@ -358,10 +402,12 @@ static int decode_token_alpha(name_context *ctx, int ntok, char *str, int max_le
     int id = (ntok<<4) | N_ALPHA;
     char c;
     int len = 0;
+    if (ctx->desc[id].buf_l  >= ctx->desc[id].buf_a)
+	return -1;
     do {
 	c = ctx->desc[id].buf[ctx->desc[id].buf_l++];
 	str[len++] = c;
-    } while(c && len < max_len);
+    } while(c && len < max_len && ctx->desc[id].buf_l < ctx->desc[id].buf_a);
 
     return len-1;
 }
@@ -381,7 +427,8 @@ static int encode_token_char(name_context *ctx, int ntok, char c) {
 static int decode_token_char(name_context *ctx, int ntok, char *str) {
     int id = (ntok<<4) | N_CHAR;
 
-    // FIXME: add checks
+    if (ctx->desc[id].buf_l  >= ctx->desc[id].buf_a)
+	return -1;
     *str = ctx->desc[id].buf[ctx->desc[id].buf_l++];
 
     return 1;
@@ -589,6 +636,9 @@ int search_trie(name_context *ctx, char *data, size_t len, int n, int *exact, in
 	    t = x;
 
 //	    t = t->next[c];
+
+//	    if (!t)
+//		return -1;
 
 	    from = t->n;
 	    if (i == prefix_len) p3 = t->n;
@@ -863,7 +913,6 @@ static int encode_name(name_context *ctx, char *name, int len) {
 //-----------------------------------------------------------------------------
 // Name decoder
 
-// FIXME: should know the maximum name length for safety.
 static int decode_name(name_context *ctx, char *name, int name_len) {
     int t0 = decode_token_type(ctx, 0);
     uint32_t dist;
@@ -873,6 +922,8 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	return 0;
 
     decode_token_int(ctx, 0, t0, &dist);
+    if (dist > cnum)
+	return -1;
     if ((pnum = cnum - dist) < 0) pnum = 0;
 
     //fprintf(stderr, "t0=%d, dist=%d, pnum=%d, cnum=%d\n", t0, dist, pnum, cnum);
@@ -970,7 +1021,8 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 		break;
 
 	    case N_ALPHA:
-		if (len+ctx->lc[pnum].last_token_int[ntok] >= name_len) return -1;
+		if (ctx->lc[pnum].last_token_int[ntok] < 0 ||
+		    len+ctx->lc[pnum].last_token_int[ntok] >= name_len) return -1;
 		memcpy(&name[len],
 		       &ctx->lc[pnum].last_name[ctx->lc[pnum].last_token_str[ntok]],
 		       ctx->lc[pnum].last_token_int[ntok]);
@@ -999,7 +1051,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 		break;
 
 	    default:
-		abort();
+		return -1;
 	    }
 	    break;
 
@@ -1125,7 +1177,7 @@ static int uncompress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_
  * Returns a malloced buffer holding compressed data of size *out_len,
  *         or NULL on failure
  */
-static uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
+uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
     int last_start = 0, i, j, nreads;
     
     // Count lines
@@ -1140,9 +1192,9 @@ static uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p
     // Construct trie
     int ctr = 0;
     for (i = j = 0; i < len; j=++i) {
-	while (i < len && blk[i] != '\n')
+	while (i < len && blk[i] > '\n')
 	    i++;
-	if (blk[i] != '\n')
+	if (i >= len)
 	    break;
 
 	//blk[i] = '\0';
@@ -1160,9 +1212,9 @@ static uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p
     // Encode name
     char *last_name = NULL;
     for (i = j = 0; i < len; j=++i) {
-	while (i < len && blk[i] != '\n')
+	while (i < len && blk[i] > '\n')
 	    i++;
-	if (blk[i] != '\n')
+	if (i >= len)
 	    break;
 
 	blk[i] = '\0';
@@ -1264,10 +1316,10 @@ static uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p
     }
 
     uint8_t *cp = out;
-    *out_len = tot_size+4;
-    
-    *(uint32_t *)cp = tot_size;   cp += 4;
-    //write(1, &tot_size, 4);
+    //*out_len = tot_size+4;
+    //*(uint32_t *)cp = tot_size;   cp += 4;
+
+    *out_len = tot_size;
     *(uint32_t *)cp = last_start; cp += 4;
     *(uint32_t *)cp = nreads;     cp += 4;
     //write(1, &nreads, 4);
@@ -1297,7 +1349,7 @@ static uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p
 	}
     }
 
-    assert(cp-out == tot_size+4);
+    //assert(cp-out == tot_size);
 
     for (i = 0; i < MAX_TBLOCKS; i++) {
 	if (!ctx->desc[i].buf_l) continue;
@@ -1315,7 +1367,7 @@ static uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p
  *
  * Returns NULL on failure.
  */
-static uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
+uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
     if (sz < 8)
 	return NULL;
 
@@ -1331,6 +1383,7 @@ static uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
     while (o < sz) {
 	uint8_t ttype = in[o++];
 	if (ttype == 255) {
+	    if (o+3 >= sz) return NULL;
 	    uint16_t j = *(uint16_t *)&in[o];
 	    o += 2;
 	    ttype = in[o++];
@@ -1351,6 +1404,8 @@ static uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	    }
 
 	    i = (tnum<<4) | (ttype&15);
+	    if (j >= i)
+		return NULL;
 
 	    ctx->desc[i].buf_l = 0;
 	    ctx->desc[i].buf_a = ctx->desc[j].buf_a;
@@ -1369,6 +1424,10 @@ static uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 
 	if ((ttype & 15) != 0 && (ttype & 128)) {
 	    ctx->desc[tnum<<4].buf = malloc(nreads);
+	    if (!ctx->desc[tnum<<4].buf) {
+		free_context(ctx);
+		return NULL;
+	    }
 	    ctx->desc[tnum<<4].buf_a = nreads;
 	    ctx->desc[tnum<<4].buf[0] = ttype&15;
 	    if ((ttype&15) == N_DZLEN)
@@ -1379,18 +1438,30 @@ static uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	//fprintf(stderr, "Read %02x\n", c);
 
 	// Load compressed block
-	uint64_t clen, ulen = uncompressed_size(&in[o], sz-o);
+	int64_t clen, ulen = uncompressed_size(&in[o], sz-o);
 	if (ulen < 0) {
 	    free_context(ctx);
 	    return NULL;
 	}
 	i = (tnum<<4) | (ttype&15);
 
+	if (i >= MAX_TBLOCKS || i < 0)
+	    return NULL;
+
 	ctx->desc[i].buf_l = 0;
 	ctx->desc[i].buf = malloc(ulen);
+	if (!ctx->desc[i].buf) {
+	    free_context(ctx);
+	    return NULL;
+	}
 
 	ctx->desc[i].buf_a = ulen;
 	clen = uncompress(&in[o], sz-o, ctx->desc[i].buf, &ctx->desc[i].buf_a);
+	if (clen < 0) {
+	    free(ctx->desc[i].buf);
+	    free_context(ctx);
+	    return NULL;
+	}
 	assert(ctx->desc[i].buf_a == ulen);
 
 	//	    fprintf(stderr, "%d: Decode tnum %d type %d clen %d ulen %d via %d\n",
@@ -1476,6 +1547,7 @@ static int encode(int argc, char **argv) {
 
 	int out_len;
 	uint8_t *out = encode_names(blk, len, &out_len, &last_start);
+	write(1, &out_len, 4);
 	write(1, out, out_len);   // encoded data
 	free(out);
 
