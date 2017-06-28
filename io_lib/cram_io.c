@@ -90,6 +90,7 @@
 #include "io_lib/open_trace_file.h"
 #include "io_lib/rANS_static.h"
 #include "io_lib/rANS_static4x16.h"
+#include "io_lib/tokenise_name3.h"
 
 #if defined(HAVE_STDIO_EXT_H)
 #include <stdio_ext.h>
@@ -1722,6 +1723,20 @@ int cram_uncompress_block(cram_block *b) {
 	break;
     }
 
+    case NAME_TOK3: {
+	int out_len;
+	uint8_t *cp = decode_names(b->data, b->comp_size, &out_len);
+	b->orig_method = NAME_TOK3;
+	b->method = RAW;
+	free(b->data);
+	b->data = cp;
+	b->alloc = out_len;
+	b->uncomp_size = out_len;
+	break;
+    }
+
+
+
     default:
 	return -1;
     }
@@ -1848,6 +1863,13 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 	return (char *)cp;
     }
 
+    case NAME_TOK3: {
+	int out_len;
+	uint8_t *cp = encode_names(in, in_size, &out_len, NULL);
+	*out_size = out_len;
+	return (char *)cp;
+    }
+
     case RAW:
 	break;
 
@@ -1883,6 +1905,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	GZIP, GZIP, // GZIP_RLE and GZIP_1
 	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0, // RANS_PR1-193
 	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0,
+	NAME_TOK3
     };
 
     if (b->method != RAW) {

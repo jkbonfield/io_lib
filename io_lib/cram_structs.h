@@ -202,6 +202,8 @@ enum cram_block_method {
     RANS_PR192 = 19,
     RANS_PR193 = 20,
 
+    NAME_TOK3  = 21,
+
     BLOCK_METHOD_END = 31
 };
 
