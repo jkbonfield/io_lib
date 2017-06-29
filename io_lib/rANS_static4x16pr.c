@@ -422,6 +422,9 @@ static inline void RansDecRenormSafe(RansState* r, uint8_t** pptr, uint8_t *ptr_
 #include <assert.h>
 #include <string.h>
 #include <sys/time.h>
+#ifndef NO_THREADS
+#include <pthread.h>
+#endif
 
 #define TF_SHIFT 12
 #define TOTFREQ (1<<TF_SHIFT)
@@ -1862,6 +1865,18 @@ typedef struct {
     uint16_t b;
 } sb_t;
 
+#ifndef NO_THREADS
+/*
+ * Thread local storage per thread in the pool.
+ */
+pthread_once_t rans_once = PTHREAD_ONCE_INIT;
+pthread_key_t rans_key;
+
+static void rans_tls_init(void) {
+    pthread_key_create(&rans_key, free);
+}
+#endif
+
 unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_size,
 					  unsigned char *out, unsigned int out_sz) {
     if (in_size < 16) // 4-states at least
@@ -1871,10 +1886,37 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     unsigned char *cp = in, *cp_end = in+in_size, *out_free = NULL;
     int i, j = -999, x, y, rle_i;
 
-    // This is 17% faster on linux with MALLOC_MMAP_MAX_=0 defined.
-    // Consider reusing (thread local storage) this with appropriate
-    // memsets to get the speed without needing malloc hacks.
+#ifndef NO_THREADS
+    /*
+     * The calloc below is expensive as it's a large structure.  We
+     * could use malloc, but we're only initialising parts of the structure
+     * that we need to, as dictated by the frequency table.  This is far
+     * faster than initialising everything (ie malloc+memset => calloc).
+     * Not initialising the data means malformed input with mismatching
+     * frequency tables to actual data can lead to accessing of the
+     * uninitialised sfb table and in turn potential leakage of the
+     * uninitialised memory returned by malloc.  That could be anything at
+     * all, including important encryption keys used within a server (for
+     * example).
+     *
+     * However (I hope!) we don't care about leaking about the sfb symbol
+     * frequencies previously computed by an earlier execution of *this*
+     * code.  So calloc once and reuse is the fastest alternative.
+     *
+     * We do this through pthread local storage as we don't know if this
+     * code is being executed in many threads simultaneously.
+     */
+    pthread_once(&rans_once, rans_tls_init);
+
+    sb_t *sfb_ = pthread_getspecific(rans_key);
+    if (!sfb_) {
+	sfb_ = calloc(256*TOTFREQ_O1, sizeof(*sfb_));
+	pthread_setspecific(rans_key, sfb_);
+    }
+#else
     sb_t *sfb_ = calloc(256*TOTFREQ_O1, sizeof(*sfb_));
+#endif
+
     if (!sfb_)
 	return NULL;
     sb_t *sfb[256];
@@ -2044,11 +2086,15 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     
     //fprintf(stderr, "    1 Decoded %d bytes\n", (int)(ptr-in)); //c-size
 
+#ifdef NO_THREADS
     free(sfb_);
+#endif
     return out;
 
  err:
+#ifdef NO_THREADS
     free(sfb_);
+#endif
     free(out_free);
 
     return NULL;
@@ -2275,8 +2321,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	    olen = ulen/4;
 	    if (in_size < c_meta_len)
 		return NULL;
-	    if (!rans_uncompress_to_4x16(in+c_meta_len, in_size-c_meta_len,
-					 out4 + i*(ulen/4), &olen)
+	    if (!rans_uncompress_to_4x16(in+c_meta_len, in_size-c_meta_len, out4 + i*(ulen/4), &olen)
 		|| olen != ulen/4) {
 		free(out_free);
 		free(out4);
@@ -2835,7 +2880,8 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "%08x C %d -> %d\n", order, b[i].sz, csz);
 	    }
 	    for (i = 0; i < nb; i++) {
-		bu[i].blk = rans_uncompress_to_4x16(bc[i].blk, bc[i].sz, bu[i].blk, &bu[i].sz);
+		bu[i].blk = rans_uncompress_to_4x16(bc[i].blk, bc[i].sz,
+						    bu[i].blk, &bu[i].sz, NULL);
 		fprintf(stderr, "%08x D %d -> %d\n", order, bc[i].sz, bu[i].sz);
 	    }
 

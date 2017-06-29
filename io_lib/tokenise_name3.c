@@ -921,8 +921,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
     if (t0 < 0)
 	return 0;
 
-    decode_token_int(ctx, 0, t0, &dist);
-    if (dist > cnum)
+    if (decode_token_int(ctx, 0, t0, &dist) < 0 || dist > cnum)
 	return -1;
     if ((pnum = cnum - dist) < 0) pnum = 0;
 
@@ -954,7 +953,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	switch (tok) {
 	case N_CHAR:
 	    if (len+1 >= name_len) return -1;
-	    decode_token_char(ctx, ntok, &name[len]);
+	    if (decode_token_char(ctx, ntok, &name[len]) < 0) return -1;
 	    //fprintf(stderr, "Tok %d CHAR %c\n", ntok, name[len]);
 	    ctx->lc[cnum].last_token_type[ntok] = N_CHAR;
 	    ctx->lc[cnum].last_token_int [ntok] = name[len++];
@@ -970,8 +969,8 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	    break;
 
 	case N_DIGITS0: // [0-9]*
-	    decode_token_int1(ctx, ntok, N_DZLEN, &vl);
-	    decode_token_int(ctx, ntok, N_DIGITS0, &v);
+	    if (decode_token_int1(ctx, ntok, N_DZLEN, &vl) < 0) return -1;
+	    if (decode_token_int(ctx, ntok, N_DIGITS0, &v) < 0) return -1;
 	    if (len+20+vl >= name_len) return -1;
 	    len += append_uint32_fixed(&name[len], v, vl);
 	    //fprintf(stderr, "Tok %d DIGITS0 %0*d\n", ntok, vl, v);
@@ -981,7 +980,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	    break;
 
 	case N_DDELTA0:
-	    decode_token_int1(ctx, ntok, N_DDELTA0, &v);
+	    if (decode_token_int1(ctx, ntok, N_DDELTA0, &v) < 0) return -1;
 	    v += ctx->lc[pnum].last_token_int[ntok];
 	    if (len+ctx->lc[pnum].last_token_str[ntok]+1 >= name_len) return -1;
 	    len += append_uint32_fixed(&name[len], v, ctx->lc[pnum].last_token_str[ntok]);
@@ -992,7 +991,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	    break;
 
 	case N_DIGITS: // [1-9][0-9]*
-	    decode_token_int(ctx, ntok, N_DIGITS, &v);
+	    if (decode_token_int(ctx, ntok, N_DIGITS, &v) < 0) return -1;
 	    if (len+20 >= name_len) return -1;
 	    len += append_uint32_var(&name[len], v);
 	    //fprintf(stderr, "Tok %d DIGITS %d\n", ntok, v);
@@ -1001,7 +1000,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	    break;
 
 	case N_DDELTA:
-	    decode_token_int1(ctx, ntok, N_DDELTA, &v);
+	    if (decode_token_int1(ctx, ntok, N_DDELTA, &v) < 0) return -1;
 	    v += ctx->lc[pnum].last_token_int[ntok];
 	    if (len+20 >= name_len) return -1;
 	    len += append_uint32_var(&name[len], v);
@@ -1104,7 +1103,7 @@ static int64_t rans_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t 
 
 static int compress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len) {
     uint64_t best_sz = UINT64_MAX;
-    int best;
+    int best = 0;
     uint64_t olen = *out_len;
 
     //fprintf(stderr, "=== try %d ===\n", (int)in_len);
@@ -1210,7 +1209,6 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
     //fprintf(stderr, "Processed %d of %d in block, line %d\n", last_start, len, ctr);
 
     // Encode name
-    char *last_name = NULL;
     for (i = j = 0; i < len; j=++i) {
 	while (i < len && blk[i] > '\n')
 	    i++;
@@ -1222,7 +1220,6 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
 	    free_context(ctx);
 	    return NULL;
 	}
-	last_name=&blk[j];
     }
 
     //dump_trie(t_head, 0);
@@ -1487,7 +1484,7 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
     }
 
     size_t out_sz = 0;
-    while ((ret = decode_name(ctx, out+out_sz, ulen)) > 0) {
+    while ((ret = decode_name(ctx, (char *)out+out_sz, ulen)) > 0) {
 	out_sz += ret;
 	ulen -= ret;
     }
