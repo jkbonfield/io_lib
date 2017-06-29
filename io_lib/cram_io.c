@@ -1976,8 +1976,8 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    c = cram_compress_by_method((char *)b->data, b->uncomp_size,
 						&sz[m], m, lvl, strat);
                     if (fd->verbose > 1)
-                        fprintf(stderr, "Try compression of block ID %d from %d to %d by method %s\n",
-                                b->content_id, b->uncomp_size, (int)sz[m], cram_block_method2str(m));
+                        fprintf(stderr, "Try compression of block ID %d from %d to %d by method %s, strat %d\n",
+                                b->content_id, b->uncomp_size, (int)sz[m], cram_block_method2str(m), strat);
 
 		    if (c && sz_best > sz[m]) {
 			sz_best = sz[m];
@@ -2071,6 +2071,12 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		}
 
 		metrics->method = best_method;
+		switch (best_method) {
+		case GZIP:     strat = Z_FILTERED; break;
+		case GZIP_1:   strat = Z_DEFAULT_STRATEGY; break;
+		case GZIP_RLE: strat = Z_RLE; break;
+		default:       strat = 0;
+		}
 		metrics->strat  = strat;
 
 		// If we see at least MAXFAIL trials in a row for a specific
@@ -2136,12 +2142,13 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	} else {
 	    free(comp);
 	}
+	strat = Z_FILTERED;
     }
 
     if (fd->verbose)
-	fprintf(stderr, "Compressed block ID %d from %d to %d by method %s\n",
+	fprintf(stderr, "Compressed block ID %d from %d to %d by method %s strat %d\n",
 		b->content_id, b->uncomp_size, b->comp_size,
-		cram_block_method2str(b->method));
+		cram_block_method2str(b->method), strat);
 
     b->method = methmap[b->method];
 
