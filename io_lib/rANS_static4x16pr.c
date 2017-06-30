@@ -1210,11 +1210,12 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t 
 	    uint32_t run_len = 0;
 	    unsigned char c;
 	    do {
-		if (meta >= meta_end)
-		    return NULL;
-		c = *meta++;
+		c = meta<meta_end?*meta:0;
+		meta++;
 		run_len = (run_len<<7) | (c & 0x7f);
 	    } while (c & 0x80);
+	    if (meta > meta_end)
+		return NULL;
 	    run_len++;
 	    if (outp + run_len > out_end)
 		run_len = out_end - outp;
@@ -1385,10 +1386,32 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
     }
 
     switch(nsym) {
-    case 8:
+    case 8: {
+#ifdef ALLOW_UAC
+	uint64_t map[256], x0, x1, x2, x3, x4, x5, x6, x7;
+	int x;
+	for (x = 0; x < 256; x++) {
+	    map[x]=
+		(((uint64_t)p[x>>7  ])<<0)+
+		(((uint64_t)p[x>>6&1])<<8)+
+		(((uint64_t)p[x>>5&1])<<16)+
+		(((uint64_t)p[x>>4&1])<<24)+
+		(((uint64_t)p[x>>3&1])<<32)+
+		(((uint64_t)p[x>>2&1])<<40)+
+		(((uint64_t)p[x>>1&1])<<48)+
+		(((uint64_t)p[x   &1])<<56);
+	}
+#endif
 	if ((out_len+7)/8 > len)
 	    return NULL;
 	olen = out_len & ~7;
+
+#ifdef ALLOW_UAC
+	for (i = 0; i < olen; i+=8) {
+	    uint64_t w = map[data[j++]];
+	    *(uint64_t *)&out[i] = w;
+	}
+#else
 	for (i = j = 0; i < olen; i+=8) {
 	    c = data[j++];
 	    out[i+0] = p[(c>>7)&1];
@@ -1400,6 +1423,7 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 	    out[i+6] = p[(c>>1)&1];
 	    out[i+7] = p[(c>>0)&1];
 	}
+#endif
 	if (out_len != olen) {
 	    c = data[j++];
 	    switch (out_len - olen) {
@@ -1414,27 +1438,54 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 	    }
 	}
 	break;
+    }
 
-    case 4:
-#if 0
-	// Yay a real world usage of Duff's Device!
-	// Sadly it's slower due to needing a reverse loop in this scenario.
-	i = out_len;
-	j += out_len/4;
-	c = data[j--];
-	switch(out_len % 4) {
-	    while (i) {
-	    case 0: out[--i] = p[(c>>0)&3];
-	    case 3: out[--i] = p[(c>>2)&3];
-	    case 2: out[--i] = p[(c>>4)&3];
-	    case 1: out[--i] = p[(c>>6)&3];
-		c = data[j--];
-	    }
-	}
-#else
+    case 4: {
+#ifdef ALLOW_UAC
+	uint32_t map[256], x, y, z, _, P=0;
+	for (x = 0; x < 4; x++)
+	    for (y = 0; y < 4; y++)
+		for (z = 0; z < 4; z++)
+		    for (_ = 0; _ < 4; _++, P++)
+			map[P] = p[x]+(p[y]<<8)+(p[z]<<16)+(p[_]<<24);
+#endif
+
+//	// Yay a real world usage of Duff's Device!
+//	// Sadly it's slower due to needing a reverse loop in this scenario.
+//	i = out_len;
+//	j += out_len/4;
+//	c = data[j--];
+//	switch(out_len % 4) {
+//	    while (i) {
+//	    case 0: out[--i] = p[(c>>0)&3];
+//	    case 3: out[--i] = p[(c>>2)&3];
+//	    case 2: out[--i] = p[(c>>4)&3];
+//	    case 1: out[--i] = p[(c>>6)&3];
+//		c = data[j--];
+//	    }
+//	}
+
 	if ((out_len+3)/4 > len)
 	    return NULL;
 	olen = out_len & ~3;
+
+#ifdef ALLOW_UAC
+	for (; i < olen-12; i+=16) {
+	    uint32_t w1 = map[data[j++]];
+	    uint32_t w2 = map[data[j++]];
+	    uint32_t w3 = map[data[j++]];
+	    uint32_t w4 = map[data[j++]];
+	    *(uint32_t *)&out[i   ] = w1;
+	    *(uint32_t *)&out[i+ 4] = w2;
+	    *(uint32_t *)&out[i+ 8] = w3;
+	    *(uint32_t *)&out[i+12] = w4;
+	}
+
+	for (; i < olen; i+=4) {
+	    uint32_t w = map[data[j++]];
+	    *(uint32_t *)&out[i] = w;
+	}
+#else
 	for (i = j = 0; i < olen; i+=4) {
 	    c = data[j++];
 	    out[i+0] = p[(c>>6)&3];
@@ -1442,6 +1493,7 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 	    out[i+2] = p[(c>>2)&3];
 	    out[i+3] = p[(c>>0)&3];
 	}
+#endif
 	if (out_len != olen) {
 	    c = data[j++];
 	    switch (out_len - olen) {
@@ -1451,23 +1503,44 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 		case 1: out[i+0] = p[(c>>6)&3];
 	    }
 	}
-#endif
 	break;
+    }
 
-    case 2:
+    case 2: {
+#ifdef ALLOW_UAC
+	uint16_t map[256], x, y;
+	for (x = 0; x < 16; x++)
+	    for (y = 0; y < 16; y++)
+		map[x*16+y] = p[x]+p[y]*256;
+#endif
+
 	if ((out_len+1)/2 > len)
 	    return NULL;
 	olen = out_len & ~1;
+#ifdef ALLOW_UAC
+	for (i = j = 0; i+2 < olen; i+=4) {
+	    uint16_t w1 = map[data[j++]];
+	    uint16_t w2 = map[data[j++]];
+	    *(uint16_t *)&out[i  ] = w1;
+	    *(uint16_t *)&out[i+2] = w2;
+	}
+	for (; i < olen; i+=2) {
+	    uint16_t w1 = map[data[j++]];
+	    *(uint16_t *)&out[i] = w1;
+	}
+#else
 	for (i = j = 0; i < olen; i+=2) {
 	    c = data[j++];
 	    out[i+0] = p[(c>>4)&15];
 	    out[i+1] = p[(c>>0)&15];
 	}
+#endif
 	if (out_len != olen) {
 	    c = data[j++];
 	    out[i+0] = p[(c>>4)&15];
 	}
 	break;
+    }
 
     case 0:
 	memset(out, p[0], out_len);
@@ -1512,6 +1585,7 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 		    c = meta[m<=meta_sz-1?m:meta_sz-1];
 		    c &= ~((++m>meta_sz)<<7);
 		    run_len = (run_len<<7) | (c & 0x7f);
+
 		} while (c & 0x80);
 		run_len++;
 
@@ -1526,7 +1600,14 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 	}
 	break;
 
-    case 2:
+    case 2: {
+#ifdef ALLOW_UAC
+	uint16_t map[256], x, y;
+	for (x = 0; x < 16; x++)
+	    for (y = 0; y < 16; y++)
+		map[x*16+y] = p[x]+p[y]*256;
+#endif
+
 	while (i < in_len) {
 	    uint8_t b = in[i++];
 	    if (saved[b]) {
@@ -1539,6 +1620,17 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 		} while (c & 0x80);
 
 		int z;
+#ifdef ALLOW_UAC
+		uint16_t w = map[b];
+		for (z = 0; z <= run_len && j < out_len-2; z++, j+=2) {
+		    *(uint16_t *)&out[j] = w;
+		}
+		if (z <= run_len && j < out_len) {
+		    if (j+0 < out_len) out[j+0] = p[(b>>4)&15];
+		    if (j+1 < out_len) out[j+1] = p[(b>>0)&15];
+		    j += 2;
+		}
+#else
 		uint8_t w[2] = {p[(b>>4)&15],
  				p[(b>>0)&15]};
 		for (z = 0; z <= run_len && j < out_len-2; z++, j+=2) {
@@ -1550,9 +1642,14 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 		    if (j+1 < out_len) out[j+1] = w[1];
 		    j += 2;
 		}
+#endif
 	    } else if (j < out_len-2) {
+#ifdef ALLOW_UAC
+		*(uint16_t *)&out[j] = map[b];
+#else
 		out[j+0] = p[(b>>4)&15];
 		out[j+1] = p[(b>>0)&15];
+#endif
 		j += 2;
 	    } else {
 		if (j < out_len) out[j++] = p[(b>>4)&15];
@@ -1560,8 +1657,18 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 	    }
 	}
 	break;
+    }
 
     case 4: {
+#ifdef ALLOW_UAC
+	uint32_t map[256], x, y, z, _, P=0;
+	for (x = 0; x < 4; x++)
+	    for (y = 0; y < 4; y++)
+		for (z = 0; z < 4; z++)
+		    for (_ = 0; _ < 4; _++, P++)
+			map[P] = p[x]+(p[y]<<8)+(p[z]<<16)+(p[_]<<24);
+#endif
+
 	uint8_t b;
 	while (i < in_len) {
 	    b = in[i++];
@@ -1574,6 +1681,19 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 		    run_len = (run_len<<7) | (c & 0x7f);
 		} while (c & 0x80);
 		int z;
+#ifdef ALLOW_UAC
+		uint32_t w = map[b];
+		for (z = 0; z <= run_len && j < out_len-4; z++, j+=4) {
+		    *(uint32_t *)&out[j] = w;
+		}
+		if (z <= run_len && j < out_len) {
+		    if (j+0 < out_len) out[j+0] = p[(b>>6)&3];
+		    if (j+1 < out_len) out[j+1] = p[(b>>4)&3];
+		    if (j+2 < out_len) out[j+2] = p[(b>>2)&3];
+		    if (j+3 < out_len) out[j+3] = p[(b>>0)&3];
+		    j += 4;
+		}
+#else
 		uint8_t w[4] = {p[(b>>6)&3],
 				p[(b>>4)&3],
 				p[(b>>2)&3],
@@ -1590,11 +1710,16 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 		    if (j+2 < out_len) out[j+2] = w[2];
 		    if (j+3 < out_len) out[j+3] = w[3];
 		}
+#endif
 	    } else if (j < out_len-4) {
+#ifdef ALLOW_UAC
+		*(uint32_t *)&out[j] = map[b];
+#else
 		out[j+0] = p[(b>>6)&3];
 		out[j+1] = p[(b>>4)&3];
 		out[j+2] = p[(b>>2)&3];
 		out[j+3] = p[(b>>0)&3];
+#endif
 		j += 4;
 	    } else {
 		if (j < out_len) out[j++] = p[(b>>6)&3];
@@ -1607,6 +1732,22 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
     }
 
     case 8: {
+#ifdef ALLOW_UAC
+	uint64_t map[256], x0, x1, x2, x3, x4, x5, x6, x7;
+	int x;
+	for (x = 0; x < 256; x++) {
+	    map[x]=
+		(((uint64_t)p[x>>7  ])<<0)+
+		(((uint64_t)p[x>>6&1])<<8)+
+		(((uint64_t)p[x>>5&1])<<16)+
+		(((uint64_t)p[x>>4&1])<<24)+
+		(((uint64_t)p[x>>3&1])<<32)+
+		(((uint64_t)p[x>>2&1])<<40)+
+		(((uint64_t)p[x>>1&1])<<48)+
+		(((uint64_t)p[x   &1])<<56);
+	}
+#endif
+
 	uint8_t b;
 	while (i < in_len) {
 	    b = in[i++];
@@ -1620,6 +1761,28 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 		} while (c & 0x80);
 
 		int z;
+#ifdef ALLOW_UAC
+		uint64_t w = map[b];
+		int rl2 = (out_len-j)/8 < run_len ? (out_len-j)/8 : run_len;
+		for (z = 0; z < rl2; z++, j+=8) {
+		    *(uint64_t *)&out[j] = w;
+		}
+		if (z <= run_len) {
+		    if (j+8 <= out_len) {
+			*(uint64_t *)&out[j] = w;
+		    } else {
+			if (j+0 < out_len) out[j+0] = p[(b>>7)&1];
+			if (j+1 < out_len) out[j+1] = p[(b>>6)&1];
+			if (j+2 < out_len) out[j+2] = p[(b>>5)&1];
+			if (j+3 < out_len) out[j+3] = p[(b>>4)&1];
+			if (j+4 < out_len) out[j+4] = p[(b>>3)&1];
+			if (j+5 < out_len) out[j+5] = p[(b>>2)&1];
+			if (j+6 < out_len) out[j+6] = p[(b>>1)&1];
+			if (j+7 < out_len) out[j+7] = p[(b>>0)&1];
+		    }
+		    j+=8;
+		}
+#else
 		uint8_t w[8] = {p[(b>>7)&1],
 				p[(b>>6)&1],
 				p[(b>>5)&1],
@@ -1628,6 +1791,7 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 				p[(b>>2)&1],
 				p[(b>>1)&1],
 				p[(b>>0)&1]};
+
 		// Faster than a "&& j < out_len-8" clause, but on this
 		// variant only.
 		int rl2 = (out_len-j)/8 < run_len ? (out_len-j)/8 : run_len;
@@ -1652,7 +1816,11 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 		    if (j+7 < out_len) out[j+7] = w[7];
 		    j+=8;
 		}
+#endif
 	    } else if (j < out_len-8) {
+#ifdef ALLOW_UAC
+		*(uint64_t *)&out[j] = map[b];
+#else
 		out[j+0] = p[(b>>7)&1];
 		out[j+1] = p[(b>>6)&1];
 		out[j+2] = p[(b>>5)&1];
@@ -1661,6 +1829,7 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 		out[j+5] = p[(b>>2)&1];
 		out[j+6] = p[(b>>1)&1];
 		out[j+7] = p[(b>>0)&1];
+#endif
 		j += 8;
 	    } else {
 		if (j < out_len) out[j++] = p[(b>>7)&1];
