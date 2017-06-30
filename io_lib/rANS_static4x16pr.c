@@ -978,7 +978,7 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     if (x != TOTFREQ)
 	return NULL;
 
-    if (cp+16 > cp_end)
+    if (cp+16 > cp_end+8)
 	return NULL;
 
     RansState R[4];
