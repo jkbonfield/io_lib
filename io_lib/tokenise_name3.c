@@ -31,7 +31,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// cc -I. -g -O3 tokenise_name3.c codec_orig.c rANS_static4x16pr.c pooled_alloc.c -lm
+// cc -I.. -g -O3 tokenise_name3.c rANS_static4x16pr.c pooled_alloc.c -pthread -DTEST_TOKENISER
 
 // As per tokenise_name2 but has the entropy encoder built in already,
 // so we just have a single encode and decode binary.  (WIP; mainly TODO)
@@ -71,6 +71,15 @@
 //   of 7 distinct tokens, with 1 MATCH instead of 7.  This is both a speed
 //   improvement for decoding as well as a space saving (fewer token-blocks
 //   and associated overhead).
+//
+// - XOR.  Like ALPHA, but used when previous symbol is ALPHA or XOR
+//   and string lengths match.  Useful when names are similar, eg:
+//   the sequence in 07.names:
+//
+//   @VP2-06:112:H7LNDMCVY:1:1105:26919:1172 1:N:0:ATTCAGAA+AGGAGAAG
+//   @VP2-06:112:H7LNDMCVY:1:1105:27100:1172 1:N:0:ATTCAGAA+AGGCGAAG
+//   @VP2-06:112:H7LNDMCVY:1:1105:27172:1172 1:N:0:ATTCAGAA+AGGCTAAG
+
 
 
 #include <stdio.h>
@@ -670,7 +679,7 @@ int search_trie(name_context *ctx, char *data, size_t len, int n, int *exact, in
  * Returns 0 on success;
  *        -1 on failure.
  */
-static int encode_name(name_context *ctx, char *name, int len) {
+static int encode_name(name_context *ctx, char *name, int len, int mode) {
     int i, is_fixed, fixed_len;
 
     int exact;
@@ -722,12 +731,21 @@ static int encode_name(name_context *ctx, char *name, int len) {
 	/* Determine data type of this segment */
 	if (isalpha(name[i])) {
 	    int s = i+1;
+//	    int S = i+1;
 
 //	    // FIXME: try which of these is best.  alnum is good sometimes.
 //	    while (s < len && isalpha(name[s]))
 	    while (s < len && (isalpha(name[s]) || ispunct(name[s])))
-//	    //while (s < len && isalnum(name[s]))
+//	    while (s < len && name[s] != ':')
+//	    while (s < len && !isdigit(name[s]) && name[s] != ':')
 		s++;
+
+//	    if (!is_fixed) {
+//		while (S < len && isalnum(name[S]))
+//		    S++;
+//		if (s < S)
+//		    s = S;
+//	    }
 
 	    // Single byte strings are better encoded as chars.
 	    if (s-i == 1) goto n_char;
@@ -783,7 +801,7 @@ static int encode_name(name_context *ctx, char *name, int len) {
 #endif
 		    if (encode_token_match(ctx, ntok) < 0) return -1;
 		    //ctx->lc[pnum].last_token_delta[ntok]=0;
-		} else if (d < 256 && d >= 0 && ctx->lc[pnum].last_token_str[ntok] == s-i) {
+		} else if (mode == 1 && d < 256 && d >= 0 && ctx->lc[pnum].last_token_str[ntok] == s-i) {
 #ifdef ENC_DEBUG
 		    fprintf(stderr, "Tok %d (dig-delta, %d / %d)\n", N_DDELTA, ctx->lc[pnum].last_token_int[ntok], v);
 #endif
@@ -824,6 +842,14 @@ static int encode_name(name_context *ctx, char *name, int len) {
 		s++;
 	    }
 
+	    // dataset/10/K562_cytosol_LID8465_TopHat_v2.names
+	    // col 4 is Illumina lane - we don't want match & delta in there
+	    // as it has multiple lanes (so not ALL match) and delta is just
+	    // random chance, increasing entropy instead.
+//	    if (ntok == 4  || ntok == 8 || ntok == 10) {
+//		encode_token_int(ctx, ntok, N_DIGITS, v);
+//	    } else {
+
 	    // If the last token was DIGITS0 and we are the same length, then encode
 	    // using that method instead as it seems likely the entire column is fixed
 	    // width, sometimes with leading zeros.
@@ -842,7 +868,7 @@ static int encode_name(name_context *ctx, char *name, int len) {
 #endif
 		    if (encode_token_match(ctx, ntok) < 0) return -1;
 		    //ctx->lc[pnum].last_token_delta[ntok]=0;
-		} else if (d < 256 && d >= 0) {
+		} else if (mode == 1 && d < 256 && d >= 0) {
 #ifdef ENC_DEBUG
 		    fprintf(stderr, "Tok %d (dig-delta, %d / %d)\n", N_DDELTA, ctx->lc[pnum].last_token_int[ntok], v);
 #endif
@@ -862,6 +888,7 @@ static int encode_name(name_context *ctx, char *name, int len) {
 		if (encode_token_int(ctx, ntok, N_DIGITS, v) < 0) return -1;
 		//ctx->lc[pnum].last_token_delta[ntok]=0;
 	    }
+//	    }
 
 	    ctx->lc[cnum].last_token_int[ntok] = v;
 	    ctx->lc[cnum].last_token_type[ntok] = N_DIGITS;
@@ -1115,8 +1142,11 @@ static int compress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_le
 	return 0;
     }
 
-    int rmethods[] = {0,1,128,129,64,65,192,193, 193+8}, m;
-    for (m = 0; m < 9; m++) {
+    //int rmethods[] = {0,1,128,129,64,65,192,193, 193+8}, m;
+    //int rmethods[] = {0,1,128,129,64,65,192,193, 193+8, 0+4, 128+4}, m;
+    // DO_DICT doesn't yet work in conjunction with DO_PACK.
+    int rmethods[] = {0,1,128,129,64,65,192,193, 193+8, 0+4}, m;
+    for (m = 0; m < sizeof(rmethods)/sizeof(*rmethods); m++) {
 	*out_len = olen;
 	if (rans_encode(in, in_len, out, out_len, rmethods[m]) < 0) return -1;
 
@@ -1178,6 +1208,7 @@ static int uncompress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_
  */
 uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
     int last_start = 0, i, j, nreads;
+    int mode;
     
     // Count lines
     for (nreads = i = 0; i < len; i++)
@@ -1216,11 +1247,23 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
 	    break;
 
 	blk[i] = '\0';
-	if (encode_name(ctx, &blk[j], i-j) < 0) {
+	// try both 0 and 1 and pick best?
+	if (encode_name(ctx, &blk[j], i-j, 1) < 0) {
 	    free_context(ctx);
 	    return NULL;
 	}
     }
+
+#if 0
+    for (i = 0; i < MAX_TBLOCKS; i++) {
+	char fn[1024];
+	if (!ctx->desc[i].buf_l) continue;
+	sprintf(fn, "_tok.%02d_%02d.%d", i>>4,i&15,i);
+	FILE *fp = fopen(fn, "w");
+	fwrite(ctx->desc[i].buf, 1, ctx->desc[i].buf_l, fp);
+	fclose(fp);
+    }
+#endif
 
     //dump_trie(t_head, 0);
 
@@ -1305,6 +1348,17 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
 	}
     }
 
+#if 0
+    for (i = 0; i < MAX_TBLOCKS; i++) {
+	char fn[1024];
+	if (!ctx->desc[i].buf_l && !ctx->desc[i].dup_from) continue;
+	sprintf(fn, "_tok.%02d_%02d.%d.comp", i>>4,i&15,i);
+	FILE *fp = fopen(fn, "w");
+	fwrite(ctx->desc[i].buf, 1, ctx->desc[i].buf_l, fp);
+	fclose(fp);
+    }
+#endif
+
     // Write
     uint8_t *out = malloc(tot_size+12);
     if (!out) {
@@ -1329,6 +1383,7 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
 	    last_tnum = ctx->desc[i].tnum;
 	}
 	if (ctx->desc[i].dup_from) {
+	    //fprintf(stderr, "Dup %d from %d, sz %d\n", i, ctx->desc[i].dup_from, ctx->desc[i].buf_l);
 	    //uint8_t x = 255;
 	    //write(1, &x, 1);
 	    *cp++ = 255;

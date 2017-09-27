@@ -8,6 +8,7 @@
 #define X_CAT  0x20    // Nop; for tiny segments where rANS overhead is too big
 #define X_NOSZ 0x10    // Don't store the original size; used by X4 mode
 #define X_4    0x08    // For 4-byte integer data; rotate & encode 4 streams.
+#define X_DICT 0x04    // Quantise 16-bit of 32-symbols to 8-bit.
 
 // FIXME Can we get decoder to return the compressed sized read, avoiding
 // us needing to store it?  Yes we can.  See c-size comments.  If we added all these
@@ -2278,7 +2279,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 				     unsigned char *out, unsigned int *out_size,
 				     int order) {
     unsigned int c_meta_len;
-    uint8_t *meta = NULL, *rle = NULL, *packed = NULL;
+    uint8_t *meta = NULL, *rle = NULL, *packed = NULL, *dict = NULL;
 
     if (in_size%4 != 0 || in_size <= 20)
 	order &= ~X_4;
@@ -2333,6 +2334,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     int do_pack = order & X_PACK;
     int do_rle  = order & X_RLE;
     int no_size = order & X_NOSZ;
+    int do_dict = order & X_DICT;
 
     if (!out) {
 	*out_size = rans_compress_bound_4x16(in_size, order); //fixme, +pack, +rle
@@ -2352,6 +2354,77 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     // Meta-data can be empty, pack, rle lengths, or pack + rle lengths.
     // Data is either the original data, bit-packed packed, rle literals or
     // packed + rle literals.
+
+    if (do_dict) {
+	int v[65536] = {0};
+	int i, j, c;
+	for (i = 0; i < in_size; i+=4) {
+	    if (in[i+2] || in[i+3])
+		break;
+	    v[in[i] | (in[i+1]<<8)]++;
+	}
+
+	int val[257];
+	if (i == in_size) {
+	    for (i = c = 0; i < 65536 && c < 257; i++) {
+		if (v[i]) {
+		    val[c] = i;
+		    v[i] = ++c;
+		}
+	    }
+	    if (c <= 255) {
+		out[c_meta_len++] = 4; // 4 byte -> 1 byte replacement
+		out[c_meta_len++] = c;
+
+#if 1
+		// Basic run length encode; N lit, M run
+		//fprintf(stderr, "c=%d\t", c);
+		//for (i = 0; i < c; i++)
+		//    fprintf(stderr, "%d ", val[i]);
+		//fprintf(stderr, "\n");
+
+		i = 0;
+		while (i < c) {
+		    // number of literals
+		    int j, lit = 1, run = 0;
+		    for (j = i+1; j < c && lit < 15; j++, lit++)
+			if (val[j] == 1+val[j-1])
+			    break;
+		    // followed by consecutive run
+		    for (; j < c && run < 15; j++, run++)
+			if (val[j] != 1+val[j-1])
+			    break;
+		    //fprintf(stderr, "%d %d/%d: %d,%d\n", val[i], i,c, lit,run);
+
+		    out[c_meta_len++] = (run<<4) | lit;
+		    for (j = i+1; j <= c; j++) {
+			//fprintf(stderr, "Store val %d\n", val[j-1]);
+			out[c_meta_len++] = val[j-1]&0xff;
+			out[c_meta_len++] = val[j-1]>>8;
+			if (j >= c || --lit == 0 || val[j] == 1+val[j-1])
+			    break;
+		    }
+
+		    i = j + run;
+		}
+#else
+		int last = 0;
+		for (i = 0; i < c; i++) {
+		    out[c_meta_len++] = val[i]&0xff;
+		    out[c_meta_len++] = val[i]>>8;
+		    //fprintf(stderr, "val[%d]=%d\n", i, val[i]);
+		}
+#endif
+
+		if (!(dict = malloc(in_size/4)))
+		    return NULL;
+		for (i = j = 0; i < in_size; i+=4, j++)
+		    dict[j] =  v[in[i] | (in[i+1]<<8)]-1;
+		in_size = j;
+		in = dict;
+	    }
+	}
+    }
 
     if (do_pack && in_size) {
 	// PACK 2, 4 or 8 symbols into one byte.
@@ -2426,7 +2499,8 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	out[0] &= ~1;
 	order  &= ~1;
     }
-    if (order)
+
+    if (order == 1)
 	rans_compress_O1_4x16(in, in_size, out+c_meta_len, out_size);
     else
 	rans_compress_O0_4x16(in, in_size, out+c_meta_len, out_size);
@@ -2440,6 +2514,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     free(rle);
     free(packed);
+    free(dict);
 
     *out_size += c_meta_len;
 
@@ -2517,7 +2592,8 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     int do_rle  = order & X_RLE;
     int do_cat  = order & X_CAT;
     int no_size = order & X_NOSZ;
-    order &= 0xf;
+    int do_dict = order & X_DICT;
+    order &= 1;
 
     int sz = 0;
     unsigned int osz;
@@ -2551,6 +2627,63 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     unsigned int tmp2_size = *out_size;
     unsigned int tmp3_size = *out_size;
     unsigned char *tmp1 = NULL, *tmp2 = NULL, *tmp3 = NULL, *tmp = NULL;
+
+    // Unpack dict meta-data
+    uint32_t dict[256], dsize = 0;
+
+    if (do_dict) {
+	if (in_size < 2 || in[0] != 4) //32to8
+	    return NULL;
+
+	int nl = in[1], i, j;
+	in      += 2;
+	in_size -= 2;
+	if (in_size < nl*2)
+	    return NULL;
+
+#if 1
+	// Basic lit+run encoding
+	i = 0;
+	while (i < nl) {
+	    int lit = in[0]&15;
+	    int run = in[0]>>4;
+	    in++; in_size--;
+
+	    //fprintf(stderr, "lit %d, run %d\n", lit, run);
+
+	    while (lit--) {
+		dict[i++] = in[0] | (in[1]<<8);
+		//fprintf(stderr, "L Dict[%d] = %d\n", i, dict[i-1]);
+		in += 2;
+		in_size -= 2;
+	    }
+
+	    while (run--) {
+		dict[i] = dict[i-1]+1;
+		i++;
+		//fprintf(stderr, "R Dict[%d] = %d\n", i, dict[i-1]);
+	    }
+	}
+#else
+	for (i = 0; i < nl; i++) {
+	    dict[i] = in[i*2] | (in[i*2+1]<<8);
+	    //fprintf(stderr, "Dict[%d] = %d\n", i, dict[i]);
+	}
+	for (;i < 256;i++)
+	    dict[i] = 0; // security
+
+	in      += nl*2;
+	in_size -= nl*2;
+#endif
+	dsize = nl;
+	
+	//fprintf(stderr, "tmp3_size start at %d, out start at %d\n",
+	//	tmp3_size, *out_size);
+
+	tmp1_size/=4;
+	tmp2_size/=4;
+	tmp3_size/=4;
+    }
 
     // Need In, Out and Tmp buffers with temporary buffer of the same size
     // as output.  All use rANS, but with optional transforms (none, RLE,
@@ -2708,6 +2841,22 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 #ifdef JOINT_PACK_RLE
     }
 #endif
+
+    if (do_dict) {
+	uint32_t *tmpd = malloc(tmp3_size*4);
+	if (!tmpd)
+	    return NULL;
+	int i;
+	for (i = 0; i < tmp3_size; i++) {
+	    // FIXME: Assumes little-endian
+	    tmpd[i] = dict[tmp3[i]];
+	    if (tmp3[i] >= dsize)
+		abort();//return NULL;
+	}
+	tmp3_size *= 4;
+	memcpy(tmp3, tmpd, tmp3_size);
+	free(tmpd);
+    }
 
     if (tmp)
 	free(tmp);
