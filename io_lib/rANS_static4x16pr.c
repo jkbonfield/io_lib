@@ -2281,6 +2281,12 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     unsigned int c_meta_len;
     uint8_t *meta = NULL, *rle = NULL, *packed = NULL, *dict = NULL;
 
+    if (!out) {
+	*out_size = rans_compress_bound_4x16(in_size, order);
+	if (!(out = malloc(*out_size)))
+	    return NULL;
+    }
+
     if (in_size%4 != 0 || in_size <= 20)
 	order &= ~X_4;
 
@@ -2335,12 +2341,6 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     int do_rle  = order & X_RLE;
     int no_size = order & X_NOSZ;
     int do_dict = order & X_DICT;
-
-    if (!out) {
-	*out_size = rans_compress_bound_4x16(in_size, order); //fixme, +pack, +rle
-	if (!(out = malloc(*out_size)))
-	    return NULL;
-    }
 
     out[0] = order;
     c_meta_len = 1;
