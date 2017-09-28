@@ -186,13 +186,15 @@ int gzi_index_dump(gzi *idx, const char *bname, const char *suffix) {
 	free(tmp);
 
     int i;
-    uint64_t n = idx->n;
-    if (fwrite(le_int8(&n), sizeof(n), 1, idx_f) != 1)
+    uint64_t n = le_int8(idx->n);
+    if (fwrite(&n, sizeof(n), 1, idx_f) != 1)
 	goto fail;
     for (i=0; i<idx->n; i++) {
-	if (fwrite(le_int8(&idx->c_off[i]), sizeof idx->c_off[i], 1, idx_f) != 1)
+	n = le_int8(idx->c_off[i]);
+	if (fwrite(&n, sizeof idx->c_off[i], 1, idx_f) != 1)
 	    goto fail;
-	if (fwrite(le_int8(&idx->u_off[i]), sizeof idx->u_off[i], 1, idx_f) != 1)
+	n = le_int8(idx->u_off[i]);
+	if (fwrite(&n, sizeof idx->u_off[i], 1, idx_f) != 1)
 	    goto fail;
     }
 
