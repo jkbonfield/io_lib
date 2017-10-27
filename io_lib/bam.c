@@ -104,17 +104,19 @@ typedef uint32_t uint32_u;
  * an unsigned char pointer.  ucp is incremented by the size of the
  * stored value. */
 
-#define STORE_UINT16(ucp, val)			\
+#define STORE_UINT16(ucp, val)	do {		\
     *(ucp)++ = ((uint16_t) val)      & 0xff;	\
-    *(ucp)++ = ((uint16_t) val >> 8) & 0xff;
+    *(ucp)++ = ((uint16_t) val >> 8) & 0xff;    \
+    } while(0)
 
-#define STORE_UINT32(ucp, val)			\
+#define STORE_UINT32(ucp, val) do {		\
     *(ucp)++ = ((uint32_t) (val))       & 0xff;	\
     *(ucp)++ = ((uint32_t) (val) >>  8) & 0xff;	\
     *(ucp)++ = ((uint32_t) (val) >> 16) & 0xff;	\
-    *(ucp)++ = ((uint32_t) (val) >> 24) & 0xff;
+    *(ucp)++ = ((uint32_t) (val) >> 24) & 0xff; \
+    } while(0)
 
-#define STORE_UINT64(ucp, val)			\
+#define STORE_UINT64(ucp, val) do {		\
     *(ucp)++ = ((uint64_t) (val))       & 0xff;	\
     *(ucp)++ = ((uint64_t) (val) >>  8) & 0xff;	\
     *(ucp)++ = ((uint64_t) (val) >> 16) & 0xff;	\
@@ -122,7 +124,8 @@ typedef uint32_t uint32_u;
     *(ucp)++ = ((uint64_t) (val) >> 32) & 0xff; \
     *(ucp)++ = ((uint64_t) (val) >> 40) & 0xff; \
     *(ucp)++ = ((uint64_t) (val) >> 48) & 0xff; \
-    *(ucp)++ = ((uint64_t) (val) >> 56) & 0xff;
+    *(ucp)++ = ((uint64_t) (val) >> 56) & 0xff; \
+    } while (0)
 
 static int bam_more_input(bam_file_t *b);
 static int bam_uncompress_input(bam_file_t *b);
@@ -304,8 +307,14 @@ static int load_bam_header(bam_file_t *b) {
 
     if (4 != bam_read(b, magic, 4))
 	return -1;
-    if (memcmp(magic, "BAM\x01",4) != 0)
+    if (memcmp(magic, "BAM\x01",4) != 0 && memcmp(magic, "BAM\x02",4) != 0)
 	return -1;
+    b->version = magic[3];
+    if (b->version == 2) {
+	if (4 != bam_read(b, &b->bam_hdr_flags, 4))
+	    return -1;
+	b->bam_hdr_flags = le_int4(b->bam_hdr_flags);
+    }
     if (4 != bam_read(b, &header_len, 4))
 	return -1;
     header_len = le_int4(header_len);
@@ -469,11 +478,13 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
 
     /* Creation */
     if (*mode == 'w') {
+	b->version = 0; // synonym for unspecified; default to 1 currently
 	b->mode = O_WRONLY | O_TRUNC | O_CREAT;
 	if (mode[1] == 'b') {
 	    b->mode |= O_BINARY;
 	    b->binary = 1;
 	}
+
 	if (mode[2] >= '0' && mode[2] <= '9')
 	    b->level = mode[2] - '0';
 
@@ -526,7 +537,8 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
     if (-1 == bam_uncompress_input(b))
 	return NULL;
     /* Auto-correct open file type if we detect a BAM */
-    if (b->uncomp_sz >= 4 && strncmp("BAM\001", (char *)b->uncomp_p, 4) == 0) {
+    if (b->uncomp_sz >= 4 && strncmp("BAM", (char *)b->uncomp_p, 3) == 0
+	&& b->uncomp_p[3] >= 1 && b->uncomp_p[3] <= 2) {
 	b->mode |= O_BINARY;
 	b->binary = 1;
 	mode = "rb";
@@ -556,6 +568,10 @@ bam_file_t *bam_open(const char *fn, const char *mode) {
     }
 
     return NULL;
+}
+
+void bam_set_version(bam_file_t *b, int vers) {
+    b->version = vers;
 }
 
 bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh) {
@@ -1611,9 +1627,18 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     if (b->next_len > 0) {
 	blk_size = b->next_len;
+	if (b->next_bam_flags != 0)
+	    return -1; // currently all bits reserved
     } else {
+	if (b->version == 2) {
+	    uint32_t bam_flags;
+	    if (4 != bam_read(b, &bam_flags, 4))
+		return 0;
+	    if (bam_flags != 0)
+		return -1;
+	}
 	if (4 != bam_read(b, &blk_size, 4))
-	    return 0;
+	    return b->version == 2 ? -1 : 0;
 	blk_size = le_int4(blk_size);
 	if (blk_size < 36) /* Minimum valid BAM record size */
 	    return -1;
@@ -1629,10 +1654,10 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
     }
     bs = *bsp;
     
-    if ((blk_ret = bam_read(b, &bs->ref, blk_size+4)) == 0)
+    if ((blk_ret = bam_read(b, &bs->ref, blk_size+4+(b->version==2?4:0))) == 0)
 	return 0;
 
-    if (blk_size+4 != blk_ret) {
+    if (blk_size+4+(b->version==2?4:0) != blk_ret) {
 	if (blk_size != blk_ret) {
 	    return -1;
 	} else {
@@ -1640,10 +1665,17 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    ((char *)(&bs->ref))[blk_size] = 0;
 	}
     } else {
-	memcpy(&b->next_len, &((char *)(&bs->ref))[blk_size], 4);
+	if (b->version == 2) {
+	    memcpy(&b->next_bam_flags, &((char *)(&bs->ref))[blk_size], 0);
+	    memcpy(&b->next_len, &((char *)(&bs->ref))[blk_size+4], 4);
+	} else {
+	    memcpy(&b->next_len, &((char *)(&bs->ref))[blk_size], 4);
+	    b->next_bam_flags = 0;
+	}
 	((char *)(&bs->ref))[blk_size] = 0;
     }
     b->next_len = le_int4(b->next_len);
+    b->next_bam_flags = b->version == 2 ? le_int4(b->next_bam_flags) : 0;
 
     bs->blk_size  = blk_size;
     bs->ref       = le_int4(bs->ref);
@@ -1663,6 +1695,14 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
     bs->mate_ref  = le_int4(bs->mate_ref);
     bs->mate_pos  = le_int4(bs->mate_pos);
     bs->ins_size  = le_int4(bs->ins_size);
+
+    if (b->version == 2) {
+	// We fake up BAMv2 using the older flags & bin hack already implemented here.
+	bs->flag |= BAM_CIGAR32;
+	uint16_t tmp = bs->bin;
+	bs->bin = bs->cigar_len;
+	bs->cigar_len = tmp;
+    }
 
     if (10 == be_int4(10)) {
 	int i, cigar_len = bam_cigar_len(bs);
@@ -1689,9 +1729,18 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     if (b->next_len > 0) {
 	blk_size = b->next_len;
+	if (b->next_bam_flags != 0)
+	    return -1; // currently all bits reserved
     } else {
+	if (b->version == 2) {
+	    uint32_t bam_flags;
+	    if (4 != bam_read(b, &bam_flags, 4))
+		return 0;
+	    if (bam_flags != 0)
+		return -1;
+	}
 	if (4 != bam_read(b, &blk_size, 4))
-	    return 0;
+	    return b->version == 2 ? -1 : 0;
 	blk_size = le_int4(blk_size);
 	if (blk_size < 36) /* Minimum valid BAM record size */
 	    return -1;
@@ -1727,6 +1776,14 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
     bs->flag      = i32 >> 16;
     bs->cigar_len = i32 & 0xffff;
 
+    if (b->version == 2) {
+	// We fake up BAMv2 using the older flags & bin hack already implemented here.
+	bs->flag |= BAM_CIGAR32;
+	uint16_t tmp = bs->bin;
+	bs->bin = bs->cigar_len;
+	bs->cigar_len = tmp;
+    }
+
     bs->len       = le_int4(bs->len);
     bs->mate_ref  = le_int4(bs->mate_ref);
     bs->mate_pos  = le_int4(bs->mate_pos);
@@ -1744,10 +1801,10 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     /* The remainder, word aligned */
     blk_size = blk_ret;
-    if ((blk_ret = bam_read(b, (char *)bam_cigar(bs), blk_size+4)) == 0 &&
+    if ((blk_ret = bam_read(b, (char *)bam_cigar(bs), blk_size+4+(b->version==2?4:0))) == 0 &&
 	blk_size != 0)
 	return 0;
-    if (blk_size+4 != blk_ret) {
+    if (blk_size+4+(b->version==2?4:0) != blk_ret) {
 	if (blk_size != blk_ret) {
 	    return -1;
 	} else {
@@ -1755,10 +1812,16 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    ((char *)bam_cigar(bs))[blk_size] = 0;
 	}
     } else {
-	memcpy(&b->next_len, &((char *)bam_cigar(bs))[blk_size], 4);
-	((char *)bam_cigar(bs))[blk_size] = 0;
+	if (b->version == 2) {
+	    memcpy(&b->next_bam_flags, &((char *)(&bs->ref))[blk_size], 4);
+	    memcpy(&b->next_len, &((char *)(&bs->ref))[blk_size+4], 8);
+	} else {
+	    memcpy(&b->next_len, &((char *)(&bs->ref))[blk_size], 4);
+	    b->next_bam_flags = 0;
+	}
     }
     b->next_len = le_int4(b->next_len);
+    b->next_bam_flags = b->version == 2 ? le_int4(b->next_bam_flags) : 0;
 
     if (10 == be_int4(10)) {
 	int i, cigar_len = bam_cigar_len(bs);
@@ -3137,7 +3200,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* FLAG */
 	if (end-fp->uncomp_p < 5) BF_FLUSH();
-	fp->uncomp_p = append_int(fp->uncomp_p, bam_flag(b));
+	fp->uncomp_p = append_int(fp->uncomp_p, bam_flag(b) & ~BAM_CIGAR32);
 	*fp->uncomp_p++ = '\t';
 
 	/* RNAME */
@@ -3514,10 +3577,18 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    fp->uncomp_p=fp->uncomp;				\
 	} while(0)
 
-	/* If big endian, byte swap inline, write it out, and byte swap back */
-	b->bin_packed  = (b->bin  << 16) | (b->map_qual << 8) | b->name_len;
-	b->flag_packed = (b->flag << 16) | b->cigar_len;
+	uint32_t  bin_packed_orig = b->bin_packed;
+	uint32_t flag_packed_orig = b->flag_packed;
+	if (fp->version == 2) {
+	    uint16_t bin_ = b->bin;
+	    b->bin_packed  = (b->cigar_len  << 16) | (b->map_qual << 8) | b->name_len;
+	    b->flag_packed = ((b->flag & ~BAM_CIGAR32) << 16) | ((b->flag & BAM_CIGAR32) ? bin_ : 0);
+	} else {
+	    b->bin_packed  = (b->bin  << 16) | (b->map_qual << 8) | b->name_len;
+	    b->flag_packed = (b->flag << 16) | b->cigar_len;
+	}
 
+	/* If big endian, byte swap inline, write it out, and byte swap back */
 #ifdef SP_BIG_ENDIAN
 	b->ref         = le_int4(b->ref);
 	b->pos         = le_int4(b->pos);
@@ -3532,6 +3603,12 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    cigar[i] = le_int4(cigar[i]);
 	}
 #endif
+
+	if (fp->version == 2) {
+	    if (end - fp->uncomp_p < 4) CF_FLUSH();
+	    // bam flags; all reserved and set as zero.  Not to be confused with sam flags.
+	    STORE_UINT32(fp->uncomp_p, 0); 
+	}
 
 #ifdef ALLOW_UAC
 	/* Room for fixed size bits + name */
@@ -3595,14 +3672,8 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	}
 #endif
 
-	i32 = b->bin_packed;
-	b->bin       = i32 >> 16;
-	b->map_qual  = (i32 >> 8) & 0xff;
-	b->name_len  = i32 & 0xff;
-
-	i32          = b->flag_packed;
-	b->flag      = i32 >> 16;
-	b->cigar_len = i32 & 0xffff;
+	b->bin_packed  =  bin_packed_orig;
+	b->flag_packed = flag_packed_orig;
     }
 
     return 0;
@@ -3624,7 +3695,10 @@ int bam_write_header(bam_file_t *out) {
     htext = sam_hdr_str(out->header);
     htext_len = sam_hdr_length(out->header);
 
-    hdr_size = 12 + htext_len+1;
+    if (out->version == 0 && out->header->hd.bam_major_vers)
+	out->version = out->header->hd.bam_major_vers;
+
+    hdr_size = 12 + htext_len+1 + (out->version==2 ?4 :0);
     for (i = 0; i < out->header->nref; i++) {
 	hdr_size += strlen(out->header->ref[i].name)+1 + 8;
     }
@@ -3632,7 +3706,9 @@ int bam_write_header(bam_file_t *out) {
 	return -1;
 
     if (out->binary) {
-	*hp++ = 'B'; *hp++ = 'A'; *hp++ = 'M'; *hp++ = 1;
+	*hp++ = 'B'; *hp++ = 'A'; *hp++ = 'M'; *hp++ = out->version;
+	if (out->version == 2)
+	    STORE_UINT32(hp, 0); // bam_hdr_flags; all bits reserved
 	STORE_UINT32(hp, htext_len);
     }
     memcpy(hp, htext, htext_len);

@@ -206,6 +206,11 @@ typedef struct {
     unsigned char bgbuf[Z_BUFF_SIZE];
     unsigned char *bgbuf_p;
     size_t bgbuf_sz;
+
+    /* BAM2 support*/
+    int version;
+    uint32_t bam_hdr_flags;
+    uint32_t next_bam_flags;
 } bam_file_t;
 
 /* BAM flags */
@@ -329,6 +334,8 @@ enum cigar_op {
 bam_file_t *bam_open(const char *fn, const char *mode);
 
 bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh);
+
+void bam_set_version(bam_file_t *b, int vers);
 
 /*! Closes a SAM or BAM file.
  * 

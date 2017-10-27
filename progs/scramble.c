@@ -154,6 +154,7 @@ int main(int argc, char **argv) {
     int preserve_aux_order = 0;
     int preserve_aux_size = 0; 
     int add_pg = 1;   
+    char *vers = NULL;
 
     scram_init();
 
@@ -203,7 +204,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
+	    if (cram_set_option(NULL, CRAM_OPT_VERSION, vers=optarg))
 		return 1;
 	    break;
 
@@ -373,7 +374,7 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }
-
+    if (vers && out->is_bam) bam_set_version(out->b, atoi(vers));
 
     /* Set any format specific options */
     scram_set_refs(out, refs = scram_get_refs(in));

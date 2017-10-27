@@ -107,6 +107,25 @@ void sam_hdr_dump(SAM_hdr *hdr) {
 static int sam_hdr_update_hashes(SAM_hdr *sh,
 				 const char *type,
 				 SAM_hdr_type *h_type) {
+    if (type[0] == 'H' && type[1] == 'D') {
+	SAM_hdr_tag *tag = h_type->tag;
+
+	sh->hd.ty  = h_type;
+	sh->hd.tag = tag;
+
+	while (tag) {
+	    if (tag->str[0] == 'V' && tag->str[1] == 'N') {
+		if (2 != sscanf(tag->str+3, "%d.%d", &sh->hd.sam_major_vers, &sh->hd.sam_minor_vers))
+		    return -1;
+	    } else if (tag->str[0] == 'B' && tag->str[1] == 'V') {
+		if (1 != sscanf(tag->str+3, "%d", &sh->hd.bam_major_vers))
+		    return -1;
+	    }
+	    // FIXME: move SO sort order field to this structure too
+	    tag = tag->next;
+	}
+    }
+
     /* Add to reference hash? */
     if (type[0] == 'S' && type[1] == 'Q') {
 	SAM_hdr_tag *tag;

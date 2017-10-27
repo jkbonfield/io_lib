@@ -134,6 +134,15 @@ typedef struct SAM_hdr_item_s {
     int order;                   // 0 upwards
 } SAM_hdr_type;
 
+/*! Parsed \@HD lines */
+typedef struct {
+    SAM_hdr_type *ty;
+    SAM_hdr_tag  *tag;
+    int sam_major_vers;
+    int sam_minor_vers;
+    int bam_major_vers;
+} SAM_HD;
+
 /*! Parsed \@SQ lines */
 typedef struct {
     char *name;
@@ -188,6 +197,9 @@ typedef struct {
     string_alloc_t *str_pool; //!< Pool of SAM_hdr_tag->str strings
     pool_alloc_t   *type_pool;//!< Pool of SAM_hdr_type structs
     pool_alloc_t   *tag_pool; //!< Pool of SAM_hdr_tag structs
+
+    // @HD line
+    SAM_HD hd;
 
     // @SQ lines / references
     int nref;                 //!< Number of \@SQ lines
