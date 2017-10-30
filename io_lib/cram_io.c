@@ -58,6 +58,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <zlib.h>
 #ifdef HAVE_LIBBZ2
 #include <bzlib.h>
