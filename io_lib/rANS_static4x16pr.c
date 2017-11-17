@@ -2953,7 +2953,7 @@ int main(int argc, char **argv) {
 	    memcpy(b[nb].blk, in_buf, len);
 	    bc[nb].sz = rans_compress_bound_4x16(BLK_SIZE, order);
 	    bc[nb].blk = malloc(bc[nb].sz);
-	    bu[nb].sz = BLK_SIZE;
+	    bu[nb].sz = len;
 	    bu[nb].blk = malloc(BLK_SIZE);
 	    nb++;
 	    in_sz += len;
