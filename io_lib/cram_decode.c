@@ -1847,6 +1847,9 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		if (md_dist >= 0)
 		    md_dist += cr->len - seq_pos + 1;
 	    }
+	} else {
+	    // So alignment end can be computed even when not decoding sequence
+	    ref_pos += cr->len - seq_pos + 1;
 	}
 
 	if (ncigar+1 >= cigar_alloc) {
@@ -1892,7 +1895,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
     cr->ncigar = ncigar - cr->cigar;
     cr->aend = ref_pos;
 
-    //printf("2: %.*s %d .. %d\n", cr->name_len, DSTRING_STR(name_ds) + cr->name, cr->apos, ref_pos);
+    //printf("2: %.*s %d .. %d %d\n", cr->name_len, (char *)BLOCK_DATA(s->name_blk) + cr->name, cr->apos, ref_pos, seq_pos);
 
     if (ds & CRAM_MQ) {
 	if (!c->comp_hdr->codecs[DS_MQ]) return -1;
