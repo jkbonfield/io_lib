@@ -289,6 +289,7 @@ typedef struct {
     int AP_delta;
     // indexed by ref-base and subst. code
     char substitution_matrix[5][4];
+    int no_ref;
 
     // TD Dictionary as a concatenated block
     cram_block *TD_blk;  // Tag Dictionary
@@ -304,8 +305,6 @@ typedef struct {
 
     char *uncomp; // A single block of uncompressed data
     size_t uncomp_size, uncomp_alloc;
-
-    unsigned int data_series; // See cram_fields enum below
 } cram_block_compression_hdr;
 
 typedef struct cram_map {
@@ -373,6 +372,7 @@ typedef struct {
 
     /* For construction purposes */
     int max_slice, curr_slice;   // maximum number of slices
+    int curr_slice_mt;           // Curr slice when reading ahead (via threads)
     int max_rec, curr_rec;       // current and max recs per slice
     int max_c_rec, curr_c_rec;   // current and max recs per container
     int slice_rec;               // rec no. for start of this slice
@@ -590,6 +590,15 @@ typedef struct cram_slice {
     // For going from BAM to CRAM; an array of auxiliary blocks per type
     int naux_block;
     cram_block **aux_block;
+
+    unsigned int data_series;    // See cram_fields enum below
+    int decode_md;
+
+    // Caching of block ID to block ptr for some blocks.
+    cram_block *id2blk[256];
+
+    int max_rec, curr_rec;       // current and max recs per slice
+    int slice_num;               // To be copied into c->curr_slice in decode
 
     // Cache of converted BAM structs
     bam_seq_t **bl;

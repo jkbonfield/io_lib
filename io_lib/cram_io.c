@@ -3721,7 +3721,11 @@ void *cram_flush_thread(void *arg) {
 static int cram_flush_result(cram_fd *fd) {
     int i, ret = 0;
     t_pool_result *r;
+    cram_container *lc = NULL;
 
+    // NB: we can have one result per slice, not per container,
+    // so we need to free the container only after all slices
+    // within it have been freed.  (Automatic via reference counting.)
     while ((r = t_pool_next_result(fd->rqueue))) {
 	cram_job *j = (cram_job *)r->data;
 	cram_container *c;
@@ -3749,11 +3753,25 @@ static int cram_flush_result(cram_fd *fd) {
 	c->slice = NULL;
 	c->curr_slice = 0;
 
-	cram_free_container(c);
+	// Our jobs will be in order, so we free the last
+	// container when our job has switched to a new one.
+	if (c != lc) {
+	    if (lc) {
+		cram_free_container(lc);
+		if (fd->ctr == lc)
+		    fd->ctr = NULL;
+	    }
+	    lc = c;
+	}
 
 	ret |= CRAM_IO_FLUSH(fd) == 0 ? 0 : -1;
 
 	t_pool_delete_result(r, 1);
+    }
+    if (lc) {
+	cram_free_container(lc);
+	if (fd->ctr == lc)
+	    fd->ctr = NULL;
     }
 
     return ret;
@@ -4062,15 +4080,16 @@ cram_slice *cram_read_slice(cram_fd *fd) {
 		min_id = s->block[i]->content_id;
 	}
     }
-    if (min_id >= 0 && max_id < 1024) {
-	if (!(s->block_by_id = calloc(1024, sizeof(s->block[0]))))
-	    goto err;
+    if (!(s->block_by_id = calloc(512, sizeof(s->block[0]))))
+	goto err;
 
-	for (i = 0; i < n; i++) {
-	    if (s->block[i]->content_type != EXTERNAL)
-		continue;
-	    s->block_by_id[s->block[i]->content_id] = s->block[i];
-	}
+    for (i = 0; i < n; i++) {
+	if (s->block[i]->content_type != EXTERNAL)
+	    continue;
+	int v = s->block[i]->content_id;
+	if (v < 0 || v >= 512)
+	    v = 256 + (v > 0 ? v % 251 : (-v) % 251);
+	s->block_by_id[v] = s->block[i];
     }
 
     /* Initialise encoding/decoding tables */
@@ -4088,7 +4107,8 @@ cram_slice *cram_read_slice(cram_fd *fd) {
     s->crecs = NULL;
 
     s->last_apos = s->hdr->ref_seq_start;
-    
+    s->decode_md = fd->decode_md;
+
     return s;
 
  err:
@@ -5428,9 +5448,12 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	}
 	break;
 
-    case CRAM_OPT_RANGE:
-	fd->range = *va_arg(args, cram_range *);
-	return cram_seek_to_refpos(fd, &fd->range);
+    case CRAM_OPT_RANGE: {
+	int r = cram_seek_to_refpos(fd, va_arg(args, cram_range *));
+	if (fd->range.refid != -2)
+	    fd->required_fields |= SAM_POS;
+	return r;
+    }
 
     case CRAM_OPT_REFERENCE:
 	return cram_load_reference(fd, va_arg(args, char *));
@@ -5507,6 +5530,8 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_REQUIRED_FIELDS:
 	fd->required_fields = va_arg(args, int);
+	if (fd->range.refid != -2)
+	    fd->required_fields |= SAM_POS;
 	break;
 
     case CRAM_OPT_PRESERVE_AUX_ORDER:
