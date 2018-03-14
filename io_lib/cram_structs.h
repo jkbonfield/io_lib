@@ -772,6 +772,9 @@ typedef struct {
     // Current container being processed.
     cram_container *ctr;
 
+    // Current container used for decoder threads
+    cram_container *ctr_mt;
+
     // positions for encoding or decoding
     int first_base, last_base;
 

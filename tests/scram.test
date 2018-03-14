@@ -9,7 +9,7 @@ compare_sam=$srcdir/compare_sam.pl
 #scramble="$valgrind $scramble"
 
 case $# in
-    0) files=`/bin/ls $srcdir/data/*.{sam,bam} | egrep -v '[._](full|\.sub|java)\.'`
+    0) files=`/bin/ls $srcdir/data/*#*.{sam,bam} | egrep -v '[._](full|\.sub|java)\.'`
        ;;
     *) files=${@+"$@"}
        ;;

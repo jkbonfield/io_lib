@@ -3760,6 +3760,8 @@ static int cram_flush_result(cram_fd *fd) {
 		cram_free_container(lc);
 		if (fd->ctr == lc)
 		    fd->ctr = NULL;
+		if (fd->ctr_mt == lc)
+		    fd->ctr_mt = NULL;
 	    }
 	    lc = c;
 	}
@@ -3772,6 +3774,8 @@ static int cram_flush_result(cram_fd *fd) {
 	cram_free_container(lc);
 	if (fd->ctr == lc)
 	    fd->ctr = NULL;
+	if (fd->ctr_mt == lc)
+	    fd->ctr_mt = NULL;
     }
 
     return ret;
@@ -4887,6 +4891,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->record_counter = 0;
 
     fd->ctr = NULL;
+    fd->ctr_mt = NULL;
     fd->refs  = refs_create();
     if (!fd->refs)
 	goto err;
@@ -4992,6 +4997,7 @@ cram_fd *cram_open_by_callbacks(
     fd->record_counter = 0;
 
     fd->ctr = NULL;
+    fd->ctr_mt = NULL;
     fd->refs  = refs_create();
     if (!fd->refs)
 	goto err;
@@ -5274,7 +5280,8 @@ int cram_close(cram_fd *fd) {
 	free(fd->ref_lock);
 	free(fd->bam_list_lock);
 
-	fd->ctr = NULL; // prevent double freeing
+	if (fd->mode == 'w')
+	    fd->ctr = NULL; // prevent double freeing
 
 	//fprintf(stderr, "CRAM: destroy queue %p\n", fd->rqueue);
 
@@ -5314,6 +5321,9 @@ int cram_close(cram_fd *fd) {
 
     if (fd->ctr)
 	cram_free_container(fd->ctr);
+
+    if (fd->ctr_mt && fd->ctr_mt != fd->ctr)
+	cram_free_container(fd->ctr_mt);
 
     if (fd->refs)
 	refs_free(fd->refs);

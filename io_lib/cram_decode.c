@@ -3058,89 +3058,124 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 /*
  * Here be dragons! The multi-threading code in this is crufty beyond belief.
  */
-static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
+/*
+ * Load first container.
+ * Called when fd->ctr is NULL>
+ *
+ * Returns container on success
+ *        NULL on failure.
+ */
+static cram_container *cram_first_slice(cram_fd *fd) {
     cram_container *c;
-    cram_slice *s = NULL;
 
-    if (!(c = fd->ctr)) {
-	// Load first container.
-	do {
-	    if (!(c = fd->ctr = cram_read_container(fd)))
+    do {
+	if (!(c = fd->ctr = cram_read_container(fd)))
+	    return NULL;
+	c->curr_slice_mt = c->curr_slice;
+    } while (c->length == 0);
+
+    /*
+     * The first container may be a result of a sub-range query.
+     * In which case it may still not be the optimal starting point
+     * due to skipped containers/slices in the index. 
+     */
+    // No need for locks here as we're in the main thread.
+    if (fd->range.refid != -2) {
+	while (c->ref_seq_id != -2 &&
+	       (c->ref_seq_id < fd->range.refid ||
+		(fd->range.refid >= 0 && c->ref_seq_id == fd->range.refid
+		 && c->ref_seq_start + c->ref_seq_span-1 < fd->range.start))) {
+	    if (0 != cram_seek(fd, c->length, SEEK_CUR))
 		return NULL;
-	} while (c->length == 0);
-
-	/*
-	 * The first container may be a result of a sub-range query.
-	 * In which case it may still not be the optimal starting point
-	 * due to skipped containers/slices in the index. 
-	 */
-	if (fd->range.refid != -2) {
-	    while (c->ref_seq_id != -2 &&
-		   (c->ref_seq_id < fd->range.refid ||
-		    (fd->range.refid >= 0 && c->ref_seq_id == fd->range.refid &&
-		     c->ref_seq_start + c->ref_seq_span-1 < fd->range.start))) {
-		if (0 != cram_seek(fd, c->length, SEEK_CUR))
+	    cram_free_container(fd->ctr);
+	    do {
+		if (!(c = fd->ctr = cram_read_container(fd)))
 		    return NULL;
-		cram_free_container(fd->ctr);
-		do {
-		    if (!(c = fd->ctr = cram_read_container(fd)))
-			return NULL;
-		} while (c->length == 0);
-	    }
-
-	    if (c->ref_seq_id != -2 && c->ref_seq_id != fd->range.refid) {
-		fd->eof = 1;
-		return NULL;
-	    }
+	    } while (c->length == 0);
 	}
 
-	if (!(c->comp_hdr_block = cram_read_block(fd)))
+	if (c->ref_seq_id != -2 && c->ref_seq_id != fd->range.refid) {
+	    fd->eof = 1;
 	    return NULL;
-	if (c->comp_hdr_block->content_type != COMPRESSION_HEADER)
-	    return NULL;
-
-	c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
-	if (!c->comp_hdr)
-	    return NULL;
-	if (!c->comp_hdr->AP_delta &&
-	    sam_hdr_sort_order(fd->header) != ORDER_COORD) {
-	    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
-	    fd->unsorted = 1;
-	    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
 	}
     }
 
-    // Note c is fd->c; the current container being processed.
+    if (!(c->comp_hdr_block = cram_read_block(fd)))
+	return NULL;
+    if (c->comp_hdr_block->content_type != COMPRESSION_HEADER)
+	return NULL;
+
+    c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
+    if (!c->comp_hdr)
+	return NULL;
+    if (!c->comp_hdr->AP_delta &&
+	sam_hdr_sort_order(fd->header) != ORDER_COORD) {
+	if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
+	fd->unsorted = 1;
+	if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
+    }
+
+    return c;
+}
+
+static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
+    cram_container *c_curr;  // container being consumed via cram_get_seq()
+    cram_slice *s_curr = NULL;
+
+    // Populate the first container if unknown.
+    if (!(c_curr = fd->ctr)) {
+	if (!(c_curr = cram_first_slice(fd)))
+	    return NULL;
+    }
+
+    // Discard previous slice
+    if ((s_curr = c_curr->slice)) {
+	c_curr->slice = NULL;
+	cram_free_slice(s_curr);
+	s_curr = NULL;
+    }
+
+    // If we've consumed all slices in this container, also discard
+    // the container too.
+    if (c_curr->curr_slice == c_curr->max_slice) {
+	if (fd->ctr == c_curr)
+	    fd->ctr = NULL;
+	if (fd->ctr_mt == c_curr)
+	    fd->ctr_mt = NULL;
+	cram_free_container(c_curr);
+	c_curr = NULL;
+    }
+
+    if (!fd->ctr_mt)
+	fd->ctr_mt = c_curr;
+
+    // Fetch the next slice (and the container if necessary).
     //
-    // It is not the same as the read-ahead 'c' in the code below,
-    // which is for data *to be* processed.
-    if ((s = c->slice)) {
-	c->slice = NULL;
-	cram_free_slice(s);
-	s = NULL;
-    }
-
-    if (c->curr_slice == c->max_slice) {
- 	if (fd->ctr == c)
- 	    fd->ctr = NULL;
-	cram_free_container(c);
-	c = NULL;
-    }
-
-    /* Sorry this is so contorted! */
+    // If single threaded this loop bails out as soon as it finds
+    // a slice in range.  In this case c_next and c_curr end up being
+    // the same thing.
+    //
+    // If multi-threaded, we loop until we have filled out
+    // thread pool input queue.  Here c_next and c_curr *may* differ, as
+    // can fd->ctr and fd->ctr_mt.
     for (;;) {
+	cram_container *c_next = fd->ctr_mt;
+	cram_slice *s_next = NULL;
+
+	// Next slice; either from the last job we failed to push
+	// to the input queue or via more I/O.
 	if (fd->job_pending) {
 	    cram_decode_job *j = (cram_decode_job *)fd->job_pending;
-	    c = j->c;
-	    s = j->s;
+	    c_next = j->c;
+	    s_next = j->s;
 	    free(fd->job_pending);
 	    fd->job_pending = NULL;
 	} else if (!fd->ooc) {
 	empty_container:
-	    if (!c || c->curr_slice_mt == c->max_slice) {
+	    if (!c_next || c_next->curr_slice_mt == c_next->max_slice) {
 		// new container
 		for(;;) {
-		    if (!(c = cram_read_container(fd))) {
+		    if (!(c_next = cram_read_container(fd))) {
 			if (fd->pool) {
 			    fd->ooc = 1;
 			    break;
@@ -3148,58 +3183,60 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 
 			return NULL;
 		    }
-                    c->curr_slice_mt = c->curr_slice;
+		    c_next->curr_slice_mt = c_next->curr_slice;
 
-                    if (c->length != 0)
-                        break;
+		    if (c_next->length != 0)
+			break;
 
-                    cram_free_container(c);
+		    cram_free_container(c_next);
 		}
 		if (fd->ooc)
 		    break;
 
 		/* Skip containers not yet spanning our range */
-		if (fd->range.refid != -2 && c->ref_seq_id != -2) {
-		    if (c->ref_seq_id != fd->range.refid) {
-			cram_free_container(c);
-			c = NULL;
+		if (fd->range.refid != -2 && c_next->ref_seq_id != -2) {
+		    // ref_id beyond end of range; bail out
+		    if (c_next->ref_seq_id != fd->range.refid) {
+			cram_free_container(c_next);
+			fd->ctr_mt = NULL;
 			fd->ooc = 1;
-			fd->eof = 1;
 			break;
 		    }
 
-		    if (c->ref_seq_start > fd->range.end) {
-			cram_free_container(c);
-			c = NULL;
+		    // position beyond end of range; bail out
+		    if (c_next->ref_seq_start > fd->range.end) {
+			cram_free_container(c_next);
+			fd->ctr_mt = NULL;
 			fd->ooc = 1;
-			fd->eof = 1;
 			break;
 		    }
 
-		    if (c->ref_seq_start + c->ref_seq_span-1 <
+		    // before start of range; skip to next container
+		    if (c_next->ref_seq_start + c_next->ref_seq_span-1 <
 			fd->range.start) {
-			s->curr_rec = s->max_rec;
-			c->curr_slice_mt = c->max_slice;
-			cram_seek(fd, c->length, SEEK_CUR);
-			cram_free_container(c);
-			c = NULL;
+			c_next->curr_slice_mt = c_next->max_slice;
+			cram_seek(fd, c_next->length, SEEK_CUR);
+			cram_free_container(c_next);
+			c_next = NULL;
 			continue;
 		    }
 		}
 
-		fd->ctr = c;
+		// Container is valid range, so remember it for restarting
+		// this function.
+		fd->ctr_mt = c_next;
 
-		if (!(c->comp_hdr_block = cram_read_block(fd)))
+		if (!(c_next->comp_hdr_block = cram_read_block(fd)))
 		    return NULL;
-		if (c->comp_hdr_block->content_type != COMPRESSION_HEADER)
-		    return NULL;
-
-		c->comp_hdr =
-		    cram_decode_compression_header(fd, c->comp_hdr_block);
-		if (!c->comp_hdr)
+		if (c_next->comp_hdr_block->content_type != COMPRESSION_HEADER)
 		    return NULL;
 
-		if (!c->comp_hdr->AP_delta &&
+		c_next->comp_hdr =
+		    cram_decode_compression_header(fd, c_next->comp_hdr_block);
+		if (!c_next->comp_hdr)
+		    return NULL;
+
+		if (!c_next->comp_hdr->AP_delta &&
 		    sam_hdr_sort_order(fd->header) != ORDER_COORD) {
 		    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
 		    fd->unsorted = 1;
@@ -3207,96 +3244,107 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 		}
 	    }
 
-	    if (c->num_records == 0) {
-                if (fd->ctr == c)
-                    fd->ctr = NULL;
-		cram_free_container(c); c = NULL;
+	    if (c_next->num_records == 0) {
+		cram_free_container(c_next);
+		if (fd->ctr_mt == c_next)
+		    fd->ctr_mt = NULL;
+		c_next = NULL;
 		goto empty_container;
 	    }
 
-	    if (!(s = c->slice = cram_read_slice(fd)))
+	    if (!(s_next = c_next->slice = cram_read_slice(fd)))
 		return NULL;
 
-	    s->slice_num = ++c->curr_slice_mt;
-	    s->curr_rec = 0;
-	    s->max_rec = s->hdr->num_records;
+	    s_next->slice_num = ++c_next->curr_slice_mt;
+	    s_next->curr_rec = 0;
+	    s_next->max_rec = s_next->hdr->num_records;
 
-	    s->last_apos = s->hdr->ref_seq_start;
+	    s_next->last_apos = s_next->hdr->ref_seq_start;
 	    
-	    /* Skip slices not yet spanning our range */
-	    if (fd->range.refid != -2 && s->hdr->ref_seq_id != -2) {
-		if (s->hdr->ref_seq_id != fd->range.refid) {
+	    // We know the container overlaps our range, but with multi-slice
+	    // containers we may have slices that do not.  Skip these also.
+	    if (fd->range.refid != -2 && s_next->hdr->ref_seq_id != -2) {
+		// ref_id beyond end of range; bail out
+		if (s_next->hdr->ref_seq_id != fd->range.refid) {
 		    fd->ooc = 1;
-		    fd->eof = 1;
-		    cram_free_slice(s);
-		    s = NULL;
+		    cram_free_slice(s_next);
+		    s_next = NULL;
 		    break;
 		}
 
-		if (s->hdr->ref_seq_start > fd->range.end) {
+		// position beyond end of range; bail out
+		if (s_next->hdr->ref_seq_start > fd->range.end) {
 		    fd->ooc = 1;
-		    fd->eof = 1;
-		    cram_free_slice(s);
-		    s = NULL;
+		    cram_free_slice(s_next);
+		    s_next = NULL;
 		    break;
 		}
 
-		if (s->hdr->ref_seq_start + s->hdr->ref_seq_span-1 <
+		// before start of range; skip to next slice
+		if (s_next->hdr->ref_seq_start + s_next->hdr->ref_seq_span-1 <
 		    fd->range.start) {
-		    cram_free_slice(s);
+		    cram_free_slice(s_next);
 		    continue;
 		}
 	    }
-	}
+	} // end: if (!fd->ooc)
 
-	/* Test decoding of 1st seq */
-	if (!c || !s)
+	if (!c_next || !s_next)
 	    break;
 
-	if (cram_decode_slice_mt(fd, c, s, fd->header) != 0) {
-	    //	if (cram_decode_slice(fd, c, s, fd->header) != 0) {
+	// Decode the slice, either right now (non-threaded) or by pushing
+	// it to the a decode queue (threaded).
+	if (cram_decode_slice_mt(fd, c_next, s_next, fd->header) != 0) {
 	    fprintf(stderr, "Failure to decode slice\n");
-	    cram_free_slice(s);
-	    c->slice = NULL;
-	    fd->eof = -1;
+	    cram_free_slice(s_next);
+	    c_next->slice = NULL;
 	    return NULL;
 	}
 
-	if (!fd->pool || fd->job_pending)
+	// No thread pool, so don't loop again
+	if (!fd->pool) {
+	    c_curr = c_next;
+	    s_curr = s_next;
+	    break;
+	}
+
+	// With thread pool, but we have a job pending so our decode queue
+	// is full.
+	if (fd->job_pending)
 	    break;
 
+	// Otherwise we're threaded with room in the decode input queue, so
+	// keep reading slices for decode.
 	// Push it a bit far, to qsize in queue rather than pending arrival,
 	// as cram tends to be a bit bursty in decode timings.
 	if (t_pool_results_queue_len(fd->rqueue) > fd->pool->qsize)
 	    break;
-    }
+    } // end of for(;;)
 
+
+    // When not threaded we've already have c_curr and s_curr.
+    // Otherwise we need get them by pulling off the decode output queue.
     if (fd->pool) {
 	t_pool_result *res;
 	cram_decode_job *j;
 	
-//	fprintf(stderr, "Thread pool len = %d, %d\n",
-//		t_pool_results_queue_len(fd->rqueue),
-//		t_pool_results_queue_sz(fd->rqueue));
-
 	if (fd->ooc && t_pool_results_queue_empty(fd->rqueue))
 	    return NULL;
 
 	res = t_pool_next_result_wait(fd->rqueue);
 
 	if (!res || !res->data) {
-	    fprintf(stderr, "t_pool_next_result failure\n");
-	    fd->eof = -1;
+	    fprintf(stderr, "Call to t_pool_next_result failed\n");
 	    return NULL;
 	}
 
 	j = (cram_decode_job *)res->data;
-	c = j->c;
-	s = j->s;
+	c_curr = j->c;
+	s_curr = j->s;
 
 	if (j->exit_code != 0) {
 	    fprintf(stderr, "Slice decode failure\n");
-	    fd->eof = -1;
+	    fd->eof = 0;
 	    t_pool_delete_result(res, 1);
 	    return NULL;
 	}
@@ -3304,20 +3352,22 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	t_pool_delete_result(res, 1);
     }
 
-    *cp = c;
+    *cp = c_curr;
 
     // Update current slice being processed (as opposed to current
     // slice in the multi-threaded reahead.
-    fd->ctr = c;
-    if (c) {
-        c->slice = s;
-        if (s)
-            c->curr_slice = s->slice_num;
+    fd->ctr = c_curr;
+    if (c_curr) {
+	c_curr->slice = s_curr;
+	if (s_curr)
+	    c_curr->curr_slice = s_curr->slice_num;
     }
-    if (s)
-        s->curr_rec = 0;
+    if (s_curr)
+	s_curr->curr_rec = 0;
+    else
+	fd->eof = 1;
 
-    return s;
+    return s_curr;
 }
 
 /*
