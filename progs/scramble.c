@@ -397,9 +397,18 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_BASES_PER_SLICE, bases_per_slice))
 	    return 1;
 
-    if (embed_ref)
-	if (scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref))
-	    return 1;
+    if (embed_ref) {
+	if (scram_get_header(in)->sort_order == ORDER_NAME ||
+	    scram_get_header(in)->sort_order == ORDER_UNSORTED) {
+	    fprintf(stderr, "Embeded reference with non-coordinate sorted data is "
+		    "not supported.\nUsing -x for no-ref instead.\n");
+	    if (scram_set_option(out, CRAM_OPT_NO_REF, 1))
+		return 1;
+	} else {
+	    if (scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref))
+		return 1;
+	}
+    }
 
     if (use_bz2)
 	if (scram_set_option(out, CRAM_OPT_USE_BZIP2, use_bz2))
