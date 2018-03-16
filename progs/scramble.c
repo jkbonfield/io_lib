@@ -48,6 +48,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
+#include <unistd.h>
 
 #if defined(__MINGW32__) || defined(__FreeBSD__) || defined(__APPLE__)
 #   include <getopt.h>
@@ -344,6 +345,11 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     } else {
+        if (isatty(0)) {
+	    usage(stdout);
+	    return 0;
+	}
+
 	if (!(in = scram_open("-", imode))) {
 	    fprintf(stderr, "Failed to open file %s\n", argv[optind]);
 	    return 1;
