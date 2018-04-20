@@ -189,6 +189,7 @@ enum cram_block_method {
     BZIP2  = 2,
     LZMA   = 3,
     RANS0  = 4,
+    BSC    = 5,
     RANS1  = 10,   // Not externalised; stored as RANS (generic)
     GZIP_RLE = 11, // Z_RLE, NB: not externalised in CRAM
     GZIP_1 = 12,   // Z_DEFAULT_STRATEGY level 1, NB: not externalised in CRAM
@@ -792,6 +793,7 @@ typedef struct {
     int use_bz2;
     int use_rans;
     int use_lzma;
+    int use_bsc;
     int shared_ref;
     enum quality_binning binning;
     unsigned int required_fields;
@@ -953,7 +955,8 @@ enum cram_option {
     CRAM_OPT_PRESERVE_AUX_ORDER,
     CRAM_OPT_PRESERVE_AUX_SIZE,
     CRAM_OPT_WITH_BGZIP_INDEX,
-    CRAM_OPT_OUTPUT_BGZIP_IDX
+    CRAM_OPT_OUTPUT_BGZIP_IDX,
+    CRAM_OPT_USE_BSC,
 };
 
 /* BF bitfields */

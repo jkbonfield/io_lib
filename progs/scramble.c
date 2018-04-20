@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
-    int use_bz2 = 0, use_rans = 0, use_lzma = 0;
+    int use_bz2 = 0, use_bsc = 0, use_lzma = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
@@ -272,9 +272,14 @@ int main(int argc, char **argv) {
 #endif
 	    break;
 
+#ifdef HAVE_LIBBSC
 	case 'J':
-	    use_rans = 1;
+	    use_bsc = 1;
 	    break;
+#else
+	    fprintf(stderr, "Warning: bsc support is not compiled into this"
+		    " version.\nPlease recompile.\n");
+#endif
 
 	case 'Z':
 #ifdef HAVE_LIBLZMA
@@ -399,8 +404,8 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_USE_BZIP2, use_bz2))
 	    return 1;
 
-    if (use_rans)
-	if (scram_set_option(out, CRAM_OPT_USE_RANS, use_rans))
+    if (use_bsc)
+	if (scram_set_option(out, CRAM_OPT_USE_BSC, use_bsc))
 	    return 1;
 
     if (use_lzma)

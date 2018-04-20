@@ -841,6 +841,9 @@ int main(int argc, char **argv) {
 	    id_type.method = BZIP2;
 	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'b':' ');
 
+	    id_type.method = BSC;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'B':' ');
+
 	    id_type.method = LZMA;
 	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'l':' ');
 
