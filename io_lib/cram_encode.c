@@ -763,6 +763,9 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
 
+    if (fd->use_bsc)
+	method |= 1<<BSC;
+
     int method_rans   = (1<<RANS0) | (1<<RANS1);
     int method_ranspr = (1<<RANS_PR0)   | (1<<RANS_PR1)
 	              | (1<<RANS_PR64)  | (1<<RANS_PR65)
