@@ -1081,6 +1081,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	    }
 	    break;
 
+	default: // an elided N_END
 	case N_END:
 	    if (len+1 >= name_len) return -1;
 	    name[len++] = 0;
@@ -1090,9 +1091,6 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	    ctx->lc[cnum].last_ntok = ntok;
 	    
 	    return len;
-
-	default:
-	    return 0; // eof we hope!
 	}
     }
 
