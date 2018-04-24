@@ -70,10 +70,15 @@ typedef struct bam_seq_s {
     uint32_t alloc; /* total size of this struct + 'data' onwards */
     uint32_t blk_size;
 
+    // 64-bit variant of our position, for general use
+    int64_t pos;
+    int64_t mate_pos;
+    int64_t ins_size;
+
     /* The raw bam block follows, in same order as on the disk */
     /* This is the analogue of a bam1_core_t in samtools */
     int32_t  ref;
-    int32_t  pos;
+    int32_t  pos_32;
 
     union {
 	struct {
@@ -90,8 +95,8 @@ typedef struct bam_seq_s {
 
     int32_t  len;
     int32_t  mate_ref;
-    int32_t  mate_pos;
-    int32_t  ins_size;
+    int32_t  mate_pos_32;
+    int32_t  ins_size_32;
 
     /* Followed by arbitrary bytes of packed data */
     unsigned char data; /* unknown size */
@@ -709,13 +714,13 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
 		      const char *qname, size_t qname_len,
 		      int flag,
 		      int rname,      // Ref ID
-		      int pos,
-		      int end, // aligned start/end coords
+		      int64_t pos,
+		      int64_t end, // aligned start/end coords
 		      int mapq,
 		      uint32_t ncigar, const uint32_t *cigar,
 		      int mrnm,       // Mate Ref ID
-		      int mpos,
-		      int isize,
+		      int64_t mpos,
+		      int64_t isize,
 		      int len,
 		      const char *seq,
 		      const char *qual);
