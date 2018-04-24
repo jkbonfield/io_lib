@@ -1179,11 +1179,20 @@ int ltf8_decode_crc(cram_fd *fd, int64_t *val_p, uint32_t *crc) {
  *
  * Returns the number of bytes written
  */
-int itf8_put_blk(cram_block *blk, int val) {
+int itf8_put_blk(cram_block *blk, int32_t val) {
     char buf[5];
     int sz;
 
     sz = itf8_put(buf, val);
+    BLOCK_APPEND(blk, buf, sz);
+    return sz;
+}
+
+int ltf8_put_blk(cram_block *blk, int64_t val) {
+    char buf[9];
+    int sz;
+
+    sz = ltf8_put(buf, val);
     BLOCK_APPEND(blk, buf, sz);
     return sz;
 }
@@ -3518,8 +3527,19 @@ cram_container *cram_read_container(cram_fd *fd) {
 	crc = iolib_crc32(0L, (unsigned char *)&len, 4);
     }
     if ((s = itf8_decode_crc(fd, &c2.ref_seq_id, &crc))   == -1) return NULL; else rd+=s;
-    if ((s = itf8_decode_crc(fd, &c2.ref_seq_start, &crc))== -1) return NULL; else rd+=s;
-    if ((s = itf8_decode_crc(fd, &c2.ref_seq_span, &crc)) == -1) return NULL; else rd+=s;
+    if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+	int64_t i64;
+	if ((s = ltf8_decode_crc(fd, &i64, &crc))== -1) return NULL; else rd+=s;
+	c2.ref_seq_start = i64;
+	if ((s = ltf8_decode_crc(fd, &i64, &crc)) == -1) return NULL; else rd+=s;
+	c2.ref_seq_span = i64;
+    } else {
+	int32_t i32;
+	if ((s = itf8_decode_crc(fd, &i32, &crc))== -1) return NULL; else rd+=s;
+	c2.ref_seq_start = i32;
+	if ((s = itf8_decode_crc(fd, &i32, &crc)) == -1) return NULL; else rd+=s;
+	c2.ref_seq_span = i32;
+    }
     if ((s = itf8_decode_crc(fd, &c2.num_records, &crc))  == -1) return NULL; else rd+=s;
 
     if (IS_CRAM_1_VERS(fd)) {
@@ -3625,8 +3645,13 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
 	cp += itf8_put(cp, 0);
     } else {
 	cp += itf8_put(cp, c->ref_seq_id);
-	cp += itf8_put(cp, c->ref_seq_start);
-	cp += itf8_put(cp, c->ref_seq_span);
+	if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+	    cp += ltf8_put(cp, c->ref_seq_start);
+	    cp += ltf8_put(cp, c->ref_seq_span);
+	} else {
+	    cp += itf8_put(cp, c->ref_seq_start);
+	    cp += itf8_put(cp, c->ref_seq_span);
+	}
     }
     cp += itf8_put(cp, c->num_records);
     if (IS_CRAM_3_VERS(fd))

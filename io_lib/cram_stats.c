@@ -57,7 +57,7 @@ cram_stats *cram_stats_create(void) {
     return calloc(1, sizeof(cram_stats));
 }
 
-void cram_stats_add(cram_stats *st, int32_t val) {
+void cram_stats_add(cram_stats *st, int64_t val) {
     st->nsamp++;
 
     if (val < MAX_STAT_VAL && val >= 0) {
@@ -69,17 +69,17 @@ void cram_stats_add(cram_stats *st, int32_t val) {
 	    st->h = HashTableCreate(2048, HASH_DYNAMIC_SIZE|HASH_NONVOLATILE_KEYS|HASH_INT_KEYS);
 	}
 
-	if ((hi = HashTableSearch(st->h, (char *)(size_t)val, 4))) {
+	if ((hi = HashTableSearch(st->h, (char *)(size_t)val, 8))) {
 	    hi->data.i++;
 	} else {
 	    HashData hd;
 	    hd.i = 1;
-	    HashTableAdd(st->h, (char *)(size_t)val, 4, hd, NULL);
+	    HashTableAdd(st->h, (char *)(size_t)val, 8, hd, NULL);
 	}
     }
 }
 
-void cram_stats_del(cram_stats *st, int32_t val) {
+void cram_stats_del(cram_stats *st, int64_t val) {
     st->nsamp--;
 
     if (val < MAX_STAT_VAL && val >= 0) {
@@ -88,15 +88,15 @@ void cram_stats_del(cram_stats *st, int32_t val) {
     } else if (st->h) {
 	HashItem *hi;
 
-	if ((hi = HashTableSearch(st->h, (char *)(size_t)val, 4))) {
+	if ((hi = HashTableSearch(st->h, (char *)(size_t)val, 8))) {
 	    if (--hi->data.i == 0)
 		HashTableDel(st->h, hi, 0);
 	} else {
-	    fprintf(stderr, "Failed to remove val %d from cram_stats\n", val);
+	    fprintf(stderr, "Failed to remove val %"PRId64" from cram_stats\n", val);
 	    st->nsamp++;
 	}
     } else {
-	fprintf(stderr, "Failed to remove val %d from cram_stats\n", val);
+	fprintf(stderr, "Failed to remove val %"PRId64" from cram_stats\n", val);
 	st->nsamp++;
     }
 }

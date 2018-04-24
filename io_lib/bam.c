@@ -1172,12 +1172,13 @@ static int64_t inline STRTOL64(const char *v, const char **rv, int b) {
  *        -1 on error
  */
 static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
-    int used_l, n, sign;
+    int used_l, sign;
+    int64_t n;
     unsigned char *cpf, *cpt, *cp;
     int cigar_len;
     bam_seq_t *bs;
     HashItem *hi;
-    int start, end;
+    int64_t start, end;
     SAM_hdr *sh = b->header;
 
     static const char lookup[256] = {
@@ -1619,12 +1620,12 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    return -1;
     }
 
-    if (!*bsp || blk_size+20 > (*bsp)->alloc) {
-	/* 20 extra is for bs->alloc to bs->cigar_len plus next_len */
-	if (!(bs = realloc(*bsp, blk_size+20)))
+    if (!*bsp || blk_size+44 > (*bsp)->alloc) {
+	/* 44 extra is for bs->alloc to bs->cigar_len plus next_len */
+	if (!(bs = realloc(*bsp, blk_size+44)))
 	    return -1;
 	*bsp = bs;
-	(*bsp)->alloc = blk_size+20;
+	(*bsp)->alloc = blk_size+44;
 	(*bsp)->blk_size = blk_size;
     }
     bs = *bsp;
@@ -1647,7 +1648,7 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     bs->blk_size  = blk_size;
     bs->ref       = le_int4(bs->ref);
-    bs->pos       = le_int4(bs->pos);
+    bs->pos       = le_int4(bs->pos_32);
 
     // order of bit-fields in struct is platform specific, so manually decode
     i32           = le_int4(bs->bin_packed);
@@ -1661,8 +1662,8 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     bs->len       = le_int4(bs->len);
     bs->mate_ref  = le_int4(bs->mate_ref);
-    bs->mate_pos  = le_int4(bs->mate_pos);
-    bs->ins_size  = le_int4(bs->ins_size);
+    bs->mate_pos  = le_int4(bs->mate_pos_32);
+    bs->ins_size  = le_int4(bs->ins_size_32);
 
     if (10 == be_int4(10)) {
 	int i, cigar_len = bam_cigar_len(bs);
@@ -1715,7 +1716,7 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     bs->blk_size  = blk_size;
     bs->ref       = le_int4(bs->ref);
-    bs->pos       = le_int4(bs->pos);
+    bs->pos       = le_int4(bs->pos_32);
 
     // order of bit-fields in struct is platform specific, so manually decode
     i32           = le_int4(bs->bin_packed);
@@ -1729,8 +1730,8 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     bs->len       = le_int4(bs->len);
     bs->mate_ref  = le_int4(bs->mate_ref);
-    bs->mate_pos  = le_int4(bs->mate_pos);
-    bs->ins_size  = le_int4(bs->ins_size);
+    bs->mate_pos  = le_int4(bs->mate_pos_32);
+    bs->ins_size  = le_int4(bs->ins_size_32);
 
     /* Name */
     if (bam_read(b, &bs->data, bam_name_len(bs)) != bam_name_len(bs))
@@ -2099,13 +2100,13 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
 		      const char *qname, size_t qname_len,
 		      int flag,
 		      int rname,      // Ref ID
-		      int pos, // first aligned base (1-based)
-		      int end, // last aligned base (to calculate bin)
+		      int64_t pos, // first aligned base (1-based)
+		      int64_t end, // last aligned base (to calculate bin)
 		      int mapq,
 		      uint32_t ncigar, const uint32_t *cigar,
 		      int mrnm,       // Mate Ref ID
-		      int mpos,
-		      int isize,
+		      int64_t mpos,
+		      int64_t isize,
 		      int len,
 		      const char *seq,
 		      const char *qual) {
@@ -2826,6 +2827,76 @@ unsigned char *append_uint(unsigned char *cp, uint32_t i) {
     return cp;
 }
 
+unsigned char *append_int64(unsigned char *cp, int64_t i) {
+    int64_t j;
+
+    if (i < 0) {
+	*cp++ = '-';
+	if (i == INT_MIN) {
+	    *cp++ = '2'; *cp++ = '1'; *cp++ = '4'; *cp++ = '7';
+	    *cp++ = '4'; *cp++ = '8'; *cp++ = '3'; *cp++ = '6';
+	    *cp++ = '4'; *cp++ = '8';
+	    return cp;
+	}
+
+	i = -i;
+    } else if (i == 0) {
+	*cp++ = '0';
+	return cp;
+    }
+
+    //if (i < 10)         goto b0;
+    if (i < 100)        goto b1;
+    //if (i < 1000)       goto b2;
+    if (i < 10000)      goto b3;
+    //if (i < 100000)     goto b4;
+    if (i < 1000000)    goto b5;
+    //if (i < 10000000)   goto b6;
+    if (i < 100000000)  goto b7;
+
+    if ((j = i / 1000000000000000000))  {*cp++ = j + '0'; i -= j*1000000000000000000; goto xh;}
+    if ((j = i / 100000000000000000))   {*cp++ = j + '0'; i -= j*100000000000000000; goto xg;}
+    if ((j = i / 10000000000000000))    {*cp++ = j + '0'; i -= j*10000000000000000; goto xf;}
+    if ((j = i / 1000000000000000))     {*cp++ = j + '0'; i -= j*1000000000000000; goto xe;}
+    if ((j = i / 100000000000000))      {*cp++ = j + '0'; i -= j*100000000000000; goto xd;}
+    if ((j = i / 10000000000000))       {*cp++ = j + '0'; i -= j*10000000000000; goto xc;}
+    if ((j = i / 1000000000000))        {*cp++ = j + '0'; i -= j*1000000000000; goto xb;}
+    if ((j = i / 100000000000))         {*cp++ = j + '0'; i -= j*100000000000; goto xa;}
+    if ((j = i / 10000000000))          {*cp++ = j + '0'; i -= j*10000000000; goto x9;}
+    if ((j = i / 1000000000)) {*cp++ = j + '0'; i -= j*1000000000; goto x8;}
+    if ((j = i / 100000000))  {*cp++ = j + '0'; i -= j*100000000;  goto x7;}
+ b7: if ((j = i / 10000000))   {*cp++ = j + '0'; i -= j*10000000;   goto x6;}
+    if ((j = i / 1000000))    {*cp++ = j + '0', i -= j*1000000;    goto x5;}
+ b5: if ((j = i / 100000))     {*cp++ = j + '0', i -= j*100000;     goto x4;}
+    if ((j = i / 10000))      {*cp++ = j + '0', i -= j*10000;      goto x3;}
+ b3: if ((j = i / 1000))       {*cp++ = j + '0', i -= j*1000;       goto x2;}
+    if ((j = i / 100))        {*cp++ = j + '0', i -= j*100;        goto x1;}
+ b1: if ((j = i / 10))         {*cp++ = j + '0', i -= j*10;         goto x0;}
+    if (i)                     *cp++ = i + '0';
+    return cp;
+
+ xh: *cp++ = i / 100000000000000000  + '0', i %= 100000000000000000;
+ xg: *cp++ = i / 10000000000000000   + '0', i %= 10000000000000000;
+ xf: *cp++ = i / 1000000000000000    + '0', i %= 1000000000000000;
+ xe: *cp++ = i / 100000000000000     + '0', i %= 100000000000000;
+ xd: *cp++ = i / 10000000000000	     + '0', i %= 10000000000000;
+ xc: *cp++ = i / 1000000000000       + '0', i %= 1000000000000;
+ xb: *cp++ = i / 100000000000  	     + '0', i %= 100000000000;
+ xa: *cp++ = i / 10000000000         + '0', i %= 10000000000;
+ x9: *cp++ = i / 1000000000          + '0', i %= 1000000000;
+ x8: *cp++ = i / 100000000           + '0', i %= 100000000;
+ x7: *cp++ = i / 10000000            + '0', i %= 10000000;
+ x6: *cp++ = i / 1000000             + '0', i %= 1000000;
+ x5: *cp++ = i / 100000              + '0', i %= 100000;
+ x4: *cp++ = i / 10000               + '0', i %= 10000;
+ x3: *cp++ = i / 1000                + '0', i %= 1000;
+ x2: *cp++ = i / 100                 + '0', i %= 100;
+ x1: *cp++ = i / 10                  + '0', i %= 10;
+ x0: *cp++ = i                       + '0';
+
+    return cp;
+}
+
 /*
  * This is set up so that count should never be more than BGZF_BUFF_SIZE. 
  * This has been chosen to deliberately be small enough such that the
@@ -3158,7 +3229,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	/* POS */
 	if (b->pos < -1) return -1;
 	if (end-fp->uncomp_p < 12) BF_FLUSH();
-	fp->uncomp_p = append_int(fp->uncomp_p, b->pos+1); *fp->uncomp_p++ = '\t';
+	fp->uncomp_p = append_int64(fp->uncomp_p, b->pos+1); *fp->uncomp_p++ = '\t';
 
 	/* MAPQ */
 	if (end-fp->uncomp_p < 5) BF_FLUSH();
@@ -3203,11 +3274,11 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* MPOS */
 	if (end-fp->uncomp_p < 12) BF_FLUSH();
-	fp->uncomp_p = append_int(fp->uncomp_p, b->mate_pos+1); *fp->uncomp_p++ = '\t';
+	fp->uncomp_p = append_int64(fp->uncomp_p, b->mate_pos+1); *fp->uncomp_p++ = '\t';
 
 	/* ISIZE */
 	if (end-fp->uncomp_p < 12) BF_FLUSH();
-	fp->uncomp_p = append_int(fp->uncomp_p, b->ins_size); *fp->uncomp_p++ = '\t';
+	fp->uncomp_p = append_int64(fp->uncomp_p, b->ins_size); *fp->uncomp_p++ = '\t';
 
 	/* SEQ */
 	n = (b->len+1)/2;
@@ -3520,17 +3591,21 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 #ifdef SP_BIG_ENDIAN
 	b->ref         = le_int4(b->ref);
-	b->pos         = le_int4(b->pos);
+	b->pos_32      = le_int4(b->pos);
 	b->bin_packed  = le_int4(b->bin_packed);
 	b->flag_packed = le_int4(b->flag_packed);
 	b->len         = le_int4(b->len);
 	b->mate_ref    = le_int4(b->mate_ref);
-	b->mate_pos    = le_int4(b->mate_pos);
-	b->ins_size    = le_int4(b->ins_size);
+	b->mate_pos_32 = le_int4(b->mate_pos);
+	b->ins_size_32 = le_int4(b->ins_size);
 	    
 	for (i = 0; i < n; i++) {
 	    cigar[i] = le_int4(cigar[i]);
 	}
+#else
+	b->pos_32      = b->pos;
+	b->mate_pos_32 = b->mate_pos;
+	b->ins_size_32 = b->ins_size;
 #endif
 
 #ifdef ALLOW_UAC

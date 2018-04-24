@@ -45,8 +45,8 @@ extern "C" {
 #include "io_lib/hash_table.h"
 
 cram_stats *cram_stats_create(void);
-void cram_stats_add(cram_stats *st, int32_t val);
-void cram_stats_del(cram_stats *st, int32_t val);
+void cram_stats_add(cram_stats *st, int64_t val);
+void cram_stats_del(cram_stats *st, int64_t val);
 void cram_stats_dump(cram_stats *st);
 void cram_stats_free(cram_stats *st);
 

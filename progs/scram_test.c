@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
 	    printf("Ref:\t%d\n", bam_ref(s));
 
 	if (col & SAM_POS)
-	    printf("Pos:\t%d\n", bam_pos(s));
+	    printf("Pos:\t%"PRId64"\n", bam_pos(s));
 
 	if (col & SAM_MAPQ)
 	    printf("MapQ:\t%d\n", bam_map_qual(s));
@@ -272,10 +272,10 @@ int main(int argc, char **argv) {
 	    printf("Rnext:\t%d\n", bam_mate_ref(s));
 
 	if (col & SAM_PNEXT)
-	    printf("Pnext:\t%d\n", bam_mate_pos(s));
+	    printf("Pnext:\t%"PRId64"\n", bam_mate_pos(s));
 
 	if (col & SAM_TLEN)
-	    printf("Tlen:\t%d\n", bam_ins_size(s));
+	    printf("Tlen:\t%"PRId64"\n", bam_ins_size(s));
 
 	if (col & SAM_SEQ) {
 	    unsigned char *seq = (unsigned char *) bam_seq(s);

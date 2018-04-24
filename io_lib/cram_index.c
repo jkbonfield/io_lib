@@ -578,7 +578,7 @@ int cram_index_build(cram_fd *fd, const char *fn_base) {
 		cram_index_build_multiref(fd, c, s, fp,
 					  cpos, c->landmark[j], sz);
 	    } else {
-		sprintf(buf, "%d\t%d\t%d\t%"PRId64"\t%d\t%d\n",
+		sprintf(buf, "%d\t%"PRId64"\t%"PRId64"\t%"PRId64"\t%d\t%d\n",
 			s->hdr->ref_seq_id, s->hdr->ref_seq_start,
 			s->hdr->ref_seq_span, (int64_t)cpos,
 			c->landmark[j], sz);

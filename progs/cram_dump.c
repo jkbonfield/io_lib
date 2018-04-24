@@ -214,7 +214,7 @@ int main(int argc, char **argv) {
 
 	printf("\nContainer pos %"PRId64" size %d\n", (int64_t)pos, c->length);
 	printf("    Ref id:            %d\n", c->ref_seq_id);
-	printf("    Ref pos:           %d + %d\n", c->ref_seq_start, c->ref_seq_span);
+	printf("    Ref pos:           %"PRId64" + %"PRId64"\n", c->ref_seq_start, c->ref_seq_span);
 	printf("    Rec counter:       %"PRId64"\n", c->record_counter);
        	printf("    No. recs:          %d\n", c->num_records);
 	printf("    No. bases          %"PRId64"\n", c->num_bases);
@@ -279,8 +279,8 @@ int main(int argc, char **argv) {
 	    if (s->hdr->content_type == MAPPED_SLICE) {
 		int i;
 		printf("\tSlice ref seq    %d\n", s->hdr->ref_seq_id);
-		printf("\tSlice ref start  %d\n", s->hdr->ref_seq_start);
-		printf("\tSlice ref span   %d\n", s->hdr->ref_seq_span);
+		printf("\tSlice ref start  %"PRId64"\n", s->hdr->ref_seq_start);
+		printf("\tSlice ref span   %"PRId64"\n", s->hdr->ref_seq_span);
 		printf("\tSlice MD5        ");
 		for (i = 0; i < 16; i++)
 		    printf("%02x", s->hdr->md5[i]);

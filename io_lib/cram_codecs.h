@@ -56,7 +56,7 @@ struct cram_codec;
  * appears.
  */
 typedef struct {
-    int32_t symbol;
+    int64_t symbol;
     int32_t p; // next code start value, minus index to codes[]
     int32_t code;
     int32_t len;
@@ -72,6 +72,7 @@ typedef struct {
     cram_huffman_code *codes;
     int nvals;
     int val2code[MAX_HUFF+1]; // value to code lookup for small values
+    int option;
 } cram_huffman_encoder;
 
 typedef struct {
