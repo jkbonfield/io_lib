@@ -585,7 +585,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	int32_t encoding = E_NULL;
 	int32_t size = 0;
 	cram_map *m = malloc(sizeof(*m)); // FIXME: use pooled_alloc
-	char *key;
+	uint8_t key[3];
 
 	if (!m || endp - cp < 6) {
 	    free(m);
@@ -593,10 +593,10 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    return NULL;
 	}
 
-	key = cp + 1;
-	m->key = (key[0]<<16)|(key[1]<<8)|key[2];
-
-	cp += 4; // Strictly ITF8, but this suffices
+	cp += safe_itf8_get(cp, endp, &m->key);
+	key[0] = m->key>>16;
+	key[1] = m->key>>8;
+	key[2] = m->key;
 	cp += safe_itf8_get(cp, endp, &encoding);
 	cp += safe_itf8_get(cp, endp, &size);
 

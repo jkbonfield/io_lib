@@ -48,6 +48,7 @@
 #include <string.h>
 #include <assert.h>
 #include <limits.h>
+#include <stdint.h>
 
 #include "io_lib/cram.h"
 

@@ -115,6 +115,7 @@ int ltf8_put(char *cp, int64_t val);
 extern const int itf8_bytes[16];
 extern const int ltf8_bytes[256];
 
+
 static inline int safe_itf8_get(const char *cp, const char *endp,
 				int32_t *val_p) {
     const unsigned char *up = (unsigned char *)cp;
@@ -214,6 +215,89 @@ static inline int safe_ltf8_get(const char *cp, const char *endp,
     }
 }
 
+static inline int uint7_size(uint64_t v) {
+    int i = 0;
+    do {
+	i++;
+	v >>= 7;
+    } while (v);
+    return i;
+}
+
+static inline int sint7_size(int64_t v) {
+    return uint7_size((v >> 63) ^ (v << 1));
+}
+
+// Unlike itf8 and ltf8 these are agnostic to data size.
+// A 32-bit quantity written using itf8 may be stored differently
+// than the same 32-bit value written using ltf8, which makes it hard
+// to transparently upgrade data sizes.  We also support signed
+// versions using zig-zag encoding, to avoid the problem of a 64-bit
+// -1 taking up 9 bytes.
+static inline int uint7_put(uint8_t *cp, const uint8_t *endp, uint64_t v) {
+    uint8_t *op = cp;
+    int s = 0;
+    uint64_t o = v;
+
+    // big endian for simpler and faster decode.
+    do {
+	s += 7;
+	o >>= 7;
+    } while (o);
+
+    if (endp && (endp-cp)*7 < s)
+	return 0;
+
+    do {
+	s -= 7;
+	*cp++ = ((v>>s)&0x7f) + (s?128:0);
+    } while (s);
+
+    return cp-op;
+}
+
+static inline int sint7_put(uint8_t *cp, const uint8_t *endp, int64_t v) {
+    // zig-zag encoding.
+    return uint7_put(cp, endp, (v >> 63) ^ (v << 1));
+}
+
+// FIXME: Merge with u7tou32 in rANS_static4x16pr.c
+static inline int uint7_get(const uint8_t *cp, const uint8_t *endp, uint64_t *val_p) {
+    const uint8_t *op = cp;
+    uint8_t c;
+    int64_t v = 0;
+
+    if (endp) {
+	if (cp >= endp) {
+	    *val_p = 0;
+	    return 0;
+	}
+
+	do {
+	    c = *cp++;
+	    v = (v<<7) | (c & 0x7f);
+	} while ((c & 0x80) && cp < endp);
+    } else {
+	do {
+	    c = *cp++;
+	    v = (v<<7) | (c & 0x7f);
+	} while (c & 0x80);
+    }
+
+    *val_p = v;
+    return cp - op;
+}
+
+static inline int sint7_get(const uint8_t *cp, const uint8_t *endp, int64_t *v) {
+    uint64_t u;
+    int d = uint7_get(cp, endp, &u);
+    *v = (u >> 1) ^ -(u & 1);
+    return d;
+}
+
+int uint7_put_blk(cram_block *blk, uint64_t v);
+int sint7_put_blk(cram_block *blk, int64_t v);
+
 /*! Pushes a value in ITF8 format onto the end of a block.
  *
  * This shouldn't be used for high-volume data as it is not the fastest
@@ -224,6 +308,52 @@ static inline int safe_ltf8_get(const char *cp, const char *endp,
  */
 int itf8_put_blk(cram_block *blk, int32_t val);
 int ltf8_put_blk(cram_block *blk, int64_t val);
+
+/*
+ * An alternative to itf8 and ltf8 is simple 7-bit encoding with the top
+ * bit implying more data.  This is helpful for several reasons.
+ * 1. It's the same encoding for 32-bit and 64-bit so upgrading a data
+ *    type is transparent and doesn't change format.
+ * 2. The top bit set implies this value is internal to a larger integer,
+ *    rather than this only being true for the first in N bytes.  This in
+ *    turn reduces the entropy and offers marginal compression gains (0.1%).
+ * 3. It's way simpler!
+ *
+ * Unfortunately the around 150+ uses of itf8/ltf8 so changing everywhere is
+ * a lot of work.  The ifdef below isn't for CRAM 4, but just unilaterally
+ * changes every use (thus breaking old files) for testing purposes only.
+ * See also cram_io.c.
+ *
+ * I think it's clearly a case of we wouldn't have started from here,
+ * we're there now so may as well keep with it.
+ */
+#ifdef USE_INT7_ENCODING
+#include <stdint.h>
+static inline int uint7_get_32(const uint8_t *cp, const uint8_t *endp, uint32_t *val_p) {
+    uint64_t v;
+    int r = uint7_get(cp, endp, &v);
+    *val_p = v;
+    return r;
+}
+
+#define safe_itf8_get uint7_get_32
+#define safe_ltf8_get uint7_get
+#undef itf8_size
+#undef itf8_get
+#undef ltf8_get
+#define itf8_size uint7_size
+#define itf8_get(cp,val) uint7_get_32((uint8_t *)(cp),NULL,(val))
+#define ltf8_get(cp,val) uint7_get((uint8_t *)(cp),NULL,(val))
+#define itf8_put_blk uint7_put_blk
+#define ltf8_put_blk uint7_put_blk
+#undef itf8_put
+#undef ltf8_put
+#define itf8_put(cp,val) uint7_put((uint8_t *)(cp),NULL,(val))
+#define ltf8_put(cp,val) uint7_put((uint8_t *)(cp),NULL,(val))
+#define itf8_decode_crc uint7_decode_crc32
+#define ltf8_decode_crc uint7_decode_crc
+#define itf8_encode uint7_encode
+#endif
 
 /**@}*/
 /**@{ ----------------------------------------------------------------------
