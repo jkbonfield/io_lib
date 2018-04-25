@@ -621,6 +621,7 @@ int cram_io_output_buffer_putc(int c, cram_fd * fd)
 
 #endif
 
+#ifndef USE_INT7_ENCODING
 /* ----------------------------------------------------------------------
  * ITF8 encoding and decoding.
  *
@@ -1196,6 +1197,63 @@ int ltf8_put_blk(cram_block *blk, int64_t val) {
     BLOCK_APPEND(blk, buf, sz);
     return sz;
 }
+
+#else
+
+int uint7_encode(cram_fd *fd, int64_t val) {
+    char buf[10];
+    int len = uint7_put(buf, NULL, val);
+    return CRAM_IO_WRITE(buf, 1, len, fd) == len ? 0 : -1;
+}
+
+int uint7_put_blk(cram_block *blk, uint64_t v) {
+    uint8_t buf[10];
+    int sz = uint7_put(buf, buf+10, v);
+    BLOCK_APPEND(blk, buf, sz);
+    return sz;
+}
+
+int sint7_put_blk(cram_block *blk, int64_t v) {
+    uint8_t buf[10];
+    int sz = sint7_put(buf, buf+10, v);
+    BLOCK_APPEND(blk, buf, sz);
+    return sz;
+}
+
+int uint7_decode_crc32(cram_fd *fd, int32_t *val_p, uint32_t *crc) {
+    uint8_t b[5], i = 0;
+    int c;
+    uint32_t v = 0;
+
+    do {
+	b[i++] = c = CRAM_IO_GETC(fd);
+	if (c < 0)
+	    return -1;
+	v = (v<<7) | (c & 0x7f);
+    } while (i < 5 && (c & 0x80));
+    *crc = iolib_crc32(*crc, b, i);
+
+    *val_p = v;
+    return i;
+}
+
+int uint7_decode_crc(cram_fd *fd, int64_t *val_p, uint32_t *crc) {
+    uint8_t b[10], i = 0;
+    int c;
+    uint64_t v = 0;
+
+    do {
+	b[i++] = c = CRAM_IO_GETC(fd);
+	if (c < 0)
+	    return -1;
+	v = (v<<7) | (c & 0x7f);
+    } while (i < 10 && (c & 0x80));
+    *crc = iolib_crc32(*crc, b, i);
+
+    *val_p = v;
+    return i;
+}
+#endif
 
 /*
  * Decodes a 32-bit little endian value from fd and stores in val.
@@ -3632,8 +3690,9 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
     char buf_a[1024], *buf = buf_a, *cp;
     int i;
 
-    if (55 + c->num_landmarks * 5 >= 1024)
-	buf = malloc(55 + c->num_landmarks * 5);
+    // worse case sizes given 32-bit & 64-bit quantities.
+    if (61 + c->num_landmarks * 10 >= 1024)
+	buf = malloc(61 + c->num_landmarks * 10);
     cp = buf;
 
     *(int32_t *)cp = le_int4(c->length);
@@ -5219,6 +5278,37 @@ int cram_flush(cram_fd *fd) {
  *        -1 on failure
  */
 int cram_write_eof_block(cram_fd *fd) {
+    // 7-bit encoding version:
+    //    CRAM_IO_WRITE(
+    //		  "\x0f\x00\x00\x00\x8f\xff\xff\xff" // Cont HDR
+    //		  "\x7f\x82\x95\x9e\x46\x00\x00\x00" // Cont HDR
+    //		  "\x00\x01\x00"                     // Cont HDR
+    //		  "\xac\xd6\x05\xbc"                 // CRC32
+    //		  "\x00\x01\x00\x06\x06"             // Comp.HDR blk
+    //		  "\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
+    //		  "\xee\x63\x01\x4b",                // CRC32
+    //		  38, 1, fd);
+    //    return cram_io_flush_output_buffer(fd);
+
+    // EOF block is a container with
+    //   ref_seq_id -1
+    //   start pos 0x454f46 ("EOF")
+    //   span 0
+    //   nrec 0
+    //   counter 0
+    //   nbases 0
+    //   1 block (landmark 0)
+    //   (CRC32)
+    // followed by an empty compression header block
+    //   method raw (0)
+    //   type comp header (1)
+    //   content id 0
+    //   block contents size 6
+    //   raw size 6
+    //     empty preservation map (01 00)
+    //     empty data series map (01 00)
+    //     empty tag map (01 00)
+    //   block CRC
     if (IS_CRAM_3_VERS(fd)) {
 	if (1 != CRAM_IO_WRITE(
 		"\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
