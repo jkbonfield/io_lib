@@ -691,8 +691,11 @@ int cram_dependent_data_series(cram_fd *fd,
 	    // No easy way to get MD/NM without other tags at present
 	    fd->decode_md = 0;
 
-	if (fd->required_fields & SAM_QUAL)
+	if (fd->required_fields & SAM_QUAL) {
 	    hdr->data_series |= CRAM_QUAL;
+	    if (CRAM_MAJOR_VERS(fd->version) >= 4)
+		hdr->data_series |= CRAM_BF;
+	}
 
 	if (fd->required_fields & SAM_AUX)
 	    hdr->data_series |= CRAM_RG | CRAM_TL | CRAM_aux;
@@ -3077,6 +3080,17 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	if (!BLOCK_DATA(s->qual_blk))
 	    return -1;
 	qual = (char *)BLOCK_DATA(s->qual_blk) + cr->qual;
+	if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+	    if (cr->flags & BAM_FREVERSE) {
+		int i, j;
+		for (i = 0, j = cr->len-1; i < j; i++, j--) {
+		    unsigned char c;
+		    c = qual[i];
+		    qual[i] = qual[j];
+		    qual[j] = c;
+		}
+	    }
+	}
     } else {
 	qual = NULL;
     }
