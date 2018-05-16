@@ -14,7 +14,8 @@ static const char *name(void) {
     return "LibBSC compression";
 }
 
-unsigned char *compress_block(int level,
+unsigned char *compress_block(int method,
+			      int level,
 			      cram_slice *s,
 			      unsigned char *in,
 			      size_t in_size,

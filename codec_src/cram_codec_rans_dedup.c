@@ -9,7 +9,8 @@ static const char *name(void) {
     return "Qual rans+dedup";
 }
 
-unsigned char *compress_block(int level,
+unsigned char *compress_block(int method,
+			      int level,
 			      cram_slice *s,
 			      unsigned char *in,
 			      size_t in_size,

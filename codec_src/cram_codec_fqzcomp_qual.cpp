@@ -229,7 +229,8 @@ static const char *name(void) {
 
 
 // Fqzcomp -q2 equiv
-unsigned char *compress_block_fqz2f(int level,
+unsigned char *compress_block_fqz2f(int method,
+				    int level,
 				    cram_slice *s,
 				    unsigned char *in,
 				    size_t in_size,

@@ -98,7 +98,8 @@ static void *pool_calloc(pool_alloc_t *p, size_t size) {
 }
 
 
-unsigned char *compress_block(int level,
+unsigned char *compress_block(int method,
+			      int level,
 			      cram_slice *s,
 			      unsigned char *data,
 			      size_t len,
