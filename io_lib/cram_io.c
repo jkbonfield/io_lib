@@ -1951,11 +1951,12 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 	*out_size = bsc_compress((unsigned char *)in,
 				 (unsigned char *)comp,
 				 in_size,
-				 0,//LIBBSC_DEFAULT_LZPHASHSIZE,
-				 0,//LIBBSC_DEFAULT_LZPMINLEN,
+				 LIBBSC_DEFAULT_LZPHASHSIZE,
+				 LIBBSC_DEFAULT_LZPMINLEN,
 				 LIBBSC_BLOCKSORTER_BWT,
-				 LIBBSC_CODER_QLFC_STATIC,
-				 //LIBBSC_CODER_QLFC_ADAPTIVE, // maybe 50% slower?
+				 level >= 5
+				   ? LIBBSC_CODER_QLFC_ADAPTIVE // maybe 50% slower?
+				   : LIBBSC_CODER_QLFC_STATIC,
 				 BSC_FEATURES);
 
 	assert(comp_size >= *out_size);

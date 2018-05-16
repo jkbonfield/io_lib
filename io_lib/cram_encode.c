@@ -2838,18 +2838,19 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    if (CRAM_MAJOR_VERS(fd->version) >= 3 && !fd->ignore_chksum)
 		s->SD_crc += crc32(0L, (Bytef *) to, cr->len);
 
-#if 0
-	    // Reverse. Experimental to see the impact on file size
-	    if (cr->flags & BAM_FREVERSE) {
-		int i, j;
-		for (i = 0, j = cr->len-1; i < j; i++, j--) {
-		    unsigned char c;
-		    c = to[i];
-		    to[i] = to[j];
-		    to[j] = c;
+	    // Store quality in original orientation for better compression.
+	    if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+		if (cr->flags & BAM_FREVERSE) {
+		    int i, j;
+		    for (i = 0, j = cr->len-1; i < j; i++, j--) {
+			unsigned char c;
+			c = to[i];
+			to[i] = to[j];
+			to[j] = c;
+		    }
 		}
 	    }
-#endif
+
 	    //for (i = 0; i < cr->len; i++) cp[i] = from[i];
 	}
 	BLOCK_SIZE(s->qual_blk) += cr->len;

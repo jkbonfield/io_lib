@@ -233,6 +233,20 @@ with $DIST being pre-populated with already built and installed 3rd
 party dependencies, some from MSYS mentioned above.
 
 
+Libbsc
+------
+
+This is experimental, just to see what we can get with a high quality
+compression engine in CRAM.  It's hard to build right now, especially
+given it's a C++ library and our code is C.  The hacky solution now
+is (linux) e.g.:
+
+  ../configure \
+    CPPFLAGS=-I$HOME/ftp/compression/libbsc \
+    LDFLAGS="-L$HOME/ftp/compression/libbsc -fopenmp" \
+    LIBS=-lstdc++"
+
+Enable it using scramble -J
 
 MacOS X
 -------
