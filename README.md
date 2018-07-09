@@ -95,6 +95,21 @@ Bug fixes:
 Building
 ========
 
+Prerequisites
+-------------
+
+You will need a C compiler, a Unix "make" program plus zlib, bzip2 and
+lzma libraries and associated development packages (including C header
+files).  The appropriate operating system package names and comands
+differ per system.  On Debian Linux derived systems use the command
+below (or build and install your own copies from source):
+
+  sudo apt-get install make zlib1g-dev libbz2-dev liblzma-dev
+
+On RedHat derived systems the package names differ:
+
+  sudo yum install make zlib-devel bzip2-devel xz-devel
+
 
 Zlib
 ----
@@ -125,6 +140,20 @@ was built with PCLMUL support as their implementation is faster.
 Otherwise the CRC here is quicker than Zlib's own version.
 Building io_lib with the internal CRC code disabled is done
 with ./configure --disable-own-crc (or CFLAGS=-UIOLIB_CRC).
+
+Git clone
+---------
+
+We recommend building from a release tarball, which has the configure
+script already created for you.  However if you wish to build from the
+latest code and have done a "git clone" then you will need to create
+the configure script yourself using autotools:
+
+  autoreconf -i
+
+This program may not be on your system.  If it fails, then install
+autoconf, automake and libtool packages; see above for example
+OS-specific installation commands.
 
 
 Linux
