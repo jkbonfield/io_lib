@@ -2000,6 +2000,8 @@ int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c) {
 	    c->encode = cram_external_encode_int;
 	else if (c->decode == cram_external_decode_char)
 	    c->encode = cram_external_encode_char;
+	else if (c->decode == cram_external_decode_long)
+	    c->encode = cram_external_encode_long;
 	else if (c->decode == cram_external_decode_block)
 	    c->encode = cram_external_encode_char;
 	else
