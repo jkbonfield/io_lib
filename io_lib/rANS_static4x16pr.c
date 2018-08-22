@@ -1154,7 +1154,12 @@ static uint8_t *rle_encode(uint8_t *data, int64_t len,
 	    out_meta[j++] = i;
 	}
     }
-    out_meta[0] = j-1;
+    if (j == 0) {
+	// not worth it.
+	free(out);
+	return NULL;
+    }
+    out_meta[0] = j-1; // NB: all symbols being worth it is 0 not 256.
 
     // 2nd pass: perform RLE itself to out[] and out_meta[] arrays.
     for (i = k = 0; i < len; i++) {
@@ -1190,14 +1195,17 @@ static uint8_t *rle_encode(uint8_t *data, int64_t len,
 // On output it holds the used size of out[].
 static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t meta_sz,
 			   unsigned char *out, uint64_t *out_len) {
-    uint64_t j, m;
+    uint64_t j, m = 0;
     uint8_t *meta_end = meta + meta_sz;
 
     if (meta_sz == 0 || meta[0] >= meta_sz)
 	return NULL;
 
     int saved[256] = {0};
-    for (m = 0, j = meta[m++]; j; j--)
+    j = meta[m++];
+    if (j == 0)
+	j = 256;
+    for (; j; j--)
 	saved[meta[m++]]=1;
 
     j = 0;
@@ -2431,7 +2439,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	int pmeta_len;
 	uint64_t packed_len;
 	packed = pack(in, in_size, out+c_meta_len, &pmeta_len, &packed_len);
-	if (pmeta_len == 1 && out[c_meta_len] == 1) {
+	if (!packed || (pmeta_len == 1 && out[c_meta_len] == 1)) {
 	    out[0] &= ~X_PACK;
 	    do_pack = 0;
 	    free(packed);
@@ -2460,7 +2468,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	    return NULL;
 
 	rle = rle_encode(in, in_size, meta, &rmeta_len, &rle_len);
-	if (rle_len + rmeta_len >= .99*in_size) {
+	if (!rle || rle_len + rmeta_len >= .99*in_size) {
 	    // Not worth the speed hit.
 	    out[0] &= ~X_RLE;
 	    do_rle = 0;
@@ -2635,7 +2643,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	if (in_size < 2 || in[0] != 4) //32to8
 	    return NULL;
 
-	int nl = in[1], i, j;
+	int nl = in[1], i;
 	in      += 2;
 	in_size -= 2;
 	if (in_size < nl*2)
