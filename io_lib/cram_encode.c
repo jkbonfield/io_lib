@@ -880,7 +880,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     // NAME: best is generally xz, bzip2 and zlib.
     // It benefits well from a little bit extra compression level.
     int method_rn = method & ~(method_rans | method_ranspr | 1<<GZIP_RLE);
-    if (level > 3 && CRAM_MAJOR_VERS(fd->version) >= 4)
+    if (level >= 5 && CRAM_MAJOR_VERS(fd->version) >= 4)
 	method_rn |= (1<<NAME_TOK3);
     if (cram_compress_block(fd, s->block[DS_RN], fd->m[DS_RN],
 			    method_rn, level))
