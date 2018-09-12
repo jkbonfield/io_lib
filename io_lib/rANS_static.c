@@ -553,7 +553,7 @@ unsigned char *rans_compress_O0(unsigned char *in, unsigned int in_size,
 
  normalise_harder:
     // Normalise so T[i] == TOTFREQ
-    for (m = M = j = 0; j < 256; j++) {
+    for (fsum = m = M = j = 0; j < 256; j++) {
 	if (!F[j])
 	    continue;
 
