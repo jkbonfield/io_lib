@@ -1206,7 +1206,6 @@ static int uncompress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_
  */
 uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
     int last_start = 0, i, j, nreads;
-    int mode;
     
     // Count lines
     for (nreads = i = 0; i < len; i++)
