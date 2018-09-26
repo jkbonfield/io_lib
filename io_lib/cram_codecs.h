@@ -168,9 +168,9 @@ cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st,
 
 static inline int cram_not_enough_bits(cram_block *blk, int nbits) {
     if (nbits < 0 ||
-	(blk->byte >= blk->uncomp_size && nbits > 0) ||
+	((int32_t)blk->byte >= blk->uncomp_size && nbits > 0) ||
 	(blk->uncomp_size - blk->byte <= INT32_MAX / 8 + 1 &&
-	 (blk->uncomp_size - blk->byte) * 8 + blk->bit - 7 < nbits)) {
+	 (blk->uncomp_size - (int32_t)blk->byte) * 8 + blk->bit - 7 < nbits)) {
         return 1;
     }
     return 0;

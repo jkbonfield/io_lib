@@ -96,6 +96,13 @@
 #include "io_lib/rANS_static4x16.h"
 #include "io_lib/tokenise_name3.h"
 
+// Enable if we want V3.1 support.  TODO: add a configure param for this
+#define HAVE_FQZ
+
+#ifdef HAVE_FQZ
+#include "fqzcomp_qual.h"
+#endif
+
 #if defined(HAVE_STDIO_EXT_H)
 #include <stdio_ext.h>
 #endif
@@ -1787,6 +1794,25 @@ int cram_uncompress_block(cram_block *b) {
 	return -1;
 #endif
 
+#ifdef HAVE_FQZ
+    case FQZ: {
+	uncomp_size = b->uncomp_size;
+	uncomp = fqz_decompress((char *)b->data, b->comp_size, &uncomp_size);
+	if (!uncomp)
+	    return -1;
+	free(b->data);
+	b->data = (unsigned char *)uncomp;
+	b->alloc = uncomp_size;
+	b->method = RAW;
+	break;
+    }
+#else
+    case FQZ:
+	fprintf(stderr, "Fqzcomp compression is not compiled into this "
+		"version.\nPlease rebuild and try again.\n");
+	return -1;
+#endif
+
 #ifdef HAVE_LIBLZMA
     case LZMA:
 	uncomp = lzma_mem_inflate((char *)b->data, b->comp_size, &uncomp_size);
@@ -1909,7 +1935,7 @@ int cram_uncompress_block(cram_block *b) {
 //    return e / log(EBASE2);
 //}
 
-static char *cram_compress_by_method(char *in, size_t in_size,
+static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 				     size_t *out_size,
 				     enum cram_block_method method,
 				     int level, int strat) {
@@ -1966,6 +1992,13 @@ static char *cram_compress_by_method(char *in, size_t in_size,
 	return NULL;
 #endif
     }
+
+    case FQZ:
+#ifdef HAVE_FQZ
+	return fqz_compress(strat, s, in, in_size, out_size, level);
+#else
+	return NULL;
+#endif
 
     case LZMA:
 #ifdef HAVE_LIBLZMA
@@ -2032,7 +2065,8 @@ static char *cram_compress_by_method(char *in, size_t in_size,
  * or Z_DEFAULT_STRATEGY on quality data. If so, we'd rather use it as it is
  * significantly faster.
  */
-int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
+int cram_compress_block(cram_fd *fd, cram_slice *s,
+			cram_block *b, cram_metrics *metrics,
 			int method, int level) {
 
     char *comp = NULL;
@@ -2043,8 +2077,8 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
     // to the same CRAM method value.
     // See enum_cram_block_method.
     int methmap[] = {
-	RAW, GZIP, BZIP2, LZMA, RANS0, BSC,
-	BM_ERROR, BM_ERROR, BM_ERROR, BM_ERROR,
+	RAW, GZIP, BZIP2, LZMA, RANS0, BSC, FQZ,
+	BM_ERROR, BM_ERROR, BM_ERROR,
 	RANS0, // RANS1
 	GZIP, GZIP, // GZIP_RLE and GZIP_1
 	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0, // RANS_PR1-193
@@ -2114,10 +2148,11 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		    case GZIP:     strat = Z_FILTERED; break;
 		    case GZIP_1:   strat = Z_DEFAULT_STRATEGY; lvl = 1; break;
 		    case GZIP_RLE: strat = Z_RLE; break;
+		    case FQZ:      strat = CRAM_MAJOR_VERS(fd->version); break;
 		    default:       strat = 0;
 		    }
 
-		    c = cram_compress_by_method((char *)b->data, b->uncomp_size,
+		    c = cram_compress_by_method(s, (char *)b->data, b->uncomp_size,
 						&sz[m], m, lvl, strat);
                     if (fd->verbose > 1)
                         fprintf(stderr, "Try compression of block ID %d from %d to %d by method %s, strat %d\n",
@@ -2158,14 +2193,15 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		int best_sz = INT_MAX;
 
 		// Relative costs of methods. See enum_cram_block_method.
-		int meth_cost[32] = {
+		double meth_cost[32] = {
 		    1,    // raw
 		    1.04, // gzip
 		    1.08, // bzip2
 		    1.10, // lzma
 		    1.00, // rans0
 		    1.09, // bsc
-		    1,1,1,1,               // unused
+		    1.05, // fqz
+		    1,1,1,               // unused
 		    1.02, // rans1
 		    1.00, // gzip rle
 		    1.02, // gzip -1
@@ -2220,6 +2256,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 		case GZIP:     strat = Z_FILTERED; break;
 		case GZIP_1:   strat = Z_DEFAULT_STRATEGY; break;
 		case GZIP_RLE: strat = Z_RLE; break;
+		case FQZ:      strat = CRAM_MAJOR_VERS(fd->version); break;
 		default:       strat = 0;
 		}
 		metrics->strat  = strat;
@@ -2253,7 +2290,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 	    method = metrics->method;
 
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
-	    comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
+	    comp = cram_compress_by_method(s, (char *)b->data, b->uncomp_size,
 					   &comp_size, method,
 					   method == GZIP_1 ? 1 : level,
 					   strat);
@@ -2272,7 +2309,7 @@ int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
 
     } else {
 	// no cached metrics, so just do zlib?
-	comp = cram_compress_by_method((char *)b->data, b->uncomp_size,
+	comp = cram_compress_by_method(s, (char *)b->data, b->uncomp_size,
 				       &comp_size, GZIP, level, Z_FILTERED);
 	if (!comp) {
 	    fprintf(stderr, "Compression failed!\n");
@@ -2321,6 +2358,7 @@ char *cram_block_method2str(enum cram_block_method m) {
     case GZIP:	     return "GZIP";
     case BZIP2:	     return "BZIP2";
     case BSC:	     return "BSC";
+    case FQZ:	     return "FQZ";
     case LZMA:       return "LZMA";
     case RANS0:      return "RANS0";
     case RANS1:      return "RANS1";
@@ -4501,9 +4539,11 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    method |= 1<<BZIP2;
 	if (fd->use_bsc)
 	    method |= 1<<BSC;
+	if (fd->use_fqz)
+	    method |= 1<<FQZ;
 	if (fd->use_lzma)
 	    method |= 1<<LZMA;
-	cram_compress_block(fd, b, NULL, method, fd->level);
+	cram_compress_block(fd, NULL, b, NULL, method, fd->level);
     } 
 
     if (blank_block) {
@@ -5575,6 +5615,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_USE_BSC:
 	fd->use_bsc = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_FQZ:
+	fd->use_fqz = va_arg(args, int);
 	break;
 
     case CRAM_OPT_USE_LZMA:

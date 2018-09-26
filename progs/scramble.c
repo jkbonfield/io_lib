@@ -39,6 +39,9 @@
 #include "io_lib_config.h"
 #endif
 
+// Enable if we want V3.1 support.  TODO: add a configure param for this
+#define HAVE_FQZ
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,6 +122,10 @@ static void usage(FILE *fp) {
 #ifdef HAVE_LIBLZMA
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
+#ifdef HAVE_LIBBSC
+    fprintf(fp, "    -J             [Cram] Also compression using libbsc (V3.1)\n");
+#endif
+    fprintf(fp, "    -f             [Cram] Also compression using fqzcomp (V3.1)\n");
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
     fprintf(fp, "    -P             Preserve all aux tags (incl RG,NM,MD)\n");
     fprintf(fp, "    -p             Preserve aux tag sizes ('i', 's', 'c')\n");
@@ -140,7 +147,7 @@ int main(int argc, char **argv) {
     int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
-    int use_bz2 = 0, use_bsc = 0, use_lzma = 0;
+    int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
@@ -159,7 +166,7 @@ int main(int argc, char **argv) {
     scram_init();
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPpqg:G:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPpqg:G:f")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -287,6 +294,15 @@ int main(int argc, char **argv) {
 	    use_lzma = 1;
 #else
 	    fprintf(stderr, "Warning: lzma support is not compiled into this"
+		    " version.\nPlease recompile.\n");
+#endif
+	    break;
+
+	case 'f':
+#ifdef HAVE_FQZ
+	    use_fqz = 1;
+#else
+	    fprintf(stderr, "Warning: FQZ support is not compiled into this"
 		    " version.\nPlease recompile.\n");
 #endif
 	    break;
@@ -425,6 +441,10 @@ int main(int argc, char **argv) {
 
     if (use_lzma)
 	if (scram_set_option(out, CRAM_OPT_USE_LZMA, use_lzma))
+	    return 1;
+
+    if (use_fqz)
+	if (scram_set_option(out, CRAM_OPT_USE_FQZ, use_fqz))
 	    return 1;
 
     if (binning != BINNING_NONE)

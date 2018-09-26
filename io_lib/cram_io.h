@@ -415,7 +415,8 @@ int cram_uncompress_block(cram_block *b);
  * Returns 0 on success;
  *        -1 on failure
  */
-int cram_compress_block(cram_fd *fd, cram_block *b, cram_metrics *metrics,
+int cram_compress_block(cram_fd *fd, cram_slice *slice,
+			cram_block *b, cram_metrics *metrics,
 			int method, int level);
 
 cram_metrics *cram_new_metrics(void);

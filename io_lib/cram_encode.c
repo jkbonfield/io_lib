@@ -783,7 +783,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 
     /* Compress the CORE Block too, with minimal zlib level */
     if (level > 5 && s->block[0]->uncomp_size > 500)
-	cram_compress_block(fd, s->block[0], NULL, 1<<GZIP, 1);
+	cram_compress_block(fd, s, s->block[0], NULL, 1<<GZIP, 1);
  
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
@@ -825,53 +825,57 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 
 
     /* Specific compression methods for certain block types */
-    if (cram_compress_block(fd, s->block[DS_IN], fd->m[DS_IN], //IN (seq)
+    if (cram_compress_block(fd, s, s->block[DS_IN], fd->m[DS_IN], //IN (seq)
 			    method, level))
 	return -1;
 
     if (fd->level == 0) {
 	/* Do nothing */
     } else if (fd->level == 1) {
-	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS],
+	if (cram_compress_block(fd, s, s->block[DS_QS], fd->m[DS_QS],
 				methodF, 1))
 	    return -1;
 	for (i = DS_aux; i <= DS_aux_oz; i++) {
 	    if (s->block[i])
-		if (cram_compress_block(fd, s->block[i], fd->m[i],
+		if (cram_compress_block(fd, s, s->block[i], fd->m[i],
 					method, 1))
 		    return -1;
 	}
     } else if (fd->level < 3) {
-	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS],
+	if (fd->use_bsc)
+	method |= 1<<BSC;
+
+	if (cram_compress_block(fd, s, s->block[DS_QS], fd->m[DS_QS],
 				method, 1))
 	    return -1;
-	if (cram_compress_block(fd, s->block[DS_BA], fd->m[DS_BA],
+	if (cram_compress_block(fd, s, s->block[DS_BA], fd->m[DS_BA],
 				method, 1))
 	    return -1;
 	if (s->block[DS_BB])
-	    if (cram_compress_block(fd, s->block[DS_BB], fd->m[DS_BB],
+	    if (cram_compress_block(fd, s, s->block[DS_BB], fd->m[DS_BB],
 				    method, 1))
 	    return -1;
 	for (i = DS_aux; i <= DS_aux_oz; i++) {
 	    if (s->block[i])
-		if (cram_compress_block(fd, s->block[i], fd->m[i],
+		if (cram_compress_block(fd, s, s->block[i], fd->m[i],
 					method, level))
 		    return -1;
 	}
     } else {
-	if (cram_compress_block(fd, s->block[DS_QS], fd->m[DS_QS],
-				method, level))
+	if (cram_compress_block(fd, s, s->block[DS_QS], fd->m[DS_QS],
+				method | ((fd->use_fqz>0) << FQZ),
+				level))
 	    return -1;
-	if (cram_compress_block(fd, s->block[DS_BA], fd->m[DS_BA],
+	if (cram_compress_block(fd, s, s->block[DS_BA], fd->m[DS_BA],
 				method, level))
 	    return -1;
 	if (s->block[DS_BB])
-	    if (cram_compress_block(fd, s->block[DS_BB], fd->m[DS_BB],
+	    if (cram_compress_block(fd, s, s->block[DS_BB], fd->m[DS_BB],
 				    method, level))
 	    return -1;
 	for (i = DS_aux; i <= DS_aux_oz; i++) {
 	    if (s->block[i])
-		if (cram_compress_block(fd, s->block[i], fd->m[i],
+		if (cram_compress_block(fd, s, s->block[i], fd->m[i],
 					method, level))
 		    return -1;
 	}
@@ -882,13 +886,13 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     int method_rn = method & ~(method_rans | method_ranspr | 1<<GZIP_RLE);
     if (level >= 5 && CRAM_MAJOR_VERS(fd->version) >= 4)
 	method_rn |= (1<<NAME_TOK3);
-    if (cram_compress_block(fd, s->block[DS_RN], fd->m[DS_RN],
+    if (cram_compress_block(fd, s, s->block[DS_RN], fd->m[DS_RN],
 			    method_rn, level))
 	return -1;
 
     // NS shows strong local correlation as rearrangements are localised
     if (s->block[DS_NS] != s->block[0])
-	if (cram_compress_block(fd, s->block[DS_NS], fd->m[DS_NS],
+	if (cram_compress_block(fd, s, s->block[DS_NS], fd->m[DS_NS],
 				method, level))
 	    return -1;
 
@@ -904,7 +908,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	    if (s->aux_block[i]->method != RAW)
 		continue;
 
-	    if (cram_compress_block(fd, s->aux_block[i], s->aux_block[i]->m,
+	    if (cram_compress_block(fd, s, s->aux_block[i], s->aux_block[i]->m,
 				    method, level))
 		return -1;
 	}
@@ -922,7 +926,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	    if (s->block[i]->method != RAW)
 		continue;
 
-	    if (cram_compress_block(fd, s->block[i], fd->m[i],
+	    if (cram_compress_block(fd, s, s->block[i], fd->m[i],
 				    methodF, level))
 		return -1;
 	}

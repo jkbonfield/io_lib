@@ -137,7 +137,11 @@ libstaden_read_la_SOURCES = \
 	bgzip.c \
 	bgzip.h \
 	tokenise_name3.c \
-	tokenise_name3.h
+	tokenise_name3.h \
+	fqzcomp_qual.c \
+	fqzcomp_qual.h \
+	c_simple_model.h \
+	c_range_coder.h
 
 libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
 
