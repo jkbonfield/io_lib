@@ -158,7 +158,6 @@ unsigned char *compress_block_fqz2f(int vers,
 	if (j == 0) {
 	    // Quality buffer maybe longer than sum of reads if we've
 	    // inserted a specific base + quality pair.
-	    // FIXME: how to handle this?
 	    int len = rec < s->hdr->num_records-1
 		? s->crecs[rec].len
 		: in_size - i;
@@ -179,7 +178,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	    rec++;
 	    j = len;
 	    delta = 5;
-	    last = 0; // reset last too?
+	    last = 0;
 
 #ifdef DEDUP
 	    // Possible dup of previous read?
@@ -209,9 +208,8 @@ unsigned char *compress_block_fqz2f(int vers,
 		nrun++;
 
 		int ctx = q1 & (QMAX-1);
-		ctx <<= 4; ctx |= ((j2/16)&15); // fixme doesn't work yet, related to orient
+		ctx <<= 4; ctx |= ((j2/16)&15);
 		ctx <<= 2; ctx |= looped;
-		//ctx <<= 2; ctx |= ((delta2/128) & 0x7);
 		ctx <<= 2; ctx |= ((delta2/16) & 0x7);
 
 		SIMPLE_MODEL(MAXR,_encodeSymbol)(&model_run[ctx], &rc2, r);
@@ -234,18 +232,13 @@ unsigned char *compress_block_fqz2f(int vers,
 	    delta2 = delta;
 	    j2 = j;
 
-	    //last = ((MAX(q1, q2)<<6) | q) & (QSIZE-1);
-	    //last = ((last<<6) | q1) & (QSIZE-1);
 	    last = ((q1<<6) | q) & (QSIZE-1);
 	    last |= (q == q2)<<QBITS;
-	    //last |= (MIN(7*8, delta)&0xf8) << (QBITS-2);
 	    last |= (MIN(7*8, delta*4)&0xf8) << (QBITS-2);
 	    q2 = q1;
 	}
 
-	// FIXME: test delta simply as number of changes, not degree of change.
 	delta += (q1 != q);
-	//delta += (q1>q)*(q1-q);
 	q1 = q;
     }
 
@@ -256,10 +249,10 @@ unsigned char *compress_block_fqz2f(int vers,
 	    int r = run_len>MAXR-1?MAXR-1:run_len;
 
 	    int ctx = q1 & (QMAX-1);
-	    ctx <<= 4; ctx |= ((j2/16)&15); // fixme doesn't work yet, related to orient
+	    ctx <<= 4; ctx |= ((j2/16)&15);
 	    ctx <<= 2; ctx |= looped;
-	    //ctx <<= 2; ctx |= ((delta2/128) & 0x7);
 	    ctx <<= 2; ctx |= ((delta2/16) & 0x7);
+
 	    SIMPLE_MODEL(MAXR,_encodeSymbol)(&model_run[ctx], &rc2, r);
 	    run_len -= MAXR-1;
 	    looped++;
@@ -302,8 +295,11 @@ unsigned char *compress_block_fqz2f(int vers,
 //    fprintf(stderr, "rc2 size %d\n", (int)RC_OutSize(&rc2));
 //    fprintf(stderr, "dup = %d + %d\n", ndup0, ndup1);
 
-    *(uint32_t *)&comp[comp_idx] = RC_OutSize(&rc); // FIXME: endian specific
-    comp_idx+=4;
+    comp[comp_idx++] = (RC_OutSize(&rc) >> 0) & 0xff;
+    comp[comp_idx++] = (RC_OutSize(&rc) >> 8) & 0xff;
+    comp[comp_idx++] = (RC_OutSize(&rc) >>16) & 0xff;
+    comp[comp_idx++] = (RC_OutSize(&rc) >>24) & 0xff;
+
     memcpy(comp + comp_idx + RC_OutSize(&rc), comp2, RC_OutSize(&rc2));
     free(comp2);
 
@@ -370,7 +366,11 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     if (!uncomp)
 	return NULL;
 
-    uint32_t cq_len = *(uint32_t *)(in+in_idx); // FIXME: endianness
+    uint32_t cq_len = 
+	  (in[in_idx+0]<< 0)
+	| (in[in_idx+1]<< 8)
+	| (in[in_idx+2]<<16)
+	| (in[in_idx+3]<<24);
     in_idx+=4;
 
     RC_SetInput(&rc, (char *)in+in_idx);
@@ -432,10 +432,8 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    q = SIMPLE_MODEL(QMAX,_decodeSymbol)(&model_qual[last], &rc);
 	    if (nsym <= 8) q = qmap[q]; // remove conditional here by always filling qmap.
 
-	    //last = ((last<<6) | q1) & (QSIZE-1);
 	    last = ((q1<<6) | q) & (QSIZE-1);
 	    last += (q == q2)<<QBITS;
-	    //last += (MIN(7*8, delta)&0xf8) << (QBITS-2);
 	    last += (MIN(7*8, delta*4)&0xf8) << (QBITS-2);
 
 	    q2 = q1;
@@ -448,12 +446,9 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    int looped = 0;
 	    do {
 		int ctx = q;
-		ctx <<= 4; ctx |= ((j2/16)&15); // fixme doesn't work yet
+		ctx <<= 4; ctx |= ((j2/16)&15);
 		ctx <<= 2; ctx |= looped;
-		//ctx <<= 2; ctx |= ((delta2/128) & 0x7);
 		ctx <<= 2; ctx |= ((delta2/16) & 0x7);
-
-		//if (ctx >= QMAX<<11) abort();
 
 		r = SIMPLE_MODEL(MAXR,_decodeSymbol)(&model_run[ctx], &rc2);
 		run_len += r;

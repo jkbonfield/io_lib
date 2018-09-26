@@ -114,7 +114,8 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 	enum cram_block_method methods[] = {
 	    GZIP, BZIP2, LZMA, RANS0, RANS1,
 	    RANS_PR0, RANS_PR1, RANS_PR64, RANS_PR65,
-	    RANS_PR128, RANS_PR129, RANS_PR192, RANS_PR193
+	    RANS_PR128, RANS_PR129, RANS_PR192, RANS_PR193,
+	    FQZ, NAME_TOK3, BSC
 	};
 	int count[1+sizeof(methods)/sizeof(*methods)] = {0};
 
@@ -131,7 +132,7 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 	    printf("%s%s%c%s",
 		   (count[i]+0.01)/(count[0]+0.01) >= 0.50 ? "\033[7m":"",
 		   (count[i]+0.01)/(count[0]+0.01) >= 0.10 ? "\033[4m":"",
-		   " gblrR01458923"[count[i]?i:0],
+		   " gblrR01458923fnB"[count[i]?i:0],
 		   "\033[0m");
 	}
 

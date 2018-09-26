@@ -779,7 +779,7 @@ static void squash_qual(cram_block *b) {
  */
 static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     int level = fd->level, i;
-    int method = 1<<GZIP | 1<<GZIP_RLE, methodF = method;
+    int method = 1<<GZIP | 1<<GZIP_RLE, methodF = method, qmethod, qmethodF;
 
     /* Compress the CORE Block too, with minimal zlib level */
     if (level > 5 && s->block[0]->uncomp_size > 500)
@@ -788,8 +788,10 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
 
+#ifdef HAVE_LIBBSC
     if (fd->use_bsc)
 	method |= 1<<BSC;
+#endif
 
     int method_rans   = (1<<RANS0) | (1<<RANS1);
     int method_ranspr = (1<<RANS_PR0)   | (1<<RANS_PR1)
@@ -807,11 +809,19 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
-    if (level >= 6)
+    if (level >= 6) {
 	method |= 1<<GZIP_1;
-    if (level >= 6)
 	methodF = method;
-    
+    }
+
+    qmethod  = method;
+    qmethodF = method;
+    if (fd->version >= (3<<8)+1 &&
+	(fd->level > 4 || fd->use_fqz)) {
+	qmethod  |= 1<<FQZ;
+	qmethodF |= 1<<FQZ;
+    }
+
 #if 0
     // Squash qual.
     // Experimental to see what packing into nibbles first does if 
@@ -833,7 +843,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	/* Do nothing */
     } else if (fd->level == 1) {
 	if (cram_compress_block(fd, s, s->block[DS_QS], fd->m[DS_QS],
-				methodF, 1))
+				qmethodF, 1))
 	    return -1;
 	for (i = DS_aux; i <= DS_aux_oz; i++) {
 	    if (s->block[i])
@@ -841,12 +851,9 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 					method, 1))
 		    return -1;
 	}
-    } else if (fd->level < 3) {
-	if (fd->use_bsc)
-	method |= 1<<BSC;
-
+    } else if (fd->level <= 3) {
 	if (cram_compress_block(fd, s, s->block[DS_QS], fd->m[DS_QS],
-				method, 1))
+				qmethod, 1))
 	    return -1;
 	if (cram_compress_block(fd, s, s->block[DS_BA], fd->m[DS_BA],
 				method, 1))
@@ -863,8 +870,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	}
     } else {
 	if (cram_compress_block(fd, s, s->block[DS_QS], fd->m[DS_QS],
-				method | ((fd->use_fqz>0) << FQZ),
-				level))
+				qmethod, level))
 	    return -1;
 	if (cram_compress_block(fd, s, s->block[DS_BA], fd->m[DS_BA],
 				method, level))
@@ -884,7 +890,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     // NAME: best is generally xz, bzip2 and zlib.
     // It benefits well from a little bit extra compression level.
     int method_rn = method & ~(method_rans | method_ranspr | 1<<GZIP_RLE);
-    if (level >= 5 && CRAM_MAJOR_VERS(fd->version) >= 4)
+    if (level > 4 && fd->version >= (3<<8)+1)
 	method_rn |= (1<<NAME_TOK3);
     if (cram_compress_block(fd, s, s->block[DS_RN], fd->m[DS_RN],
 			    method_rn, level))

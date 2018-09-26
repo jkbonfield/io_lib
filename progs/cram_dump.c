@@ -870,6 +870,13 @@ int main(int argc, char **argv) {
 	    id_type.method = RANS_PR193;
 	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'3':' ');
 
+	    id_type.method = BSC;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'B':' ');
+	    id_type.method = FQZ;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'f':' ');
+	    id_type.method = NAME_TOK3;
+	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'t':' ');
+
 	    iter = HashTableIterCreate();
 	    while ((hi = HashTableIterNext(ds_h, iter))) {
 		int c;
