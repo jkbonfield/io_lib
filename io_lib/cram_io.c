@@ -4726,6 +4726,10 @@ static void cram_init_tables(cram_fd *fd) {
 static int major_version = 3;
 static int minor_version = 0;
 
+int cram_default_version(void) {
+    return major_version*100 + minor_version;
+}
+
 cram_fd * cram_io_close(cram_fd * fd, int * fclose_result)
 {
     if ( fd ) {
@@ -5655,10 +5659,11 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	}
 	if (!((major == 1 &&  minor == 0) ||
 	      (major == 2 && (minor == 0 || minor == 1)) ||
-	      (major == 3 &&  minor == 0) ||
+	      (major == 3 && (minor == 0 || minor == 1)) ||
 	      (major == 4 &&  minor == 0))) {
 	    fprintf(stderr, "Unknown version string; "
-		    "use 1.0, 2.0, 2.1, 3.0 or 4.0\n");
+		    "use 1.0 (deprecated), 2.0, 2.1 or 3.0 "
+		    "(experimentally 3.1 or 4.0)\n");
 	    errno = EINVAL;
 	    return -1;
 	}

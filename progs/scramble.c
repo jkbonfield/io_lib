@@ -123,9 +123,9 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
 #ifdef HAVE_LIBBSC
-    fprintf(fp, "    -J             [Cram] Also compression using libbsc (V3.1)\n");
+    fprintf(fp, "    -J             [Cram] Also compression using libbsc (V3.1+)\n");
 #endif
-    fprintf(fp, "    -f             [Cram] Also compression using fqzcomp (V3.1)\n");
+    fprintf(fp, "    -f             [Cram] Also compression using fqzcomp (V3.1+)\n");
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
     fprintf(fp, "    -P             Preserve all aux tags (incl RG,NM,MD)\n");
     fprintf(fp, "    -p             Preserve aux tag sizes ('i', 's', 'c')\n");
@@ -349,6 +349,19 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }    
+
+    if (cram_default_version() <= 300 && (use_bsc || use_fqz)) {
+	fprintf(stderr, "Libbsc and/or fqzcomp codecs are only permitted in\n"
+		"CRAM v3.1 or CRAM v4.0 onwards.\n\n"
+		"Note these CRAM versions are a technology demonstration only\n"
+		"and should not be used for long term storage.\n");
+	return 1;
+    }
+
+    if (cram_default_version() > 300) {
+	fprintf(stderr, "\nWARNING: this version of CRAM is not a recognised GA4GH standard.\n"
+		"Use this for evaluation purposes only, and not for long term storage.\n\n");
+    }
 
     if (argc - optind > 2) {
 	fprintf(stderr, "Usage: scramble [input_file [output_file]]\n");

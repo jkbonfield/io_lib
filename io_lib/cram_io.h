@@ -887,6 +887,9 @@ cram_io_allocate_output_buffer(size_t const bufsize);
 
 char *zlib_mem_inflate(char *cdata, size_t csize, size_t *size);
 
+/* Return default major/minor cram version as MAJOR*100+MINOR */
+int cram_default_version(void);
+
 /**@}*/
 
 #ifdef __cplusplus
