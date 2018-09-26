@@ -807,7 +807,7 @@ int main(int argc, char **argv) {
 		fpin = open_trace_mfile(infname, NULL);
 	    }
 	    if (NULL == fpin) {
-		char buf[2048];
+		char buf[8192+10];
 		sprintf(buf, "ERROR %s", infname);
 		perror(buf);
 		if (opts.dots) {

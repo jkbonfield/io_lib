@@ -149,7 +149,10 @@ static inline int safe_ltf8_get(const char *cp, const char *endp,
     unsigned char *up = (unsigned char *)cp;
 
     if (endp - cp < 9 && 
-	(cp >= endp || endp - cp < ltf8_bytes[up[0]])) return 0;
+	(cp >= endp || endp - cp < ltf8_bytes[up[0]])) {
+        *val_p = 0;
+        return 0;
+    }
 
     if (up[0] < 0x80) {
 	*val_p =   up[0];
