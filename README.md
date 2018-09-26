@@ -1,5 +1,5 @@
-Io_lib:  Version 1.14.9
-=======================
+Io_lib:  Version 1.14.10
+========================
 
 Io_lib is a library of file reading and writing code to provide a general
 purpose SAM/BAM/CRAM, trace file (and Experiment File) reading
@@ -32,64 +32,88 @@ too. See the file include/Read.h for the generic 'Read' structure.
 See the CHANGES for a summary of older updates or git logs for the
 full details.
 
-Version 1.14.9 (9th February 2017)
---------------
+
+Version 1.14.10 (26th September 2018)
+---------------
 
 Updates:
 
-* BAM: Added CRC checking.  Bizarrely this was absent here and in most
-  other BAM implementations too.  Pure BAM decode of an uncompressed
-  BAM is around 9% slower and compressed BAM to compressed BAM is
-  almost identical.  The most significant hit is reading uncompressed
-  BAM (and doing nothing else) which is 120% slower as CRC dominates.
-  Options are available to disable the CRC checking incase this is an
-  issue (scramble -!).
+* CRAM *EXPERIMENTAL*: Added custom quality and identifier codecs.
+  Also added the ability to use libbsc as a general purpose codec.
 
-* CRAM: Now supports bgziped fasta references.
+  These are NOT OFFICIAL and so not enabled by default (version 3.0).
+  However as a technology demonstration only, they are available with
+  scramble -V3.1 or -V4.0 for evaluation and to promote discussion on
+  future CRAM formats.  Do not use these on production data.
 
-* CRAM/SAM: Headers are now kept in the same basic type order while
-  transcoding. (Eg all @PG before all @SQ, or vice versa, depending on
-  input ordering.)
+  Implementations of the codecs and CRAM version 4.0 layout are liable
+  to change without prior warning.
 
-* CRAM: Compression level 1 is now faster but larger. (The old -1 and
-  -2 were too similar.)
-
-* CRAM: Improved compression efficiency in some files, when switching
-  from sorted to unsorted data.
-
-* CRAM: Various speedups relating to memory handling,
-  multi-threaded performance and the rANS codec.
-
-* CRAM: Block CRC checks are now only done when the block is used,
-  speeding up multi-threading and tools that do not decode all blocks
-  (eg flagstat).
-
-* Scramble -g and -G options to generate and reuse bgzip indices when
-  reading and writing BAM files.
-
-* Scramble -q option to omit updating the @PG header records.
-
-* Experimental cram_filter tool has been added, to rapidly produce
-  cram subsets.
-
-* Migrated code base to git.  Use github for primary repository.
+* CRAM: name sorted files now automatically switch to non-ref mode.
 
 Bug fixes:
 
-* BAM: Fixed the bin value calculation for placed but unmapped reads.
+* CRAM: Considerable fixes to multi-threading.
+  - Using more than 1 slice per container with threading now works.
+  - Removal of race conditions when using CRAM_OPT_REQUIRED_FIELDS.
+  - Combinations of ref and no-ref mode in adjacent containers.
+  - Other misc. threading bugs.
 
-* CRAM: Fixed file descriptor leak in refs_load_fai().
+* Corrected end-of-range check in some scenarios.
 
-* CRAM: Fixed a crash in MD5 calculation for sequences beyond the
-  reference end.
+* CRAM: bug fix to index creation when a slice contains exactly one
+  alignment.
 
-* CRAM: Bug fixes when encoding malformed @SQ records.
+* SAM: fixed parsing of illegal sequence characters (eg "Z").
+  These are now treated as "N" and not "=".
 
-* CRAM: Fixed a rare renormalisation bug in rANS codec.
+* BAM/SAM: protect against out of bound CIGAR operations.
 
-* Fixed tests so make -j worked.
+* CRAM: hardening of rANS codec against malicious input.
+  Also fixed a very rare frequency renormalisation case.
 
-* Removed ancient, broken and unused popen() code.
+* CRAM: fix with range queries used in conjuction with turning off
+  sequence retrieval (via CRAM_OPT_REQUIRED_FIELDS).
+
+* Improved test harness for Windows and some header file problems.
+
+* Fixed bgzip on big endian systems. (Debian bugs 876839, 876840)
+
+
+Technology Demo: CRAM 3.1 and 4.0
+=================================
+
+The current official GA4GH CRAM version is 3.0.
+
+For purposes of *EVALUATION ONLY* this release of io_lib includes CRAM
+version 3.1, with new compression codecs (but is otherwise identical
+file layout to 3.0), and 4.0 with a few additional format
+modifications, such as 64-bit sizes.
+
+They can be turned on using e.g. scramble -V3.1 or scramble -V4.0.
+
+By default enabling either of these will also enable the new codecs,
+bar libbsc (see below for how to compile with this).  These new codecs
+are slower, but will not be used at lighter levels of compression.  So
+for example "scramble -V4.0 -4 in.bam out.cram" will only use the same
+codecs available in CRAM 3.0 bar the fast new rANS variants (rANS++).
+
+Here are some example file sizes and timings with different codecs and
+levels on 10 million NovaSeq reads, with 4 threads (-t4).  Decode
+timing is checked using "scram_flagstat -b -t4".  Tests were performed
+on an Intel i5-4570 processor at 3.2GHz.
+
+Scramble opts.   Size         Enc(s)   Dec(s)    Codecs used
+-V3.0            224743050    12.9      3.8      (default)
+-V3.0 -7jZ       211734953   105.9      5.4      bzip2, lzma
+
+-V3.1 -4         226888980    13.2      3.8      rANS++
+-V3.1            187238214    35.8     12.8      tok3,fqz,rANS++
+-V3.1 -7J        180217109    49.2     25.6      tok3,fqz,rANS++,libbsc
+
+-V4.0 -4         211515487    15.6      3.8      rANS++
+-V4.0            182657527    34.9     13.5      tok3,fqz,rANS++
+-V4.0 -7J        178819704    46.5     19.6      tok3,fqz,rANS++,libbsc
 
 
 Building
@@ -244,9 +268,13 @@ is (linux) e.g.:
   ../configure \
     CPPFLAGS=-I$HOME/ftp/compression/libbsc \
     LDFLAGS="-L$HOME/ftp/compression/libbsc -fopenmp" \
-    LIBS=-lstdc++"
+    LIBS=-lstdc++
 
-Enable it using scramble -J
+Enable it using scramble -J, but note this requires experimental CRAM
+versions 3.1 or 4.0.
+
+** Neither of these should be used for production data. **
+
 
 MacOS X
 -------

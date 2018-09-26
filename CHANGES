@@ -1,3 +1,51 @@
+Version 1.14.10 (26th September 2018)
+---------------
+
+Updates:
+
+* CRAM *EXPERIMENTAL*: Added custom quality and identifier codecs.
+  Also added the ability to use libbsc as a general purpose codec.
+
+  These are NOT OFFICIAL and so not enabled by default (version 3.0).
+  However as a technology demonstration only, they are available with
+  scramble -V3.1 or -V4.0 for evaluation and to promote discussion on
+  future CRAM formats.  Do not use these on production data.
+
+  Implementations of the codecs and CRAM version 4.0 layout are liable
+  to change without prior warning.
+
+* CRAM: name sorted files now automatically switch to non-ref mode.
+
+Bug fixes:
+
+* CRAM: Considerable fixes to multi-threading.
+  - Using more than 1 slice per container with threading now works.
+  - Removal of race conditions when using CRAM_OPT_REQUIRED_FIELDS.
+  - Combinations of ref and no-ref mode in adjacent containers.
+  - Other misc. threading bugs.
+
+* Corrected end-of-range check in some scenarios.
+
+* CRAM: bug fix to index creation when a slice contains exactly one
+  alignment.
+
+* SAM: fixed parsing of illegal sequence characters (eg "Z").
+  These are now treated as "N" and not "=".
+
+* BAM/SAM: protect against out of bound CIGAR operations.
+
+* CRAM: hardening of rANS codec against malicious input.
+  Also fixed a very rare frequency renormalisation case.
+
+* CRAM: fix with range queries used in conjuction with turning off
+  sequence retrieval (via CRAM_OPT_REQUIRED_FIELDS).
+
+* Improved test harness for Windows and some header file problems.
+
+* Fixed bgzip on big endian systems. (Debian bugs 876839, 876840)
+
+
+
 Version 1.14.9 (9th February 2017)
 --------------
 

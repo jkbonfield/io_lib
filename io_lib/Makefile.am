@@ -141,7 +141,8 @@ libstaden_read_la_SOURCES = \
 	fqzcomp_qual.c \
 	fqzcomp_qual.h \
 	c_simple_model.h \
-	c_range_coder.h
+	c_range_coder.h \
+	cram_block_compression.h
 
 libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
 

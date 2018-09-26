@@ -351,16 +351,16 @@ int main(int argc, char **argv) {
     }    
 
     if (cram_default_version() <= 300 && (use_bsc || use_fqz)) {
-	fprintf(stderr, "Libbsc and/or fqzcomp codecs are only permitted in\n"
-		"CRAM v3.1 or CRAM v4.0 onwards.\n\n"
-		"Note these CRAM versions are a technology demonstration only\n"
-		"and should not be used for long term storage.\n");
+	fprintf(stderr, "Libbsc and/or fqzcomp codecs are only permitted in CRAM v3.1 and 4.0.\n"
+		"Note these CRAM versions are a technology demonstration only.\n"
+		"Future versions of Scramble may not be able to read these files.\n");
 	return 1;
     }
 
     if (cram_default_version() > 300) {
 	fprintf(stderr, "\nWARNING: this version of CRAM is not a recognised GA4GH standard.\n"
-		"Use this for evaluation purposes only, and not for long term storage.\n\n");
+		"Note this CRAM version is a technology demonstration only.\n"
+		"Future versions of Scramble may not be able to read these files.\n\n");
     }
 
     if (argc - optind > 2) {
