@@ -558,7 +558,7 @@ int main(int argc, char **argv) {
 	    free(arg_list);
 	}
 
-	if ((header || omode[1] != 's') && scram_write_header(out) != 0)
+	if ((header || (omode[1] != 's' && omode[1] != '\0')) && scram_write_header(out) != 0)
 	    return 1;
     }
 
