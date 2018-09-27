@@ -3,6 +3,12 @@ Version 1.14.10 (26th September 2018)
 
 Updates:
 
+* BAM: Libdeflate support (https://github.com/ebiggers/libdeflate).
+  This library is significantly faster than zlib, so it is a good
+  alternative to the Cloudflare and/or Intel libraries.
+
+  Configure using --with-libdeflate=/dir/to/deflate/install
+
 * CRAM *EXPERIMENTAL*: Added custom quality and identifier codecs.
   Also added the ability to use libbsc as a general purpose codec.
 

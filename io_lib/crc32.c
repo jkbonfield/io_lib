@@ -18,6 +18,12 @@
 #endif
 #include "io_lib/os.h"
 
+#ifdef HAVE_LIBDEFLATE
+uint32_t iolib_crc32(uint32_t previousCrc32, unsigned char *buf, unsigned int len) {
+    return libdeflate_crc32(previousCrc32, buf, len);
+}
+#else
+
 #ifdef IOLIB_CRC
 
 // //////////////////////////////////////////////////////////
@@ -711,3 +717,4 @@ uint32_t iolib_crc32(uint32_t previousCrc32, unsigned char *buf, unsigned int le
 }
 
 #endif
+#endif // HAVE_LIBDEFLATE

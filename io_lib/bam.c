@@ -45,6 +45,9 @@
 #include <inttypes.h>
 #include <fcntl.h>
 #include <zlib.h>
+#ifdef HAVE_LIBDEFLATE
+#include <libdeflate.h>
+#endif
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -690,9 +693,40 @@ typedef struct {
 } bgzf_decode_job;
 static bgzf_decode_job *last_job = NULL;
 
+
 /*
  * Uncompresses a single zlib buffer.
  */
+#ifdef HAVE_LIBDEFLATE
+void *bgzf_decode_thread(void *arg) {
+    bgzf_decode_job *j = (bgzf_decode_job *)arg;
+    struct libdeflate_decompressor *z = libdeflate_alloc_decompressor();
+    if (!z) return NULL;
+
+    int err = libdeflate_deflate_decompress(z, j->comp, j->comp_sz,
+					    j->uncomp, Z_BUFF_SIZE, &j->uncomp_sz);
+
+    libdeflate_free_decompressor(z);
+    if (err != LIBDEFLATE_SUCCESS) {
+	fprintf(stderr, "Libdeflate returned error code %d\n", err);
+	return NULL;
+    }
+
+    if (!j->ignore_chksum) {
+	uint32_t crc1=libdeflate_crc32(0L, (unsigned char *)j->uncomp, j->uncomp_sz);
+	uint32_t crc2;
+	memcpy(&crc2, j->comp + j->comp_sz, 4);
+	crc2 = le_int2(crc2);
+	if (crc1 != crc2) {
+	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
+		    crc1, crc2);
+	    return NULL;
+	}
+    }
+
+    return j;
+}
+#else
 void *bgzf_decode_thread(void *arg) {
     bgzf_decode_job *j = (bgzf_decode_job *)arg;
     int err;
@@ -732,6 +766,7 @@ void *bgzf_decode_thread(void *arg) {
 
     return j;
 }
+#endif
 
 /*
  * Converts compressed input to the uncompressed output buffer
@@ -972,6 +1007,23 @@ static int bam_uncompress_input(bam_file_t *b) {
 		} while (b->comp_sz < bsize + 8);
 	    }
 
+#ifdef HAVE_LIBDEFLATE
+	    struct libdeflate_decompressor *z = libdeflate_alloc_decompressor();
+	    if (!z) return -1;
+
+	    err = libdeflate_deflate_decompress(z, b->comp_p, bsize,
+						b->uncomp, Z_BUFF_SIZE, &b->uncomp_sz);
+
+	    libdeflate_free_decompressor(z);
+	    if (err != LIBDEFLATE_SUCCESS) {
+		fprintf(stderr, "Libdeflate returned error code %d\n", err);
+		return -1;
+	    }
+
+	    b->comp_p   += bsize + 8; /* crc & isize */
+	    b->comp_sz  -= bsize + 8;
+	    b->uncomp_p   = b->uncomp;
+#else
 	    b->s.avail_in  = bsize;
 	    b->s.next_in   = b->comp_p;
 	    b->s.avail_out = Z_BUFF_SIZE;
@@ -991,6 +1043,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 	    b->comp_sz  -= bsize + 8;
 	    b->uncomp_sz  = b->s.total_out;
 	    b->uncomp_p   = b->uncomp;
+#endif
 
 	    if (b->idx){
 		if (gzi_index_add_block(b->idx, bsize + 26, b->uncomp_sz))
@@ -2906,6 +2959,75 @@ unsigned char *append_int64(unsigned char *cp, int64_t i) {
  * Returns 0 on success;
  *        -1 on error
  */
+#ifdef HAVE_LIBDEFLATE
+static int bgzf_encode(int level,
+		       const void *buf, uint32_t in_sz,
+		       void *out, uint32_t *out_sz) {
+    size_t clen;
+    unsigned char *blk = out;
+    level = level >= 0 ? level : 6; // libdeflate doesn't honour -1 as default
+    if (level > 7) level++;
+    if (level > 9) level+=2; // max 12
+
+    if (level == 0) {
+	if (Z_BUFF_SIZE < in_sz+5+18)
+	    return -1;
+	blk[18] = 1; // BFINAL=1
+	blk[19] = (in_sz >> 0) & 0xff;
+	blk[20] = (in_sz >> 8) & 0xff;
+	blk[21] = (~in_sz >> 0) & 0xff;
+	blk[22] = (~in_sz >> 8) & 0xff;
+	memcpy(blk+18+5, buf, in_sz);
+	clen = in_sz+5;
+    } else  {
+	struct libdeflate_compressor *z = libdeflate_alloc_compressor(level);
+	if (!z)
+	    return -1;
+
+	clen = libdeflate_deflate_compress(z, buf, in_sz, blk + 18, Z_BUFF_SIZE);
+	libdeflate_free_compressor(z);
+	if (clen <= 0) {
+	    fprintf(stderr, "Libdeflate failed to compress\n");
+	    return -1;
+	}
+    }
+
+    /* Fill out gzip header */
+    blk[ 0] =  31; // ID1
+    blk[ 1] = 139; // ID2
+    blk[ 2] =   8; // CM (deflate)
+    blk[ 3] =   4; // FLAGS (FEXTRA)
+    blk[ 4] = blk[5] = blk[6] = blk[7] = 0; // MTIME
+    blk[ 8] =   0; // XFL
+    blk[ 9] = 255; // OS (unknown)
+    blk[10] =   6; // XLEN
+    blk[11] =   0; // XLEN
+
+    /* Extra BGZF fields */
+    blk[12] =  66; // SI1
+    blk[13] =  67; // SI2
+    blk[14] =   2; // SLEN
+    blk[15] =   0; // SLEN
+    blk[16] = ((clen + 25) >> 0) & 0xff;
+    blk[17] = ((clen + 25) >> 8) & 0xff;
+
+    uint32_t crc;
+    crc = libdeflate_crc32(0L, NULL, 0L);
+    crc = libdeflate_crc32(crc, (unsigned char *)buf, in_sz);
+    blk[18+clen+0] = (crc >> 0) & 0xff;
+    blk[18+clen+1] = (crc >> 8) & 0xff;
+    blk[18+clen+2] = (crc >>16) & 0xff;
+    blk[18+clen+3] = (crc >>24) & 0xff;
+    blk[18+clen+4] = (in_sz >> 0) & 0xff;
+    blk[18+clen+5] = (in_sz >> 8) & 0xff;
+    blk[18+clen+6] = (in_sz >>16) & 0xff;
+    blk[18+clen+7] = (in_sz >>24) & 0xff;
+
+    *out_sz = 18+clen+8;
+
+    return 0;
+}
+#else
 static int bgzf_encode(int level,
 		       const void *buf, uint32_t in_sz,
 		       void *out, uint32_t *out_sz) {
@@ -3000,6 +3122,7 @@ static int bgzf_encode(int level,
 
     return 0;
 }
+#endif
 
 static int bgzf_block_write(bam_file_t *bf, int level,
 			    const void *buf, size_t count) {

@@ -38,6 +38,12 @@ Version 1.14.10 (26th September 2018)
 
 Updates:
 
+* BAM: Libdeflate support (https://github.com/ebiggers/libdeflate).
+  This library is significantly faster than zlib, so it is a good
+  alternative to the Cloudflare and/or Intel libraries.
+
+  See below for details.
+
 * CRAM *EXPERIMENTAL*: Added custom quality and identifier codecs.
   Also added the ability to use libbsc as a general purpose codec.
 
@@ -164,6 +170,18 @@ was built with PCLMUL support as their implementation is faster.
 Otherwise the CRC here is quicker than Zlib's own version.
 Building io_lib with the internal CRC code disabled is done
 with ./configure --disable-own-crc (or CFLAGS=-UIOLIB_CRC).
+
+
+Libdeflate
+----------
+
+The BAM reading and writing also has optional support for the
+libdeflate library (https://github.com/ebiggers/libdeflate).  This can
+be used instead of an optimised zlib (see above), and generally is
+slightly faster.  Build using:
+
+    ./configure --with-libdeflate=/path
+
 
 Git clone
 ---------
