@@ -1238,6 +1238,87 @@ int lossy_read_names(cram_fd *fd, cram_container *c, cram_slice *s,
 }
 
 /*
+ * 48 fold coverage, 40737 reads, spanning 100k region.
+ *
+ * CRAM HREF38 vs CRAM cons: 9623 bases saved (937789->928166).
+ * /(IN|FN|FC|FP|DL|BS|BS)$/ => 68924 vs 61224 (-jZ7: 66893 vs 60057)
+ * Cons vs ref: 145 diffs spread across seq. ~250 bytes of delta?
+ *
+ * Ie ~1% smaller total, or ~10% of seq portion.
+ * With embedded ref, it's about 2% larger than external ref mode.
+ */
+int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
+    int r1, r2;
+
+    char cons[100000] = {0}; // FIXME
+    int first_pos = c->bams[bam_start]->pos;
+
+    // 1: Iterate through names to count frequency
+    for (r1 = bam_start, r2 = 0; r2 < s->hdr->num_records; r1++, r2++) {
+	//cram_record *cr = &s->crecs[r2];
+	bam_seq_t *b = c->bams[r1];
+	char *seq = bam_seq(b);
+	uint32_t *cig = bam_cigar(b);
+	int ncig = bam_cigar_len(b);
+
+	int i, spos = 0, rpos = b->pos;
+	// Iterator over cigar and seq
+	for (i = 0; i < ncig; i++) {
+	    enum cigar_op cig_op = cig[i] & BAM_CIGAR_MASK;
+	    uint32_t cig_len = cig[i] >> BAM_CIGAR_SHIFT;
+
+	    switch (cig_op) {
+	    case BAM_CHARD_CLIP:
+		break;
+
+	    case BAM_CSOFT_CLIP:
+		spos += cig_len;
+		break;
+
+	    case BAM_CMATCH:
+	    case BAM_CBASE_MATCH:
+	    case BAM_CBASE_MISMATCH: {
+		int j;
+		for (j = 0; j < cig_len; j++) {
+		    char base = bam_nt16_rev_table[bam_seqi(seq, spos+j)];
+		    printf("%d\t%c (%c)\n", rpos+j+1, base, cons[rpos+j-first_pos]);
+		    cons[rpos+j-first_pos] = base;
+		}
+		spos += cig_len;
+		rpos += cig_len;
+		break;
+	    }
+
+	    case BAM_CPAD:
+		break;
+
+	    case BAM_CREF_SKIP:
+		rpos += cig_len;
+		break;
+
+	    case BAM_CDEL: {
+		int j;
+		for (j = 0; j < cig_len; j++)
+		    printf("%d\t*\n", rpos+j);
+		rpos += cig_len;
+		break;
+	    }
+
+	    case BAM_CINS:
+		printf("+%d ins\n", cig_len);
+		spos += cig_len;
+		break;
+
+	    default:
+		fprintf(stderr, "CIGAR op %d unhandled\n", cig_op);
+	    }
+	}
+    }
+
+    return 0;
+}
+
+/*
  * Adds the reading names.  We do this here as a separate pass rather
  * than per record in the process_one_read calls as that function can
  * go back and change the CRAM_FLAG_DETACHED status of a previously
@@ -1357,6 +1438,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	// Discover which read names *may* be safely removed.
 	// Ie which ones have all their records in this slice.
 	lossy_read_names(fd, c, s, r1_start);
+
+	//generate_consensus(c, s, r1_start);
 
 	// Iterate through records creating the cram blocks for some
 	// fields and just gathering stats for others.
