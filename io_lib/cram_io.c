@@ -5641,7 +5641,9 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	break;
 
     case CRAM_OPT_RANGE: {
-	int r = cram_seek_to_refpos(fd, va_arg(args, cram_range *));
+	cram_range *cr = va_arg(args, cram_range *);
+	int r = cram_seek_to_refpos(fd, cr);
+	fd->range = *cr;
 	if (fd->range.refid != -2)
 	    fd->required_fields |= SAM_POS;
 	return r;
