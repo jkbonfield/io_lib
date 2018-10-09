@@ -3,6 +3,7 @@
 $srcdir/generate_data.pl || exit 1
 
 scramble="${VALGRIND} $top_builddir/progs/scramble ${SCRAMBLE_ARGS}"
+cram_index="${VALGRIND} $top_builddir/progs/cram_index"
 compare_sam=$srcdir/compare_sam.pl
 
 #valgrind="valgrind --leak-check=full"
@@ -91,3 +92,22 @@ do
 
     echo ""
 done
+
+# Range queries, CRAM only
+$cram_index $outdir/ce#sorted.full.cram
+echo $scramble -H -r $srcdir/data/ce.fa $outdir/ce#sorted.full.cram
+nr=`$scramble -H -r $srcdir/data/ce.fa $outdir/ce#sorted.full.cram | wc -l`
+echo "No region:               $nr"
+[ $nr -eq 521616 ] || exit 1
+
+nr=`$scramble -H -R "*" -r $srcdir/data/ce.fa $outdir/ce#sorted.full.cram | wc -l`
+echo "* region:                $nr"
+[ $nr -eq 2452 ] || exit 1
+
+nr=`$scramble -H -R "CHROMOSOME_I" -r $srcdir/data/ce.fa $outdir/ce#sorted.full.cram | wc -l`
+echo "CHROMOSOME_I:            $nr"
+[ $nr -eq 504705 ] || exit 1
+
+nr=`$scramble -H -R "CHROMOSOME_I:35000-45000" -r $srcdir/data/ce.fa $outdir/ce#sorted.full.cram | wc -l`
+echo "CHROMOSOME_I:35000-45000 $nr"
+[ $nr -eq 5066 ] || exit 1

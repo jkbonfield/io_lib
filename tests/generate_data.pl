@@ -1,7 +1,8 @@
 #!/usr/bin/perl -w
 use strict;
 
-exit 0 if (-e "$ENV{srcdir}/.done");
+my $mm=-M "$ENV{srcdir}/.done";
+exit 0 if (-e "$ENV{srcdir}/.done" && (-M "$ENV{srcdir}/generate_data.pl" > -M "$ENV{srcdir}/.done"));
 
 # Loads a fasta file into a hash
 sub load_fasta {
@@ -61,17 +62,24 @@ foreach (sort @names) {
 
 # Sequence lines
 $n = 1;
-foreach my $chr (sort @names) {
+$len{"*"}=$len{$names[0]};
+$seqs->{"*"}=$seqs->{$names[0]};
+foreach my $chr ((sort @names),"*") {
     my $len = $len{$chr};
     my $s = $seqs->{$chr};
     for (my $i=0; $i<$len-100; $i++) {
 	if (rand() < 0.5) { #50x coverage
 	    my $dna = substr($s,$i,100);
+	    $dna = substr($s, int(rand($len{"*"}-100)), 100) if ($chr eq "*");
 	    for (my $j=0; $j<5; $j++) {
 		substr($dna, 100*rand(), 1) = $base[4*rand()];
 	    }
 
-           print $out "Seq",$n++,"\t0\t$chr\t",$i+1,"\t2\t100M\t*\t0\t0\t$dna\t*\n";
+	    if ($chr eq "*") {
+		print $out "Seq",$n++,"\t4\t$chr\t0\t0\t*\t*\t0\t0\t$dna\t*\n";
+	    } else {
+		print $out "Seq",$n++,"\t0\t$chr\t",$i+1,"\t2\t100M\t*\t0\t0\t$dna\t*\n";
+	    }
 	}
     }
 }
@@ -106,8 +114,7 @@ for (my $i = 0; $i < 500000; $i++) {
 close($out) || die;
 
 
-#---- Generate unsorted data
-
+#---- Tidy up
 open(DONE, ">$ENV{srcdir}/.done")||die;
 close(DONE);
 
