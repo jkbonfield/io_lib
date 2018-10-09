@@ -109,17 +109,19 @@ levels on 10 million NovaSeq reads, with 4 threads (-t4).  Decode
 timing is checked using "scram_flagstat -b -t4".  Tests were performed
 on an Intel i5-4570 processor at 3.2GHz.
 
-Scramble opts.   Size         Enc(s)   Dec(s)    Codecs used
--V3.0            224743050    12.9      3.8      (default)
--V3.0 -7jZ       211734953   105.9      5.4      bzip2, lzma
+|Scramble opts.|  Size   |Enc(s)|Dec(s)|Codecs used           |
+|--------------|---------|-----:|----:|----------------------|
+|-V3.0         |224743050|  12.9|   3.8|(default)             |
+|-V3.0 -7jZ    |211734953| 105.9|   5.4|bzip2, lzma           |
+||||||
+|-V3.1 -4      |226888980|  13.2|   3.8|rANS++                |
+|-V3.1         |187238214|  35.8|  12.8|tok3,fqz,rANS++       |
+|-V3.1 -7J     |180217109|  49.2|  25.6|tok3,fqz,rANS++,libbsc|
+||||||
+|-V4.0 -4      |211515487|  15.6|   3.8|rANS++                |
+|-V4.0         |182657527|  34.9|  13.5|tok3,fqz,rANS++       |
+|-V4.0 -7J     |178819704|  46.5|  19.6|tok3,fqz,rANS++,libbsc|
 
--V3.1 -4         226888980    13.2      3.8      rANS++
--V3.1            187238214    35.8     12.8      tok3,fqz,rANS++
--V3.1 -7J        180217109    49.2     25.6      tok3,fqz,rANS++,libbsc
-
--V4.0 -4         211515487    15.6      3.8      rANS++
--V4.0            182657527    34.9     13.5      tok3,fqz,rANS++
--V4.0 -7J        178819704    46.5     19.6      tok3,fqz,rANS++,libbsc
 
 
 Building
