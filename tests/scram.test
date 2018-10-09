@@ -10,7 +10,7 @@ compare_sam=$srcdir/compare_sam.pl
 #scramble="$valgrind $scramble"
 
 case $# in
-    0) files=`/bin/ls $srcdir/data/*#*.{sam,bam} | egrep -v '[._](full|\.sub|java)\.'`
+    0) files=`/bin/ls $srcdir/data/*#*.sam $srcdir/data/*#*.bam | egrep -v '[._](full|\.sub|java)\.'`
        ;;
     *) files=${@+"$@"}
        ;;
@@ -24,7 +24,7 @@ do
 
 
     # Create BAM from SAM or SAM from BAM
-    if [ ${i//.bam} == $i ]
+    if [ `echo $i | sed 's/\.bam//'` == $i ]
     then
 	echo "$scramble $i $outdir/$root.bam"
 	$scramble $i $outdir/$root.bam || exit 1
