@@ -3330,7 +3330,7 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 		if (s_next->hdr->ref_seq_id != fd->range.refid) {
 		    fd->ooc = 1;
 		    cram_free_slice(s_next);
-		    s_next = NULL;
+		    c_next->slice = s_next = NULL;
 		    break;
 		}
 
@@ -3338,7 +3338,7 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 		if (s_next->hdr->ref_seq_start > fd->range.end) {
 		    fd->ooc = 1;
 		    cram_free_slice(s_next);
-		    s_next = NULL;
+		    c_next->slice = s_next = NULL;
 		    break;
 		}
 
@@ -3346,6 +3346,7 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 		if (s_next->hdr->ref_seq_start + s_next->hdr->ref_seq_span-1 <
 		    fd->range.start) {
 		    cram_free_slice(s_next);
+		    c_next->slice = s_next = NULL;
 		    continue;
 		}
 	    }
@@ -3390,8 +3391,10 @@ static cram_slice *cram_next_slice(cram_fd *fd, cram_container **cp) {
 	t_pool_result *res;
 	cram_decode_job *j;
 	
-	if (fd->ooc && t_pool_results_queue_empty(fd->rqueue))
+	if (fd->ooc && t_pool_results_queue_empty(fd->rqueue)) {
+	    fd->eof = 1;
 	    return NULL;
+	}
 
 	res = t_pool_next_result_wait(fd->rqueue);
 
