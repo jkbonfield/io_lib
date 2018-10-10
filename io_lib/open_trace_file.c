@@ -159,10 +159,13 @@ char *tokenise_search_path(char *searchpath) {
 	if (path_sep == ':') {
 	    if ((i == 0 || (i > 0 && searchpath[i-1] == ':')) &&
 		(!strncmp(&searchpath[i], "http:",     5) ||
+		 !strncmp(&searchpath[i], "https:",    6) ||
 		 !strncmp(&searchpath[i], "ftp:",      4) ||
 		 !strncmp(&searchpath[i], "|http:",    6) ||
+		 !strncmp(&searchpath[i], "|https:",   7) ||
 		 !strncmp(&searchpath[i], "|ftp:",     5) ||
 		 !strncmp(&searchpath[i], "URL=http:", 9) ||
+		 !strncmp(&searchpath[i], "URL=https:",10)||
 		 !strncmp(&searchpath[i], "URL=ftp:",  8))) {
 		do {
 		    newsearch[j++] = searchpath[i];
@@ -589,6 +592,14 @@ mFILE *find_file_url(char *file, char *url) {
 	goto error;
     if (0 != curl_easy_setopt(handle, CURLOPT_ERRORBUFFER, errbuf))
 	goto error;
+    if (0 != curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 1))
+	goto error;
+
+    const curl_version_info_data *info = curl_version_info(CURLVERSION_NOW);
+    char user_agent[1000];
+    sprintf(user_agent, "io_lib/" PACKAGE_VERSION " libcurl/%.900s", info->version);
+    if (0 != curl_easy_setopt(handle, CURLOPT_USERAGENT, user_agent))
+	goto error;
     
     /* Fetch! */
     if (0 != curl_easy_perform(handle))
@@ -603,10 +614,9 @@ mFILE *find_file_url(char *file, char *url) {
 	char nul = 0;
 	mfwrite(&nul, 1, 1, headers);
 	if (2 == sscanf(headers->data, "HTTP/%f %d", &version, &response)) {
-	    if (response != 200) {
-		if (response != 404)
-		    fprintf(stderr, "%.*s\n",
-			    (int)headers->size, headers->data);
+	    if (response != 200 && response != 301 && response != 404) {
+		fprintf(stderr, "%.*s\n",
+			(int)headers->size, headers->data);
 		goto error;
 	    }
 	}
@@ -1246,8 +1256,9 @@ mFILE *open_path_mfile(char *file, char *path, char *relative_to) {
 		    free(newsearch);
 		    return fp;
 		}
-	    } else if (!strncmp(ele2, "http:", 5) ||
-		       !strncmp(ele2, "ftp:", 4)) {
+	    } else if (!strncmp(ele2, "http:",  5) ||
+		       !strncmp(ele2, "ftp:",   4) ||
+		       !strncmp(ele2, "https:", 6)) {
 		/* ftp/http compression best done via other means */
 		if (i == 0 && (fp = find_file_url(file2, ele2))) {
 		    free(newsearch);
