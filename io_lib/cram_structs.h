@@ -391,6 +391,7 @@ typedef struct {
     /* Copied from fd before encoding, to allow multi-threading */
     int64_t ref_start, first_base, last_base, ref_id, ref_end;
     char *ref;
+    char *cons;
     //struct ref_entry *ref;
 
     /* For multi-threading */

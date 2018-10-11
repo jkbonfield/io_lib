@@ -785,6 +785,8 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     if (level > 5 && s->block[0]->uncomp_size > 500)
 	cram_compress_block(fd, s, s->block[0], NULL, 1<<GZIP, 1);
  
+    //write(2, s->block[DS_FP]->data, s->block[DS_FP]->uncomp_size);
+
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
 
@@ -1250,10 +1252,33 @@ int lossy_read_names(cram_fd *fd, cram_container *c, cram_slice *s,
 int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
     int r1, r2;
 
-    char cons[100000] = {0}; // FIXME
-    int first_pos = c->bams[bam_start]->pos;
+    static int L[256] = { // NACGT
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, // 00
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, // 10
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, // 20
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, // 30
+
+	0,1,0,2, 0,0,0,3, 0,0,0,0, 0,0,0,0, // 40
+	0,0,0,0, 4,0,0,0, 0,0,0,0, 0,0,0,0, // 50
+	0,1,0,2, 0,0,0,3, 0,0,0,0, 0,0,0,0, // 60
+	0,0,0,0, 4,0,0,0, 0,0,0,0, 0,0,0,0, // 70
+
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
+    };
+
+    uint32_t cnt[100000][6] = {{0}}; // FIXME
+    uint64_t first_pos = c->bams[bam_start]->pos;
 
     // 1: Iterate through names to count frequency
+    uint64_t max_pos = 0;
     for (r1 = bam_start, r2 = 0; r2 < s->hdr->num_records; r1++, r2++) {
 	//cram_record *cr = &s->crecs[r2];
 	bam_seq_t *b = c->bams[r1];
@@ -1280,12 +1305,17 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 	    case BAM_CBASE_MISMATCH: {
 		int j;
 		for (j = 0; j < cig_len; j++) {
-		    char base = bam_nt16_rev_table[bam_seqi(seq, spos+j)];
-		    printf("%d\t%c (%c)\n", rpos+j+1, base, cons[rpos+j-first_pos]);
-		    cons[rpos+j-first_pos] = base;
+		    unsigned char base = bam_nt16_rev_table[bam_seqi(seq, spos+j)];
+		    //printf("%d\t%c (%d %d %d %d %d)\n", rpos+j+1, base,
+		    //	   cnt[rpos+j-first_pos][0],
+		    //	   cnt[rpos+j-first_pos][1], cnt[rpos+j-first_pos][3],
+		    //	   cnt[rpos+j-first_pos][2], cnt[rpos+j-first_pos][4]);
+		    cnt[rpos+j-first_pos][L[base]]++;
 		}
 		spos += cig_len;
 		rpos += cig_len;
+		if (max_pos < rpos)
+		    max_pos = rpos;
 		break;
 	    }
 
@@ -1298,14 +1328,16 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 
 	    case BAM_CDEL: {
 		int j;
-		for (j = 0; j < cig_len; j++)
-		    printf("%d\t*\n", rpos+j);
+		for (j = 0; j < cig_len; j++) {
+		    cnt[rpos+j-first_pos][5]++;
+		    //printf("%d\t*\n", rpos+j);
+		}
 		rpos += cig_len;
 		break;
 	    }
 
 	    case BAM_CINS:
-		printf("+%d ins\n", cig_len);
+		//printf("+%d ins\n", cig_len);
 		spos += cig_len;
 		break;
 
@@ -1314,6 +1346,40 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 	    }
 	}
     }
+
+    uint64_t p;
+//    puts("=== cons ===");
+    char *cons = malloc(max_pos - first_pos);
+    if (!cons)
+	return -1;
+
+    for (p = first_pos; p < max_pos; p++) {
+	int base = 'N';
+	int freq = 0;
+	if (freq < cnt[p-first_pos][1])
+	    freq = cnt[p-first_pos][1], base = 'A';
+	if (freq < cnt[p-first_pos][2])
+	    freq = cnt[p-first_pos][2], base = 'C';
+	if (freq < cnt[p-first_pos][3])
+	    freq = cnt[p-first_pos][3], base = 'G';
+	if (freq < cnt[p-first_pos][4])
+	    freq = cnt[p-first_pos][4], base = 'T';
+	if (freq < cnt[p-first_pos][5])
+	    freq = cnt[p-first_pos][5], base = '*';
+	cons[p-first_pos] = base;
+//	uint64_t t =
+//	    cnt[p-first_pos][0] +
+//	    cnt[p-first_pos][1] +
+//	    cnt[p-first_pos][2] +
+//	    cnt[p-first_pos][3] +
+//	    cnt[p-first_pos][4] +
+//	    cnt[p-first_pos][5];
+//	printf("%10"PRId64" // %4d %4d %4d %4d %4d %4d // %c %5.1f%%\n", p, cnt[p-first_pos][0],
+//	       cnt[p-first_pos][1], cnt[p-first_pos][2],
+//	       cnt[p-first_pos][3], cnt[p-first_pos][4],
+//	       cnt[p-first_pos][5], base, 100.0*freq/t);
+    }
+    c->cons = cons;
 
     return 0;
 }
@@ -2582,13 +2648,15 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 			    bam_seq_t *b, int rnum) {
     int i, fake_qual = -1;
     char *cp, *rg;
-    char *ref, *seq, *qual;
+    char *ref, *seq, *qual, *cons;
 
     // FIXME: multi-ref containers
 
     ref = c->ref;
+    cons = c->cons;
     cr->flags       = bam_flag(b);
     cr->len         = bam_seq_len(b);
+    uint64_t fpos = c->ref_seq_start-1;
 
     //fprintf(stderr, "%s => %d\n", rg ? rg : "\"\"", cr->rg);
 
@@ -2750,6 +2818,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 			? cig_len : c->ref_end - apos;
 		    char *sp = &seq[spos];
 		    char *rp = &ref[apos];
+		    assert(apos-fpos >= 0);
+		    char *Cp = &cons[apos-fpos];
 		    char *qp = &qual[spos];
 		    if (end > cr->len) {
 			fprintf(stderr, "CIGAR and query sequence are of "
@@ -2758,6 +2828,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		    }
 		    for (l = 0; l < end; l++) {
 			if (rp[l] != sp[l]) {
+			//if (Cp[l] != sp[l]) {
+			    //printf("%ld\t%c %c %c\n", apos+l, sp[l], rp[l], Cp[l]);
 			    if (!sp[l])
 				break;
 			    if (0 && IS_CRAM_3_VERS(fd)) {
