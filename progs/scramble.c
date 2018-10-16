@@ -92,7 +92,7 @@ static char *detect_format(char *fn) {
 
 static void usage(FILE *fp) {
     fprintf(fp, "  -=- sCRAMble -=-     version %s\n", PACKAGE_VERSION);
-    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2015\n\n");
+    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2018\n\n");
 
     fprintf(fp, "Usage:    scramble [options] [input_file [output_file]]\n");
 

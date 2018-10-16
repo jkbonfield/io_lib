@@ -1,4 +1,4 @@
-Io_lib:  Version 1.14.10
+Io_lib:  Version 1.14.11
 ========================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -31,6 +31,26 @@ too. See the file include/Read.h for the generic 'Read' structure.
 
 See the CHANGES for a summary of older updates or git logs for the
 full details.
+
+
+Version 1.14.11 (16th October 2018)
+---------------
+
+Updates:
+
+* CRAM: http(s) queries now honour redirects.
+  The User-Agent header is also set, which is necessary in some
+  proxies.
+
+Bug fixes:
+
+* CRAM: fix to major range query bug introduced in 1.14.10.
+
+* CRAM: more bug fixing on range queries when multi-threading (EOF
+  detection).
+
+* The test harness now works correctly in bourne shell, without
+  using bashisms.
 
 
 Version 1.14.10 (26th September 2018)
