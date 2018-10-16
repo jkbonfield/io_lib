@@ -24,7 +24,7 @@ do
 
 
     # Create BAM from SAM or SAM from BAM
-    if [ `echo $i | sed 's/\.bam//'` == $i ]
+    if [ `echo $i | sed 's/\.bam//'` = $i ]
     then
 	echo "$scramble $i $outdir/$root.bam"
 	$scramble $i $outdir/$root.bam || exit 1
