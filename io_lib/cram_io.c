@@ -3583,6 +3583,9 @@ void cram_free_container(cram_container *c) {
 	HashTableIterDestroy(iter);
     }
 
+    if (c->cons)
+	free(c->cons);
+
     free(c);
 }
 
@@ -5044,6 +5047,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->bases_per_slice = BASES_PER_SLICE;
     fd->slices_per_container = SLICE_PER_CNT;
     fd->embed_ref = 0;
+    fd->embed_cons = 0;
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
     fd->ignore_chksum = 1; // Some disagreement in the specification of these
@@ -5151,6 +5155,7 @@ cram_fd *cram_open_by_callbacks(
     fd->bases_per_slice = BASES_PER_SLICE;
     fd->slices_per_container = SLICE_PER_CNT;
     fd->embed_ref = 0;
+    fd->embed_cons = 0;
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
     fd->ignore_chksum = 1; // Some disagreement in the specification of these
@@ -5277,6 +5282,7 @@ cram_fd *cram_openw_by_callbacks(
     fd->bases_per_slice = BASES_PER_SLICE;
     fd->slices_per_container = SLICE_PER_CNT;
     fd->embed_ref = 0;
+    fd->embed_cons = 0;
     fd->no_ref = 0;
     fd->ignore_md5 = 0;
     fd->use_bz2 = 0;
@@ -5590,6 +5596,12 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_EMBED_REF:
 	fd->embed_ref = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_EMBED_CONS:
+	fd->embed_cons = va_arg(args, int);
+	if (fd->embed_cons)
+	    fd->embed_ref = 1;
 	break;
 
     case CRAM_OPT_NO_REF:

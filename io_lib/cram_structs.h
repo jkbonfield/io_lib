@@ -391,7 +391,7 @@ typedef struct {
     /* Copied from fd before encoding, to allow multi-threading */
     int64_t ref_start, first_base, last_base, ref_id, ref_end;
     char *ref;
-    char *cons;
+    char *cons;  // from first_base to last_base inclusive
     //struct ref_entry *ref;
 
     /* For multi-threading */
@@ -802,6 +802,7 @@ typedef struct {
     int bases_per_slice;
     int slices_per_container;
     int embed_ref;
+    int embed_cons;
     int no_ref;
     int ignore_md5;
     int use_bz2;
@@ -973,6 +974,7 @@ enum cram_option {
     CRAM_OPT_OUTPUT_BGZIP_IDX,
     CRAM_OPT_USE_BSC,
     CRAM_OPT_USE_FQZ,
+    CRAM_OPT_EMBED_CONS,
 };
 
 /* BF bitfields */

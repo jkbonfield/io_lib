@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
     char imode[10], *in_f = "", omode[10], *out_f = "", *index_fn = NULL, *index_out_fn = NULL;
     int level = '\0'; // nul terminate string => auto level
     int c, verbose = 0;
-    int s_opt = 0, S_opt = 0, embed_ref = 0, ignore_md5 = 0, decode_md = 0;
+    int s_opt = 0, S_opt = 0, embed_ref = 0, embed_cons = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
     int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0;
@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
     scram_init();
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeI:O:R:!MmjJZt:BN:F:Hb:nPpqg:G:f")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeEI:O:R:!MmjJZt:BN:F:Hb:nPpqg:G:f")) != -1) {
 	switch (c) {
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
@@ -223,6 +223,9 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "-X is deprecated in favour of -e.\n");
 	case 'e':
 	    embed_ref = 1;
+	    break;
+	case 'E':
+	    embed_cons = 1;
 	    break;
 
 	case 'x':
@@ -440,6 +443,17 @@ int main(int argc, char **argv) {
 		return 1;
 	} else {
 	    if (scram_set_option(out, CRAM_OPT_EMBED_REF, embed_ref))
+		return 1;
+	}
+    }
+
+    if (embed_cons) {
+	if (scram_get_header(in)->sort_order == ORDER_NAME ||
+	    scram_get_header(in)->sort_order == ORDER_UNSORTED) {
+	    fprintf(stderr, "Embeded consensus with non-coordinate sorted data is "
+		    "not supported.\n");
+	} else {
+	    if (scram_set_option(out, CRAM_OPT_EMBED_CONS, embed_cons))
 		return 1;
 	}
     }

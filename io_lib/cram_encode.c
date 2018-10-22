@@ -785,8 +785,6 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     if (level > 5 && s->block[0]->uncomp_size > 500)
 	cram_compress_block(fd, s, s->block[0], NULL, 1<<GZIP, 1);
  
-    //write(2, s->block[DS_FP]->data, s->block[DS_FP]->uncomp_size);
-
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
 
@@ -990,9 +988,12 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	if (!(s->block[DS_ref] = cram_new_block(EXTERNAL, DS_ref)))
 	    return -1;
 	s->ref_id = DS_ref; // needed?
-	BLOCK_APPEND(s->block[DS_ref],
-		     c->ref + c->first_base - c->ref_start,
-		     c->last_base - c->first_base + 1);
+	if (fd->embed_cons)
+	    BLOCK_APPEND(s->block[DS_ref], c->cons, c->last_base - c->first_base + 1);
+	else
+	    BLOCK_APPEND(s->block[DS_ref],
+			 c->ref + c->first_base - c->ref_start,
+			 c->last_base - c->first_base + 1);
     }
 
     /*
@@ -1274,7 +1275,7 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 	0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
     };
 
-    uint32_t cnt[100000][6] = {{0}}; // FIXME
+    uint32_t (*cnt)[6] = NULL, cnt_sz = 0;
     uint64_t first_pos = c->bams[bam_start]->pos;
 
     // 1: Iterate through names to count frequency
@@ -1304,6 +1305,12 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 	    case BAM_CBASE_MATCH:
 	    case BAM_CBASE_MISMATCH: {
 		int j;
+		while (cnt_sz <= rpos+cig_len-first_pos) {
+		    int old_sz = cnt_sz;
+		    cnt_sz = cnt_sz ? cnt_sz*2 : 1024;
+		    cnt = realloc(cnt, cnt_sz * sizeof(*cnt));
+		    memset(&cnt[old_sz], 0, (cnt_sz - old_sz)*sizeof(*cnt));
+		}
 		for (j = 0; j < cig_len; j++) {
 		    unsigned char base = bam_nt16_rev_table[bam_seqi(seq, spos+j)];
 		    //printf("%d\t%c (%d %d %d %d %d)\n", rpos+j+1, base,
@@ -1328,6 +1335,12 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 
 	    case BAM_CDEL: {
 		int j;
+		while (cnt_sz <= rpos+cig_len-first_pos) {
+		    int old_sz = cnt_sz;
+		    cnt_sz = cnt_sz ? cnt_sz*2 : 1024;
+		    cnt = realloc(cnt, cnt_sz * sizeof(*cnt));
+		    memset(&cnt[old_sz], 0, (cnt_sz - old_sz)*sizeof(*cnt));
+		}
 		for (j = 0; j < cig_len; j++) {
 		    cnt[rpos+j-first_pos][5]++;
 		    //printf("%d\t*\n", rpos+j);
@@ -1353,7 +1366,9 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
     if (!cons)
 	return -1;
 
+    //fprintf(stderr, "%d to %d\n", (int)first_pos, (int)max_pos);
     for (p = first_pos; p < max_pos; p++) {
+	//fprintf(stderr, "%d: %d %d %d %d %d\n", (int)p, cnt[p][1], cnt[p][2], cnt[p][3], cnt[p][4], cnt[p][5]);
 	int base = 'N';
 	int freq = 0;
 	if (freq < cnt[p-first_pos][1])
@@ -1380,6 +1395,8 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 //	       cnt[p-first_pos][5], base, 100.0*freq/t);
     }
     c->cons = cons;
+    //fprintf(stderr, "%.*s\n", (int)(max_pos - first_pos), c->cons);
+    free(cnt);
 
     return 0;
 }
@@ -1505,7 +1522,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	// Ie which ones have all their records in this slice.
 	lossy_read_names(fd, c, s, r1_start);
 
-	//generate_consensus(c, s, r1_start);
+	if (fd->embed_cons)
+	    generate_consensus(c, s, r1_start);
 
 	// Iterate through records creating the cram blocks for some
 	// fields and just gathering stats for others.
@@ -1624,9 +1642,13 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	if (s->hdr->ref_seq_id >= 0 && c->multi_seq == 0 && !fd->no_ref) {
 	    MD5_CTX md5;
 	    MD5_Init(&md5);
-	    MD5_Update(&md5,
-		       c->ref + s->hdr->ref_seq_start - c->ref_start,
-		       s->hdr->ref_seq_span);
+	    if (fd->embed_cons) {
+		MD5_Update(&md5, c->cons, c->last_base - c->first_base + 1);
+	    } else {
+		MD5_Update(&md5,
+			   c->ref + s->hdr->ref_seq_start - c->ref_start,
+			   s->hdr->ref_seq_span);
+	    }
 	    MD5_Final(s->hdr->md5, &md5);
 	} else {
 	    memset(s->hdr->md5, 0, 16);
@@ -2819,7 +2841,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		    char *sp = &seq[spos];
 		    char *rp = &ref[apos];
 		    assert(apos-fpos >= 0);
-		    char *Cp = &cons[apos-fpos];
+		    if (fd->embed_cons)
+			rp = &cons[apos-fpos];
 		    char *qp = &qual[spos];
 		    if (end > cr->len) {
 			fprintf(stderr, "CIGAR and query sequence are of "
@@ -2828,8 +2851,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		    }
 		    for (l = 0; l < end; l++) {
 			if (rp[l] != sp[l]) {
-			//if (Cp[l] != sp[l]) {
-			    //printf("%ld\t%c %c %c\n", apos+l, sp[l], rp[l], Cp[l]);
 			    if (!sp[l])
 				break;
 			    if (0 && IS_CRAM_3_VERS(fd)) {
