@@ -77,7 +77,7 @@ void bam_copy(bam_seq_t **bt, bam_seq_t *bf) {
 
 static int process_one_read(cram_fd *fd, cram_container *c,
 			    cram_slice *s, cram_record *cr,
-			    bam_seq_t *b, int rnum);
+			    bam_seq_t *b, int rnum, dstring_t *MD);
 
 /*
  * Returns index of val into key.
@@ -1522,8 +1522,19 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	// Ie which ones have all their records in this slice.
 	lossy_read_names(fd, c, s, r1_start);
 
+	// Embedded consensus is easier to handle than embedded reference.
+	// It permits us to regenerate it during pipelines, rather than having
+	// to go back to the original reference again.
+	// It does however play havoc with NM/MD tags in some scenarios
+	// (see below).
 	if (fd->embed_cons)
 	    generate_consensus(c, s, r1_start);
+
+	// Tracking of NM / MD tags so we can spot when the auto-generated values
+	// will differ from the current stored ones.
+	dstring_t *MD = dstring_create(NULL);
+	if (!MD)
+	    return -1;
 
 	// Iterate through records creating the cram blocks for some
 	// fields and just gathering stats for others.
@@ -1552,7 +1563,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 		}
 	    }
 
-	    if (process_one_read(fd, c, s, cr, b, r2) != 0)
+	    dstring_empty(MD);
+	    if (process_one_read(fd, c, s, cr, b, r2, MD) != 0)
 		return -1;
 
 	    if (first_base > cr->apos)
@@ -1561,6 +1573,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    if (last_base < cr->aend)
 		last_base = cr->aend;
 	}
+	dstring_destroy(MD);
 
 	// Process_one_read doesn't add read names as it can change
 	// its mind during the loop on the CRAM_FLAG_DETACHED setting
@@ -2158,7 +2171,7 @@ static int cram_add_insertion(cram_container *c, cram_slice *s, cram_record *r,
  *         NULL on failure or no rg present (FIXME)
  */
 static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
-			     cram_slice *s, cram_record *cr) {
+			     cram_slice *s, cram_record *cr, int NM, dstring_t *MD) {
     char *aux, *orig, *rg = NULL;
 #ifdef SAMTOOLS
     int aux_size = bam_get_l_aux(b);
@@ -2190,23 +2203,32 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	// MD:Z
 	if (omit_MD && aux[0] == 'M' && aux[1] == 'D' && aux[2] == 'Z') {
 	    if (cr->len && !fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
-		while (*aux++);
-		continue;
+		if (MD && strncasecmp(DSTRING_STR(MD), aux+3, orig + aux_size - (aux+3)) == 0) {
+		    while (*aux++);
+		    continue;
+		} else if (fd->verbose) {
+		    fprintf(stderr, "Warning: MD values differ: %s vs %s\n", DSTRING_STR(MD), aux+3);
+		}
 	    }
 	}
 
 	// NM:i
 	if (omit_NM && aux[0] == 'N' && aux[1] == 'M') {
 	    if (cr->len && !fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
-		switch(aux[2]) {
-		case 'A': case 'C': case 'c': aux+=4; break;
-		case 'S': case 's':           aux+=5; break;
-		case 'I': case 'i': case 'f': aux+=7; break;
-		default:
-		    fprintf(stderr, "Unhandled type code for NM tag\n");
-		    return NULL;
+		int NM_ = bam_aux_i((uint8_t *)aux+2);
+		if (NM_ == NM) {
+		    switch(aux[2]) {
+		    case 'A': case 'C': case 'c': aux+=4; break;
+		    case 'S': case 's':           aux+=5; break;
+		    case 'I': case 'i': case 'f': aux+=7; break;
+		    default:
+			fprintf(stderr, "Unhandled type code for NM tag\n");
+			return NULL;
+		    }
+		    continue;
+		} else if (fd->verbose) {
+		    fprintf(stderr, "Warning: NM values differ: %d vs %d\n", NM, NM_);
 		}
-		continue;
 	    }
 	}
 
@@ -2667,8 +2689,8 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
  */
 static int process_one_read(cram_fd *fd, cram_container *c,
 			    cram_slice *s, cram_record *cr,
-			    bam_seq_t *b, int rnum) {
-    int i, fake_qual = -1;
+			    bam_seq_t *b, int rnum, dstring_t *MD) {
+    int i, fake_qual = -1, NM = 0;
     char *cp, *rg;
     char *ref, *seq, *qual, *cons;
 
@@ -2686,21 +2708,10 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     //cr->mate_line;    // index to another cram_record
     //cr->mate_flags;   // MF
     //cr->ntags;        // TC
-    cr->ntags      = 0; //cram_stats_add(c->stats[DS_TC], cr->ntags);
-    rg = cram_encode_aux(fd, b, c, s, cr);
 
     //cr->aux_size = b->blk_size - ((char *)bam_aux(b) - (char *)&bam_ref(b));
     //cr->aux = DSTRING_LEN(s->aux_ds);
     //dstring_nappend(s->aux_ds, bam_aux(b), cr->aux_size);
-
-    /* Read group, identified earlier */
-    if (rg) {
-	SAM_RG *brg = sam_hdr_find_rg(fd->header, rg);
-	cr->rg = brg ? brg->id : -1;
-    } else {
-	cr->rg = -1;
-    }
-    cram_stats_add(c->stats[DS_RG], cr->rg);
 
     
     cr->ref_id      = bam_ref(b);  cram_stats_add(c->stats[DS_RI], cr->ref_id);
@@ -2803,6 +2814,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     if (!(cr->flags & BAM_FUNMAP)) {
 	uint32_t *cig_to, *cig_from;
 	int64_t apos = cr->apos-1, spos = 0;
+	uint64_t MD_last = apos; // last position of edit in MD tag
 
 	cr->cigar       = s->ncigar;
 	cr->ncigar      = bam_cigar_len(b);
@@ -2853,6 +2865,12 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 			if (rp[l] != sp[l]) {
 			    if (!sp[l])
 				break;
+			    if (MD) {
+				dstring_append_int(MD, apos+l - MD_last);
+				dstring_append_char(MD, rp[l]);
+				MD_last = apos+l+1;
+			    }
+			    NM++;
 			    if (0 && IS_CRAM_3_VERS(fd)) {
 				// Disabled for the time being as it doesn't
 				// seem to gain us much.
@@ -2913,15 +2931,24 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		break;
 		
 	    case BAM_CDEL:
+		if (MD) {
+		    dstring_append_int(MD, apos - MD_last);
+		    dstring_append_char(MD, '^');
+		    dstring_nappend(MD, &ref[apos], cig_len); // FIXME check cig_len vs ref len
+		}
+		NM += cig_len;
+
 		if (cram_add_deletion(c, s, cr, spos, cig_len, &seq[spos]))
 		    return -1;
 		apos += cig_len;
+		MD_last = apos;
 		break;
 
 	    case BAM_CREF_SKIP:
 		if (cram_add_skip(c, s, cr, spos, cig_len, &seq[spos]))
 		    return -1;
 		apos += cig_len;
+		MD_last += cig_len;
 		break;
 
 	    case BAM_CINS:
@@ -2936,6 +2963,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		} else {
 		    spos += cig_len;
 		}
+		NM += cig_len;
 		break;
 
 	    case BAM_CSOFT_CLIP:
@@ -2983,6 +3011,11 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	fake_qual = spos;
 	cr->aend = fd->no_ref ? apos : MIN(apos, c->ref_end);
 	cram_stats_add(c->stats[DS_FN], cr->nfeature);
+
+	if (MD) {
+	    dstring_append_int(MD, apos - MD_last);
+	    dstring_append_char(MD, '\0');
+	}
     } else {
 	// Unmapped
 	cr->cram_flags |= CRAM_FLAG_PRESERVE_QUAL_SCORES;
@@ -2994,6 +3027,18 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    cram_stats_add(c->stats[DS_BA], seq[i]);
 	fake_qual = 0;
     }
+
+    cr->ntags      = 0; //cram_stats_add(c->stats[DS_TC], cr->ntags);
+    rg = cram_encode_aux(fd, b, c, s, cr, NM, MD);
+
+    /* Read group, identified earlier */
+    if (rg) {
+	SAM_RG *brg = sam_hdr_find_rg(fd->header, rg);
+	cr->rg = brg ? brg->id : -1;
+    } else {
+	cr->rg = -1;
+    }
+    cram_stats_add(c->stats[DS_RG], cr->rg);
 
     /*
      * Append to the qual block now. We do this here as
