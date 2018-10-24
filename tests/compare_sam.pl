@@ -7,7 +7,7 @@ use strict;
 use Getopt::Long;
 
 my %opts;
-GetOptions(\%opts, 'noqual', 'noaux', 'notemplate', 'unknownrg', 'nomd', 'template-1', 'noflag', 'all', 'nopg');
+GetOptions(\%opts, 'noqual', 'noaux', 'notemplate', 'unknownrg', 'nomd', 'partialmd', 'template-1', 'noflag', 'all', 'nopg');
 
 my ($fn1, $fn2) = @ARGV;
 open(my $fd1, "<", $fn1) || die $!;
@@ -58,6 +58,12 @@ while ($ln1 && $ln2) {
 	$ln2 =~ s/\tMD:Z:[A-Z0-9^]*//;
 	$ln1 =~ s/\tNM:i:\d+//;
 	$ln2 =~ s/\tNM:i:\d+//;
+    }
+
+    # Validate in ln1 if present in ln2, otherwise don't
+    if (exists $opts{partialmd}) {
+	$ln1 =~ s/\tNM:i:\d+// unless ($ln2 =~ /\tNM:i:\d+/);
+	$ln1 =~ s/\tMD:Z:[A-Z0-9^]*// unless ($ln2 =~ /\tMD:Z:[A-Z0-9^]*/);
     }
 
     my @ln1 = split("\t", $ln1);

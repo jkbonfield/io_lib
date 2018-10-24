@@ -46,9 +46,9 @@ do
     $scramble $in_bam > $outdir/tmp.sam || exit 1
     $compare_sam $cmp_sam $outdir/tmp.sam || exit 1
 
-    echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
+    echo "$scramble -m $outdir/$root.full.cram > $outdir/$root.full.sam"
     $scramble $outdir/$root.full.cram > $outdir/$root.full.sam || exit 1
-    $compare_sam --nomd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
+    $compare_sam --partialmd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
 
     echo "$scramble -O bam $outdir/$root.full.cram > $outdir/$root.full.bam"
     $scramble -O bam $outdir/$root.full.cram > $outdir/$root.full.bam || exit 1
@@ -64,16 +64,33 @@ do
     case "$root" in
     *"unsorted") #skip
         ;;
-    *) 
+    *)
         echo "$scramble -e -r $ref $in_bam $outdir/$root.full.cram"
         $scramble -e -r $ref $in_bam $outdir/$root.full.cram || exit 1
-        
-        echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
+
+        echo "$scramble -m $outdir/$root.full.cram > $outdir/$root.full.sam"
         $scramble $outdir/$root.full.cram > $outdir/tmp.sam || exit 1
 	sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -e /\1 /' $outdir/tmp.sam > $outdir/$root.full.bam.sam
-        $compare_sam --nomd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
+        $compare_sam --partialmd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
         echo "$compare_sam --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam"
         $compare_sam --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
+	;;
+    esac
+
+    # Similarly for embedded consensus
+    case "$root" in
+    *"unsorted") #skip
+        ;;
+    *)
+        echo "$scramble -E -r $ref $in_bam $outdir/$root.full.cram"
+        $scramble -E -r $ref $in_bam $outdir/$root.full.cram || exit 1
+
+        echo "$scramble -m $outdir/$root.full.cram > $outdir/$root.full.sam"
+        $scramble $outdir/$root.full.cram > $outdir/tmp.sam || exit 1
+	sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -e /\1 /' $outdir/tmp.sam > $outdir/$root.full.bam.sam
+        $compare_sam --partialmd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
+        echo "$compare_sam --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam"
+        $compare_sam --nomd --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
 	;;
     esac
 
