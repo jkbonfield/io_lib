@@ -2865,7 +2865,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 			if (rp[l] != sp[l]) {
 			    if (!sp[l])
 				break;
-			    if (MD) {
+			    if (MD && ref) {
 				dstring_append_int(MD, apos+l - MD_last);
 				dstring_append_char(MD, rp[l]);
 				MD_last = apos+l+1;
@@ -2931,7 +2931,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		break;
 		
 	    case BAM_CDEL:
-		if (MD) {
+		if (MD && ref) {
 		    dstring_append_int(MD, apos - MD_last);
 		    dstring_append_char(MD, '^');
 		    dstring_nappend(MD, &ref[apos], cig_len); // FIXME check cig_len vs ref len
@@ -3012,7 +3012,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	cr->aend = fd->no_ref ? apos : MIN(apos, c->ref_end);
 	cram_stats_add(c->stats[DS_FN], cr->nfeature);
 
-	if (MD) {
+	if (MD && ref) {
 	    dstring_append_int(MD, apos - MD_last);
 	    dstring_append_char(MD, '\0');
 	}
