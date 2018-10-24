@@ -1811,7 +1811,6 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		if (r) return r;
 		cig_op = BAM_CPAD;
 		cig_len += i32;
-		nm      += i32;
 	    }
 	    break;
 	}
@@ -1830,7 +1829,6 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 		cig_op = BAM_CREF_SKIP;
 		cig_len += i32;
 		ref_pos += i32;
-		nm      += i32;
 	    }
 	    break;
 	}
