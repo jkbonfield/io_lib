@@ -2934,8 +2934,10 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    case BAM_CDEL:
 		if (MD && ref) {
 		    dstring_append_int(MD, apos - MD_last);
-		    dstring_append_char(MD, '^');
-		    dstring_nappend(MD, &ref[apos], cig_len); // FIXME check cig_len vs ref len
+		    if (apos < c->ref_end) {
+			dstring_append_char(MD, '^');
+			dstring_nappend(MD, &ref[apos], MIN(c->ref_end - apos, cig_len));
+		    }
 		}
 		NM += cig_len;
 
