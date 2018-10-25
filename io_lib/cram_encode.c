@@ -968,7 +968,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
      */
 
     /* Create cram slice header */
-    s->hdr->ref_base_id = embed_ref ? DS_ref : -1;
+    s->hdr->ref_base_id = embed_ref && s->hdr->ref_seq_span > 0 ? DS_ref : -1;
     s->hdr->record_counter = c->num_records + c->record_counter;
     c->num_records += s->hdr->num_records;
 
@@ -989,7 +989,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	    return -1;
 	s->ref_id = DS_ref; // needed?
 	if (fd->embed_cons)
-	    BLOCK_APPEND(s->block[DS_ref], c->cons, c->last_base - c->first_base + 1);
+	    BLOCK_APPEND(s->block[DS_ref], c->cons, s->hdr->ref_seq_span);
 	else
 	    BLOCK_APPEND(s->block[DS_ref],
 			 c->ref + c->first_base - c->ref_start,
@@ -1311,7 +1311,7 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 		    cnt = realloc(cnt, cnt_sz * sizeof(*cnt));
 		    memset(&cnt[old_sz], 0, (cnt_sz - old_sz)*sizeof(*cnt));
 		}
-		for (j = 0; j < cig_len; j++) {
+		for (j = 0; j < cig_len && spos+j < b->len; j++) {
 		    unsigned char base = bam_nt16_rev_table[bam_seqi(seq, spos+j)];
 		    //printf("%d\t%c (%d %d %d %d %d)\n", rpos+j+1, base,
 		    //	   cnt[rpos+j-first_pos][0],
@@ -1652,11 +1652,12 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     for (i = 0; i < c->curr_slice; i++) {
 	cram_slice *s = c->slices[i];
 	
-	if (s->hdr->ref_seq_id >= 0 && c->multi_seq == 0 && !fd->no_ref) {
+	if (s->hdr->ref_seq_id >= 0 && c->multi_seq == 0 && !fd->no_ref &&
+	    s->hdr->ref_seq_span > 0) {
 	    MD5_CTX md5;
 	    MD5_Init(&md5);
 	    if (fd->embed_cons) {
-		MD5_Update(&md5, c->cons, c->last_base - c->first_base + 1);
+		MD5_Update(&md5, c->cons, s->hdr->ref_seq_span);
 	    } else {
 		MD5_Update(&md5,
 			   c->ref + s->hdr->ref_seq_start - c->ref_start,
