@@ -117,6 +117,15 @@ This means the files can be decoded without needing to specify the
 reference fasta file.
 
 .TP
+\fB-E\fR
+CRAM encoding only. Embed snippets of the consensus sequence in every slice.
+This operates as per the -e option, but the consensus is generated
+from the aligned data.  This does not therefore require a reference to
+be known during encode (although it is still a mandatory part of the
+specification that the SQ SAM headers have an M5 field).  It also
+means the files can be decoded without needing to specify the reference fasta file.
+
+.TP
 \fB-x\fR
 CRAM encoding only.  Omit reference based compression and instead
 store details of every base verbatim.
