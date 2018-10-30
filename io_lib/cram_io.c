@@ -3583,9 +3583,6 @@ void cram_free_container(cram_container *c) {
 	HashTableIterDestroy(iter);
     }
 
-    if (c->cons)
-	free(c->cons);
-
     free(c);
 }
 
@@ -4096,6 +4093,9 @@ void cram_free_slice(cram_slice *s) {
 
     if (s->aux_block)
 	free(s->aux_block);
+
+    if (s->cons)
+	free(s->cons);
 
     free(s);
 }

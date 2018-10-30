@@ -989,11 +989,11 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 	    return -1;
 	s->ref_id = DS_ref; // needed?
 	if (fd->embed_cons)
-	    BLOCK_APPEND(s->block[DS_ref], c->cons, s->hdr->ref_seq_span);
+	    BLOCK_APPEND(s->block[DS_ref], s->cons, s->hdr->ref_seq_span);
 	else
 	    BLOCK_APPEND(s->block[DS_ref],
-			 c->ref + c->first_base - c->ref_start,
-			 c->last_base - c->first_base + 1);
+			 c->ref + s->hdr->ref_seq_start - c->ref_start,
+			 s->hdr->ref_seq_span);
     }
 
     /*
@@ -1277,6 +1277,7 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 
     uint32_t (*cnt)[6] = NULL, cnt_sz = 0;
     uint64_t first_pos = c->bams[bam_start]->pos;
+    assert(first_pos + 1 == s->hdr->ref_seq_start);
 
     // 1: Iterate through names to count frequency
     uint64_t max_pos = 0;
@@ -1394,8 +1395,8 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 //	       cnt[p-first_pos][3], cnt[p-first_pos][4],
 //	       cnt[p-first_pos][5], base, 100.0*freq/t);
     }
-    c->cons = cons;
-    //fprintf(stderr, "%.*s\n", (int)(max_pos - first_pos), c->cons);
+    s->cons = cons;
+    //fprintf(stderr, "%.*s\n", (int)(max_pos - first_pos), s->cons);
     free(cnt);
 
     return 0;
@@ -1657,7 +1658,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    MD5_CTX md5;
 	    MD5_Init(&md5);
 	    if (fd->embed_cons) {
-		MD5_Update(&md5, c->cons, s->hdr->ref_seq_span);
+		MD5_Update(&md5, s->cons, s->hdr->ref_seq_span);
 	    } else {
 		MD5_Update(&md5,
 			   c->ref + s->hdr->ref_seq_start - c->ref_start,
@@ -2698,10 +2699,10 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     // FIXME: multi-ref containers
 
     ref = c->ref;
-    cons = c->cons;
+    cons = s->cons;
     cr->flags       = bam_flag(b);
     cr->len         = bam_seq_len(b);
-    uint64_t fpos = c->ref_seq_start-1;
+    uint64_t fpos = s->hdr->ref_seq_start-1;
 
     //fprintf(stderr, "%s => %d\n", rg ? rg : "\"\"", cr->rg);
 

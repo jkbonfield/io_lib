@@ -391,7 +391,6 @@ typedef struct {
     /* Copied from fd before encoding, to allow multi-threading */
     int64_t ref_start, first_base, last_base, ref_id, ref_end;
     char *ref;
-    char *cons;  // from first_base to last_base inclusive
     //struct ref_entry *ref;
 
     /* For multi-threading */
@@ -587,6 +586,7 @@ typedef struct cram_slice {
     int ref_start;           // start position of current reference;
     int ref_end;             // end position of current reference;
     int ref_id;
+    char *cons;              // from ref_start to ref_end inclusive
 
     uint32_t BD_crc;         // base call digest
     uint32_t SD_crc;         // quality score digest
