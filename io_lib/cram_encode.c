@@ -1396,7 +1396,6 @@ int generate_consensus(cram_container *c, cram_slice *s, int bam_start) {
 //	       cnt[p-first_pos][5], base, 100.0*freq/t);
     }
     s->cons = cons;
-    //fprintf(stderr, "%.*s\n", (int)(max_pos - first_pos), s->cons);
     free(cnt);
 
     return 0;
@@ -2165,6 +2164,170 @@ static int cram_add_insertion(cram_container *c, cram_slice *s, cram_record *r,
     return cram_add_feature(c, s, r, &f);
 }
 
+
+/*
+ * Adds an MD:Z tag to the cram aux fields. Assumes one didn't already exist.
+ *
+ * Returns 0 on success;
+ *        -1 on failure.
+ */
+static int cram_add_aux_MDZ(cram_fd *fd, cram_container *c, cram_slice *s,
+			    cram_block *td_b, dstring_t *MD) {
+    char aux_f[3];
+    cram_tag_map *tm;
+    cram_codec *codec;
+    int key;
+    HashData hd;
+    HashItem *hi;
+
+    aux_f[0] = 'M';
+    aux_f[1] = 'D';
+    aux_f[2] = 'Z';
+    BLOCK_APPEND(td_b, aux_f, 3);
+    key = (aux_f[0]<<16)|(aux_f[1]<<8)|aux_f[2];
+
+    hd.p = NULL;
+    if (!(hi = HashTableAdd(c->tags_used, aux_f, 3, hd, NULL)))
+	return -1;
+    if (!hi->data.p) {
+	HashItem *hi_global;
+	hd.p = NULL;
+	if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
+	if (!(hi_global = HashTableAdd(fd->tags_used, aux_f, 3, hd, NULL)))
+	    return -1;
+	if (!hi_global->data.p)
+	    hi_global->data.p = cram_new_metrics();
+	if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
+
+	cram_tag_map *m = calloc(1, sizeof(*m));
+	if (!m)
+	    return -1;
+
+	int i2[2] = {'\t',key};
+	cram_codec *c = cram_encoder_init(E_BYTE_ARRAY_STOP, NULL,
+					  E_BYTE_ARRAY, (void *)i2,
+					  fd->version);
+
+	m->codec = c;
+	hi->data.p = m;
+
+	// Link to fd-global tag metrics
+	m->m = hi_global ? (cram_metrics *)hi_global->data.p : NULL;
+    }
+
+    tm = (cram_tag_map *)hi->data.p;
+    codec = tm->codec;
+
+    if (!tm->blk) {
+	if (!(tm->blk = cram_new_block(EXTERNAL, key)))
+	    return -1;
+	tm->codec->out = tm->blk;
+	tm->blk->m = tm->m;
+    }
+    codec->encode(s, codec, DSTRING_STR(MD), DSTRING_LEN(MD));
+
+    return 0;
+}
+
+
+/*
+ * Adds an NM:i tag to the cram aux fields. Assumes one didn't already exist.
+ *
+ * Returns 0 on success;
+ *        -1 on failure.
+ */
+static int cram_add_aux_NMi(cram_fd *fd, cram_container *c, cram_slice *s,
+			    cram_block *td_b, int NM) {
+    char aux_f[3];
+    cram_tag_map *tm;
+    int key;
+    HashData hd;
+    HashItem *hi;
+
+    int nm_len = 0;
+    aux_f[0] = 'N';
+    aux_f[1] = 'M';
+    if (NM < 256)
+	nm_len = 1, aux_f[2] = 'C';
+    else if (NM < 65536)
+	nm_len = 2, aux_f[2] = 'S';
+    else
+	nm_len = 4, aux_f[2] = 'I';
+    BLOCK_APPEND(td_b, aux_f, 3);
+
+    key = (aux_f[0]<<16)|(aux_f[1]<<8)|aux_f[2];
+
+    hd.p = NULL;
+    if (!(hi = HashTableAdd(c->tags_used, aux_f, 3, hd, NULL)))
+	return -1;
+    if (!hi->data.p) {
+	HashItem *hi_global;
+	hd.p = NULL;
+	if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
+	if (!(hi_global = HashTableAdd(fd->tags_used, aux_f, 3, hd, NULL)))
+	    return -1;
+	if (!hi_global->data.p)
+	    hi_global->data.p = cram_new_metrics();
+	if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
+
+	size_t sk = key;
+	cram_tag_map *m = calloc(1, sizeof(*m));
+	if (!m)
+	    return -1;
+
+	cram_byte_array_len_encoder e;
+	cram_stats st;
+
+	e.len_encoding = E_HUFFMAN;
+	e.len_dat = NULL;
+	memset(&st, 0, sizeof(st));
+	cram_stats_add(&st, nm_len);
+	cram_stats_encoding(fd, &st);
+
+	e.val_encoding = E_EXTERNAL;
+	e.val_dat = (void *)sk;
+
+	cram_codec *c = cram_encoder_init(E_BYTE_ARRAY_LEN, &st,
+					  E_BYTE_ARRAY, (void *)&e,
+					  fd->version);
+
+	m->codec = c;
+	hi->data.p = m;
+
+	// Link to fd-global tag metrics
+	m->m = hi_global ? (cram_metrics *)hi_global->data.p : NULL;
+    }
+
+    tm = (cram_tag_map *)hi->data.p;
+
+    if (!tm->blk) {
+	if (!(tm->blk = cram_new_block(EXTERNAL, key)))
+	    return -1;
+	tm->codec->e_byte_array_len.val_codec->out = tm->blk;
+	tm->blk->m = tm->m;
+    }
+
+    switch (nm_len) {
+    case 1:
+	BLOCK_APPEND_CHAR(tm->blk, NM);
+	break;
+
+    case 2:
+	BLOCK_APPEND_CHAR(tm->blk, NM&0xff);
+	BLOCK_APPEND_CHAR(tm->blk, (NM>>8)&0xff);
+	break;
+
+    default:
+	BLOCK_APPEND_CHAR(tm->blk, NM&0xff);
+	BLOCK_APPEND_CHAR(tm->blk, (NM>>8)&0xff);
+	BLOCK_APPEND_CHAR(tm->blk, (NM>>16)&0xff);
+	BLOCK_APPEND_CHAR(tm->blk, (NM>>24)&0xff);
+	break;
+    }
+
+    return 0;
+}
+
 /*
  * Encodes auxiliary data. Largely duplicated from above, but done so to
  * keep it simple and avoid a myriad of version ifs.
@@ -2173,7 +2336,8 @@ static int cram_add_insertion(cram_container *c, cram_slice *s, cram_record *r,
  *         NULL on failure or no rg present (FIXME)
  */
 static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
-			     cram_slice *s, cram_record *cr, int NM, dstring_t *MD) {
+			     cram_slice *s, cram_record *cr, int NM, dstring_t *MD,
+			     int need_MD_NM) {
     char *aux, *orig, *rg = NULL;
 #ifdef SAMTOOLS
     int aux_size = bam_get_l_aux(b);
@@ -2188,6 +2352,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
     int omit_RG = !fd->preserve_aux_order;
     int omit_MD = !fd->preserve_aux_order;
     int omit_NM = !fd->preserve_aux_order;
+    int MD_done = 0, NM_done = 0;
 
     orig = aux = (char *)bam_aux(b);
 
@@ -2208,8 +2373,10 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		if (MD && strncasecmp(DSTRING_STR(MD), aux+3, orig + aux_size - (aux+3)) == 0) {
 		    while (*aux++);
 		    continue;
-		} else if (fd->verbose) {
-		    fprintf(stderr, "Warning: MD values differ: %s vs %s\n", DSTRING_STR(MD), aux+3);
+		} else {
+		    MD_done = 1;
+		    if (fd->verbose)
+			fprintf(stderr, "Warning: MD values differ: %s vs %s\n", DSTRING_STR(MD), aux+3);
 		}
 	    }
 	}
@@ -2228,8 +2395,10 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 			return NULL;
 		    }
 		    continue;
-		} else if (fd->verbose) {
-		    fprintf(stderr, "Warning: NM values differ: %d vs %d\n", NM, NM_);
+		} else {
+		    NM_done = 1;
+		    if (fd->verbose)
+			fprintf(stderr, "Warning: NM values differ: %d vs %d\n", NM, NM_);
 		}
 	    }
 	}
@@ -2546,6 +2715,35 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	tm->blk->m = tm->m;
     }
 
+    // If we need MD and NM tags still due to differences between consensus
+    // and reference, then we add them here because we don't know whether
+    // the user will be generating these during decode.
+    //
+    // Or more to the point, should we instead have a marker requesting that
+    // we don't auto-generate them as they'll be generated incorrectly?
+    // If they existed before then we've already stored them (they differ).
+    // If they didn't exist before, then it is not our job to store them
+    // incase someone wants them: that is what e.g. "samtools calmd is" for.
+    //
+    // One possibility is to add MD* and NM* to the tag dictionary and use
+    // this as an indicator for whether we decode them, rather than having
+    // and always-decode vs never-decode command line switch.
+    if (need_MD_NM) {
+	// FIXME: NM and MD here are the ones computed from cons, not from ref.
+	// We can't store them here either.  Need the corrected ones instead.
+
+	if (!MD_done) {
+	    if (cram_add_aux_MDZ(fd, c, s, td_b, MD) < 0)
+		return NULL;
+	}
+
+	if (!NM_done) {
+	    if (cram_add_aux_NMi(fd, c, s, td_b, NM) < 0)
+		return NULL;
+	}
+    }
+
+
     // FIXME: sort BLOCK_DATA(td_b) by char[3] triples
     
     // And and increment TD hash entry
@@ -2691,7 +2889,8 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
  */
 static int process_one_read(cram_fd *fd, cram_container *c,
 			    cram_slice *s, cram_record *cr,
-			    bam_seq_t *b, int rnum, dstring_t *MD) {
+			    bam_seq_t *b, int rnum,
+			    dstring_t *MD) {
     int i, fake_qual = -1, NM = 0;
     char *cp, *rg;
     char *ref, *seq, *qual, *cons;
@@ -2703,6 +2902,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     cr->flags       = bam_flag(b);
     cr->len         = bam_seq_len(b);
     uint64_t fpos = s->hdr->ref_seq_start-1;
+    int need_MD_NM = 0;
 
     //fprintf(stderr, "%s => %d\n", rg ? rg : "\"\"", cr->rg);
 
@@ -2854,6 +3054,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 			? cig_len : c->ref_end - apos;
 		    char *sp = &seq[spos];
 		    char *rp = &ref[apos];
+		    char *RP = rp;
 		    assert(apos-fpos >= 0);
 		    if (fd->embed_cons)
 			rp = &cons[apos-fpos];
@@ -2863,16 +3064,27 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 				"different length\n");
 			return -1;
 		    }
+
+		    // NB: We may be delta-ing against cons (rp), but generating MD against
+		    // ref (RP).  If they differ, we need to remember this.  The CIGAR string
+		    // however will always be in the same coordinate system as we have only
+		    // SNPs between cons & ref; no indels.
 		    for (l = 0; l < end; l++) {
-			if (rp[l] != sp[l]) {
-			    if (!sp[l])
-				break;
+			if (RP[l] != sp[l]) {
 			    if (MD && ref) {
 				dstring_append_int(MD, apos+l - MD_last);
-				dstring_append_char(MD, rp[l]);
+				dstring_append_char(MD, RP[l]);
 				MD_last = apos+l+1;
 			    }
+			    if (RP[l] != rp[l])
+				need_MD_NM = 1; // mismatch ref, but may match cons
 			    NM++;
+			}
+			if (rp[l] != sp[l]) {
+			    if (rp[l] != RP[l])
+				need_MD_NM = 1; // mismatch cons, but may match ref
+			    if (!sp[l])
+				break;
 			    if (0 && IS_CRAM_3_VERS(fd)) {
 				// Disabled for the time being as it doesn't
 				// seem to gain us much.
@@ -2938,6 +3150,11 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		    if (apos < c->ref_end) {
 			dstring_append_char(MD, '^');
 			dstring_nappend(MD, &ref[apos], MIN(c->ref_end - apos, cig_len));
+			if (cons) {
+				int dl = MIN(c->ref_end - apos, cig_len);
+				if (memcmp(&ref[apos], &cons[apos-fpos], dl) != 0)
+				    need_MD_NM = 1;
+			}
 		    }
 		}
 		NM += cig_len;
@@ -3019,6 +3236,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	if (MD && ref) {
 	    dstring_append_int(MD, apos - MD_last);
 	    dstring_append_char(MD, '\0');
+	    //fprintf(stderr, "MD=%s Need_MD_NM = %d\n", DSTRING_STR(MD), need_MD_NM);
 	}
     } else {
 	// Unmapped
@@ -3033,7 +3251,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     }
 
     cr->ntags      = 0; //cram_stats_add(c->stats[DS_TC], cr->ntags);
-    rg = cram_encode_aux(fd, b, c, s, cr, NM, MD);
+    rg = cram_encode_aux(fd, b, c, s, cr, NM, MD, need_MD_NM);
 
     /* Read group, identified earlier */
     if (rg) {

@@ -2381,6 +2381,20 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     ref_id = s->hdr->ref_seq_id;
     embed_ref = s->hdr->ref_base_id >= 0 ? 1 : 0;
 
+    // Embedded references, or more specifically embedded consensuses, mean
+    // that we may be reading, modifying (filter, subsample, etc), writing
+    // and the written file may have a different embedded reference (cons)
+    // to the read file.  In order to know whether or not this changes the
+    // MD tag, we must first know what the MD tag is.
+    //
+    // Until we have a way of knowing whether the MD tag was originally in
+    // the file (this is a CRAM flaw), we have to assume it was and was
+    // silently dropped.  The only work around is to forcibly enable the
+    // generation of MD tags in this scenario.  Ugly, and something to
+    // fix for CRAM v4.0.
+    if (embed_ref)
+	s->decode_md = 1;
+
     if (ref_id >= 0) {
 	if (embed_ref) {
 	    cram_block *b;
