@@ -1,3 +1,18 @@
+/*
+
+qual qmap      Map binned data to eg 0,1,2,3
+qual qctxbit   How many bits of qual context (after qmap[qual])
+qual qctxshift How many bits to shift
+qual qctxmap   Map qctx to context (to permit eg multiple quals with fewer bits)
+qual pctxbit   How many bits of positional data
+qual pctxdiv   Division steps for positional data, in power of 2, ie pos/(1<<div)
+qual pctxmap   Map pctx to new values
+qual dctxbit   How many bits of delta
+qual dctxmap   Map dctx to new values (eg for sqrt(delta)).
+
+Plus as above for RLE.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -41,6 +56,34 @@ static const char *name(void) {
 #undef NSYM
 #define NSYM MAXR
 #include "c_simple_model.h"
+
+//approx sqrt(delta)/2
+static int dsqr2[256] = {
+    0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+};
+
+//approx sqrt(delta)
+static int dsqr[64] = {
+    0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+};
 
 // Fqzcomp -q2 equiv
 unsigned char *compress_block_fqz2f(int vers,
@@ -93,6 +136,7 @@ unsigned char *compress_block_fqz2f(int vers,
 		comp[comp_idx] = i, qhist[i] = comp_idx++ -4;
 	max_sym = nsym;
     } else {
+	nsym = 999; // so we don't use qhist
 	comp[comp_idx++] = 0;
     }
 
@@ -121,7 +165,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	    SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
     }
 
-    int delta = 5, delta2 = 5, j2 = 0;
+    int delta = 0, delta2 = 0, j2 = 0;
 #ifdef DEDUP
     int last_len = 0;
     SIMPLE_MODEL(2,_) model_dup;
@@ -191,7 +235,7 @@ unsigned char *compress_block_fqz2f(int vers,
 
 	    rec++;
 	    j = len;
-	    delta = 5;
+	    delta = 0;
 	    last = 0;
 
 #ifdef DEDUP
@@ -224,7 +268,7 @@ unsigned char *compress_block_fqz2f(int vers,
 		int ctx = q1 & (QMAX-1);
 		ctx <<= 4; ctx |= ((j2/16)&15);
 		ctx <<= 2; ctx |= looped;
-		ctx <<= 2; ctx |= ((delta2/16) & 0x7);
+		ctx <<= 2; ctx |= dsqr2[MIN(255,delta2)];
 
 		SIMPLE_MODEL(MAXR,_encodeSymbol)(&model_run[ctx], &rc2, r);
 		run_len -= MAXR-1;
@@ -248,7 +292,7 @@ unsigned char *compress_block_fqz2f(int vers,
 
 	    last = ((q1<<6) | q) & (QSIZE-1);
 	    last |= (q == q2)<<QBITS;
-	    last |= (MIN(7*8, delta*4)&0xf8) << (QBITS-2);
+	    last |= dsqr[MIN(63, delta)] << (QBITS+1);
 	    q2 = q1;
 	}
 
@@ -265,7 +309,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	    int ctx = q1 & (QMAX-1);
 	    ctx <<= 4; ctx |= ((j2/16)&15);
 	    ctx <<= 2; ctx |= looped;
-	    ctx <<= 2; ctx |= ((delta2/16) & 0x7);
+	    ctx <<= 2; ctx |= dsqr2[MIN(255,delta2)];
 
 	    SIMPLE_MODEL(MAXR,_encodeSymbol)(&model_run[ctx], &rc2, r);
 	    run_len -= MAXR-1;
@@ -374,7 +418,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     SIMPLE_MODEL(2,_) model_strand;
     SIMPLE_MODEL(2,_init)(&model_strand,2);
 
-    int delta = 5, delta2 = 5, j2 = 0, rev = 0;
+    int delta = 0, delta2 = 0, j2 = 0, rev = 0;
 #ifdef DEDUP
     SIMPLE_MODEL(2,_) model_dup;
     SIMPLE_MODEL(2,_init)(&model_dup,2);
@@ -437,7 +481,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 
 	    rec++;
 	    j = len;
-	    delta = 5;
+	    delta = 0;
 	    last = 0;
 	}
 
@@ -452,7 +496,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 
 	    last = ((q1<<6) | q) & (QSIZE-1);
 	    last += (q == q2)<<QBITS;
-	    last += (MIN(7*8, delta*4)&0xf8) << (QBITS-2);
+	    last |= dsqr[MIN(63, delta)] << (QBITS+1);
 
 	    q2 = q1;
 
@@ -467,7 +511,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 		    int ctx = q;
 		    ctx <<= 4; ctx |= ((j2/16)&15);
 		    ctx <<= 2; ctx |= looped;
-		    ctx <<= 2; ctx |= ((delta2/16) & 0x7);
+		    ctx <<= 2; ctx |= dsqr2[MIN(255,delta2)];
 
 		    r = SIMPLE_MODEL(MAXR,_decodeSymbol)(&model_run[ctx], &rc2);
 		    run_len += r;
