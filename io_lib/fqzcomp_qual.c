@@ -36,7 +36,8 @@ static const char *name(void) {
 #define NSYM 2
 #include "c_simple_model.h"
 
-#define MAXR 9
+// Fast tuning for small slice sizes, but not giving much up on large ones.
+#define MAXR 4
 #undef NSYM
 #define NSYM MAXR
 #include "c_simple_model.h"
@@ -64,22 +65,32 @@ unsigned char *compress_block_fqz2f(int vers,
     unsigned char q1 = 1, q2 = 0;
     int run_len = 0;
 
-    uint32_t qhist[256] = {0}, nsym, max_sym;
-    for (i = 0; i < in_size; i++)
+    uint32_t qhist[256] = {0}, nsym, max_sym, qrle = 0;
+    int do_rle = 1;
+    for (last = i = 0; i < in_size; i++) {
 	qhist[in[i]]++;
+	if (last == in[i])
+	    qrle++;
+	last = in[i];
+    }
     for (i = max_sym = nsym = 0; i < 256; i++)
 	if (qhist[i])
 	    max_sym = i, nsym++;
 
+    //fprintf(stderr, "Rle = %5.1f\n", (100.*qrle)/in_size);
+    if (100.*qrle/in_size < 75)
+	do_rle = 0;
+
     // If nsym is significant lower than max_sym, store a lookup table and
     // transform prior to compression.  Eg 4 or 8 binned data.
     comp[comp_idx++] = vers;
+    comp[comp_idx++] = do_rle;
     comp[comp_idx++] = max_sym;
     if (nsym <= 8 && nsym*2 < max_sym) {
 	comp[comp_idx++] = nsym;
 	for (i = 0; i < 256; i++)
 	    if (qhist[i])
-		comp[comp_idx] = i, qhist[i] = comp_idx++ -3;
+		comp[comp_idx] = i, qhist[i] = comp_idx++ -4;
 	max_sym = nsym;
     } else {
 	comp[comp_idx++] = 0;
@@ -90,6 +101,7 @@ unsigned char *compress_block_fqz2f(int vers,
     model_qual = malloc(sizeof(*model_qual) * QSIZE*16);
     if (!model_qual)
 	return NULL;
+
     for (i = 0; i < QSIZE*16; i++)
 	SIMPLE_MODEL(QMAX,_init)(&model_qual[i], max_sym+1);
 
@@ -100,12 +112,14 @@ unsigned char *compress_block_fqz2f(int vers,
     SIMPLE_MODEL(2,_) model_strand;
     SIMPLE_MODEL(2,_init)(&model_strand,2);
 
-    SIMPLE_MODEL(MAXR,_) *model_run;
-    model_run = malloc(sizeof(*model_run)*(QMAX<<11));
-    if (!model_run)
-	return NULL;
-    for (i = 0; i < QMAX<<11; i++)
-	SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
+    SIMPLE_MODEL(MAXR,_) *model_run = NULL;
+    if (do_rle) {
+	model_run = malloc(sizeof(*model_run)*(QMAX<<8));
+	if (!model_run)
+	    return NULL;
+	for (i = 0; i < QMAX<<8; i++)
+	    SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
+    }
 
     int delta = 5, delta2 = 5, j2 = 0;
 #ifdef DEDUP
@@ -153,7 +167,7 @@ unsigned char *compress_block_fqz2f(int vers,
     // and perform delta, and second to reverse back again.
     // These two can be merged with a bit of cleverness, but we do it simply for now.
     int nrun = 0;
-    int nswitch = 0;
+    //int nswitch = 0;
     for (i = j = 0; i < in_size; i++, j--) {
 	if (j == 0) {
 	    // Quality buffer maybe longer than sum of reads if we've
@@ -199,7 +213,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	unsigned char q = in[i];
         //unsigned char q = in[i] & (QMAX-1);
 	//assert(in[i] < QMAX && in[i] >= 0);
-	if (q != q1 && i > 0) {
+	if ((q != q1 && do_rle) && i > 0) {
 	    // Every symbol is sym+rep_count, even the A+0 case.
 	    // Rep count is based on symbol and history itself
 	    int looped = 0;
@@ -222,8 +236,8 @@ unsigned char *compress_block_fqz2f(int vers,
 	    run_len++;
 	}
 
-	if (q != q1) {
-	    nswitch++;
+	if (q != q1 || !do_rle) {
+	    //nswitch++;
 	    if (nsym <= 8)
 		SIMPLE_MODEL(QMAX,_encodeSymbol)(&model_qual[last], &rc, qhist[q]);
 	    else
@@ -243,7 +257,7 @@ unsigned char *compress_block_fqz2f(int vers,
     }
 
     // Run length for last symbol
-    {
+    if (do_rle) {
 	int looped=0;
 	do {
 	    int r = run_len>MAXR-1?MAXR-1:run_len;
@@ -306,7 +320,8 @@ unsigned char *compress_block_fqz2f(int vers,
     *out_size = comp_idx + RC_OutSize(&rc) + RC_OutSize(&rc2);
 
     free(model_qual);
-    free(model_run);
+    if (do_rle)
+	free(model_run);
 
     return comp;
 }
@@ -323,6 +338,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     unsigned int run_len = 0;
 
     int vers = in[in_idx++];
+    int do_rle = in[in_idx++];
     int max_sym = in[in_idx++];
     int nsym = in[in_idx++];
 
@@ -346,12 +362,14 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     for (i = 0; i < 4; i++)
 	SIMPLE_MODEL(256,_init)(&model_len[i],256);
 
-    SIMPLE_MODEL(MAXR,_) *model_run;
-    model_run = malloc(sizeof(*model_run)*(QMAX<<11));
-    if (!model_run)
-	return NULL;
-    for (i = 0; i < QMAX<<11; i++)
-	SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
+    SIMPLE_MODEL(MAXR,_) *model_run = NULL;
+    if (do_rle) {
+	model_run = malloc(sizeof(*model_run)*(QMAX<<8));
+	if (!model_run)
+	    return NULL;
+	for (i = 0; i < QMAX<<8; i++)
+	    SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
+    }
 
     SIMPLE_MODEL(2,_) model_strand;
     SIMPLE_MODEL(2,_init)(&model_strand,2);
@@ -441,20 +459,22 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    delta2 = delta;
 	    j2 = j;
 
-	    int r;
 	    run_len = 0;
-	    int looped = 0;
-	    do {
-		int ctx = q;
-		ctx <<= 4; ctx |= ((j2/16)&15);
-		ctx <<= 2; ctx |= looped;
-		ctx <<= 2; ctx |= ((delta2/16) & 0x7);
+	    if (do_rle) {
+		int r;
+		int looped = 0;
+		do {
+		    int ctx = q;
+		    ctx <<= 4; ctx |= ((j2/16)&15);
+		    ctx <<= 2; ctx |= looped;
+		    ctx <<= 2; ctx |= ((delta2/16) & 0x7);
 
-		r = SIMPLE_MODEL(MAXR,_decodeSymbol)(&model_run[ctx], &rc2);
-		run_len += r;
-		looped++;
-		if (looped>3) looped=3;
-	    } while (r == MAXR-1);
+		    r = SIMPLE_MODEL(MAXR,_decodeSymbol)(&model_run[ctx], &rc2);
+		    run_len += r;
+		    looped++;
+		    if (looped>3) looped=3;
+		} while (r == MAXR-1);
+	    }
 	}
 
 	delta += (q1 != q);
@@ -483,7 +503,8 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     RC_FinishDecode(&rc);
     RC_FinishDecode(&rc2);
     free(model_qual);
-    free(model_run);
+    if (do_rle)
+	free(model_run);
     free(rev_a);
     free(len_a);
 
