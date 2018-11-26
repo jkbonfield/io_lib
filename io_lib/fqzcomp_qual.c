@@ -1,18 +1,3 @@
-/*
-
-qual qmap      Map binned data to eg 0,1,2,3
-qual qctxbit   How many bits of qual context (after qmap[qual])
-qual qctxshift How many bits to shift
-qual qctxmap   Map qctx to context (to permit eg multiple quals with fewer bits)
-qual pctxbit   How many bits of positional data
-qual pctxdiv   Division steps for positional data, in power of 2, ie pos/(1<<div)
-qual pctxmap   Map pctx to new values
-qual dctxbit   How many bits of delta
-qual dctxmap   Map dctx to new values (eg for sqrt(delta)).
-
-Plus as above for RLE.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -52,46 +37,63 @@ static const char *name(void) {
 #include "c_simple_model.h"
 
 // Fast tuning for small slice sizes, but not giving much up on large ones.
-#define MAXR 4
+#define MAXR 8
 #undef NSYM
 #define NSYM MAXR
 #include "c_simple_model.h"
 
-//approx sqrt(delta)/2
-static int dsqr2[256] = {
-    0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-    2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-    4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
-};
+static int store_array(unsigned char *out, int *array, int size, int bits) {
+    int i, j, k;
+    for (i = j = k = 0; i < size && j < (1<<bits); j++) {
+	int run_len = i;
+	while (i < size && array[i] == j)
+	    i++;
+	run_len = i-run_len;
+	out[k++] = run_len;
+    }
+    while (j < (1<<bits))
+	out[k++] = 0, j++;
 
-//approx sqrt(delta)
-static int dsqr[64] = {
-    0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3,
-    4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5,
-    5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
-};
+    return k;
+}
 
-// Fqzcomp -q2 equiv
+static int read_array(unsigned char *in, int *array, int bits) {
+    int i, j, k;
+    for (i = j = k = 0; i < (1<<bits); i++) {
+	int run_len = in[k++];
+	while (run_len && j < 256)
+	    run_len--, array[j++] = i;
+    }
+
+    // Copy last element to end
+    i = array[j-1];
+    while (j < 256)
+	array[j++] = i;
+    return k;
+}
+
 unsigned char *compress_block_fqz2f(int vers,
 				    int level,
 				    cram_slice *s,
 				    unsigned char *in,
 				    size_t in_size,
 				    size_t *out_size) {
+    //approx sqrt(delta), must be sequential
+    static int dsqr[] = {
+	0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3,
+	4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5,
+	5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+	6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+    };
+
+    //approx sqrt(delta)/2
+    static int dsqr2[] = {
+	0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3,
+	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    };
+
     unsigned char *comp = (unsigned char *)malloc(in_size*1.1+1000);
     unsigned char *comp2 = (unsigned char *)malloc(in_size*1.1+1000);
     if (!comp || !comp2) {
@@ -103,7 +105,7 @@ unsigned char *compress_block_fqz2f(int vers,
     int comp_idx = 0;
     size_t i, j;
     ssize_t rec = 0;
-    unsigned int last = 0;
+    unsigned int last = 0, qlast = 0, rlast = 0;
     RangeCoder rc, rc2;
     unsigned char q1 = 1, q2 = 0;
     int run_len = 0;
@@ -120,7 +122,6 @@ unsigned char *compress_block_fqz2f(int vers,
 	if (qhist[i])
 	    max_sym = i, nsym++;
 
-    //fprintf(stderr, "Rle = %5.1f\n", (100.*qrle)/in_size);
     if (100.*qrle/in_size < 75)
 	do_rle = 0;
 
@@ -129,15 +130,70 @@ unsigned char *compress_block_fqz2f(int vers,
     comp[comp_idx++] = vers;
     comp[comp_idx++] = do_rle;
     comp[comp_idx++] = max_sym;
+
+    int q_qctxbits =12;
+    int q_qctxshift=6; // qmax 64, although we can store up to 128 if needed
+    int q_2ctxbits =1; // 0 or 1 only
+    int q_mctxbits =3;
+
+    if (in_size < 5000000)
+	q_2ctxbits = 0;
+
+    if (nsym <= 4) {
+	// NovaSeq
+	q_qctxbits =10;
+	q_qctxshift=2;
+	q_2ctxbits =0;
+    } else if (nsym <= 8) {
+	// HiSeqX
+	q_qctxbits =6;
+	q_qctxshift=3;
+    }
+
+    comp[comp_idx++] = (q_qctxbits<<4)|q_qctxshift;
+    comp[comp_idx++] = (q_2ctxbits<<4)|q_mctxbits;
+
+    comp_idx += store_array(comp+comp_idx, dsqr, sizeof(dsqr)/sizeof(*dsqr), q_mctxbits);
+
+    int r_qctxbits =8;
+    int r_qctxshift=6;
+    int r_pctxbits =3;
+    int r_pctxshift=1;
+    int r_lctxbits =2;
+    int r_mctxbits =2;
+
+    if (do_rle) {
+	if (nsym <= 4) {
+	    if (in_size < 5000000)
+		r_qctxbits=2;
+	    r_qctxshift=2;
+	} else if (nsym <= 8) {
+	    r_qctxbits=6;
+	    r_qctxshift=3;
+	    r_pctxbits=2;
+	    r_pctxshift=1;
+	    r_lctxbits =1;
+	}
+
+	comp[comp_idx++] = (r_qctxbits<<4)|r_qctxshift;
+	comp[comp_idx++] = (r_pctxbits<<4)|r_pctxshift;
+	comp[comp_idx++] = (r_lctxbits<<4)|r_mctxbits;
+
+	comp_idx += store_array(comp+comp_idx, dsqr2, sizeof(dsqr2)/sizeof(*dsqr2), r_mctxbits);
+    }
+
     if (nsym <= 8 && nsym*2 < max_sym) {
 	comp[comp_idx++] = nsym;
+	int comp_idx_start = comp_idx;
 	for (i = 0; i < 256; i++)
 	    if (qhist[i])
-		comp[comp_idx] = i, qhist[i] = comp_idx++ -4;
+		comp[comp_idx] = i, qhist[i] = comp_idx++ -comp_idx_start;
 	max_sym = nsym;
     } else {
-	nsym = 999; // so we don't use qhist
+	nsym = 255;
 	comp[comp_idx++] = 0;
+	for (i = 0; i < 256; i++)
+	    qhist[i] = i;
     }
 
     SIMPLE_MODEL(QMAX,_) *model_qual;
@@ -158,10 +214,10 @@ unsigned char *compress_block_fqz2f(int vers,
 
     SIMPLE_MODEL(MAXR,_) *model_run = NULL;
     if (do_rle) {
-	model_run = malloc(sizeof(*model_run)*(QMAX<<8));
+	model_run = malloc(sizeof(*model_run)*(QMAX<<10));
 	if (!model_run)
 	    return NULL;
-	for (i = 0; i < QMAX<<8; i++)
+	for (i = 0; i < QMAX<<10; i++)
 	    SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
     }
 
@@ -211,8 +267,7 @@ unsigned char *compress_block_fqz2f(int vers,
     // and perform delta, and second to reverse back again.
     // These two can be merged with a bit of cleverness, but we do it simply for now.
     int nrun = 0;
-    //int nswitch = 0;
-    for (i = j = 0; i < in_size; i++, j--) {
+    for (run_len = i = j = 0; i < in_size; i++, j--) {
 	if (j == 0) {
 	    // Quality buffer maybe longer than sum of reads if we've
 	    // inserted a specific base + quality pair.
@@ -236,7 +291,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	    rec++;
 	    j = len;
 	    delta = 0;
-	    last = 0;
+	    qlast = last = 0;
 
 #ifdef DEDUP
 	    // Possible dup of previous read?
@@ -257,23 +312,23 @@ unsigned char *compress_block_fqz2f(int vers,
 	unsigned char q = in[i];
         //unsigned char q = in[i] & (QMAX-1);
 	//assert(in[i] < QMAX && in[i] >= 0);
-	if ((q != q1 && do_rle) && i > 0) {
+	if ((do_rle && q != q1) && i > 0) {
 	    // Every symbol is sym+rep_count, even the A+0 case.
 	    // Rep count is based on symbol and history itself
 	    int looped = 0;
+	    rlast = (rlast<<r_qctxshift) + qhist[q1];
 	    do {
 		int r = run_len>MAXR-1?MAXR-1:run_len;
 		nrun++;
 
-		int ctx = q1 & (QMAX-1);
-		ctx <<= 4; ctx |= ((j2/16)&15);
-		ctx <<= 2; ctx |= looped;
-		ctx <<= 2; ctx |= dsqr2[MIN(255,delta2)];
+		int ctx = rlast & ((1<<r_qctxbits)-1);
+		ctx <<= r_pctxbits; ctx |= MIN((1<<r_pctxbits)-1, j2>>r_pctxshift);
+		ctx <<= r_lctxbits; ctx |= MIN((1<<r_lctxbits)-1,looped);
+		ctx <<= r_mctxbits; ctx |= dsqr2[MIN(sizeof(dsqr2)/sizeof(*dsqr2)-1,delta2)];
 
 		SIMPLE_MODEL(MAXR,_encodeSymbol)(&model_run[ctx], &rc2, r);
 		run_len -= MAXR-1;
 		looped++;
-		if (looped>3) looped=3;
 	    } while (run_len >= 0);
 	    run_len = 0;
 	} else if (i>0) {
@@ -281,18 +336,17 @@ unsigned char *compress_block_fqz2f(int vers,
 	}
 
 	if (q != q1 || !do_rle) {
-	    //nswitch++;
-	    if (nsym <= 8)
-		SIMPLE_MODEL(QMAX,_encodeSymbol)(&model_qual[last], &rc, qhist[q]);
-	    else
-		SIMPLE_MODEL(QMAX,_encodeSymbol)(&model_qual[last], &rc, q);
+	    SIMPLE_MODEL(QMAX,_encodeSymbol)(&model_qual[last], &rc, qhist[q]);
 
 	    delta2 = delta;
 	    j2 = j;
 
-	    last = ((q1<<6) | q) & (QSIZE-1);
-	    last |= (q == q2)<<QBITS;
-	    last |= dsqr[MIN(63, delta)] << (QBITS+1);
+	    qlast = (qlast<<q_qctxshift) + qhist[q];
+	    last = qlast & ((1<<q_qctxbits)-1);
+	    if (q_2ctxbits) {
+		last <<= 1; last |= (q == q2);
+	    }
+	    last <<= q_mctxbits; last += dsqr[MIN(sizeof(dsqr)/sizeof(*dsqr)-1,delta)];
 	    q2 = q1;
 	}
 
@@ -303,18 +357,18 @@ unsigned char *compress_block_fqz2f(int vers,
     // Run length for last symbol
     if (do_rle) {
 	int looped=0;
+	rlast = (rlast<<r_qctxshift) + qhist[q1];
 	do {
 	    int r = run_len>MAXR-1?MAXR-1:run_len;
 
-	    int ctx = q1 & (QMAX-1);
-	    ctx <<= 4; ctx |= ((j2/16)&15);
-	    ctx <<= 2; ctx |= looped;
-	    ctx <<= 2; ctx |= dsqr2[MIN(255,delta2)];
+	    int ctx = rlast & ((1<<r_qctxbits)-1);
+	    ctx <<= r_pctxbits; ctx |= MIN((1<<r_pctxbits)-1, j2>>r_pctxshift);
+	    ctx <<= r_lctxbits; ctx |= MIN((1<<r_lctxbits)-1,looped);
+	    ctx <<= r_mctxbits; ctx |= dsqr2[MIN(sizeof(dsqr2)/sizeof(*dsqr2)-1,delta2)];
 
 	    SIMPLE_MODEL(MAXR,_encodeSymbol)(&model_run[ctx], &rc2, r);
 	    run_len -= MAXR-1;
 	    looped++;
-	    if (looped>3) looped=3;
 	} while (run_len >= 0);
     }
 
@@ -347,12 +401,6 @@ unsigned char *compress_block_fqz2f(int vers,
 	}
     }
 
-//    fprintf(stderr, "%d switches, %d runs\n", nswitch, nrun);
-//    fprintf(stderr, "comp_idx %d\n", (int)comp_idx+4);
-//    fprintf(stderr, "rc  size %d\n", (int)RC_OutSize(&rc));
-//    fprintf(stderr, "rc2 size %d\n", (int)RC_OutSize(&rc2));
-//    fprintf(stderr, "dup = %d + %d\n", ndup0, ndup1);
-
     comp[comp_idx++] = (RC_OutSize(&rc) >> 0) & 0xff;
     comp[comp_idx++] = (RC_OutSize(&rc) >> 8) & 0xff;
     comp[comp_idx++] = (RC_OutSize(&rc) >>16) & 0xff;
@@ -374,16 +422,43 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 				      unsigned char *in,
 				      size_t in_size,
 				      size_t *out_size) {
+    int dsqr[256] = {0};
+    int dsqr2[256] = {0};
+
     unsigned char *uncomp = NULL;
     RangeCoder rc, rc2;
     size_t i, j, rec = 0, len = *out_size, in_idx = 0;
     unsigned char q1 = 1, q2 = 0;
-    unsigned int last = 0;
+    unsigned int last = 0, qlast = 0, rlast = 0;
     unsigned int run_len = 0;
 
-    int vers = in[in_idx++];
-    int do_rle = in[in_idx++];
-    int max_sym = in[in_idx++];
+    int vers       = in[in_idx++];
+    int do_rle     = in[in_idx++];
+    int max_sym    = in[in_idx++];
+    int q_qctxbits = in[in_idx]>>4;
+    int q_qctxshift= in[in_idx++]&15;
+    int q_2ctxbits = in[in_idx]>>4;
+    int q_mctxbits = in[in_idx++]&15;
+
+    in_idx += read_array(in+in_idx, dsqr, q_mctxbits);
+
+    int r_qctxbits =0;
+    int r_qctxshift=0;
+    int r_pctxbits =0;
+    int r_pctxshift=0;
+    int r_lctxbits =0;
+    int r_mctxbits =0;
+    if (do_rle) {
+	r_qctxbits = in[in_idx]>>4;
+	r_qctxshift= in[in_idx++]&15;
+	r_pctxbits = in[in_idx]>>4;
+	r_pctxshift= in[in_idx++]&15;
+	r_lctxbits = in[in_idx]>>4;
+	r_mctxbits = in[in_idx++]&15;
+
+	in_idx += read_array(in+in_idx, dsqr2, r_mctxbits);
+    }
+
     int nsym = in[in_idx++];
 
     int qmap[256];
@@ -392,6 +467,8 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    qmap[i] = in[in_idx++];
 	max_sym = nsym;
     } else {
+	for (i = 0; i < 256; i++)
+	    qmap[i] = i;
 	nsym = QMAX;
     }
 
@@ -408,10 +485,10 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 
     SIMPLE_MODEL(MAXR,_) *model_run = NULL;
     if (do_rle) {
-	model_run = malloc(sizeof(*model_run)*(QMAX<<8));
+	model_run = malloc(sizeof(*model_run)*(QMAX<<10));
 	if (!model_run)
 	    return NULL;
-	for (i = 0; i < QMAX<<8; i++)
+	for (i = 0; i < QMAX<<10; i++)
 	    SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
     }
 
@@ -482,21 +559,24 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    rec++;
 	    j = len;
 	    delta = 0;
-	    last = 0;
+	    qlast = last = 0;
 	}
 
-	unsigned char q;
+	unsigned char q, Q;
 	
 	if (run_len) {
 	    q = q1;
 	    run_len--;
 	} else {
-	    q = SIMPLE_MODEL(QMAX,_decodeSymbol)(&model_qual[last], &rc);
-	    if (nsym <= 8) q = qmap[q]; // remove conditional here by always filling qmap.
+	    Q = SIMPLE_MODEL(QMAX,_decodeSymbol)(&model_qual[last], &rc);
+	    q = qmap[Q];
 
-	    last = ((q1<<6) | q) & (QSIZE-1);
-	    last += (q == q2)<<QBITS;
-	    last |= dsqr[MIN(63, delta)] << (QBITS+1);
+	    qlast = (qlast<<q_qctxshift) + Q;
+	    last = qlast & ((1<<q_qctxbits)-1);
+	    if (q_2ctxbits) {
+		last <<= 1; last |= (q == q2);
+	    }
+	    last <<= q_mctxbits; last += dsqr[MIN(255, delta)];
 
 	    q2 = q1;
 
@@ -507,16 +587,16 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    if (do_rle) {
 		int r;
 		int looped = 0;
+		rlast = (rlast<<r_qctxshift) + Q;
 		do {
-		    int ctx = q;
-		    ctx <<= 4; ctx |= ((j2/16)&15);
-		    ctx <<= 2; ctx |= looped;
-		    ctx <<= 2; ctx |= dsqr2[MIN(255,delta2)];
+		    int ctx = rlast & ((1<<r_qctxbits)-1);
+		    ctx <<= r_pctxbits; ctx |= MIN((1<<r_pctxbits)-1, j2>>r_pctxshift);
+		    ctx <<= r_lctxbits; ctx |= MIN((1<<r_lctxbits)-1,looped);
+		    ctx <<= r_mctxbits; ctx |= dsqr2[MIN(255,delta2)];
 
 		    r = SIMPLE_MODEL(MAXR,_decodeSymbol)(&model_run[ctx], &rc2);
 		    run_len += r;
 		    looped++;
-		    if (looped>3) looped=3;
 		} while (r == MAXR-1);
 	    }
 	}
