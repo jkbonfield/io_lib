@@ -1,14 +1,55 @@
+/*
+ * Format:
+ *
+ * (General flags & meta-data)
+ * byte    CRAM major version (3 or 4)
+ * byte    Bit flags (4=do_rle, 2=do_dedup, 1=stored_qmap)
+ * byte    Max quality sym count (eg 4, 8, 40)
+ * (If flags&1; stored_qmap)
+ * byte       Nsym: number of quality symbols
+ * byte[nsym] Quality alphabet; eg to replace char !,-,3,E with int 0,1,2,3.
+ * (Qual meta-data)
+ * byte    q_qctxbits<<4  +  q_qctxshift
+ * byte    q_2ctxbits<<4  +  q_mctxbits
+ * byte[]  Array for q_dmap of size q_mctxbits
+ * (Run length meta-data; iff do_rle set)
+ * byte    r_qctxbits<<4  +  r_qctxshift
+ * byte    r_pctxbits<<4  +  r_pctxshift
+ * byte    r_lctxbits<<4  +  r_mctxbits
+ * byte[]  Array for r_dmap of size r_mctxbits
+ *
+ * Models contexts must be no more than 16-bit in size, but smaller is better
+ * for speed / memory..
+ *
+ * Arrays are 256 elements wide and must consists of a series of values between
+ * 0 and 1<<mctxbits (eg 1<<q_mctxbits) in numerically ascending order.
+ * They are stored as a series of 1<<mctxbits values indicating the run
+ * length for that element.  Any remaining values (up to 256) are copied
+ * from the last value.
+ *
+ * Quality context for q_{n} is computed using:
+ * q_{n-1} = previous qual
+ * q_{n-2} = qual 2 ago
+ * q_{n-3} = qual 3 ago
+ *
+ * qlast = (qlast<<q_qctxshift) + q_{n-1}
+ * ctx = qlast & ((1<<q_qctxbits)-1)
+ * if (q_2ctxbits)
+ *     ctx = (ctx<<1) | (q_{n-1} == q_{n-3});
+ * ctx <<= q_mctxbits
+ * ctx += q_dmap[MIN(255, delta)]
+ * delta += (q_{n-1} != q_{n-2});
+ *
+ * Fixed params.
+ *   MAXR = 8 (nsym for run-lengths, keep adding MAXR to run until we read 0)
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
 #include "cram_block_compression.h"
 #include "fqzcomp_qual.h"
-
-// Comment out if you wish to not de-dup the last quality string.
-// Generally it makes little difference, but some data sets (eg tophat
-// alignments) benefit greatly from duplication between adjacent rows.
-#define DEDUP
 
 // Define this for version 3.1 of CRAM only.  In the version 4.0
 // prototype we switch the orientation of quality values to their
@@ -88,10 +129,14 @@ unsigned char *compress_block_fqz2f(int vers,
 
     //approx sqrt(delta)/2
     static int dsqr2[] = {
-	0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+	0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
+	4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5,
+	5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+//	0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+//	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3,
+//	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+//	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
     };
 
     unsigned char *comp = (unsigned char *)malloc(in_size*1.1+1000);
@@ -111,7 +156,8 @@ unsigned char *compress_block_fqz2f(int vers,
     int run_len = 0;
 
     uint32_t qhist[256] = {0}, nsym, max_sym, qrle = 0;
-    int do_rle = 1;
+    int do_rle = 0; // RLE not helping much at the moment, so avoid complexity and memory.
+    int do_dedup = 1;
     for (last = i = 0; i < in_size; i++) {
 	qhist[in[i]]++;
 	if (last == in[i])
@@ -122,36 +168,80 @@ unsigned char *compress_block_fqz2f(int vers,
 	if (qhist[i])
 	    max_sym = i, nsym++;
 
+    int store_qmap = (nsym <= 8 && nsym*2 < max_sym);
+
     if (100.*qrle/in_size < 75)
 	do_rle = 0;
 
     // If nsym is significant lower than max_sym, store a lookup table and
     // transform prior to compression.  Eg 4 or 8 binned data.
     comp[comp_idx++] = vers;
-    comp[comp_idx++] = do_rle;
+    comp[comp_idx++] = (do_rle<<2)|(do_dedup<<1)|(store_qmap);
     comp[comp_idx++] = max_sym;
 
-    int q_qctxbits =12;
-    int q_qctxshift=6; // qmax 64, although we can store up to 128 if needed
-    int q_2ctxbits =1; // 0 or 1 only
-    int q_mctxbits =3;
-
-    if (in_size < 5000000)
-	q_2ctxbits = 0;
+    // optimal in Q40 100k/slice
+    int q_qctxbits =10;
+    int q_qctxshift=5; // qmax 64, although we can store up to 128 if needed
+    int q_2ctxbits =0; // 0 or 1 only
+    int q_pctxbits =4;
+    int q_pctxshift=2;
+    int q_mctxbits =2;
+    int q_mctxshift=1;
 
     if (nsym <= 4) {
 	// NovaSeq
 	q_qctxbits =10;
-	q_qctxshift=2;
-	q_2ctxbits =0;
+	q_qctxshift=2; // qmax 64, although we can store up to 128 if needed
+	q_pctxbits =2;
+	q_pctxshift=5;
+	if (in_size < 5000000) {
+	    q_pctxbits =1;
+	    q_pctxshift=6;
+	    q_mctxbits =2;
+	    q_mctxshift=1;
+	}
     } else if (nsym <= 8) {
 	// HiSeqX
-	q_qctxbits =6;
+	q_qctxbits =9;
 	q_qctxshift=3;
+	q_pctxbits =3;
+	q_pctxshift=5;
+	q_mctxbits =2;
+	q_mctxshift=2;
+	//q_2ctxbits =1;
+	if (in_size < 5000000) {
+	    q_qctxbits =6;
+	    q_pctxbits =2;
+	    q_pctxshift=5;
+	}
+    }
+
+    if (in_size < 300000) {
+	q_qctxbits=q_qctxshift;
+	q_2ctxbits=0;
+	q_mctxbits=2;
+    }
+
+    for (i = 0; i < sizeof(dsqr)/sizeof(*dsqr); i++)
+	if (dsqr[i] > (1<<q_mctxbits)-1)
+	    dsqr[i] = (1<<q_mctxbits)-1;
+
+    if (store_qmap) {
+	comp[comp_idx++] = nsym;
+	int comp_idx_start = comp_idx;
+	for (i = 0; i < 256; i++)
+	    if (qhist[i])
+		comp[comp_idx] = i, qhist[i] = comp_idx++ -comp_idx_start;
+	max_sym = nsym;
+    } else {
+	nsym = 255;
+	for (i = 0; i < 256; i++)
+	    qhist[i] = i;
     }
 
     comp[comp_idx++] = (q_qctxbits<<4)|q_qctxshift;
-    comp[comp_idx++] = (q_2ctxbits<<4)|q_mctxbits;
+    comp[comp_idx++] = (q_pctxbits<<4)|q_pctxshift;
+    comp[comp_idx++] = (q_2ctxbits<<7)|(q_mctxbits<<3)|q_mctxshift;
 
     comp_idx += store_array(comp+comp_idx, dsqr, sizeof(dsqr)/sizeof(*dsqr), q_mctxbits);
 
@@ -160,19 +250,26 @@ unsigned char *compress_block_fqz2f(int vers,
     int r_pctxbits =3;
     int r_pctxshift=1;
     int r_lctxbits =2;
-    int r_mctxbits =2;
+    int r_mctxbits =3;
+
+    for (i = 0; i < sizeof(dsqr2)/sizeof(*dsqr2); i++)
+	if (dsqr2[i] > (1<<r_mctxbits)-1)
+	    dsqr2[i] = (1<<r_mctxbits)-1;
 
     if (do_rle) {
 	if (nsym <= 4) {
-	    if (in_size < 5000000)
+	    if (in_size < 5000000) {
 		r_qctxbits=2;
+		r_lctxbits=2;
+	    } else {
+		r_qctxbits=5;
+		r_lctxbits=3;
+	    }
 	    r_qctxshift=2;
 	} else if (nsym <= 8) {
-	    r_qctxbits=6;
+	    r_qctxbits =6;
 	    r_qctxshift=3;
-	    r_pctxbits=2;
-	    r_pctxshift=1;
-	    r_lctxbits =1;
+	    r_lctxbits =2;
 	}
 
 	comp[comp_idx++] = (r_qctxbits<<4)|r_qctxshift;
@@ -182,27 +279,13 @@ unsigned char *compress_block_fqz2f(int vers,
 	comp_idx += store_array(comp+comp_idx, dsqr2, sizeof(dsqr2)/sizeof(*dsqr2), r_mctxbits);
     }
 
-    if (nsym <= 8 && nsym*2 < max_sym) {
-	comp[comp_idx++] = nsym;
-	int comp_idx_start = comp_idx;
-	for (i = 0; i < 256; i++)
-	    if (qhist[i])
-		comp[comp_idx] = i, qhist[i] = comp_idx++ -comp_idx_start;
-	max_sym = nsym;
-    } else {
-	nsym = 255;
-	comp[comp_idx++] = 0;
-	for (i = 0; i < 256; i++)
-	    qhist[i] = i;
-    }
-
     SIMPLE_MODEL(QMAX,_) *model_qual;
 
-    model_qual = malloc(sizeof(*model_qual) * QSIZE*16);
+    model_qual = malloc(sizeof(*model_qual) * (1<<16));
     if (!model_qual)
 	return NULL;
 
-    for (i = 0; i < QSIZE*16; i++)
+    for (i = 0; i < (1<<16); i++)
 	SIMPLE_MODEL(QMAX,_init)(&model_qual[i], max_sym+1);
 
     SIMPLE_MODEL(256,_) model_len[4];
@@ -214,19 +297,17 @@ unsigned char *compress_block_fqz2f(int vers,
 
     SIMPLE_MODEL(MAXR,_) *model_run = NULL;
     if (do_rle) {
-	model_run = malloc(sizeof(*model_run)*(QMAX<<10));
+	model_run = malloc(sizeof(*model_run)*(1<<16));
 	if (!model_run)
 	    return NULL;
-	for (i = 0; i < QMAX<<10; i++)
+	for (i = 0; i < (1<<16); i++)
 	    SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
     }
 
     int delta = 0, delta2 = 0, j2 = 0;
-#ifdef DEDUP
     int last_len = 0;
     SIMPLE_MODEL(2,_) model_dup;
     SIMPLE_MODEL(2,_init)(&model_dup,2);
-#endif
 
     RC_SetOutput(&rc, (char *)comp+comp_idx+4);
     RC_StartEncode(&rc);
@@ -293,20 +374,20 @@ unsigned char *compress_block_fqz2f(int vers,
 	    delta = 0;
 	    qlast = last = 0;
 
-#ifdef DEDUP
-	    // Possible dup of previous read?
-	    if (i && len == last_len && !memcmp(in+i-last_len, in+i, len)) {
-		SIMPLE_MODEL(2,_encodeSymbol)(&model_dup, &rc, 1);
-		i += len-1;
-		j = 1;
-		ndup1++;
-		continue;
-	    }
-	    SIMPLE_MODEL(2,_encodeSymbol)(&model_dup, &rc, 0);
-	    ndup0++;
+	    if (do_dedup) {
+		// Possible dup of previous read?
+		if (i && len == last_len && !memcmp(in+i-last_len, in+i, len)) {
+		    SIMPLE_MODEL(2,_encodeSymbol)(&model_dup, &rc, 1);
+		    i += len-1;
+		    j = 1;
+		    ndup1++;
+		    continue;
+		}
+		SIMPLE_MODEL(2,_encodeSymbol)(&model_dup, &rc, 0);
+		ndup0++;
 
-	    last_len = len;
-#endif
+		last_len = len;
+	    }
 	}
 
 	unsigned char q = in[i];
@@ -346,7 +427,12 @@ unsigned char *compress_block_fqz2f(int vers,
 	    if (q_2ctxbits) {
 		last <<= 1; last |= (q == q2);
 	    }
-	    last <<= q_mctxbits; last += dsqr[MIN(sizeof(dsqr)/sizeof(*dsqr)-1,delta)];
+	    if (q_pctxbits)
+		last = (last<<q_pctxbits) | MIN((1<<q_pctxbits)-1, j>>q_pctxshift);
+	    if (q_mctxbits) {
+		last <<= q_mctxbits;
+		last += dsqr[MIN(sizeof(dsqr)/sizeof(*dsqr)-1,delta>>q_mctxshift)];
+	    }
 	    q2 = q1;
 	}
 
@@ -433,12 +519,34 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     unsigned int run_len = 0;
 
     int vers       = in[in_idx++];
-    int do_rle     = in[in_idx++];
+    int flags      = in[in_idx++];
+    int do_rle     = flags&4;
+    int do_dedup   = flags&2;
+    int store_qmap = flags&1;
     int max_sym    = in[in_idx++];
+
+    int nsym = store_qmap ? in[in_idx++] : 255;
+    int qmap[256];
+
+    if (nsym <= 8) {
+	for (i = 0; i < nsym; i++)
+	    qmap[i] = in[in_idx++];
+	max_sym = nsym;
+    } else {
+	for (i = 0; i < 256; i++)
+	    qmap[i] = i;
+    }
+
     int q_qctxbits = in[in_idx]>>4;
     int q_qctxshift= in[in_idx++]&15;
-    int q_2ctxbits = in[in_idx]>>4;
-    int q_mctxbits = in[in_idx++]&15;
+    int q_pctxbits = in[in_idx]>>4;
+    int q_pctxshift= in[in_idx++]&15;
+    int q_2ctxbits = in[in_idx]>>7;
+    int q_mctxbits = (in[in_idx]>>3)&15;
+    int q_mctxshift= in[in_idx++]&7;
+
+    if (q_qctxbits+q_pctxbits+q_2ctxbits+q_mctxbits > 16)
+	return NULL;
 
     in_idx += read_array(in+in_idx, dsqr, q_mctxbits);
 
@@ -457,26 +565,16 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	r_mctxbits = in[in_idx++]&15;
 
 	in_idx += read_array(in+in_idx, dsqr2, r_mctxbits);
-    }
 
-    int nsym = in[in_idx++];
-
-    int qmap[256];
-    if (nsym && nsym <= 8) {
-	for (i = 0; i < nsym; i++)
-	    qmap[i] = in[in_idx++];
-	max_sym = nsym;
-    } else {
-	for (i = 0; i < 256; i++)
-	    qmap[i] = i;
-	nsym = QMAX;
+	if (r_qctxbits+r_pctxbits+r_lctxbits+r_mctxbits > 16)
+	    return NULL;
     }
 
     SIMPLE_MODEL(QMAX,_) *model_qual;
-    model_qual = malloc(sizeof(*model_qual) * QSIZE*16);
+    model_qual = malloc(sizeof(*model_qual) * (1<<16));
     if (!model_qual)
 	return NULL;
-    for (i = 0; i < QSIZE*16; i++)
+    for (i = 0; i < (1<<16); i++)
 	SIMPLE_MODEL(QMAX,_init)(&model_qual[i],max_sym+1);
 
     SIMPLE_MODEL(256,_) model_len[4];
@@ -485,10 +583,10 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 
     SIMPLE_MODEL(MAXR,_) *model_run = NULL;
     if (do_rle) {
-	model_run = malloc(sizeof(*model_run)*(QMAX<<10));
+	model_run = malloc(sizeof(*model_run)*(1<<16));
 	if (!model_run)
 	    return NULL;
-	for (i = 0; i < QMAX<<10; i++)
+	for (i = 0; i < (1<<16); i++)
 	    SIMPLE_MODEL(MAXR,_init)(&model_run[i],MAXR);
     }
 
@@ -496,10 +594,9 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     SIMPLE_MODEL(2,_init)(&model_strand,2);
 
     int delta = 0, delta2 = 0, j2 = 0, rev = 0;
-#ifdef DEDUP
+
     SIMPLE_MODEL(2,_) model_dup;
     SIMPLE_MODEL(2,_init)(&model_dup,2);
-#endif
 
     uncomp = (unsigned char *)malloc(*out_size);
     if (!uncomp)
@@ -545,16 +642,16 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 		len_a[rec] = len;
 	    }
 
-#ifdef DEDUP
-	    if (SIMPLE_MODEL(2,_decodeSymbol)(&model_dup, &rc)) {
-		// Dup of last line
-		memcpy(uncomp+i, uncomp+i-len, len);
-		i += len-1;
-		j = 1;
-		rec++;
-		continue;
+	    if (do_dedup) {
+		if (SIMPLE_MODEL(2,_decodeSymbol)(&model_dup, &rc)) {
+		    // Dup of last line
+		    memcpy(uncomp+i, uncomp+i-len, len);
+		    i += len-1;
+		    j = 1;
+		    rec++;
+		    continue;
+		}
 	    }
-#endif
 
 	    rec++;
 	    j = len;
@@ -576,7 +673,12 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    if (q_2ctxbits) {
 		last <<= 1; last |= (q == q2);
 	    }
-	    last <<= q_mctxbits; last += dsqr[MIN(255, delta)];
+	    if (q_pctxbits)
+		last = (last<<q_pctxbits) | MIN((1<<q_pctxbits)-1, j>>q_pctxshift);
+	    if (q_mctxbits) {
+		last <<= q_mctxbits;
+		last += dsqr[MIN(255, delta>>q_mctxshift)];
+	    }
 
 	    q2 = q1;
 
