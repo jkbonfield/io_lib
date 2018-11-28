@@ -1751,11 +1751,11 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    return -1;
     }
 
-    if (!*bsp || blk_size+24 > (*bsp)->alloc) {
-	if (!(bs = realloc(*bsp, blk_size+24)))
+    if (!*bsp || blk_size+44 > (*bsp)->alloc) {
+	if (!(bs = realloc(*bsp, blk_size+44)))
 	    return -1;
 	*bsp = bs;
-	(*bsp)->alloc = blk_size+24;
+	(*bsp)->alloc = blk_size+44;
 	(*bsp)->blk_size = blk_size;
     }
     bs = *bsp;
