@@ -50,9 +50,25 @@ static inline void RC_FinishEncode(RangeCoder *rc)
 
 static inline void RC_FinishDecode(RangeCoder *rc) {}
 
+#if DIV_RCP
+static uint64_t rcp[65536];
+static inline void build_rcp_freq(void) {
+    int i;
+    for (i = 1; i < 65536; i++)
+	rcp[i] = (((uint64_t)1<<32)) / i;
+}
+#else
+static inline void build_rcp_freq(void) {}
+#endif
+
 static inline void RC_Encode (RangeCoder *rc, uint32_t cumFreq, uint32_t freq, uint32_t totFreq) 
 {
     //fprintf(stderr, "                       RC %d+%d of %d\n", cumFreq, freq, totFreq);
+
+    // division-less doesn't help much in this case as only a single division anyway
+    //uint32_t d = (rcp[totFreq] * rc->range)>>32;
+    //d += (rc->range - totFreq * d >= totFreq);
+    //rc->low  += cumFreq * (rc->range = d);
 
     rc->low  += cumFreq * (rc->range/= totFreq);
     rc->range*= freq;
@@ -81,7 +97,16 @@ static inline void RC_Encode (RangeCoder *rc, uint32_t cumFreq, uint32_t freq, u
 }
 
 static inline uint32_t RC_GetFreq (RangeCoder *rc, uint32_t totFreq) {
+#if DIV_RCP
+    // Replacing two divisions by one is beneficial as they get stuck waiting.
+    // 2.53s
+    uint32_t d = (rcp[totFreq] * rc->range)>>32;
+    d += (rc->range - totFreq * d >= totFreq);
+    return rc->code/(rc->range=d);
+#else
+    // 2.67s
     return rc->code/(rc->range/=totFreq);
+#endif
 }
 
 static inline void RC_Decode (RangeCoder *rc, uint32_t cumFreq, uint32_t freq, uint32_t totFreq) 

@@ -191,6 +191,7 @@ enum cram_block_method {
     RANS0  = 4,
     BSC    = 5,
     FQZ    = 6,
+    FQZ_b  = 7,    // Not externalised; stored as FQZ
     RANS1  = 10,   // Not externalised; stored as RANS (generic)
     GZIP_RLE = 11, // Z_RLE, NB: not externalised in CRAM
     GZIP_1 = 12,   // Z_DEFAULT_STRATEGY level 1, NB: not externalised in CRAM
