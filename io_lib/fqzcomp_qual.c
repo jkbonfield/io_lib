@@ -4,24 +4,25 @@
  * FIXME<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
  *
  * (General flags & meta-data)
- * byte    CRAM major version (3 or 4)
- * byte    Bit flags (4=do_rle, 2=do_dedup, 1=stored_qmap)
+ * byte    FQZ format version (5)
+ * byte    Bit flags (16=do_rev, 8=do_strand, 4=do_rle, 2=do_dedup, 1=stored_qmap)
  * byte    Max quality sym count (eg 4, 8, 40)
  * (If flags&1; stored_qmap)
  * byte       Nsym: number of quality symbols
  * byte[nsym] Quality alphabet; eg to replace char !,-,3,E with int 0,1,2,3.
  * (Qual meta-data)
- * byte    q_qctxbits<<4  +  q_qctxshift
- * byte    q_2ctxbits<<4  +  q_mctxbits
- * byte[]  Array for q_dmap of size q_mctxbits
- * (Run length meta-data; iff do_rle set)
- * byte    r_qctxbits<<4  +  r_qctxshift
- * byte    r_pctxbits<<4  +  r_pctxshift
- * byte    r_lctxbits<<4  +  r_mctxbits
- * byte[]  Array for r_dmap of size r_mctxbits
+ * byte    qual_ctx_bits<4  +  qual_ctx_shift
+ * byte    pos_ctx_bits<<4  +  pos_ctx_shift
+ * byte    map_ctx_bits<<4  +  map_ctx_shift
+ * byte    qual_loc<<4      +  strand_loc
+ * byte    pos_loc<<4       +  map_loc
+ * byte[]  Array for qual_map of values up to size map_ctx_bits
  *
  * Models contexts must be no more than 16-bit in size, but smaller is better
- * for speed / memory..
+ * for speed / memory.
+ * Each context component (quality, position, strand and map) are added
+ * together and shifted by the ctx_shift value.  (Note this means we can
+ * allocate more bits but have context components overlapping.)
  *
  * Arrays are 256 elements wide and must consists of a series of values between
  * 0 and 1<<mctxbits (eg 1<<q_mctxbits) in numerically ascending order.
@@ -29,21 +30,26 @@
  * length for that element.  Any remaining values (up to 256) are copied
  * from the last value.
  *
- * Quality context for q_{n} is computed using:
- * q_{n-1} = previous qual
- * q_{n-2} = qual 2 ago
- * q_{n-3} = qual 3 ago
+ * Quality context starts as zero and is updated after each quality 'q' has
+ * been processed to set the context for the quality quality:
  *
- * qlast = (qlast<<q_qctxshift) + q_{n-1}
- * ctx = qlast & ((1<<q_qctxbits)-1)
- * if (q_2ctxbits)
- *     ctx = (ctx<<1) | (q_{n-1} == q_{n-3});
- * ctx <<= q_mctxbits
- * ctx += q_dmap[MIN(255, delta)]
- * delta += (q_{n-1} != q_{n-2});
+ * qlast = (qlast<<qual_ctx_shift) + q
+ * ctx  = (qlast & (1<<qual_ctx_bits)-1) << qual_loc
+ * if pos_ctx_bits > 0
+ *     ctx += MIN((1<<pos_ctx_bits)-1,  pos>>pos_ctx_shift) << pos_loc
+ * if do_strand
+ *     ctx += is_read2 << strand_loc
+ * if map_ctx_bits > 0
+ *     ctx += map[MIN(255, delta>>map_ctx_shift)] << map_loc
+ * ctx &= 0xffff;
  *
- * Fixed params.
- *   MAXR = 8 (nsym for run-lengths, keep adding MAXR to run until we read 0)
+ * "Pos" is the position since the start of this read, resetting to zero
+ * each record.  This needs the lengths to be known, which are stored once only if
+ * fixed_len flag is set, or once per record if not.
+ *
+ * Delta is a running total of qual != previous_qual.
+ * Conetxt, delta, qlast and previous_qual all get reset to zero at the
+ * start of every new record.
  */
 
 #include <stdio.h>
@@ -51,8 +57,54 @@
 #include <assert.h>
 #include <string.h>
 #include <math.h>
+
+#ifdef TEST_MAIN
+#include <fcntl.h>
+/*
+ * Standalone hackery.
+ * Fixed sizes, just for testing and benchmarking
+ */
+typedef struct {
+    int num_records;
+} cram_hdr;
+
+typedef struct {
+    int len;
+    int flags;
+} cram_crec;
+
+typedef struct {
+    cram_hdr *hdr;
+    cram_crec crecs[1000000];
+} cram_slice;
+
+static cram_hdr fixed_hdr;
+static cram_slice fixed_slice = {0};
+#define BAM_FREVERSE 0
+#define BAM_FREAD2 128
+
+cram_slice *fake_slice(size_t buf_len, int len) {
+    fixed_slice.hdr = &fixed_hdr;
+    fixed_hdr.num_records = (buf_len+len-1) / len;
+    assert(fixed_hdr.num_records <= 1000000);
+    int i;
+    for (i = 0; i < fixed_hdr.num_records; i++) {
+	fixed_slice.crecs[i].len = len;
+	fixed_slice.crecs[i].flags = 0;
+    }
+
+    return &fixed_slice;
+}
+
+#ifndef MIN
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#define MAX(a,b) ((a)>(b)?(a):(b))
+#endif
+
+#else
 #include "cram_block_compression.h"
 #include "fqzcomp_qual.h"
+#endif
 
 // Define this for version 3.1 of CRAM only.  In the version 4.0
 // prototype we switch the orientation of quality values to their
@@ -142,7 +194,7 @@ unsigned char *compress_block_fqz2f(int vers,
 
 #define NP 128
     uint32_t qhist[256] = {0}, nsym, max_sym;
-    uint32_t qhist1[256][NP], qhist2[256][NP];
+    uint32_t qhist1[256][NP] = {{0}}, qhist2[256][NP] = {{0}};
     int do_dedup = 0;
     int do_rev = (vers==3); // V3.0 doesn't store qual in original orientation
     for (i = 0; i < in_size; i++)
@@ -176,9 +228,9 @@ unsigned char *compress_block_fqz2f(int vers,
     rec = 0;
     last_len = 0;
 
-
     double e2 = 0;
     for (j = 0; j < NP; j++) {
+	if (!t1[j] || !t2[j]) continue;
 	for (i = 0; i < 256; i++) {
 	    if (!qhist[i]) continue;
 	    e2 += qhist1[i][j] > qhist2[i][j]
@@ -186,7 +238,6 @@ unsigned char *compress_block_fqz2f(int vers,
 		: qhist2[i][j]/(t2[j]+1.) - qhist1[i][j]/(t1[j]+1.);
 	}
     }
-
     int do_strand = (e2 > 77);
 
     for (i = max_sym = nsym = 0; i < 256; i++)
@@ -374,8 +425,7 @@ unsigned char *compress_block_fqz2f(int vers,
 
 	    rec++;
 	    j = len;
-	    delta = 0;
-	    qlast = last = 0;
+	    delta = last = qlast = q1 = 0;
 
 	    if (do_dedup) {
 		// Possible dup of previous read?
@@ -578,8 +628,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 
 	    rec++;
 	    j = len;
-	    delta = 0;
-	    qlast = last = 0;
+	    delta = last = qlast = q1 = 0;
 	}
 
 	unsigned char q, Q;
@@ -633,6 +682,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 }
 
 
+#ifndef TEST_MAIN
 static cram_compressor c = {
     'q', //FOUR_CC("FQZq"),
     1<<DS_QS, // quality only
@@ -664,3 +714,106 @@ char *fqz_decompress(char *in, size_t comp_size, size_t *uncomp_size) {
     return (char *)uncompress_block_fqz2f(NULL, (unsigned char *)in,
 					  comp_size, uncomp_size);
 }
+
+#else // TEST_MAIN
+#define BS 1024*1024
+static unsigned char *load(char *fn, size_t *lenp) {
+    unsigned char *data = NULL;
+    uint64_t dsize = 0;
+    uint64_t dcurr = 0;
+    signed int len;
+
+    int fd = open(fn, O_RDONLY);
+    if (!fd) {
+	perror(fn);
+	return NULL;
+    }
+
+    do {
+	if (dsize - dcurr < BS) {
+	    dsize = dsize ? dsize * 2 : BS;
+	    data = realloc(data, dsize);
+	}
+
+	len = read(fd, data + dcurr, BS);
+	if (len > 0)
+	    dcurr += len;
+    } while (len > 0);
+
+    if (len == -1) {
+	perror("read");
+    }
+    close(fd);
+
+    *lenp = dcurr;
+    return data;
+}
+
+#define BLK_SIZE 100*1000000
+
+int main(int argc, char **argv) {
+    unsigned char *in, *out;
+    size_t in_len, out_len;
+    int decomp = 0, vers = 4;
+
+    if (argc > 1 && strcmp(argv[1], "-d") == 0) {
+	decomp = 1;
+	argv++;
+	argc--;
+    }
+    if (argc > 1 && strcmp(argv[1], "-b") == 0) {
+	vers += 256;
+	argv++;
+	argc--;
+    }
+    in = load(argc > 1 ? argv[1] : "/dev/stdin", &in_len);
+
+    int rec_len = 100;
+    if (argc > 2)
+	rec_len = atoi(argv[2]);
+    int blk_size = BLK_SIZE; // MAX
+    if (argc > 3)
+	blk_size = atoi(argv[3]);
+    if (blk_size > BLK_SIZE)
+	blk_size = BLK_SIZE;
+
+    if (decomp) {
+	rec_len = *(int *)in;
+	unsigned char *in2 = in+4;
+	in_len -= 4;
+	while (in_len > 0) {
+	    size_t out_len = *(size_t *)in2;
+	    size_t in2_len = *(size_t *)(in2+8);
+	    in2 += 16;
+	    out = uncompress_block_fqz2f(fake_slice(out_len, rec_len),
+					 in2, in_len-16, &out_len);
+	    write(1, out, out_len);
+	    free(out);
+	    in2 += in2_len;
+	    in_len -= in2_len+16;
+	}
+    } else {
+	unsigned char *in2 = in;
+	long t_out = 0;
+	write(1, &rec_len, 4);
+	while (in_len > 0) {
+	    size_t in2_len = in_len <= blk_size ? in_len : blk_size;
+	    out = compress_block_fqz2f(vers, 0, fake_slice(in2_len, rec_len),
+				       in2, in2_len, &out_len);
+	    //fprintf(stderr, "%d to %d\n", (int)in2_len, (int)out_len);
+	    write(1, &in2_len, 8);
+	    write(1, &out_len, 8);
+	    write(1, out, out_len);
+	    in_len -= in2_len;
+	    in2 += in2_len;
+	    t_out += out_len+16;
+	}
+	free(out);
+	fprintf(stderr, "Total output = %ld\n", t_out);
+    }
+
+    free(in);
+
+    return 0;
+}
+#endif
