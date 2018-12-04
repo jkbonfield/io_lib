@@ -169,14 +169,23 @@ unsigned char *compress_block_fqz2f(int vers,
 				    size_t in_size,
 				    size_t *out_size) {
     //approx sqrt(delta), must be sequential
-    static int dsqr[] = {
+    int dsqr[] = {
 	0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3,
 	4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5,
 	5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 	6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
     };
 
-    int strat_b = vers>>8;
+    // FIXME: how to auto-tune these rather than trial and error?
+    int strat_opts[][10] = {
+	{10, 5, 4,-1, 2, 1, 0, 9, 10, 14},  // basic options (level < 7)
+	{10, 5, 7, 0, 2, 1, 0, 15, 9, 14},  // e.g. HiSeq 2000
+	{12, 6, 2, 0, 2, 3, 0, 9, 12, 14},  // e.g. MiSeq
+	{12, 6, 0, 0, 0, 0, 0, 12, 0, 0},   // e.g. IonTorrent; adaptive O1
+    };
+
+    int strat = vers>>8;
+    if (strat > 3) strat = 3;
     vers &= 0xff;
 
     unsigned char *comp = (unsigned char *)malloc(in_size*1.1+1000);
@@ -265,17 +274,19 @@ unsigned char *compress_block_fqz2f(int vers,
     // FIXME2: incorporate 1st/2nd read flag into the context?
     // (If it helps, we have to store this in the data stream too.)
 
-    // optimal in Q40 100k/slice
-    int q_qctxbits =10;
-    int q_qctxshift=5;
-    int q_pctxbits = strat_b ? 7 : 4;
-    int q_pctxshift=MAX(0, log((double)s->crecs[0].len/(1<<q_pctxbits))/log(2)+.5);
-    int q_mctxbits =2;
-    int q_mctxshift =1;
-    int q_qloc=0;  // qual
-    int q_sloc = strat_b ? 15 :  9;  // strand
-    int q_ploc = strat_b ?  9 : 10;  // pos
-    int q_mloc=14; // delta
+    int q_qctxbits = strat_opts[strat][0];
+    int q_qctxshift= strat_opts[strat][1];
+    int q_pctxbits = strat_opts[strat][2];
+    int q_pctxshift= strat_opts[strat][3];
+    int q_mctxbits = strat_opts[strat][4];
+    int q_mctxshift= strat_opts[strat][5];
+    int q_qloc     = strat_opts[strat][6];
+    int q_sloc     = strat_opts[strat][7];
+    int q_ploc     = strat_opts[strat][8];
+    int q_mloc     = strat_opts[strat][9];
+
+    if (q_pctxshift < 0)
+	q_pctxshift = MAX(0, log((double)s->crecs[0].len/(1<<q_pctxbits))/log(2)+.5);
 
     if (nsym <= 4) {
 	// NovaSeq
@@ -327,6 +338,19 @@ unsigned char *compress_block_fqz2f(int vers,
 	for (i = 0; i < 256; i++)
 	    qhist[i] = i;
     }
+
+//    fprintf(stderr, "%d / %d %d %d %d %d / %d %d %d %d %d %d %d %d %d %d\n",
+//	    nsym, do_rev, do_strand, fixed_len, do_dedup, store_qmap,
+//	    q_qctxbits,
+//	    q_qctxshift,
+//	    q_pctxbits,
+//	    q_pctxshift,
+//	    q_mctxbits,
+//	    q_mctxshift,
+//	    q_qloc,
+//	    q_sloc,
+//	    q_ploc,
+//	    q_mloc);
 
     comp[comp_idx++] = (q_qctxbits<<4)|q_qctxshift;
     comp[comp_idx++] = (q_pctxbits<<4)|q_pctxshift;
@@ -761,7 +785,7 @@ int main(int argc, char **argv) {
 	argv++;
 	argc--;
     }
-    if (argc > 1 && strcmp(argv[1], "-b") == 0) {
+    while (argc > 1 && strcmp(argv[1], "-b") == 0) {
 	vers += 256;
 	argv++;
 	argc--;

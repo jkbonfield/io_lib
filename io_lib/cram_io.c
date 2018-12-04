@@ -1995,6 +1995,8 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 
     case FQZ:
     case FQZ_b:
+    case FQZ_c:
+    case FQZ_d:
 #ifdef HAVE_FQZ
 	return fqz_compress(strat, s, in, in_size, out_size, level);
 #else
@@ -2078,8 +2080,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
     // to the same CRAM method value.
     // See enum_cram_block_method.
     int methmap[] = {
-	RAW, GZIP, BZIP2, LZMA, RANS0, BSC, FQZ, FQZ,
-	BM_ERROR, BM_ERROR,
+	RAW, GZIP, BZIP2, LZMA, RANS0, BSC, FQZ, FQZ, FQZ, FQZ,
 	RANS0, // RANS1
 	GZIP, GZIP, // GZIP_RLE and GZIP_1
 	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0, // RANS_PR1-193
@@ -2151,6 +2152,8 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		    case GZIP_RLE: strat = Z_RLE; break;
 		    case FQZ:      strat = CRAM_MAJOR_VERS(fd->version); break;
 		    case FQZ_b:    strat = CRAM_MAJOR_VERS(fd->version)+256; break;
+		    case FQZ_c:    strat = CRAM_MAJOR_VERS(fd->version)+2*256; break;
+		    case FQZ_d:    strat = CRAM_MAJOR_VERS(fd->version)+3*256; break;
 		    default:       strat = 0;
 		    }
 
@@ -2202,8 +2205,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		    1.10, // lzma
 		    1.00, // rans0
 		    1.09, // bsc
-		    1.05, // fqz
-		    1,1,1,               // unused
+		    1.05, 1.05, 1.05, 1.05, // fqz
 		    1.02, // rans1
 		    1.00, // gzip rle
 		    1.02, // gzip -1
@@ -2228,6 +2230,9 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		} else if (fd->level <= 6) {
 		    for (m = 0; m < CRAM_MAX_METHOD; m++)
 			metrics->sz[m] *= 1+(meth_cost[m]-1)/2;
+		} else if (fd->level <= 7) {
+		    for (m = 0; m < CRAM_MAX_METHOD; m++)
+			metrics->sz[m] *= 1+(meth_cost[m]-1)/3;
 		} // else cost is ignored
 
                 for (m = 0; m < CRAM_MAX_METHOD; m++) {
@@ -2260,6 +2265,8 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		case GZIP_RLE: strat = Z_RLE; break;
 		case FQZ:      strat = CRAM_MAJOR_VERS(fd->version); break;
 		case FQZ_b:    strat = CRAM_MAJOR_VERS(fd->version)+256; break;
+		case FQZ_c:    strat = CRAM_MAJOR_VERS(fd->version)+2*256; break;
+		case FQZ_d:    strat = CRAM_MAJOR_VERS(fd->version)+3*256; break;
 		default:       strat = 0;
 		}
 		metrics->strat  = strat;
@@ -2363,6 +2370,8 @@ char *cram_block_method2str(enum cram_block_method m) {
     case BSC:	     return "BSC";
     case FQZ:	     return "FQZ";
     case FQZ_b:	     return "FQZ_b";
+    case FQZ_c:	     return "FQZ_c";
+    case FQZ_d:	     return "FQZ_d";
     case LZMA:       return "LZMA";
     case RANS0:      return "RANS0";
     case RANS1:      return "RANS1";
