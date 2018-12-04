@@ -5,7 +5,7 @@
  *
  * (General flags & meta-data)
  * byte    FQZ format version (5)
- * byte    Bit flags (16=do_rev, 8=do_strand, 4=do_rle, 2=do_dedup, 1=stored_qmap)
+ * byte    Bit flags (16=do_rev, 8=do_strand, 4=fixed_len, 2=do_dedup, 1=stored_qmap)
  * byte    Max quality sym count (eg 4, 8, 40)
  * (If flags&1; stored_qmap)
  * byte       Nsym: number of quality symbols
@@ -156,7 +156,7 @@ static int read_array(unsigned char *in, int *array, int bits) {
     }
 
     // Copy last element to end
-    i = array[MIN(0,j-1)];
+    i = array[MAX(0,j-1)];
     while (j < 256)
 	array[j++] = i;
     return k;
