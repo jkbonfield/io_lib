@@ -1505,7 +1505,9 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	}
 
 	ctx->desc[i].buf_a = ulen;
-	clen = uncompress(&in[o], sz-o, ctx->desc[i].buf, &ctx->desc[i].buf_a);
+	uint64_t usz = ctx->desc[i].buf_a; // convert from size_t for 32-bit sys
+	clen = uncompress(&in[o], sz-o, ctx->desc[i].buf, &usz);
+	ctx->desc[i].buf_a = usz;
 	if (clen < 0) {
 	    free(ctx->desc[i].buf);
 	    free_context(ctx);
