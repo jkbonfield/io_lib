@@ -716,7 +716,7 @@ void *bgzf_decode_thread(void *arg) {
 	uint32_t crc1=libdeflate_crc32(0L, (unsigned char *)j->uncomp, j->uncomp_sz);
 	uint32_t crc2;
 	memcpy(&crc2, j->comp + j->comp_sz, 4);
-	crc2 = le_int2(crc2);
+	crc2 = le_int4(crc2);
 	if (crc1 != crc2) {
 	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
 		    crc1, crc2);
@@ -754,7 +754,7 @@ void *bgzf_decode_thread(void *arg) {
 	uint32_t crc1=iolib_crc32(0L, (unsigned char *)j->uncomp, s.total_out);
 	uint32_t crc2;
 	memcpy(&crc2, j->comp + j->comp_sz, 4);
-	crc2 = le_int2(crc2);
+	crc2 = le_int4(crc2);
 	if (crc1 != crc2) {
 	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
 		    crc1, crc2);
@@ -1055,7 +1055,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 					    b->uncomp_sz);
 		uint32_t crc2;
 		memcpy(&crc2, b->comp_p-8, 4);
-		crc2 = le_int2(crc2);
+		crc2 = le_int4(crc2);
 		if (crc1 != crc2) {
 		    fprintf(stderr, "Invalid CRC in Deflate stream: "
 			    "%08x vs %08x\n", crc1, crc2);
@@ -1656,7 +1656,8 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
     int32_t blk_size, blk_ret;
     bam_seq_t *bs;
-    uint32_t i32;
+    uint32_t u32;
+    int32_t i32;
 
     b->line++;
 
@@ -1701,22 +1702,22 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     bs->blk_size  = blk_size;
     bs->ref       = le_int4(bs->ref);
-    bs->pos       = le_int4(bs->pos_32);
+    i32 = le_int4(bs->pos_32); bs->pos = i32;
 
     // order of bit-fields in struct is platform specific, so manually decode
-    i32           = le_int4(bs->bin_packed);
-    bs->bin      = i32 >> 16;
-    bs->map_qual = (i32 >> 8) & 0xff;
-    bs->name_len = i32 & 0xff;
+    u32           = le_int4(bs->bin_packed);
+    bs->bin      = u32 >> 16;
+    bs->map_qual = (u32 >> 8) & 0xff;
+    bs->name_len = u32 & 0xff;
 
-    i32           = le_int4(bs->flag_packed);
-    bs->flag      = i32 >> 16;
-    bs->cigar_len = i32 & 0xffff;
+    u32           = le_int4(bs->flag_packed);
+    bs->flag      = u32 >> 16;
+    bs->cigar_len = u32 & 0xffff;
 
     bs->len       = le_int4(bs->len);
     bs->mate_ref  = le_int4(bs->mate_ref);
-    bs->mate_pos  = le_int4(bs->mate_pos_32);
-    bs->ins_size  = le_int4(bs->ins_size_32);
+    i32 = le_int4(bs->mate_pos_32); bs->mate_pos = i32;
+    i32 = le_int4(bs->ins_size_32); bs->ins_size = i32;
 
     if (10 == be_int4(10)) {
 	int i, cigar_len = bam_cigar_len(bs);
@@ -1734,7 +1735,8 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
     int32_t blk_size, blk_ret;
     bam_seq_t *bs;
-    uint32_t i32;
+    uint32_t u32;
+    int32_t i32;
 
     b->line++;
 
@@ -1769,22 +1771,22 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 
     bs->blk_size  = blk_size;
     bs->ref       = le_int4(bs->ref);
-    bs->pos       = le_int4(bs->pos_32);
+    i32 = le_int4(bs->pos_32); bs->pos = i32;
 
     // order of bit-fields in struct is platform specific, so manually decode
-    i32           = le_int4(bs->bin_packed);
-    bs->bin      = i32 >> 16;
-    bs->map_qual = (i32 >> 8) & 0xff;
-    bs->name_len = i32 & 0xff;
+    u32           = le_int4(bs->bin_packed);
+    bs->bin      = u32 >> 16;
+    bs->map_qual = (u32 >> 8) & 0xff;
+    bs->name_len = u32 & 0xff;
 
-    i32           = le_int4(bs->flag_packed);
-    bs->flag      = i32 >> 16;
-    bs->cigar_len = i32 & 0xffff;
+    u32           = le_int4(bs->flag_packed);
+    bs->flag      = u32 >> 16;
+    bs->cigar_len = u32 & 0xffff;
 
     bs->len       = le_int4(bs->len);
     bs->mate_ref  = le_int4(bs->mate_ref);
-    bs->mate_pos  = le_int4(bs->mate_pos_32);
-    bs->ins_size  = le_int4(bs->ins_size_32);
+    i32 = le_int4(bs->mate_pos_32); bs->mate_pos = i32;
+    i32 = le_int4(bs->ins_size_32); bs->ins_size = i32;
 
     /* Name */
     if (bam_read(b, &bs->data, bam_name_len(bs)) != bam_name_len(bs))
