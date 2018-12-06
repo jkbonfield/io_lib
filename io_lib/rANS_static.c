@@ -339,7 +339,7 @@ static inline void RansDecAdvanceSymbolStep(RansState* r, RansDecSymbol const* s
 }
 
 // Renormalize.
-#ifdef __x86_64
+#if defined(__x86_64) && !defined(__ILP32__)
 /*
  * Assembly variants of the RansDecRenorm code.
  * These are based on joint ideas from Rob Davies and from looking at
