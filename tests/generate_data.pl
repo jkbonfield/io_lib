@@ -4,6 +4,18 @@ use strict;
 my $mm=-M "$ENV{srcdir}/.done";
 exit 0 if (-e "$ENV{srcdir}/.done" && (-M "$ENV{srcdir}/generate_data.pl" > -M "$ENV{srcdir}/.done"));
 
+my $seed = 15551;
+sub rr {
+    my ($m)=@_;
+
+    $seed = int(($seed*1103515245+12345)&0xffffffff);
+    if (defined($m)) {
+return $seed % $m;
+    } else {
+        return ($seed & 0xffffff) / 0x1000000;
+    }
+}
+
 # Loads a fasta file into a hash
 sub load_fasta {
     my ($fn) = @_;
@@ -49,7 +61,6 @@ if (! -w "$ENV{srcdir}/data") {
 
 #---- Generate sorted data
 print "Generating ce#sorted.sam\n";
-srand 15551;
 open(my $out, ">", "$ENV{srcdir}/data/ce#sorted.sam") ||
     die "$ENV{srcdir}/data/ce#sorted.sam: $!";
 
@@ -68,11 +79,11 @@ foreach my $chr ((sort @names),"*") {
     my $len = $len{$chr};
     my $s = $seqs->{$chr};
     for (my $i=0; $i<$len-100; $i++) {
-	if (rand() < 0.5) { #50x coverage
+	if (rr() < 0.5) { #50x coverage
 	    my $dna = substr($s,$i,100);
-	    $dna = substr($s, int(rand($len{"*"}-100)), 100) if ($chr eq "*");
+	    $dna = substr($s, int(rr($len{"*"}-100)), 100) if ($chr eq "*");
 	    for (my $j=0; $j<5; $j++) {
-		substr($dna, 100*rand(), 1) = $base[4*rand()];
+		substr($dna, 100*rr(), 1) = $base[4*rr()];
 	    }
 
 	    if ($chr eq "*") {
@@ -102,11 +113,11 @@ foreach (sort @names) {
 # Sequence lines
 $n = 1;
 for (my $i = 0; $i < 500000; $i++) {
-    my $chr = $names[$#names*rand()];
-    my $pos = int(rand() * ($len{$chr}-100));
+    my $chr = $names[$#names*rr()];
+    my $pos = int(rr() * ($len{$chr}-100));
     my $dna = substr($seqs->{$chr},$pos,100);
     for (my $j=0; $j<5; $j++) {
-	substr($dna, 100*rand(), 1) = $base[4*rand()];
+	substr($dna, 100*rr(), 1) = $base[4*rr()];
     }
 
     print $out "Seq",$n++,"\t0\t$chr\t",$pos+1,"\t2\t100M\t*\t0\t0\t$dna\t*\n";
