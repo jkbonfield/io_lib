@@ -799,9 +799,10 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	              | (1<<RANS_PR128) | (1<<RANS_PR129)
 	              | (1<<RANS_PR192) | (1<<RANS_PR193);
 
+    int v31_or_above = (fd->version >= (3<<8)+1);
     if (fd->use_rans) {
-	methodF |= CRAM_MAJOR_VERS(fd->version) >= 4 ? method_ranspr : method_rans;
-	method  |= CRAM_MAJOR_VERS(fd->version) >= 4 ? method_ranspr : method_rans;
+	methodF |= v31_or_above ? method_ranspr : method_rans;
+	method  |= v31_or_above ? method_ranspr : method_rans;
     }
 
     if (fd->use_lzma)
@@ -816,8 +817,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 
     qmethod  = method;
     qmethodF = method;
-    if (fd->version >= (3<<8)+1 &&
-	(fd->level > 4 || fd->use_fqz)) {
+    if (v31_or_above && (fd->level > 4 || fd->use_fqz)) {
 	qmethod  |= 1<<FQZ;
 	qmethodF |= 1<<FQZ;
 	if (fd->level > 6) {
