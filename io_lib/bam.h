@@ -271,8 +271,9 @@ static inline void bam_set_bin(bam_seq_t *b, uint32_t v) {
 #define bam_qual(b)      (bam_seq(b) + (int)(((b)->len+1)/2))
 #define bam_aux(b)       (bam_qual(b) + (b)->len)
 
-/* Rounds up to the next multiple of 4 */
+/* Rounds up to the next multiple of 4 or 8 */
 #define round4(v) (((v-1)&~3)+4)
+#define round8(v) (((v-1)&~7)+8)
 
 /* CIGAR operations, taken from samtools bam.h */
 #define BAM_CIGAR_SHIFT 4

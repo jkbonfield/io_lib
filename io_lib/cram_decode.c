@@ -2295,14 +2295,15 @@ static int bulk_cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s) {
 	int sz = bam_size(bfd, fd, &s->crecs[i]);
 	if (i < 10000)
 	    sizes[i] = sz;
-	len += sz;
+	len += round8(sz);
     }
 
-    s->bl = (bam_seq_t **)malloc(s->hdr->num_records * sizeof(*s->bl) + len);
+    s->bl = (bam_seq_t **)malloc(s->hdr->num_records * sizeof(*s->bl) + len + 8);
     if (!s->bl)
 	return -1;
 
-    char *x = ((char *)s->bl) + s->hdr->num_records * sizeof(*s->bl);
+    // Round up to next multiple of 8, to ensure bam structs are 8-byte aligned.
+    char *x = ((char *)s->bl) + round8(s->hdr->num_records * sizeof(*s->bl));
     for (i = 0; i < s->hdr->num_records; i++) {
 	bam_seq_t *b = (bam_seq_t *)x, *o = b;
 	int bsize = i < 10000 ? sizes[i] : bam_size(bfd, fd, &s->crecs[i]);
@@ -2310,7 +2311,7 @@ static int bulk_cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s) {
 	r |= (cram_to_bam(fd->header, fd, s, &s->crecs[i], i, &b) < 0);
 	// if we allocated enough, the above won't have resized b
 	assert(o == b && o->alloc == bsize);
-	x += bsize;
+	x += round8(bsize);
 	s->bl[i] = b;
     }
 
