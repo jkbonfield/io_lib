@@ -184,22 +184,34 @@ unsigned char *compress_block_fqz2f(int vers,
 	{12, 6, 0, 0, 0, 0, 0, 12, 0, 0},   // e.g. IonTorrent; adaptive O1
     };
 
-    int strat = vers>>8;
-    if (strat > 3) strat = 3;
-    vers &= 0xff;
-
-    unsigned char *comp = (unsigned char *)malloc(in_size*1.1+1000);
-    if (!comp) {
-	free(comp);
-	return NULL;
-    }
-
     int comp_idx = 0;
     size_t i, j;
     ssize_t rec = 0;
     unsigned int last = 0, qlast = 0;
     RangeCoder rc;
     unsigned char q1 = 1;
+
+    int strat = vers>>8;
+    if (strat > 3) strat = 3;
+    vers &= 0xff;
+
+    unsigned char *comp = (unsigned char *)malloc(in_size*1.1+1000);
+    if (!comp)
+	return NULL;
+
+    // Compute quality length per sequence.
+    // This isn't just s->crecs[i].len as some times we emit extra QS
+    // records, eg for feature code B.  Instead look at the .qual field.
+    unsigned int *q_len = (unsigned int *)malloc(s->hdr->num_records * sizeof(*q_len));
+    if (!q_len) {
+	free(comp);
+	return NULL;
+    }
+    for (i = 0; i < s->hdr->num_records; i++) {
+	q_len[i] = (i < s->hdr->num_records-1)
+	    ? s->crecs[i+1].qual - s->crecs[i].qual
+	    : in_size - s->crecs[i].qual;
+    }
 
 #define NP 128
     uint32_t qhist[256] = {0}, nsym, max_sym;
@@ -216,7 +228,7 @@ unsigned char *compress_block_fqz2f(int vers,
     for (rec = i = j = 0; i < in_size; i++, j--) {
 	if (j == 0) {
 	    if (rec < s->hdr->num_records) {
-		j = s->crecs[rec].len;
+		j = q_len[rec];
 		dir = s->crecs[rec].flags & BAM_FREAD2 ? 1 : 0;
 		if (i > 0 && j == last_len
 		    && !memcmp(in+i-last_len, in+i, j))
@@ -255,14 +267,13 @@ unsigned char *compress_block_fqz2f(int vers,
 
     int store_qmap = (nsym <= 8 && nsym*2 < max_sym);
 
-    size_t total_len = 0;
-    int first_len = s->crecs[0].len;
-    for (i = 0; i < s->hdr->num_records; i++) {
-	if (s->crecs[i].len != first_len)
+    // Check for fixed length.
+    int first_len = q_len[0];
+    for (i = 1; i < s->hdr->num_records; i++) {
+	if (q_len[i] != first_len)
 	    break;
-	total_len += s->crecs[i].len;
     }
-    int fixed_len = (total_len == in_size && i == s->hdr->num_records);
+    int fixed_len = (i == s->hdr->num_records);
 
     // If nsym is significant lower than max_sym, store a lookup table and
     // transform prior to compression.  Eg 4 or 8 binned data.
@@ -339,19 +350,6 @@ unsigned char *compress_block_fqz2f(int vers,
 	    qhist[i] = i;
     }
 
-//    fprintf(stderr, "%d / %d %d %d %d %d / %d %d %d %d %d %d %d %d %d %d\n",
-//	    nsym, do_rev, do_strand, fixed_len, do_dedup, store_qmap,
-//	    q_qctxbits,
-//	    q_qctxshift,
-//	    q_pctxbits,
-//	    q_pctxshift,
-//	    q_mctxbits,
-//	    q_mctxshift,
-//	    q_qloc,
-//	    q_sloc,
-//	    q_ploc,
-//	    q_mloc);
-
     comp[comp_idx++] = (q_qctxbits<<4)|q_qctxshift;
     comp[comp_idx++] = (q_pctxbits<<4)|q_pctxshift;
     comp[comp_idx++] = (q_mctxbits<<4)|q_mctxshift;
@@ -393,8 +391,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	i = rec = j = 0;
 	while (i < in_size) {
 	    int len = rec < s->hdr->num_records-1
-		? s->crecs[rec].len
-		: in_size - i;
+		? q_len[rec] : in_size - i;
 
 	    if (s->crecs[rec].flags & BAM_FREVERSE) {
 		// Reverse complement sequence - note: modifies buffer
@@ -423,9 +420,8 @@ unsigned char *compress_block_fqz2f(int vers,
 	if (j == 0) {
 	    // Quality buffer maybe longer than sum of reads if we've
 	    // inserted a specific base + quality pair.
-	    int len = rec < s->hdr->num_records-1
-		? s->crecs[rec].len
-		: in_size - i;
+	    int len = rec < s->hdr->num_records
+		? q_len[rec] : in_size - s->crecs[s->hdr->num_records-1].qual;
 	    if (!fixed_len || rec == 0) {
 		SIMPLE_MODEL(256,_encodeSymbol)(&model_len[0], &rc, (len>> 0) & 0xff);
 		SIMPLE_MODEL(256,_encodeSymbol)(&model_len[1], &rc, (len>> 8) & 0xff);
@@ -521,7 +517,22 @@ unsigned char *compress_block_fqz2f(int vers,
 
     *out_size = comp_idx + RC_OutSize(&rc);
 
+//    fprintf(stderr, "%d / %d %d %d %d %d / %d %d %d %d %d %d %d %d %d %d = %d to %d\n",
+//	    nsym, do_rev, do_strand, fixed_len, do_dedup, store_qmap,
+//	    q_qctxbits,
+//	    q_qctxshift,
+//	    q_pctxbits,
+//	    q_pctxshift,
+//	    q_mctxbits,
+//	    q_mctxshift,
+//	    q_qloc,
+//	    q_sloc,
+//	    q_ploc,
+//	    q_mloc,
+//	    (int)in_size, (int)*out_size);
+
     free(model_qual);
+    free(q_len);
 
     return comp;
 }
