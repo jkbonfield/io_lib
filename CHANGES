@@ -1,9 +1,52 @@
 Version ??? (ongoing)
 ---------------------
 
+Updates:
+
 * INCOMPATIBILITY: The CRAM fqzcomp quality codec has been updated for
   the experimental cram versions (3.1 & 4.0).  This cannot read older
   fqzcomp files (and vice versa).
+
+  Quality data sizes are typically 1-3% smaller, but in some extreme
+  cases with data showing strong strand or positional bias it can be
+  up to 30% smaller.
+
+  CRAMv4 at compression level -7 and above has the maximal form
+  fqzcomp encoding.
+
+* EXPERIMENTAL: Scramble -E can embed a consensus instead of reference
+  and delta against that.  It is not recommended that you use this yet
+  though until the implications are sorted out.  (Likely this will need
+  to be a CRAMv4 only feature.)  Specifically some CRAM
+  implementations will choke if the md5sum for the embedded "reference"
+  does not match the md5sum for the reference listed in the @SQ
+  headers.
+
+* NM and MD tags are now checked during encode to validate that they
+  match the decode algorithm.  If not they are automatically stored
+  verbatim.
+
+Bug fixes:
+
+* Fixed bashism in test harness.  Also ensured the randomly generated
+  test data is consistent across all systems.
+
+* Fixed NM calculation for N and P cigar ops.
+
+* Fixed embedded references when used in multi-slice mode.
+
+* Debian bug#912451: fail on non-intel systems that don't define
+  ALLOW_UAC.
+
+* Debian bug#915450: big endian fixes for BAM CRC checking.
+
+* Debian bug#915459: unaligned memory access crash on some systems
+  when doing multi-threaded CRAM decode.
+
+* Debian bug#915460: resolves undefined behavour in hash table on
+  32-bit systems.
+
+* Fixed compilation error on x32 architecture.
 
 
 Version 1.14.11 (16th October 2018)
