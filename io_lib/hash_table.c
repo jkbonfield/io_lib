@@ -478,7 +478,7 @@ int HashTableResize(HashTable *h, int newsize) {
 	for (hi = h->bucket[i]; hi; hi = next) {
 	    uint64_t hv = h2->options & HASH_INT_KEYS
 		? hash64(h2->options & HASH_FUNC_MASK,
-			 (uint8_t *)&hi->key, hi->key_len) & h2->mask
+			 (uint8_t *)&hi->key, sizeof(hi->key)) & h2->mask
 		: hash64(h2->options & HASH_FUNC_MASK,
 			 (uint8_t *)hi->key, hi->key_len) & h2->mask;
 	    next = hi->next;
@@ -535,7 +535,7 @@ HashItem *HashTableAdd(HashTable *h, char *key, int key_len, HashData data,
 	key_len = strlen(key);
 
     hv = h->options & HASH_INT_KEYS
-	? hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, key_len) & h->mask
+	? hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, sizeof(key)) & h->mask
 	: hash64(h->options & HASH_FUNC_MASK, (uint8_t *)key, key_len) & h->mask;
 
     /* Already exists? */
@@ -603,7 +603,7 @@ int HashTableDel(HashTable *h, HashItem *hi, int deallocate_data) {
 
     hv = h->options & HASH_INT_KEYS
 	? hash64(h->options & HASH_FUNC_MASK,
-		 (uint8_t *)&hi->key, hi->key_len) & h->mask
+		 (uint8_t *)&hi->key, sizeof(hi->key)) & h->mask
 	: hash64(h->options & HASH_FUNC_MASK,
 		 (uint8_t *)hi->key, hi->key_len) & h->mask;
 
@@ -651,7 +651,7 @@ int HashTableRemove(HashTable *h, char *key, int key_len,
 	key_len = strlen(key);
 
     hv = h->options & HASH_INT_KEYS
-	? hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, key_len) & h->mask
+	? hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, sizeof(key)) & h->mask
 	: hash64(h->options & HASH_FUNC_MASK, (uint8_t *)key, key_len) & h->mask;
 
     last = NULL;
@@ -702,7 +702,7 @@ HashItem *HashTableSearch(HashTable *h, char *key, int key_len) {
 	key_len = strlen(key);
 
     if (h->options & HASH_INT_KEYS) {
-	hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, key_len)& h->mask;
+	hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, sizeof(key))& h->mask;
 
 	for (hi = h->bucket[hv]; hi; hi = hi->next) {
 	    if ((int)(size_t)key == (int)(size_t)hi->key)
