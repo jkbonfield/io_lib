@@ -70,6 +70,7 @@ typedef struct {
 
 typedef struct {
     int len;
+    int qual;
     int flags;
 } cram_crec;
 
@@ -87,10 +88,12 @@ cram_slice *fake_slice(size_t buf_len, int len) {
     fixed_slice.hdr = &fixed_hdr;
     fixed_hdr.num_records = (buf_len+len-1) / len;
     assert(fixed_hdr.num_records <= 1000000);
-    int i;
+    int i, tlen = 0;
     for (i = 0; i < fixed_hdr.num_records; i++) {
 	fixed_slice.crecs[i].len = len;
+	fixed_slice.crecs[i].qual = tlen;
 	fixed_slice.crecs[i].flags = 0;
+	tlen += len;
     }
 
     return &fixed_slice;
