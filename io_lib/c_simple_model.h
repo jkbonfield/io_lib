@@ -43,7 +43,6 @@ typedef struct {
 
 typedef struct {
     uint32_t TotFreq;  // Total frequency
-    uint32_t BubCnt;   // Periodic counter for bubble sort step
 
     // Array of Symbols approximately sorted by Freq. 
     SymFreqs sentinel, F[NSYM+1];
@@ -65,7 +64,6 @@ static inline void SIMPLE_MODEL(NSYM,_init)(SIMPLE_MODEL(NSYM,_) *m, int max_sym
     m->TotFreq         = max_sym;
     m->sentinel.Symbol = 0;
     m->sentinel.Freq   = MAX_FREQ; // Always first; simplifies sorting.
-    m->BubCnt          = 0;
 
     m->F[NSYM].Freq    = 0; // terminates normalize() loop. See below.
 }
@@ -82,18 +80,21 @@ static inline void SIMPLE_MODEL(NSYM,_normalize)(SIMPLE_MODEL(NSYM,_) *m) {
     }
 }
 
+#ifdef __SSE__
+#   include <xmmintrin.h>
+#else
+#   define _mm_prefetch(a,b)
+#endif
+
 static inline void SIMPLE_MODEL(NSYM,_encodeSymbol)(SIMPLE_MODEL(NSYM,_) *m,
                                                     RangeCoder *rc, uint16_t sym) {
     SymFreqs *s = m->F;
     uint32_t AccFreq  = 0;
 
-    while (s->Symbol != sym)
+    while (s->Symbol != sym) {
 	AccFreq += s++->Freq;
-
-//    if (s->Freq == 0) {
-//        fprintf(stderr, "sym=%d, s->Freq=%d, idx=%d\n", sym, s->Freq, s-m->F);
-//        abort();
-//    }
+        _mm_prefetch((const char *)(s+1), _MM_HINT_T0);
+    }
 
     RC_Encode(rc, AccFreq, s->Freq, m->TotFreq);
     s->Freq    += STEP;
@@ -103,7 +104,7 @@ static inline void SIMPLE_MODEL(NSYM,_encodeSymbol)(SIMPLE_MODEL(NSYM,_) *m,
 	SIMPLE_MODEL(NSYM,_normalize)(m);
 
     /* Keep approx sorted */
-    if (((++m->BubCnt&15)==0) && s[0].Freq > s[-1].Freq) {
+    if (s[0].Freq > s[-1].Freq) {
 	SymFreqs t = s[0];
 	s[0] = s[-1];
 	s[-1] = t;
@@ -115,7 +116,9 @@ static inline uint16_t SIMPLE_MODEL(NSYM,_decodeSymbol)(SIMPLE_MODEL(NSYM,_) *m,
     uint32_t freq = RC_GetFreq(rc, m->TotFreq);
     uint32_t AccFreq;
 
-    for (AccFreq = 0; (AccFreq += s->Freq) <= freq; s++);
+    for (AccFreq = 0; (AccFreq += s->Freq) <= freq; s++)
+        _mm_prefetch((const char *)s, _MM_HINT_T0);
+
     AccFreq -= s->Freq;
 
     RC_Decode(rc, AccFreq, s->Freq, m->TotFreq);
@@ -126,7 +129,7 @@ static inline uint16_t SIMPLE_MODEL(NSYM,_decodeSymbol)(SIMPLE_MODEL(NSYM,_) *m,
 	SIMPLE_MODEL(NSYM,_normalize)(m);
 
     /* Keep approx sorted */
-    if (((++m->BubCnt&15)==0) && s[0].Freq > s[-1].Freq) {
+    if (s[0].Freq > s[-1].Freq) {
 	SymFreqs t = s[0];
 	s[0] = s[-1];
 	s[-1] = t;

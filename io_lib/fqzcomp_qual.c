@@ -754,6 +754,8 @@ char *fqz_decompress(char *in, size_t comp_size, size_t *uncomp_size) {
 }
 
 #else // TEST_MAIN
+#include <unistd.h>
+
 #define BS 1024*1024
 static unsigned char *load(char *fn, size_t *lenp) {
     unsigned char *data = NULL;
@@ -825,7 +827,7 @@ int main(int argc, char **argv) {
 	    in2 += 16;
 	    out = uncompress_block_fqz2f(fake_slice(out_len, rec_len),
 					 in2, in_len-16, &out_len);
-	    write(1, out, out_len);
+	    if (write(1, out, out_len) < 0) return 1;
 	    free(out);
 	    in2 += in2_len;
 	    in_len -= in2_len+16;
@@ -833,15 +835,15 @@ int main(int argc, char **argv) {
     } else {
 	unsigned char *in2 = in;
 	long t_out = 0;
-	write(1, &rec_len, 4);
+	if (write(1, &rec_len, 4) < 0) return 1;
 	while (in_len > 0) {
 	    size_t in2_len = in_len <= blk_size ? in_len : blk_size;
 	    out = compress_block_fqz2f(vers, 0, fake_slice(in2_len, rec_len),
 				       in2, in2_len, &out_len);
 	    //fprintf(stderr, "%d to %d\n", (int)in2_len, (int)out_len);
-	    write(1, &in2_len, 8);
-	    write(1, &out_len, 8);
-	    write(1, out, out_len);
+	    if (write(1, &in2_len, 8)  < 0) return 1;
+	    if (write(1, &out_len, 8)  < 0) return 1;
+	    if (write(1, out, out_len) < 0) return 1;
 	    in_len -= in2_len;
 	    in2 += in2_len;
 	    t_out += out_len+16;
