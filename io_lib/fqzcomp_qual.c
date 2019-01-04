@@ -165,6 +165,16 @@ static int read_array(unsigned char *in, int *array, int bits) {
     return k;
 }
 
+// FIXME: how to auto-tune these rather than trial and error?
+static int strat_opts[][10] = {
+    {10, 5, 4,-1, 2, 1, 0, 9, 10, 14},  // basic options (level < 7)
+    //{10, 5, 7, 0, 2, 1, 0, 15, 9, 14},  // e.g. HiSeq 2000
+    {9, 5, 7, 0, 2, 0, 7, 15, 0, 14},  // e.g. HiSeq 2000, ~2.1% smaller than above
+    {12, 6, 2, 0, 2, 3, 0, 9, 12, 14},  // e.g. MiSeq
+    {12, 6, 0, 0, 0, 0, 0, 12, 0, 0},   // e.g. IonTorrent; adaptive O1
+    {0, 0, 0, 0, 0,  0, 0, 0, 0, 0},    // custom
+};
+
 unsigned char *compress_block_fqz2f(int vers,
 				    int level,
 				    cram_slice *s,
@@ -179,14 +189,6 @@ unsigned char *compress_block_fqz2f(int vers,
 	6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
     };
 
-    // FIXME: how to auto-tune these rather than trial and error?
-    int strat_opts[][10] = {
-	{10, 5, 4,-1, 2, 1, 0, 9, 10, 14},  // basic options (level < 7)
-	{10, 5, 7, 0, 2, 1, 0, 15, 9, 14},  // e.g. HiSeq 2000
-	{12, 6, 2, 0, 2, 3, 0, 9, 12, 14},  // e.g. MiSeq
-	{12, 6, 0, 0, 0, 0, 0, 12, 0, 0},   // e.g. IonTorrent; adaptive O1
-    };
-
     int comp_idx = 0;
     size_t i, j;
     ssize_t rec = 0;
@@ -195,7 +197,7 @@ unsigned char *compress_block_fqz2f(int vers,
     unsigned char q1 = 1;
 
     int strat = vers>>8;
-    if (strat > 3) strat = 3;
+    if (strat > 4) strat = 4;
     vers &= 0xff;
 
     unsigned char *comp = (unsigned char *)malloc(in_size*1.1+1000);
@@ -299,6 +301,9 @@ unsigned char *compress_block_fqz2f(int vers,
     int q_ploc     = strat_opts[strat][8];
     int q_mloc     = strat_opts[strat][9];
 
+    if (strat >= 4)
+	goto manually_set; // used in TEST_MAIN for debugging
+
     if (q_pctxshift < 0)
 	q_pctxshift = MAX(0, log((double)s->crecs[0].len/(1<<q_pctxbits))/log(2)+.5);
 
@@ -335,6 +340,14 @@ unsigned char *compress_block_fqz2f(int vers,
 	q_qctxbits=q_qctxshift;
 	q_mctxbits=2;
     }
+
+ manually_set:
+//    fprintf(stderr, "strat %d 0x%x%x%x%x%x%x%x%x%x%x\n", strat,
+//	    q_qctxbits, q_qctxshift,
+//	    q_pctxbits, q_pctxshift,
+//	    q_mctxbits, q_mctxshift,
+//	    q_qloc    , q_sloc,
+//	    q_ploc    , q_mloc);
 
     for (i = 0; i < sizeof(dsqr)/sizeof(*dsqr); i++)
 	if (dsqr[i] > (1<<q_mctxbits)-1)
@@ -805,6 +818,17 @@ int main(int argc, char **argv) {
 	vers += 256;
 	argv++;
 	argc--;
+    }
+    while (argc > 2 && strcmp(argv[1], "-x") == 0) {
+	uint64_t x = strtol(argv[2], NULL, 0);
+	argv+=2;
+	argc-=2;
+	int z;
+	for (z=0; z<10; z++) {
+	    strat_opts[4][9-z] = x&15;
+	    x>>=4;
+	}
+	vers = 4*256 + 4;
     }
     in = load(argc > 1 ? argv[1] : "/dev/stdin", &in_len);
 
