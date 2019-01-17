@@ -1,56 +1,18 @@
-/*
- * Format:
- *
- * FIXME<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
- *
- * (General flags & meta-data)
- * byte    FQZ format version (5)
- * byte    Bit flags (16=do_rev, 8=do_strand, 4=fixed_len, 2=do_dedup, 1=stored_qmap)
- * byte    Max quality sym count (eg 4, 8, 40)
- * (If flags&1; stored_qmap)
- * byte       Nsym: number of quality symbols
- * byte[nsym] Quality alphabet; eg to replace char !,-,3,E with int 0,1,2,3.
- * (Qual meta-data)
- * byte    qual_ctx_bits<4  +  qual_ctx_shift
- * byte    pos_ctx_bits<<4  +  pos_ctx_shift
- * byte    map_ctx_bits<<4  +  map_ctx_shift
- * byte    qual_loc<<4      +  strand_loc
- * byte    pos_loc<<4       +  map_loc
- * byte[]  Array for qual_map of values up to size map_ctx_bits
- *
- * Models contexts must be no more than 16-bit in size, but smaller is better
- * for speed / memory.
- * Each context component (quality, position, strand and map) are added
- * together and shifted by the ctx_shift value.  (Note this means we can
- * allocate more bits but have context components overlapping.)
- *
- * Arrays are 256 elements wide and must consists of a series of values between
- * 0 and 1<<mctxbits (eg 1<<q_mctxbits) in numerically ascending order.
- * They are stored as a series of 1<<mctxbits values indicating the run
- * length for that element.  Any remaining values (up to 256) are copied
- * from the last value.
- *
- * Quality context starts as zero and is updated after each quality 'q' has
- * been processed to set the context for the quality quality:
- *
- * qlast = (qlast<<qual_ctx_shift) + q
- * ctx  = (qlast & (1<<qual_ctx_bits)-1) << qual_loc
- * if pos_ctx_bits > 0
- *     ctx += MIN((1<<pos_ctx_bits)-1,  pos>>pos_ctx_shift) << pos_loc
- * if do_strand
- *     ctx += is_read2 << strand_loc
- * if map_ctx_bits > 0
- *     ctx += map[MIN(255, delta>>map_ctx_shift)] << map_loc
- * ctx &= 0xffff;
- *
- * "Pos" is the position since the start of this read, resetting to zero
- * each record.  This needs the lengths to be known, which are stored once only if
- * fixed_len flag is set, or once per record if not.
- *
- * Delta is a running total of qual != previous_qual.
- * Conetxt, delta, qlast and previous_qual all get reset to zero at the
- * start of every new record.
- */
+// We use generic maps to turn 0-M into 0-N where N <= M
+// before adding these into the context.  These are used
+// for positions, running-diffs and quality values.
+//
+// This can be used as a simple divisor, eg pos/24 to get
+// 2 bits of positional data for each quarter along a 100bp
+// read, or it can be tailored for specific such as noting
+// the first 5 cycles are poor, then we have stability and
+// a gradual drop off in the last 20 or so.  Perhaps we then
+// map pos 0-4=0, 5-79=1, 80-89=2, 90-99=3.
+//
+// We don't need to specify how many bits of data we are
+// using (2 in the above example), as that is just implicit
+// in the values in the map.  Specify not to use a map simply
+// disables that context type (our map is essentially 0-M -> 0).
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -123,6 +85,10 @@ static const char *name(void) {
 #define QBITS 12
 #define QSIZE (1<<QBITS)
 
+#define NSYM 2
+#include "c_simple_model.h"
+
+#undef NSYM
 #define NSYM 256
 #include "c_simple_model.h"
 
@@ -130,39 +96,130 @@ static const char *name(void) {
 #define NSYM QMAX
 //#include "c_escape_model.h"
 #include "c_simple_model.h"
+//#include "c_cdf_model.h"
+//#include "c_cdf16_model.h"
 
-#undef NSYM
-#define NSYM 2
-#include "c_simple_model.h"
-
-static int store_array(unsigned char *out, int *array, int size, int bits) {
+// An array of 0,0,0, 1,1,1,1, 3, 5,5
+// is turned into a run-length of 3x0, 4x1, 0x2, 1x4, 0x4, 2x5,
+// which then becomes 3 4 0 1 0 2.
+//
+// NB: size > 255 therefore means we need to repeatedly read to find
+// the actual run length.
+// Alternatively we could bit-encode instead of byte encode, eg BETA.
+static int store_array(unsigned char *out, unsigned int *array, int size) {
     int i, j, k;
-    for (i = j = k = 0; i < size && j < (1<<bits); j++) {
+    for (i = j = k = 0; i < size; j++) {
 	int run_len = i;
 	while (i < size && array[i] == j)
 	    i++;
 	run_len = i-run_len;
-	out[k++] = run_len;
+
+	int r;
+	do {
+	    r = MIN(255, run_len);
+	    out[k++] = r;
+	    run_len -= r;
+	} while (r == 255);
     }
-    while (j < (1<<bits))
+    while (i < size)
 	out[k++] = 0, j++;
 
+    // RLE on out.
+    //    1 2 3 3 3 3 3 4 4    5
+    // => 1 2 3 3 +3... 4 4 +0 5
+    int last = -1;
+    for (i = j = 0; j < k; i++) {
+	out[i] = out[j++];
+	if (out[i] == last) {
+	    int n = j;
+	    while (j < k && out[j] == last)
+		j++;
+	    out[++i] = j-n;
+	} else {
+	    last = out[i];
+	}
+    }
+    k = i;
+
+//    fprintf(stderr, "Store_array %d => %d {", size, k);
+//    for (i = 0; i < k; i++)
+//	fprintf(stderr, "%d,", out[i]);
+//    fprintf(stderr, "}\n");
     return k;
 }
 
-static int read_array(unsigned char *in, int *array, int bits) {
-    int i, j, k;
-    for (i = j = k = 0; i < (1<<bits); i++) {
-	int run_len = in[k++];
-	while (run_len && j < 256)
+static int read_array(unsigned char *in, unsigned int *array, int size) {
+#if 0
+    unsigned char A[1024];
+    int i, j, k, last = -1, nb = 0;
+
+    size = MIN(1024, size);
+
+    // Remove level one of run-len encoding
+    for (i = j = k = 0; k < size; i++) {
+	k += in[i];
+	A[j++] = in[i];
+	int run = in[i];
+	if (in[i] == last) {
+	    int r = in[++i];
+	    while (r-- && k < size) {
+		A[j++] = run;
+		k += run;
+	    }
+	}
+	last = run;
+    }
+    nb = i;
+
+    // Now expand inner level of run-length encoding
+    in = A;
+    for (i = j = k = 0; j < size; i++) {
+	int run_len = 0;
+	int run_part;
+	do {
+	    run_part = in[k++];
+	    run_len += run_part;
+	} while (run_part == 255);
+
+	while (run_len && j < size)
 	    run_len--, array[j++] = i;
     }
 
-    // Copy last element to end
-    i = array[MAX(0,j-1)];
-    while (j < 256)
-	array[j++] = i;
+    return nb;
+#else
+    int i, j, k, last = -1, r2 = 0;
+
+    for (i = j = k = 0; j < size; i++) {
+	int run_len;
+	if (r2) {
+	    run_len = last;
+	} else {
+	    run_len = 0;
+	    int r, loop = 0;
+	    do {
+		r = in[k++];
+		//fprintf(stderr, "%d,", r);
+		if (++loop == 3)
+		    run_len += r*255, r=255;
+		else
+		    run_len += r;
+	    } while (r == 255);
+	}
+	if (r2 == 0 &&  run_len == last) {
+	    r2 = in[k++];
+	    //fprintf(stderr, "%d,", r2);
+	} else {
+	    if (r2) r2--;
+	    last = run_len;
+	}
+
+	while (run_len && j < size)
+	    run_len--, array[j++] = i;
+    }
+    //fprintf(stderr, "}\n");
+
     return k;
+#endif
 }
 
 // FIXME: how to auto-tune these rather than trial and error?
@@ -174,6 +231,12 @@ static int strat_opts[][10] = {
     {12, 6, 0, 0, 0, 0, 0, 12, 0, 0},   // e.g. IonTorrent; adaptive O1
     {0, 0, 0, 0, 0,  0, 0, 0, 0, 0},    // custom
 };
+
+#ifdef __SSE__
+#   include <xmmintrin.h>
+#else
+#   define _mm_prefetch(a,b)
+#endif
 
 unsigned char *compress_block_fqz2f(int vers,
 				    int level,
@@ -188,6 +251,10 @@ unsigned char *compress_block_fqz2f(int vers,
 	5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 	6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
     };
+    unsigned int qtab[256]  = {0};
+    unsigned int ptab[1024] = {0};
+    unsigned int dtab[256]  = {0};
+    unsigned int stab[256]  = {0};
 
     int comp_idx = 0;
     size_t i, j;
@@ -280,26 +347,17 @@ unsigned char *compress_block_fqz2f(int vers,
     }
     int fixed_len = (i == s->hdr->num_records);
 
-    // If nsym is significant lower than max_sym, store a lookup table and
-    // transform prior to compression.  Eg 4 or 8 binned data.
-    comp[comp_idx++] = 5; // FMT 5: this code
-    comp[comp_idx++] = (do_rev<<4)|(do_strand<<3)|(fixed_len<<2)|(do_dedup<<1)|(store_qmap);
-    comp[comp_idx++] = max_sym;
-
-    // FIXME: try to auto-sense how much positional sensitive data there is
-    // FIXME2: incorporate 1st/2nd read flag into the context?
-    // (If it helps, we have to store this in the data stream too.)
-
+    int store_qtab = 0; // unused by current encoder
     int q_qctxbits = strat_opts[strat][0];
     int q_qctxshift= strat_opts[strat][1];
     int q_pctxbits = strat_opts[strat][2];
     int q_pctxshift= strat_opts[strat][3];
-    int q_mctxbits = strat_opts[strat][4];
-    int q_mctxshift= strat_opts[strat][5];
+    int q_dctxbits = strat_opts[strat][4];
+    int q_dctxshift= strat_opts[strat][5];
     int q_qloc     = strat_opts[strat][6];
     int q_sloc     = strat_opts[strat][7];
     int q_ploc     = strat_opts[strat][8];
-    int q_mloc     = strat_opts[strat][9];
+    int q_dloc     = strat_opts[strat][9];
 
     if (strat >= 4)
 	goto manually_set; // used in TEST_MAIN for debugging
@@ -309,49 +367,53 @@ unsigned char *compress_block_fqz2f(int vers,
 
     if (nsym <= 4) {
 	// NovaSeq
-	q_qctxbits =10;
 	q_qctxshift=2; // qmax 64, although we can store up to 128 if needed
-	q_pctxbits =2;
-	q_pctxshift=5;
-	//q_sloc=13;
 	if (in_size < 5000000) {
-	    q_pctxbits =1;
-	    q_pctxshift=6;
-	    q_mctxbits =2;
-	    q_mctxshift=1;
-	}
-    } else if (nsym <= 8) {
-	// HiSeqX
-	q_qctxbits =9;
-	q_qctxshift=3;
-	q_pctxbits =3;
-	q_pctxshift=5;
-	q_mctxbits =2;
-	q_mctxshift=2;
-	//q_sloc=10;
-	if (in_size < 5000000) {
-	    q_qctxbits =6;
 	    q_pctxbits =2;
 	    q_pctxshift=5;
 	}
+    } else if (nsym <= 8) {
+	// HiSeqX
+	q_qctxbits =MIN(q_qctxbits,9);
+	q_qctxshift=3;
+	if (in_size < 5000000)
+	    q_qctxbits =6;
     }
 
     if (in_size < 300000) {
 	q_qctxbits=q_qctxshift;
-	q_mctxbits=2;
+	q_dctxbits=2;
     }
 
  manually_set:
+    // If nsym is significant lower than max_sym, store a lookup table and
+    // transform prior to compression.  Eg 4 or 8 binned data.
+    comp[comp_idx++] = 5; // FMT 5: this code
+    comp[comp_idx++] =
+	(store_qtab<<7)|
+	((q_dctxbits>0)<<6)|
+	((q_pctxbits>0)<<5)|
+	(do_rev<<4)|
+	(do_strand<<3)|
+	(fixed_len<<2)|
+	(do_dedup<<1)|
+	(store_qmap);
+    comp[comp_idx++] = max_sym;
+
 //    fprintf(stderr, "strat %d 0x%x%x%x%x%x%x%x%x%x%x\n", strat,
 //	    q_qctxbits, q_qctxshift,
 //	    q_pctxbits, q_pctxshift,
-//	    q_mctxbits, q_mctxshift,
+//	    q_dctxbits, q_dctxshift,
 //	    q_qloc    , q_sloc,
-//	    q_ploc    , q_mloc);
+//	    q_ploc    , q_dloc);
 
     for (i = 0; i < sizeof(dsqr)/sizeof(*dsqr); i++)
-	if (dsqr[i] > (1<<q_mctxbits)-1)
-	    dsqr[i] = (1<<q_mctxbits)-1;
+	if (dsqr[i] > (1<<q_dctxbits)-1)
+	    dsqr[i] = (1<<q_dctxbits)-1;
+
+    comp[comp_idx++] = (q_qctxbits<<4)|q_qctxshift;
+    comp[comp_idx++] = (q_qloc<<4)|q_sloc;
+    comp[comp_idx++] = (q_ploc<<4)|q_dloc;
 
     if (store_qmap) {
 	comp[comp_idx++] = nsym;
@@ -366,13 +428,72 @@ unsigned char *compress_block_fqz2f(int vers,
 	    qhist[i] = i;
     }
 
-    comp[comp_idx++] = (q_qctxbits<<4)|q_qctxshift;
-    comp[comp_idx++] = (q_pctxbits<<4)|q_pctxshift;
-    comp[comp_idx++] = (q_mctxbits<<4)|q_mctxshift;
-    comp[comp_idx++] = (q_qloc<<4)|q_sloc;
-    comp[comp_idx++] = (q_ploc<<4)|q_mloc;
+    // Produce ptab from pctxshift.
+    if (q_qctxbits) {
+	for (i = 0; i < 256; i++) {
+	    qtab[i] = i;
+	    // Alternative mappings:
+	    //qtab[i] = i<max_sym ? i : max_sym;
+	    //qtab[i] = i > 30 ? MIN(max_sym,i)-15 : i/2;  // eg for 9827 BAM
+	    //qtab[i] = pow(i,1.5)*0.12;
+	}
 
-    comp_idx += store_array(comp+comp_idx, dsqr, sizeof(dsqr)/sizeof(*dsqr), q_mctxbits);
+	// Eg map Q8 to Q4 and then compress with 2 bit instead of 3.
+//	int j = 0;
+//	qtab[0] = j;
+//	qtab[1] = j++;
+//	qtab[2] = j;
+//	qtab[3] = j++;
+//	qtab[4] = j;
+//	qtab[5] = j++;
+//	qtab[6] = j;
+//	q_qctxshift = 2;
+
+	// custom qtab
+	if (store_qtab)
+	    comp_idx += store_array(comp+comp_idx, qtab, 256);
+    }
+
+    if (q_pctxbits) {
+	for (i = 0; i < 1024; i++)
+	    ptab[i] = MIN((1<<q_pctxbits)-1, i>>q_pctxshift);
+
+//	// Eg a particular novaseq run, 2.8% less, -x 0xa2302108ae
+//	i = j = 0;
+//	while (i <= 10)  {ptab[i++] = j;}  j++;
+//	while (i <= 12)  {ptab[i++] = j;}  j++;
+//	while (i <= 22)  {ptab[i++] = j;}  j++;
+//	while (i <= 24)  {ptab[i++] = j;}  j++;
+//	while (i <= 27)  {ptab[i++] = j;}  j++;
+//	while (i <= 37)  {ptab[i++] = j;}  j++;
+//	while (i <= 83)  {ptab[i++] = j;}  j++;
+//	while (i <= 95)  {ptab[i++] = j;}  j++;
+//	while (i <= 127) {ptab[i++] = j;}  j++;
+//	while (i <= 143) {ptab[i++] = j;}  j++;
+//	while (i <= 1023){ptab[i++] = j;}  j++;
+
+	// custom ptab
+	comp_idx += store_array(comp+comp_idx, ptab, 1024);
+
+	for (i = 0; i < 1024; i++)
+	    ptab[i] <<= q_ploc;
+    }
+
+    if (q_dctxbits) {
+	for (i = 0; i < 256; i++)
+	    dtab[i] = dsqr[MIN(sizeof(dsqr)/sizeof(*dsqr)-1, i>>q_dctxshift)];
+
+	// custom dtab
+	comp_idx += store_array(comp+comp_idx, dtab, 256);
+
+	for (i = 0; i < 256; i++)
+	    dtab[i] <<= q_dloc;
+    }
+
+    if (do_strand)
+	stab[1] = 1<<q_sloc;
+
+
 
     SIMPLE_MODEL(QMAX,_) *model_qual;
 
@@ -480,30 +601,21 @@ unsigned char *compress_block_fqz2f(int vers,
 	}
 
 	unsigned char q = in[i];
-        //unsigned char q = in[i] & (QMAX-1);
-	//assert(in[i] < QMAX && in[i] >= 0);
-
 	SIMPLE_MODEL(QMAX,_encodeSymbol)(&model_qual[last], &rc, qhist[q]);
 
-	qlast = (qlast<<q_qctxshift) + qhist[q];
+	qlast = (qlast<<q_qctxshift) + qtab[qhist[q]];
 	last = (qlast & ((1<<q_qctxbits)-1)) << q_qloc;
-
-	if (q_pctxbits)
-	    last += MIN((1<<q_pctxbits)-1, j>>q_pctxshift) << q_ploc;
-
-	if (do_strand)
-	    last += read2 << q_sloc;
-
-	if (q_mctxbits)
-	    last += dsqr[MIN(sizeof(dsqr)/sizeof(*dsqr)-1,delta>>q_mctxshift)] << q_mloc;
+	last += ptab[MIN(j,1024)]; //limits max pos
+	last += stab[read2];
+	last += dtab[delta];
 
 	last &= 0xffff;
+        //_mm_prefetch((const char *)&model_qual[last], _MM_HINT_T0);
 
 	delta += (q1 != q);
 	q1 = q;
     }
 
-    //SIMPLE_MODEL(QMAX,_encodeSymbol)(&model_qual[last], &rc, QMAX-1);
     RC_FinishEncode(&rc);
 
     if (do_rev) {
@@ -539,12 +651,12 @@ unsigned char *compress_block_fqz2f(int vers,
 //	    q_qctxshift,
 //	    q_pctxbits,
 //	    q_pctxshift,
-//	    q_mctxbits,
-//	    q_mctxshift,
+//	    q_dctxbits,
+//	    q_dctxshift,
 //	    q_qloc,
 //	    q_sloc,
 //	    q_ploc,
-//	    q_mloc,
+//	    q_dloc,
 //	    (int)in_size, (int)*out_size);
 
     free(model_qual);
@@ -557,7 +669,10 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 				      unsigned char *in,
 				      size_t in_size,
 				      size_t *out_size) {
-    int dsqr[256] = {0};
+    unsigned int qtab[256]  = {0};
+    unsigned int ptab[1024] = {0};
+    unsigned int dtab[256]  = {0};
+    unsigned int stab[256]  = {0};
 
     unsigned char *uncomp = NULL;
     RangeCoder rc;
@@ -572,6 +687,9 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     }
 
     int flags      = in[in_idx++];
+    int have_qtab  = flags&128;
+    int have_dtab  = flags&64;
+    int have_ptab  = flags&32;
     int do_rev     = flags&16;
     int do_strand  = flags&8;
     int fixed_len  = flags&4;
@@ -579,10 +697,16 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     int store_qmap = flags&1;
     int max_sym    = in[in_idx++];
 
-    int nsym = store_qmap ? in[in_idx++] : 255;
-    int qmap[256];
+    int q_qctxbits = in[in_idx]>>4;
+    int q_qctxshift= in[in_idx++]&15;
+    int q_qloc     = in[in_idx]>>4;
+    int q_sloc     = in[in_idx++]&15;
+    int q_ploc     = in[in_idx]>>4;
+    int q_dloc     = in[in_idx++]&15;
 
-    if (nsym <= 8) {
+    int qmap[256];
+    if (store_qmap) {
+	int nsym = in[in_idx++];
 	for (i = 0; i < nsym; i++)
 	    qmap[i] = in[in_idx++];
 	max_sym = nsym;
@@ -591,18 +715,27 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    qmap[i] = i;
     }
 
-    int q_qctxbits = in[in_idx]>>4;
-    int q_qctxshift= in[in_idx++]&15;
-    int q_pctxbits = in[in_idx]>>4;
-    int q_pctxshift= in[in_idx++]&15;
-    int q_mctxbits = in[in_idx]>>4;
-    int q_mctxshift= in[in_idx++]&15;
-    int q_qloc     = in[in_idx]>>4;
-    int q_sloc     = in[in_idx++]&15;
-    int q_ploc     = in[in_idx]>>4;
-    int q_mloc     = in[in_idx++]&15;
+    // Produce ptab from pctxshift.
+    if (q_qctxbits) {
+	if (have_qtab)
+	    in_idx += read_array(in+in_idx, qtab, 256);
+	else
+	    for (i = 0; i < 256; i++)
+		qtab[i] = i;
+    }
 
-    in_idx += read_array(in+in_idx, dsqr, q_mctxbits);
+    if (have_ptab)
+	in_idx += read_array(in+in_idx, ptab, 1024);
+    for (i = 0; i < 1024; i++)
+	ptab[i] <<= q_ploc;
+
+    if (have_dtab)
+        in_idx += read_array(in+in_idx, dtab, 256);
+    for (i = 0; i < 256; i++)
+	dtab[i] <<= q_dloc;
+
+    if (do_strand)
+	stab[1] = 1<<q_sloc;
 
     SIMPLE_MODEL(QMAX,_) *model_qual;
     model_qual = malloc(sizeof(*model_qual) * (1<<16));
@@ -687,21 +820,15 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	Q = SIMPLE_MODEL(QMAX,_decodeSymbol)(&model_qual[last], &rc);
 	q = qmap[Q];
 
-	qlast = (qlast<<q_qctxshift) + Q;
+	qlast = (qlast<<q_qctxshift) + qtab[Q];
 	last = (qlast & ((1<<q_qctxbits)-1)) << q_qloc;
-
-	if (q_pctxbits)
-	    last += MIN((1<<q_pctxbits)-1, j>>q_pctxshift) << q_ploc;
-
-	if (do_strand)
-	    last += read2 << q_sloc;
-
-	if (q_mctxbits)
-	    last += dsqr[MIN(255, delta>>q_mctxshift)] << q_mloc;
+	last += ptab[MIN(j,1024)]; //limits max pos
+	last += stab[read2];
+	last += dtab[delta];
 
 	last &= 0xffff;
 
-	delta += (q1 != q);
+	delta += (q1 != q) * (delta<255);
 	q1 = q;
         uncomp[i] = q;
     }
@@ -776,6 +903,8 @@ static unsigned char *load(char *fn, size_t *lenp) {
     uint64_t dcurr = 0;
     signed int len;
 
+    build_rcp_freq();
+
     int fd = open(fn, O_RDONLY);
     if (!fd) {
 	perror(fn);
@@ -831,6 +960,8 @@ int main(int argc, char **argv) {
 	vers = 4*256 + 4;
     }
     in = load(argc > 1 ? argv[1] : "/dev/stdin", &in_len);
+    if (!in)
+	exit(1);
 
     int rec_len = 100;
     if (argc > 2)
@@ -860,6 +991,7 @@ int main(int argc, char **argv) {
 	unsigned char *in2 = in;
 	long t_out = 0;
 	if (write(1, &rec_len, 4) < 0) return 1;
+	out = NULL;
 	while (in_len > 0) {
 	    size_t in2_len = in_len <= blk_size ? in_len : blk_size;
 	    out = compress_block_fqz2f(vers, 0, fake_slice(in2_len, rec_len),
