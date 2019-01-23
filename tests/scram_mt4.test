@@ -1,0 +1,3 @@
+#!/bin/sh
+
+SCRAMBLE_ARGS="-t4 -V4.0 -7" $srcdir/scram.test

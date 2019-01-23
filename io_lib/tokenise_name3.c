@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016,2017 Genome Research Ltd.
+ * Copyright (c) 2016-2019 Genome Research Ltd.
  * Author(s): James Bonfield
  * 
  * Redistribution and use in source and binary forms, with or without 
@@ -31,7 +31,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// cc -I.. -g -O3 tokenise_name3.c rANS_static4x16pr.c pooled_alloc.c -pthread -DTEST_TOKENISER
+// cc -I.. -g -O3 tokenise_name3.c arith_dynamic.c pooled_alloc.c -pthread -DTEST_TOKENISER
 
 // As per tokenise_name2 but has the entropy encoder built in already,
 // so we just have a single encode and decode binary.  (WIP; mainly TODO)
@@ -98,8 +98,7 @@
 #include <time.h>
 
 #include "io_lib/pooled_alloc.h"
-#include "io_lib/rANS_static4x16.h"
-#include "io_lib/tokenise_name3.h"
+#include "io_lib/arith_dynamic.h"
 
 // 128 is insufficient for SAM names (max 256 bytes) as
 // we may alternate a0a0a0a0a0 etc.  However if we fail,
@@ -148,6 +147,11 @@ typedef struct {
 
     // token blocks
     descriptor desc[MAX_TBLOCKS];
+
+    // summary stats per token
+    int token_dcount[MAX_TOKENS];
+    int token_icount[MAX_TOKENS];
+    //int token_zcount[MAX_TOKENS];
 } name_context;
 
 name_context *create_context(int max_names) {
@@ -164,6 +168,9 @@ name_context *create_context(int max_names) {
     ctx->pool = NULL;
 
     memset(&ctx->desc[0], 0, MAX_TBLOCKS * sizeof(ctx->desc[0]));
+    memset(&ctx->token_dcount[0], 0, MAX_TOKENS * sizeof(int));
+    memset(&ctx->token_icount[0], 0, MAX_TOKENS * sizeof(int));
+    //memset(&ctx->token_zcount[0], 0, MAX_TOKENS * sizeof(int));
 
     return ctx;
 }
@@ -785,7 +792,7 @@ static int encode_name(name_context *ctx, char *name, int len, int mode) {
 	    uint32_t v = 0;
 	    int d = 0;
 
-	    while (s < len && isdigit(name[s]) && s-i < 8) {
+	    while (s < len && isdigit(name[s]) && s-i < 9) {
 		v = v*10 + name[s] - '0';
 		//putchar(name[s]);
 		s++;
@@ -836,7 +843,7 @@ static int encode_name(name_context *ctx, char *name, int len, int mode) {
 	    uint32_t v = 0;
 	    int d = 0;
 
-	    while (s < len && isdigit(name[s]) && s-i < 8) {
+	    while (s < len && isdigit(name[s]) && s-i < 9) {
 		v = v*10 + name[s] - '0';
 		//putchar(name[s]);
 		s++;
@@ -868,18 +875,24 @@ static int encode_name(name_context *ctx, char *name, int len, int mode) {
 #endif
 		    if (encode_token_match(ctx, ntok) < 0) return -1;
 		    //ctx->lc[pnum].last_token_delta[ntok]=0;
-		} else if (mode == 1 && d < 256 && d >= 0) {
+		    //ctx->token_zcount[ntok]++;
+		} else if (mode == 1 && d < 256 && d >= 0
+			   //&& (10+ctx->token_dcount[ntok]) > (ctx->token_icount[ntok]+ctx->token_zcount[ntok])
+			   && (5+ctx->token_dcount[ntok]) > ctx->token_icount[ntok]
+			   ) {
 #ifdef ENC_DEBUG
 		    fprintf(stderr, "Tok %d (dig-delta, %d / %d)\n", N_DDELTA, ctx->lc[pnum].last_token_int[ntok], v);
 #endif
 		    if (encode_token_int1(ctx, ntok, N_DDELTA, d) < 0) return -1;
 		    //ctx->lc[pnum].last_token_delta[ntok]=1;
+		    ctx->token_dcount[ntok]++;
 		} else {
 #ifdef ENC_DEBUG
 		    fprintf(stderr, "Tok %d (dig, %d / %d)\n", N_DIGITS, ctx->lc[pnum].last_token_int[ntok], v);
 #endif
 		    if (encode_token_int(ctx, ntok, N_DIGITS, v) < 0) return -1;
 		    //ctx->lc[pnum].last_token_delta[ntok]=0;
+		    ctx->token_icount[ntok]++;
 		}
 	    } else {
 #ifdef ENC_DEBUG
@@ -1100,27 +1113,28 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 
 
 //-----------------------------------------------------------------------------
-// rANS codec
-static int rans_encode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len, int method) {
+// arith adaptive codec
+static int arith_encode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len, int method) {
     unsigned int olen = *out_len-6, nb;
-    if (rans_compress_to_4x16(in, in_len, out+6, &olen, method) == NULL)
+    if (arith_compress_to(in, in_len, out+6, &olen, method) == NULL)
 	return -1;
 
     nb = i7put(out, olen);
     memmove(out+nb, out+6, olen);
     *out_len = olen+nb;
+
     return 0;
 }
 
 // Returns number of bytes read from 'in' on success,
 //        -1 on failure.
-static int64_t rans_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len) {
+static int64_t arith_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len) {
     unsigned int olen = *out_len;
 
     uint64_t clen;
     int nb = i7get(in, &clen);
-    //fprintf(stderr, "Rans decode %x\n", in[nb]);
-    if (rans_uncompress_to_4x16(in+nb, in_len-nb, out, &olen, 0) == NULL)
+    //fprintf(stderr, "Arith decode %x\n", in[nb]);
+    if (arith_uncompress_to(in+nb, in_len-nb, out, &olen) == NULL)
 	return -1;
     //fprintf(stderr, "    Stored clen=%d\n", (int)clen);
     return clen+nb;
@@ -1140,13 +1154,11 @@ static int compress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_le
 	return 0;
     }
 
-    //int rmethods[] = {0,1,128,129,64,65,192,193, 193+8}, m;
-    //int rmethods[] = {0,1,128,129,64,65,192,193, 193+8, 0+4, 128+4}, m;
-    // DO_DICT doesn't yet work in conjunction with DO_PACK.
-    int rmethods[] = {0,1,128,129,64,65,192,193, 193+8, 0+4}, m;
+    int rmethods[] = {0,1,128,129,64,65,192,193, 193+8, 0+4}, m; // slower mode
+    //int rmethods[] = {0,128,64,192, 193+8, 0+4}, m; // fast mode
     for (m = 0; m < sizeof(rmethods)/sizeof(*rmethods); m++) {
 	*out_len = olen;
-	if (rans_encode(in, in_len, out, out_len, rmethods[m]) < 0) return -1;
+	if (arith_encode(in, in_len, out, out_len, rmethods[m]) < 0) return -1;
 
 	if (best_sz > *out_len) {
 	    best_sz = *out_len;
@@ -1155,7 +1167,7 @@ static int compress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_le
     }
 
     *out_len = olen;
-    if (rans_encode(in, in_len, out, out_len, best) < 0) return -1;
+    if (arith_encode(in, in_len, out, out_len, best) < 0) return -1;
 
     assert(*out_len > 2);
 
@@ -1190,7 +1202,7 @@ static int uncompress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_
 	//return 2;
     }
 
-    return rans_decode(in, in_len, out, out_len);
+    return arith_decode(in, in_len, out, out_len);
 }
 
 //-----------------------------------------------------------------------------
@@ -1308,7 +1320,7 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
 	int tnum = i>>4;
 	int ttype = i&15;
 
-	uint64_t out_len = 1.5 * rans_compress_bound_4x16(ctx->desc[i].buf_l, 1); // guesswork
+	uint64_t out_len = 1.5 * arith_compress_bound(ctx->desc[i].buf_l, 1); // guesswork
 	uint8_t *out = malloc(out_len);
 	if (!out) {
 	    free_context(ctx);
@@ -1598,8 +1610,8 @@ static int encode(int argc, char **argv) {
 
 	int out_len;
 	uint8_t *out = encode_names(blk, len, &out_len, &last_start);
-	write(1, &out_len, 4);
-	write(1, out, out_len);   // encoded data
+	if (write(1, &out_len, 4) < 4) exit(1);
+	if (write(1, out, out_len) < out_len) exit(1);   // encoded data
 	free(out);
 
 	if (len > last_start)
@@ -1633,7 +1645,7 @@ static int decode(int argc, char **argv) {
 	    return -1;
 	}
 
-	write(1, out, out_sz);
+	if (write(1, out, out_sz) < out_sz) exit(1);
 
 	free(in);
 	free(out);
