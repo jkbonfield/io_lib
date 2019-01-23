@@ -81,15 +81,11 @@ static const char *name(void) {
     return "fqzcomp-qual";
 }
 
-#define QMAX 128
+#define QMAX 256
 #define QBITS 12
 #define QSIZE (1<<QBITS)
 
 #define NSYM 2
-#include "c_simple_model.h"
-
-#undef NSYM
-#define NSYM 256
 #include "c_simple_model.h"
 
 #undef NSYM
@@ -367,7 +363,7 @@ unsigned char *compress_block_fqz2f(int vers,
 
     if (nsym <= 4) {
 	// NovaSeq
-	q_qctxshift=2; // qmax 64, although we can store up to 128 if needed
+	q_qctxshift=2; // qmax 64, although we can store up to 256 if needed
 	if (in_size < 5000000) {
 	    q_pctxbits =2;
 	    q_pctxshift=5;

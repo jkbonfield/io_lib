@@ -2,6 +2,7 @@
 
 $srcdir/generate_data.pl || exit 1
 
+scramble_enc="${VALGRIND} $top_builddir/progs/scramble ${SCRAMBLE_ARGS} ${SCRAMBLE_ENC_ARGS}"
 scramble="${VALGRIND} $top_builddir/progs/scramble ${SCRAMBLE_ARGS}"
 cram_index="${VALGRIND} $top_builddir/progs/cram_index"
 compare_sam=$srcdir/compare_sam.pl
@@ -38,8 +39,8 @@ do
     fi
 
     # Create CRAM
-    echo "$scramble -r $ref $in_bam $outdir/$root.full.cram"
-    $scramble -r $ref $in_bam $outdir/$root.full.cram || exit 1
+    echo "$scramble_enc -r $ref $in_bam $outdir/$root.full.cram"
+    $scramble_enc -r $ref $in_bam $outdir/$root.full.cram || exit 1
 
     # Test conversion back to SAM 
     echo "$scramble $in_bam > $outdir/tmp.sam"
@@ -50,8 +51,8 @@ do
     $scramble $outdir/$root.full.cram > $outdir/$root.full.sam || exit 1
     $compare_sam --partialmd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
 
-    echo "$scramble -O bam $outdir/$root.full.cram > $outdir/$root.full.bam"
-    $scramble -O bam $outdir/$root.full.cram > $outdir/$root.full.bam || exit 1
+    echo "$scramble_enc -O bam $outdir/$root.full.cram > $outdir/$root.full.bam"
+    $scramble_enc -O bam $outdir/$root.full.cram > $outdir/$root.full.bam || exit 1
     echo "$scramble $outdir/$root.full.bam $outdir/tmp.sam"
     $scramble $outdir/$root.full.bam $outdir/tmp.sam || exit 1
     sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -O bam/\1/' $outdir/tmp.sam > $outdir/$root.full.bam.sam
@@ -65,8 +66,8 @@ do
     *"unsorted") #skip
         ;;
     *)
-        echo "$scramble -e -r $ref $in_bam $outdir/$root.full.cram"
-        $scramble -e -r $ref $in_bam $outdir/$root.full.cram || exit 1
+        echo "$scramble_enc -e -r $ref $in_bam $outdir/$root.full.cram"
+        $scramble_enc -e -r $ref $in_bam $outdir/$root.full.cram || exit 1
 
         echo "$scramble -m $outdir/$root.full.cram > $outdir/$root.full.sam"
         $scramble $outdir/$root.full.cram > $outdir/tmp.sam || exit 1
@@ -82,8 +83,8 @@ do
     *"unsorted") #skip
         ;;
     *)
-        echo "$scramble -E -r $ref $in_bam $outdir/$root.full.cram"
-        $scramble -E -r $ref $in_bam $outdir/$root.full.cram || exit 1
+        echo "$scramble_enc -E -r $ref $in_bam $outdir/$root.full.cram"
+        $scramble_enc -E -r $ref $in_bam $outdir/$root.full.cram || exit 1
 
         echo "$scramble -m $outdir/$root.full.cram > $outdir/$root.full.sam"
         $scramble $outdir/$root.full.cram > $outdir/tmp.sam || exit 1
@@ -96,8 +97,8 @@ do
 
 
     # And again with no ref.
-    echo "$scramble -x -r $ref $in_bam $outdir/$root.full.cram"
-    $scramble -x -r $ref $in_bam $outdir/$root.full.cram || exit 1
+    echo "$scramble_enc -x -r $ref $in_bam $outdir/$root.full.cram"
+    $scramble_enc -x -r $ref $in_bam $outdir/$root.full.cram || exit 1
 
     echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
     $scramble $outdir/$root.full.cram > $outdir/tmp.sam || exit 1
