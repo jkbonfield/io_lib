@@ -1156,6 +1156,7 @@ static int compress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_le
 
     int rmethods[] = {0,1,128,129,64,65,192,193, 193+8, 0+4}, m; // slower mode
     //int rmethods[] = {0,128,64,192, 193+8, 0+4}, m; // fast mode
+    //int rmethods[] = {0,193+8, 0+4}, m; // fastest mode
     for (m = 0; m < sizeof(rmethods)/sizeof(*rmethods); m++) {
 	*out_len = olen;
 	if (arith_encode(in, in_len, out, out_len, rmethods[m]) < 0) return -1;
@@ -1350,7 +1351,7 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
 	}
 	if (j < i) {
 	    ctx->desc[i].dup_from = j;
-	    tot_size += 4; // flag, dup_from, ttype
+	    tot_size += 3; // flag, dup_from, ttype
 	} else {
 	    ctx->desc[i].dup_from = 0;
 	    tot_size += out_len + 1; // ttype
@@ -1393,17 +1394,10 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
 	}
 	if (ctx->desc[i].dup_from) {
 	    //fprintf(stderr, "Dup %d from %d, sz %d\n", i, ctx->desc[i].dup_from, ctx->desc[i].buf_l);
-	    //uint8_t x = 255;
-	    //write(1, &x, 1);
-	    *cp++ = 255;
-	    //uint16_t y = ctx->desc[i].dup_from;
-	    //write(1, &y, 2);
-	    *(uint16_t *)cp = ctx->desc[i].dup_from; cp+= 2;
-	    //write(1, &ttype8, 1);
-	    *cp++ = ttype8;
+	    *cp++ = ttype8 | 64;
+	    *cp++ = ctx->desc[i].dup_from >> 4;
+	    *cp++ = ctx->desc[i].dup_from & 15;
 	} else {
-	    //write(1, &ttype8, 1);
-	    //write(1, ctx->desc[i].buf, ctx->desc[i].buf_l);
 	    *cp++ = ttype8;
 	    memcpy(cp, ctx->desc[i].buf, ctx->desc[i].buf_l);
 	    cp += ctx->desc[i].buf_l;
@@ -1443,12 +1437,10 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
     int tnum = -1;
     while (o < sz) {
 	uint8_t ttype = in[o++];
-	if (ttype == 255) {
-	    if (o+3 >= sz) return NULL;
-	    uint16_t j = *(uint16_t *)&in[o];
-	    o += 2;
-	    ttype = in[o++];
-	    //		if (ttype == 0)
+	if (ttype & 64) {
+	    if (o+2 >= sz) return NULL;
+	    int j = in[o++]<<4;
+	    j += in[o++];
 	    if (ttype & 128)
 		tnum++;
 
