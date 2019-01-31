@@ -21,17 +21,25 @@
 #include <pthread.h>
 #endif
 
+// Old method stores block of run lengths (O0) and block of literals (O0 or O1)
+// New method interleaves literals and run-lengths and uses literal as context for run.
+// It can be smaller (up to 1% or so), but also consumes more CPU (20% maybe?).
+//
+// Is it worth it?  Probably not,  but we keep it here for experimentation for now.
+
+//#define OLD_RUN
+
 #include "arith_dynamic.h"
 
-#define TF_SHIFT 12
-#define TOTFREQ (1<<TF_SHIFT)
+#define MIN(a,b) ((a)<(b)?(a):(b))
 
-// 9-11 is considerably faster in the O1sfb variant due to reduced table size.
-#ifndef TF_SHIFT_O1
-#define TF_SHIFT_O1 11
-#endif
-#define TOTFREQ_O1 (1<<TF_SHIFT_O1)
-
+//static int L[] = {0,1,1,1, 1,1,1,1}; // assert max L[] is < RUN_CTX // 826895
+static int L[] = {0,1,2,2, 2,2,2,2}; // assert max L[] is < RUN_CTX // 826895
+//static int L[] = {0,1,2,3, 4,5,6,7}; // assert max L[] is < RUN_CTX // 826895
+//static int L[] = {0,1,2,3, 4,4,5,5}; // assert max L[] is < RUN_CTX // 826895
+//static int L[] = {0,1,1,2, 2,3,3,4}; // assert max L[] is < RUN_CTX // 826964
+//static int L[] = {0,1,1,2, 2,2,2,3}; // assert max L[] is < RUN_CTX // 827044
+//static int L[] = {0,1,2,2, 2,2,2,3}; // assert max L[] is < RUN_CTX // 827234
 
 /*-----------------------------------------------------------------------------
  * Memory to memory compression functions.
@@ -155,6 +163,7 @@ unsigned char *arith_uncompress_O0(unsigned char *in, unsigned int in_size,
 
 
 //-----------------------------------------------------------------------------
+#ifdef OLD_RUN
 static uint8_t *rle_encode(uint8_t *data, int64_t len,
 			   uint8_t *out_meta, unsigned int *out_meta_len, uint64_t *out_len) {
     uint64_t i, j, k;
@@ -296,6 +305,7 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t 
     *out_len = outp-out;
     return out;
 }
+#endif
 
 //-----------------------------------------------------------------------------
 
@@ -618,6 +628,7 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
     return out;
 }
 
+#ifdef OLD_RUN
 // Faster than two independent loops to unrle and then unpack.
 // NB: nsym is number of symbols per byte
 static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t meta_sz,
@@ -916,6 +927,7 @@ static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, ui
 
     return (m > meta_sz) ? NULL : out;
 }
+#endif // OLD_RUN
 
 //-----------------------------------------------------------------------------
 
@@ -1072,6 +1084,253 @@ unsigned char *arith_uncompress_O2(unsigned char *in, unsigned int in_size,
 }
 
 /*-----------------------------------------------------------------------------
+ */
+unsigned char *arith_compress_O0_RLE(unsigned char *in, unsigned int in_size,
+				     unsigned char *out, unsigned int *out_size) {
+    int i, j, bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
+
+    if (!out) {
+	*out_size = bound;
+	out = malloc(*out_size);
+    }
+    if (!out || bound > *out_size)
+	return NULL;
+
+    unsigned int m = 0;
+    for (i = 0; i < in_size; i++)
+	if (m < in[i])
+	    m = in[i];
+    m++;
+    *out = m;
+
+    SIMPLE_MODEL(256,_) byte_model;
+    SIMPLE_MODEL(256,_init)(&byte_model, m);
+
+    // RANS
+    // 10:268665, 100: 2009729, q4b: 893340/838087, XSC: 407386
+    // q4b -o65 msec: 830, 830
+
+    // 10: 262625, 100: 1966886, q4b: 880109/826895, XSC: 397848
+    // L=01234455  q4b -o65 msec: 1762, 2194 (slow!)
+    //#define RUN_CTX 6
+    //#define MAX_RUN 2
+
+    // 10: 262786, 100: 1967534, q4b: 872846/827733, XSC: 397972
+    // L=01222222  q4b -o65 msec: 852, 1160
+    //#define RUN_CTX 3
+    //#define MAX_RUN 8
+
+    // 10: 262879, 100: 1968175, q4b: 871762/828796, XSC: 398097
+    // L=01222222;  q4b -o65 msec: 790, 1043
+#define RUN_CTX 3
+#define MAX_RUN 16
+
+    SIMPLE_MODEL(256,_) run_model[256][RUN_CTX];
+    for (i = 0; i < 256; i++)
+	for (j = 0; j < RUN_CTX; j++)
+	    SIMPLE_MODEL(256,_init)(&run_model[i][j], MAX_RUN);
+
+    RangeCoder rc;
+    RC_SetOutput(&rc, (char *)out+1);
+    RC_StartEncode(&rc);
+
+    unsigned char last;
+    for (i = 0; i < in_size;) {
+	SIMPLE_MODEL(256, _encodeSymbol)(&byte_model, &rc, in[i]);
+	//fprintf(stderr, "lit %c\n", in[i]);
+	int run = 0;
+	last = in[i++];
+	while (i < in_size && in[i] == last/* && run < MAX_RUN-1*/)
+	    run++, i++;
+	int l = 0;
+	do {
+	    int c = run < MAX_RUN ? run : MAX_RUN-1;
+	    SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc, c);
+	    //SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][l], &rc, c);
+	    //fprintf(stderr, "run %d (ctx %d, %d)\n", c, last, l);
+	    run -= c;
+	    l++;
+	    //l += l<RUN_CTX-1;
+	    if (c == MAX_RUN-1 && run == 0) {
+		SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc, 0);
+		//SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][l], &rc, 0);
+		//fprintf(stderr, "Run %d (ctx %d, %d)\n", c, last, 0);
+	    }
+	} while (run);
+    }
+
+    RC_FinishEncode(&rc);
+
+    // Finalise block size and return it
+    *out_size = RC_OutSize(&rc)+1;
+
+    //fprintf(stderr, "RLE %d to %d\n", in_size, *out_size);
+
+    return out;
+}
+
+unsigned char *arith_uncompress_O0_RLE(unsigned char *in, unsigned int in_size,
+				       unsigned char *out, unsigned int out_sz) {
+    RangeCoder rc;
+    int i, j;
+    unsigned int m = in[0] ? in[0] : 256;
+
+    SIMPLE_MODEL(256,_) byte_model;
+    SIMPLE_MODEL(256,_init)(&byte_model, m);
+
+    SIMPLE_MODEL(256,_) run_model[256][RUN_CTX];
+    for (i = 0; i < 256; i++)
+	for (j = 0; j < RUN_CTX; j++)
+	    SIMPLE_MODEL(256,_init)(&run_model[i][j], MAX_RUN);
+
+    if (!out)
+	out = malloc(out_sz);
+    if (!out)
+	return NULL;
+
+    RC_SetInput(&rc, (char *)in+1);
+    RC_StartDecode(&rc);
+
+    unsigned char last;
+    for (i = 0; i < out_sz; i++) {
+	last = out[i] = SIMPLE_MODEL(256, _decodeSymbol)(&byte_model, &rc);
+	//fprintf(stderr, "lit %c\n", last);
+	int run = 0, r = 0, l = 0;
+
+	do {
+	    r = SIMPLE_MODEL(256, _decodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc);
+	    //r = SIMPLE_MODEL(256, _decodeSymbol)(&run_model[last][l], &rc);
+	    //fprintf(stderr, "run %d (ctx %d, %d)\n", r, last, l);
+	    run += r;
+	    l++;
+	    //l += l<RUN_CTX-1;
+	} while (r == MAX_RUN-1);
+	while (run-- && i < out_sz)
+	    out[++i] = last;
+    }
+
+    RC_FinishDecode(&rc);
+
+    return out;
+}
+
+unsigned char *arith_compress_O1_RLE(unsigned char *in, unsigned int in_size,
+				     unsigned char *out, unsigned int *out_size) {
+    int i, j, bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
+
+    if (!out) {
+	*out_size = bound;
+	out = malloc(*out_size);
+    }
+    if (!out || bound > *out_size)
+	return NULL;
+
+    unsigned int m = 0;
+    for (i = 0; i < in_size; i++)
+	if (m < in[i])
+	    m = in[i];
+    m++;
+    *out = m;
+
+    //SIMPLE_MODEL(256,_) byte_model;
+    //SIMPLE_MODEL(256,_init)(&byte_model, m);
+
+    SIMPLE_MODEL(256,_) byte_model[256];
+    for (i = 0; i < 256; i++)
+	SIMPLE_MODEL(256,_init)(&byte_model[i], m);
+
+    SIMPLE_MODEL(256,_) run_model[256][RUN_CTX];
+    for (i = 0; i < 256; i++)
+	for (j = 0; j < RUN_CTX; j++)
+	    SIMPLE_MODEL(256,_init)(&run_model[i][j], MAX_RUN);
+
+    RangeCoder rc;
+    RC_SetOutput(&rc, (char *)out+1);
+    RC_StartEncode(&rc);
+
+    unsigned char last = 0;
+    for (i = 0; i < in_size;) {
+	//SIMPLE_MODEL(256, _encodeSymbol)(&byte_model, &rc, in[i]);
+	SIMPLE_MODEL(256, _encodeSymbol)(&byte_model[last], &rc, in[i]);
+	//fprintf(stderr, "lit %c (ctx %c)\n", in[i], last);
+	int run = 0, l = 0;
+	last = in[i++];
+	while (i < in_size && in[i] == last/* && run < MAX_RUN-1*/)
+	    run++, i++;
+	do {
+	    int c = run < MAX_RUN ? run : MAX_RUN-1;
+	    SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc, c);
+	    //SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][l], &rc, c);
+	    //fprintf(stderr, "run %d (ctx %d, %d)\n", c, last, l);
+	    run -= c;
+	    l++;
+	    //l += l<RUN_CTX-1;
+	    if (c == MAX_RUN-1 && run == 0) {
+		SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc, 0);
+		//SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][l], &rc, 0);
+		//fprintf(stderr, "Run %d (ctx %d, %d)\n", c, last, 0);
+	    }
+	} while (run);
+    }
+
+    RC_FinishEncode(&rc);
+
+    // Finalise block size and return it
+    *out_size = RC_OutSize(&rc)+1;
+
+    //fprintf(stderr, "RLE %d to %d\n", in_size, *out_size);
+
+    return out;
+}
+
+unsigned char *arith_uncompress_O1_RLE(unsigned char *in, unsigned int in_size,
+				       unsigned char *out, unsigned int out_sz) {
+    RangeCoder rc;
+    int i, j;
+    unsigned int m = in[0] ? in[0] : 256;
+
+    SIMPLE_MODEL(256,_) byte_model[256];
+    for (i = 0; i < 256; i++)
+	SIMPLE_MODEL(256,_init)(&byte_model[i], m);
+
+    SIMPLE_MODEL(256,_) run_model[256][RUN_CTX];
+    for (i = 0; i < 256; i++)
+	for (j = 0; j < RUN_CTX; j++)
+	    SIMPLE_MODEL(256,_init)(&run_model[i][j], MAX_RUN);
+
+    if (!out)
+	out = malloc(out_sz);
+    if (!out)
+	return NULL;
+
+    RC_SetInput(&rc, (char *)in+1);
+    RC_StartDecode(&rc);
+
+    unsigned char last = 0;
+    for (i = 0; i < out_sz; i++) {
+	out[i] = SIMPLE_MODEL(256, _decodeSymbol)(&byte_model[last], &rc);
+	//fprintf(stderr, "lit %c (ctx %c)\n", out[i], last);
+	last = out[i];
+	int run = 0, r = 0, l = 0;
+
+	do {
+	    r = SIMPLE_MODEL(256, _decodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc);
+	    //r = SIMPLE_MODEL(256, _decodeSymbol)(&run_model[last][l], &rc);
+	    //fprintf(stderr, "run %d (ctx %d, %d)\n", r, last, l);
+	    run += r;
+	    l++;
+	    //l += l<RUN_CTX-1;
+	} while (r == MAX_RUN-1);
+	while (run-- && i < out_sz)
+	    out[++i] = last;
+    }
+
+    RC_FinishDecode(&rc);
+
+    return out;
+}
+
+/*-----------------------------------------------------------------------------
  * Simple interface to the order-0 vs order-1 encoders and decoders.
  *
  * Smallest is method, <in_size> <input>, so worst case 2 bytes longer.
@@ -1080,7 +1339,10 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 				 unsigned char *out, unsigned int *out_size,
 				 int order) {
     unsigned int c_meta_len;
-    uint8_t *meta = NULL, *rle = NULL, *packed = NULL, *dict = NULL;
+#ifdef OLD_RUN
+    uint8_t *meta = NULL;
+#endif
+    uint8_t *rle = NULL, *packed = NULL, *dict = NULL;
 
     if (!out) {
 	*out_size = arith_compress_bound(in_size, order);
@@ -1252,6 +1514,7 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
     }
 
     if (do_rle && in_size) {
+#ifdef OLD_RUN
 	// RLE 'in' -> rle_length + rle_literals arrays
 	unsigned int rmeta_len, c_rmeta_len;
 	uint64_t rle_len;
@@ -1290,6 +1553,7 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 	}
 
 	free(meta);
+#endif
     } else if (do_rle) {
 	out[0] &= ~X_RLE;
     }
@@ -1300,12 +1564,23 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 	order  &= ~1;
     }
 
-    if (order == 2)
-	arith_compress_O2(in, in_size, out+c_meta_len, out_size);
-    else if (order == 1)
-	arith_compress_O1(in, in_size, out+c_meta_len, out_size);
-    else
-	arith_compress_O0(in, in_size, out+c_meta_len, out_size);
+#ifndef OLD_RUN
+    if (do_rle) {
+	if (order == 0)
+	    arith_compress_O0_RLE(in, in_size, out+c_meta_len, out_size);
+	else
+	    arith_compress_O1_RLE(in, in_size, out+c_meta_len, out_size);
+    } else {
+#else
+    {
+#endif
+	if (order == 2)
+	    arith_compress_O2(in, in_size, out+c_meta_len, out_size);
+	else if (order == 1)
+	    arith_compress_O1(in, in_size, out+c_meta_len, out_size);
+	else
+	    arith_compress_O0(in, in_size, out+c_meta_len, out_size);
+    }
 
     if (*out_size >= in_size) {
 	out[0] &= ~3;
@@ -1454,7 +1729,7 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	    //fprintf(stderr, "lit %d, run %d\n", lit, run);
 
 	    while (lit--) {
-		dict[i++] = in[0] | (in[1]<<8);
+		dict[i++] = in[0] | (in[1]<<8); // 16-bit, not 32!
 		//fprintf(stderr, "L Dict[%d] = %d\n", i, dict[i-1]);
 		in += 2;
 		in_size -= 2;
@@ -1509,7 +1784,10 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	if (!(tmp = malloc(*out_size)))
 	    return NULL;
 	if (do_pack && do_rle) {
+#ifdef OLD_RUN
 #define JOINT_PACK_RLE
+#endif
+
 #ifndef JOINT_PACK_RLE
 	    tmp1 = out;
 	    tmp2 = tmp;
@@ -1561,9 +1839,12 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	tmp1_size = osz;
     }
 
+#ifdef OLD_RUN
     uint8_t *meta = NULL, *meta_free = NULL;
     uint32_t u_meta_size = 0;
+#endif
     if (do_rle) {
+#ifdef OLD_RUN
 	// Uncompress meta data
 	uint32_t c_meta_size, rle_len, sz;
 	sz  = u7tou32(in,    in_end, &u_meta_size);
@@ -1586,6 +1867,9 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	in      += c_meta_size+sz;
 	in_size -= c_meta_size+sz;
 	tmp1_size = rle_len;
+#else
+	// nop
+#endif
     }
    
     //fprintf(stderr, "    meta_size %d bytes\n", (int)(in - orig_in)); //c-size
@@ -1600,15 +1884,35 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 		return NULL;
 	    memcpy(tmp1, in, tmp1_size);
 	} else {
+#ifndef OLD_RUN
+	    // in -> tmp1
+	    if (do_rle) {
+		//fprintf(stderr, "%d => %p, %p, %p; %p %p\n", do_pack, tmp1, tmp2, tmp3, tmp, out);
+		// +pack => out, tmp, out
+		// -pack => nul, nul, nul
+		tmp1 = order == 1
+		    ? arith_uncompress_O1_RLE(in, in_size, tmp1, tmp1_size)
+		    : arith_uncompress_O0_RLE(in, in_size, tmp1, tmp1_size);
+//		tmp3 = tmp1;
+//		tmp3_size  = tmp1_size;
+	    } else {
+		tmp1 = order == 2
+		    ? arith_uncompress_O2(in, in_size, tmp1, tmp1_size)
+		    : (order
+		       ? arith_uncompress_O1(in, in_size, tmp1, tmp1_size)
+		       : arith_uncompress_O0(in, in_size, tmp1, tmp1_size));
+	    }
+#else
 	    tmp1 = order == 2
 		? arith_uncompress_O2(in, in_size, tmp1, tmp1_size)
 		: (order
 		   ? arith_uncompress_O1(in, in_size, tmp1, tmp1_size)
 		   : arith_uncompress_O0(in, in_size, tmp1, tmp1_size));
+#endif
 	    if (!tmp1)
 		return NULL;
 	}
-    } else {
+ } else {
 	tmp1 = NULL;
 	tmp1_size = 0;
     }
@@ -1625,14 +1929,24 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
     } else {
 #endif
     if (do_rle) {
+	//fprintf(stderr, "unrle i %p, 1 %p, 2 %p, 3 %p, o %p (t %p)\n", in, tmp1, tmp2, tmp3, out, tmp);
+#ifdef OLD_RUN
 	// Unpack RLE.  tmp1 -> tmp2.
 	uint64_t unrle_size = *out_size;
 	if (!rle_decode(tmp1, tmp1_size, meta, u_meta_size, tmp2, &unrle_size))
 	    return NULL;
 	tmp3_size = tmp2_size = unrle_size;
 	free(meta_free);
+#else
+	memcpy(tmp2, tmp1, tmp1_size);
+	tmp3_size = tmp2_size = tmp1_size;
+#endif
+	//fprintf(stderr, "%x %x %x .. %x %x %x\n", tmp2[0], tmp2[1], tmp2[2], tmp2[3],
+	//	tmp2[tmp2_size-3], tmp2[tmp2_size-2], tmp2[tmp2_size-1]);
     }
     if (do_pack) {
+	//fprintf(stderr, "Unpack %d {%02x %02x %02x %02x}\n", tmp2_size, tmp2[0], tmp2[1], tmp2[2], tmp2[3]);
+	//fprintf(stderr, "%p -> %p\n", tmp2, tmp3);
 	// Unpack bits via pack-map.  tmp2 -> tmp3
 	if (npacked_sym == 1)
 	    unpacked_sz = tmp2_size;
@@ -1966,7 +2280,7 @@ int main(int argc, char **argv) {
 	    }
 	    for (i = 0; i < nb; i++) {
 		bu[i].blk = arith_uncompress_to(bc[i].blk, bc[i].sz,
-						bu[i].blk, &bu[i].sz, NULL);
+						bu[i].blk, &bu[i].sz);
 		fprintf(stderr, "%08x D %d -> %d\n", order, bc[i].sz, bu[i].sz);
 	    }
 

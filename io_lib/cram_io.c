@@ -1,3 +1,6 @@
+#define rans_compress_4x16 arith_compress
+#define rans_uncompress_4x16 arith_uncompress
+
 /*
  * Copyright (c) 2013 Genome Research Ltd.
  * Author(s): James Bonfield
