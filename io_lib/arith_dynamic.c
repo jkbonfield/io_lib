@@ -33,14 +33,6 @@
 
 #define MIN(a,b) ((a)<(b)?(a):(b))
 
-//static int L[] = {0,1,1,1, 1,1,1,1}; // assert max L[] is < RUN_CTX // 826895
-static int L[] = {0,1,2,2, 2,2,2,2}; // assert max L[] is < RUN_CTX // 826895
-//static int L[] = {0,1,2,3, 4,5,6,7}; // assert max L[] is < RUN_CTX // 826895
-//static int L[] = {0,1,2,3, 4,4,5,5}; // assert max L[] is < RUN_CTX // 826895
-//static int L[] = {0,1,1,2, 2,3,3,4}; // assert max L[] is < RUN_CTX // 826964
-//static int L[] = {0,1,1,2, 2,2,2,3}; // assert max L[] is < RUN_CTX // 827044
-//static int L[] = {0,1,2,2, 2,2,2,3}; // assert max L[] is < RUN_CTX // 827234
-
 /*-----------------------------------------------------------------------------
  * Memory to memory compression functions.
  *
@@ -1085,9 +1077,15 @@ unsigned char *arith_uncompress_O2(unsigned char *in, unsigned int in_size,
 
 /*-----------------------------------------------------------------------------
  */
+
+#undef NSYM
+#define NSYM 258
+#include "c_simple_model.h"
+#define MAX_RUN 16
+
 unsigned char *arith_compress_O0_RLE(unsigned char *in, unsigned int in_size,
 				     unsigned char *out, unsigned int *out_size) {
-    int i, j, bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
+    int i, bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
 
     if (!out) {
 	*out_size = bound;
@@ -1106,56 +1104,35 @@ unsigned char *arith_compress_O0_RLE(unsigned char *in, unsigned int in_size,
     SIMPLE_MODEL(256,_) byte_model;
     SIMPLE_MODEL(256,_init)(&byte_model, m);
 
-    // RANS
-    // 10:268665, 100: 2009729, q4b: 893340/838087, XSC: 407386
-    // q4b -o65 msec: 830, 830
-
-    // 10: 262625, 100: 1966886, q4b: 880109/826895, XSC: 397848
-    // L=01234455  q4b -o65 msec: 1762, 2194 (slow!)
-    //#define RUN_CTX 6
-    //#define MAX_RUN 2
-
-    // 10: 262786, 100: 1967534, q4b: 872846/827733, XSC: 397972
-    // L=01222222  q4b -o65 msec: 852, 1160
-    //#define RUN_CTX 3
-    //#define MAX_RUN 8
-
-    // 10: 262879, 100: 1968175, q4b: 871762/828796, XSC: 398097
-    // L=01222222;  q4b -o65 msec: 790, 1043
-#define RUN_CTX 3
-#define MAX_RUN 16
-
-    SIMPLE_MODEL(256,_) run_model[256][RUN_CTX];
-    for (i = 0; i < 256; i++)
-	for (j = 0; j < RUN_CTX; j++)
-	    SIMPLE_MODEL(256,_init)(&run_model[i][j], MAX_RUN);
+    SIMPLE_MODEL(NSYM,_) run_model[NSYM];
+    for (i = 0; i < NSYM; i++)
+	SIMPLE_MODEL(NSYM,_init)(&run_model[i], MAX_RUN);
 
     RangeCoder rc;
     RC_SetOutput(&rc, (char *)out+1);
     RC_StartEncode(&rc);
 
-    unsigned char last;
+    unsigned char last = 0;
     for (i = 0; i < in_size;) {
+	//SIMPLE_MODEL(256, _encodeSymbol)(&byte_model, &rc, in[i]);
 	SIMPLE_MODEL(256, _encodeSymbol)(&byte_model, &rc, in[i]);
-	//fprintf(stderr, "lit %c\n", in[i]);
+	//fprintf(stderr, "lit %c (ctx %c)\n", in[i], last);
 	int run = 0;
 	last = in[i++];
 	while (i < in_size && in[i] == last/* && run < MAX_RUN-1*/)
 	    run++, i++;
-	int l = 0;
+	int rctx = last;
 	do {
 	    int c = run < MAX_RUN ? run : MAX_RUN-1;
-	    SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc, c);
-	    //SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][l], &rc, c);
-	    //fprintf(stderr, "run %d (ctx %d, %d)\n", c, last, l);
+	    SIMPLE_MODEL(NSYM, _encodeSymbol)(&run_model[rctx], &rc, c);
 	    run -= c;
-	    l++;
-	    //l += l<RUN_CTX-1;
-	    if (c == MAX_RUN-1 && run == 0) {
-		SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc, 0);
-		//SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][l], &rc, 0);
-		//fprintf(stderr, "Run %d (ctx %d, %d)\n", c, last, 0);
-	    }
+
+	    if (rctx == last)
+		rctx = 256;
+	    else
+		rctx += (rctx < NSYM-1);
+	    if (c == MAX_RUN-1 && run == 0)
+		SIMPLE_MODEL(NSYM, _encodeSymbol)(&run_model[rctx], &rc, 0);
 	} while (run);
     }
 
@@ -1172,16 +1149,15 @@ unsigned char *arith_compress_O0_RLE(unsigned char *in, unsigned int in_size,
 unsigned char *arith_uncompress_O0_RLE(unsigned char *in, unsigned int in_size,
 				       unsigned char *out, unsigned int out_sz) {
     RangeCoder rc;
-    int i, j;
+    int i;
     unsigned int m = in[0] ? in[0] : 256;
 
     SIMPLE_MODEL(256,_) byte_model;
     SIMPLE_MODEL(256,_init)(&byte_model, m);
 
-    SIMPLE_MODEL(256,_) run_model[256][RUN_CTX];
-    for (i = 0; i < 256; i++)
-	for (j = 0; j < RUN_CTX; j++)
-	    SIMPLE_MODEL(256,_init)(&run_model[i][j], MAX_RUN);
+    SIMPLE_MODEL(NSYM,_) run_model[NSYM];
+    for (i = 0; i < NSYM; i++)
+	SIMPLE_MODEL(NSYM,_init)(&run_model[i], MAX_RUN);
 
     if (!out)
 	out = malloc(out_sz);
@@ -1191,19 +1167,19 @@ unsigned char *arith_uncompress_O0_RLE(unsigned char *in, unsigned int in_size,
     RC_SetInput(&rc, (char *)in+1);
     RC_StartDecode(&rc);
 
-    unsigned char last;
     for (i = 0; i < out_sz; i++) {
+	unsigned char last;
 	last = out[i] = SIMPLE_MODEL(256, _decodeSymbol)(&byte_model, &rc);
 	//fprintf(stderr, "lit %c\n", last);
-	int run = 0, r = 0, l = 0;
-
+	int run = 0, r = 0, rctx = out[i];
 	do {
-	    r = SIMPLE_MODEL(256, _decodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc);
-	    //r = SIMPLE_MODEL(256, _decodeSymbol)(&run_model[last][l], &rc);
+	    r = SIMPLE_MODEL(NSYM, _decodeSymbol)(&run_model[rctx], &rc);
+	    if (rctx == last)
+		rctx = 256;
+	    else
+		rctx += (rctx < NSYM-1);
 	    //fprintf(stderr, "run %d (ctx %d, %d)\n", r, last, l);
 	    run += r;
-	    l++;
-	    //l += l<RUN_CTX-1;
 	} while (r == MAX_RUN-1);
 	while (run-- && i < out_sz)
 	    out[++i] = last;
@@ -1216,7 +1192,7 @@ unsigned char *arith_uncompress_O0_RLE(unsigned char *in, unsigned int in_size,
 
 unsigned char *arith_compress_O1_RLE(unsigned char *in, unsigned int in_size,
 				     unsigned char *out, unsigned int *out_size) {
-    int i, j, bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
+    int i, bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
 
     if (!out) {
 	*out_size = bound;
@@ -1239,10 +1215,9 @@ unsigned char *arith_compress_O1_RLE(unsigned char *in, unsigned int in_size,
     for (i = 0; i < 256; i++)
 	SIMPLE_MODEL(256,_init)(&byte_model[i], m);
 
-    SIMPLE_MODEL(256,_) run_model[256][RUN_CTX];
-    for (i = 0; i < 256; i++)
-	for (j = 0; j < RUN_CTX; j++)
-	    SIMPLE_MODEL(256,_init)(&run_model[i][j], MAX_RUN);
+    SIMPLE_MODEL(NSYM,_) run_model[NSYM];
+    for (i = 0; i < NSYM; i++)
+	SIMPLE_MODEL(NSYM,_init)(&run_model[i], MAX_RUN);
 
     RangeCoder rc;
     RC_SetOutput(&rc, (char *)out+1);
@@ -1253,23 +1228,22 @@ unsigned char *arith_compress_O1_RLE(unsigned char *in, unsigned int in_size,
 	//SIMPLE_MODEL(256, _encodeSymbol)(&byte_model, &rc, in[i]);
 	SIMPLE_MODEL(256, _encodeSymbol)(&byte_model[last], &rc, in[i]);
 	//fprintf(stderr, "lit %c (ctx %c)\n", in[i], last);
-	int run = 0, l = 0;
+	int run = 0;
 	last = in[i++];
 	while (i < in_size && in[i] == last/* && run < MAX_RUN-1*/)
 	    run++, i++;
+	int rctx = last;
 	do {
 	    int c = run < MAX_RUN ? run : MAX_RUN-1;
-	    SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc, c);
-	    //SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][l], &rc, c);
-	    //fprintf(stderr, "run %d (ctx %d, %d)\n", c, last, l);
+	    SIMPLE_MODEL(NSYM, _encodeSymbol)(&run_model[rctx], &rc, c);
 	    run -= c;
-	    l++;
-	    //l += l<RUN_CTX-1;
-	    if (c == MAX_RUN-1 && run == 0) {
-		SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc, 0);
-		//SIMPLE_MODEL(256, _encodeSymbol)(&run_model[last][l], &rc, 0);
-		//fprintf(stderr, "Run %d (ctx %d, %d)\n", c, last, 0);
-	    }
+
+	    if (rctx == last)
+		rctx = 256;
+	    else
+		rctx += (rctx < NSYM-1);
+	    if (c == MAX_RUN-1 && run == 0)
+		SIMPLE_MODEL(NSYM, _encodeSymbol)(&run_model[rctx], &rc, 0);
 	} while (run);
     }
 
@@ -1286,17 +1260,16 @@ unsigned char *arith_compress_O1_RLE(unsigned char *in, unsigned int in_size,
 unsigned char *arith_uncompress_O1_RLE(unsigned char *in, unsigned int in_size,
 				       unsigned char *out, unsigned int out_sz) {
     RangeCoder rc;
-    int i, j;
+    int i;
     unsigned int m = in[0] ? in[0] : 256;
 
     SIMPLE_MODEL(256,_) byte_model[256];
     for (i = 0; i < 256; i++)
 	SIMPLE_MODEL(256,_init)(&byte_model[i], m);
 
-    SIMPLE_MODEL(256,_) run_model[256][RUN_CTX];
-    for (i = 0; i < 256; i++)
-	for (j = 0; j < RUN_CTX; j++)
-	    SIMPLE_MODEL(256,_init)(&run_model[i][j], MAX_RUN);
+    SIMPLE_MODEL(NSYM,_) run_model[NSYM];
+    for (i = 0; i < NSYM; i++)
+	SIMPLE_MODEL(NSYM,_init)(&run_model[i], MAX_RUN);
 
     if (!out)
 	out = malloc(out_sz);
@@ -1311,15 +1284,15 @@ unsigned char *arith_uncompress_O1_RLE(unsigned char *in, unsigned int in_size,
 	out[i] = SIMPLE_MODEL(256, _decodeSymbol)(&byte_model[last], &rc);
 	//fprintf(stderr, "lit %c (ctx %c)\n", out[i], last);
 	last = out[i];
-	int run = 0, r = 0, l = 0;
+	int run = 0, r = 0, rctx = last;
 
 	do {
-	    r = SIMPLE_MODEL(256, _decodeSymbol)(&run_model[last][L[MIN(l,7)]], &rc);
-	    //r = SIMPLE_MODEL(256, _decodeSymbol)(&run_model[last][l], &rc);
-	    //fprintf(stderr, "run %d (ctx %d, %d)\n", r, last, l);
+	    r = SIMPLE_MODEL(NSYM, _decodeSymbol)(&run_model[rctx], &rc);
+	    if (rctx == last)
+		rctx = 256;
+	    else
+		rctx += (rctx < NSYM-1);
 	    run += r;
-	    l++;
-	    //l += l<RUN_CTX-1;
 	} while (r == MAX_RUN-1);
 	while (run-- && i < out_sz)
 	    out[++i] = last;
