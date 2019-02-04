@@ -302,10 +302,6 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t 
 //-----------------------------------------------------------------------------
 
 // Bit packing symbols to take 0, 1(8 sym), 2(4 sym), or 4(16) bits.
-//
-// TODO:
-// The first byte holds the number of symbols (4 lower bits) and the
-// number of remaining symbols packed into last byte (4 higher bits).
 static uint8_t *pack(uint8_t *data, int64_t len,
 		     uint8_t *out_meta, int *out_meta_len, uint64_t *out_len) {
     int p[256] = {0}, n;
@@ -326,10 +322,9 @@ static uint8_t *pack(uint8_t *data, int64_t len,
     }
     j = n+1;
 
-    //fprintf(stderr, "n=%d\n", n);
     // 1 value per byte
     if (n > 16 || len < j + len/2) {
-	out_meta[0] = 1;
+	out_meta[0] = 255; // anything >= 16 will do
 	*out_meta_len = 1;
 	// FIXME shortcut this by returning data and checking later.
 	memcpy(out, data, len);
@@ -348,13 +343,9 @@ static uint8_t *pack(uint8_t *data, int64_t len,
     else
 	val_per_byte = 0; // infinite
 
-    // We have 3 bits to hold number of symbols per byte
-    // and 5 bits for the number of symbols used.
-    // Eg if we pack 2 values per byte, meaning 4 bits per
-    // symbol, we have up to 16 symbols in the map, but perhaps
-    // only need 6.  (This avoids a termination byte.)
-    out_meta[0] = val_per_byte ? val_per_byte - 1 : 2;
-    out_meta[0] |= n<<3;
+    // We store the actual number of symbols, and intuit from that
+    // during decode the number of symbols per byte.
+    out_meta[0] = n;
 
     *out_meta_len = j;
     j = 0;
@@ -420,25 +411,31 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 //         zero on failure.
 static uint8_t unpack_meta(uint8_t *data, uint32_t data_len,
 			   uint64_t udata_len, uint8_t *map, int *nsym) {
-    if (data_len == 0)
-	return 0;
-
-    *nsym = (data[0] & 7)+1;
-    if (*nsym == 3) *nsym = 0;
-
-    if (*nsym == 1)
-	return 1; // raw data
-
-    // Decode symbol map
-    int j = 1, c = 0;
     if (data_len <= 1)
 	return 0;
 
+    // Decode symbol map
+    int j = 1, c = 0;
+    int d = data[0];
+    if (d <= 1)
+	*nsym = 0;
+    else if (d <= 2)
+	*nsym = 8;
+    else if (d <= 4)
+	*nsym = 4;
+    else if (d <= 16)
+	*nsym = 2;
+    else
+	*nsym = 1;
+
+    if (*nsym == 1)
+	return 1;
+
     do {
 	map[c++] = data[j++];
-    } while (j-1 < (data[0]>>3) && c < 16 && j < data_len);
+    } while (j-1 < d && c < 16 && j < data_len);
 
-    return j-1 < (data[0]>>3) ? 0 : j;
+    return j-1 < d ? 0 : j;
 }
 
 static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_len, int nsym, uint8_t *p) {
