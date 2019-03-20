@@ -94,13 +94,14 @@ static const char *name(void) {
 // Global flags
 static const int GFLAG_MULTI_PARAM = 1;
 static const int GFLAG_HAVE_STAB   = 2;
+static const int GFLAG_DO_REV      = 4;
 
 // Param flags
-static const int PFLAG_HAVE_QMAP   = 1;
-//static const int PFLAG_DO_DEDUP    = 2;
-//static const int PFLAG_DO_LEN      = 4;
-//static const int PFLAG_DO_SEL      = 8;
-//static const int PFLAG_DO_REV      = 16;
+// Add PFLAG_HAVE_DMAP and a dmap[] for delta incr?
+static const int PFLAG_DO_DEDUP    = 2;
+static const int PFLAG_DO_LEN      = 4;
+static const int PFLAG_DO_SEL      = 8;
+static const int PFLAG_HAVE_QMAP   = 16;
 static const int PFLAG_HAVE_PTAB   = 32;
 static const int PFLAG_HAVE_DTAB   = 64;
 static const int PFLAG_HAVE_QTAB   = 128;
@@ -265,7 +266,7 @@ typedef struct {
 
     // flags
     unsigned int pflags;
-    unsigned int do_sel, do_dedup, do_rev, store_qmap, fixed_len;
+    unsigned int do_sel, do_dedup, store_qmap, fixed_len;
     unsigned char use_qtab, use_dtab, use_ptab;
     int first_len; // FIXME: move to state
 
@@ -310,6 +311,7 @@ typedef struct {
     // FIXME: add last_len here
     unsigned int qctx;  // quality sub-context
     unsigned int p;     // pos (bytes remaining)
+    unsigned int add_d; // whether to update delta (skip first cycle)
     unsigned int delta; // delta running total
     unsigned int prevq; // previous quality
     unsigned int s;     // selector
@@ -442,6 +444,11 @@ static inline unsigned int fqz_update_ctx(fqz_param *pm, fqz_state *state, int q
     last &= 0xffff;
 
     state->delta += (state->prevq != q);
+
+    // Only update delta after 1st base.
+    //state->delta += state->add_d * (state->prevq != q);
+    //state->add_d = 1;
+
     state->prevq = q;
 
     state->p--;
@@ -541,7 +548,6 @@ int fqz_store_parameters1(fqz_param *pm, unsigned char *comp) {
     comp[comp_idx++] = (pm->ploc<<4)|pm->dloc;
 
     if (pm->store_qmap) {
-	comp[comp_idx++] = pm->nsym;
 	for (i = j = 0; i < 256; i++)
 	    if (pm->qmap[i] != INT_MAX)
 		comp[comp_idx++] = i;
@@ -629,6 +635,9 @@ int fqz_pick_parameters(fqz_gparams *gp,
     gp->nparam = 1;
     gp->max_sel = 0;
 
+    if (vers == 3) // V3.0 doesn't store qual in original orientation
+	gp->gflags |= GFLAG_DO_REV;
+
     fqz_param *pm = gp->p;
 
     // Quality metrics
@@ -644,8 +653,6 @@ int fqz_pick_parameters(fqz_gparams *gp,
     }
     pm->fixed_len = (i == s->hdr->num_records);
     pm->first_len = 1; // used as boolean condition now
-
-    pm->do_rev = (vers==3); // V3.0 doesn't store qual in original orientation
     pm->use_qtab = 0; // unused by current encoder
 
     // Programmed strategies, which we then amend based on our
@@ -739,14 +746,13 @@ int fqz_pick_parameters(fqz_gparams *gp,
     pm->use_dtab = (pm->dbits > 0);
 
     pm->pflags =
-	(pm->use_qtab  <<7)|
-	(pm->use_dtab  <<6)|
-	(pm->use_ptab  <<5)|
-	(pm->do_rev    <<4)|
-	(pm->do_sel    <<3)|
-	(pm->fixed_len <<2)|
-	(pm->do_dedup  <<1)|
-	(pm->store_qmap);
+	(pm->use_qtab   ?PFLAG_HAVE_QTAB :0)|
+	(pm->use_dtab   ?PFLAG_HAVE_DTAB :0)|
+	(pm->use_ptab   ?PFLAG_HAVE_PTAB :0)|
+	(pm->do_sel     ?PFLAG_DO_SEL    :0)|
+	(pm->fixed_len  ?PFLAG_DO_LEN    :0)|
+	(pm->do_dedup   ?PFLAG_DO_DEDUP  :0)|
+	(pm->store_qmap ?PFLAG_HAVE_QMAP :0);
 
     if (pm->do_sel) {
 	// 2 selectors values, but 1 parameter block.
@@ -819,7 +825,7 @@ unsigned char *compress_block_fqz2f(int vers,
 
     // For CRAM3.1, reverse upfront if needed
     pm = &gp.p[0];
-    if (pm->do_rev) {
+    if (gp.gflags & GFLAG_DO_REV) {
 	i = rec = j = 0;
 	while (i < in_size) {
 	    int len = rec < s->hdr->num_records-1
@@ -875,7 +881,7 @@ unsigned char *compress_block_fqz2f(int vers,
 		pm->first_len = 0;
 	    }
 
-	    if (pm->do_rev) {
+	    if (gp.gflags & GFLAG_DO_REV) {
 		// no need to reverse complement for V4.0 as the core format
 		// already has this feature.
 		if (s->crecs[rec].flags & BAM_FREVERSE)
@@ -888,6 +894,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	    rec++;
 
 	    state.p = len;
+	    state.add_d = 0;
 	    state.delta = 0;
 	    state.qctx = 0;
 	    state.prevq = 0;
@@ -916,13 +923,14 @@ unsigned char *compress_block_fqz2f(int vers,
 
 	SIMPLE_MODEL(QMAX,_encodeSymbol)(&model.qual[last], &rc, qm);
 	//fprintf(stderr, "Sym %d with ctx %04x delta %d prevq %d q %d\n", qm, last, state.delta, state.prevq, qm);
+	//fprintf(stderr, "pos=%d, delta=%d\n", state.p, state.delta);
 	last = fqz_update_ctx(pm, &state, qm);
     }
 
     RC_FinishEncode(&rc);
 
     // For CRAM3.1, undo our earlier reversal step
-    if (pm->do_rev) {
+    if (gp.gflags & GFLAG_DO_REV) {
 	i = rec = j = 0;
 	while (i < in_size) {
 	    int len = rec < s->hdr->num_records-1
@@ -971,14 +979,13 @@ int fqz_read_parameters1(fqz_param *pm, unsigned char *in) {
 
     // Bit flags
     pm->pflags     = in[in_idx++];
-    pm->use_qtab   = pm->pflags&128;
-    pm->use_dtab   = pm->pflags&64;
-    pm->use_ptab   = pm->pflags&32;
-    pm->do_rev     = pm->pflags&16;
-    pm->do_sel     = pm->pflags&8;
-    pm->fixed_len  = pm->pflags&4;
-    pm->do_dedup   = pm->pflags&2;
-    pm->store_qmap = pm->pflags&1;
+    pm->use_qtab   = pm->pflags & PFLAG_HAVE_QTAB;
+    pm->use_dtab   = pm->pflags & PFLAG_HAVE_DTAB;
+    pm->use_ptab   = pm->pflags & PFLAG_HAVE_PTAB;
+    pm->do_sel     = pm->pflags & PFLAG_DO_SEL;
+    pm->fixed_len  = pm->pflags & PFLAG_DO_LEN;
+    pm->do_dedup   = pm->pflags & PFLAG_DO_DEDUP;
+    pm->store_qmap = pm->pflags & PFLAG_HAVE_QMAP;
     pm->max_sym    = in[in_idx++];
 
     // Sub-context sizes and locations
@@ -992,11 +999,9 @@ int fqz_read_parameters1(fqz_param *pm, unsigned char *in) {
 
     // Maps and tables
     if (pm->store_qmap) {
-	int nsym = in[in_idx++];
 	for (i = 0; i < 256; i++) pm->qmap[i] = INT_MAX; // so dump_map works
-	for (i = 0; i < nsym; i++)
+	for (i = 0; i < pm->max_sym; i++)
 	    pm->qmap[i] = in[in_idx++];
-	pm->max_sym = nsym;
     } else {
 	for (i = 0; i < 256; i++)
 	    pm->qmap[i] = i;
@@ -1170,7 +1175,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 		s->crecs[rec].len = len;
 #endif
 
-	    if (pm->do_rev) {
+	    if (gp.gflags & GFLAG_DO_REV) {
 		rev = SIMPLE_MODEL(2,_decodeSymbol)(&model.revcomp, &rc);
 		//fprintf(stderr, "rev %d\n", rev);
 		rev_a[rec] = rev;
@@ -1194,6 +1199,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
 	    rec++;
 
 	    state.p = len;
+	    state.add_d = 0;
 	    state.delta = 0;
 	    state.prevq = 0;
 	    state.qctx = 0;
@@ -1213,7 +1219,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     rev_a[rec] = rev;
     len_a[rec] = len;
 
-    if (pm->do_rev) {
+    if (gp.gflags & GFLAG_DO_REV) {
 	for (i = rec = 0; i < len; i += len_a[rec++]) {
 	    if (!rev_a[rec])
 		continue;
