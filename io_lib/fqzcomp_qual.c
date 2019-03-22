@@ -26,6 +26,11 @@
 #include <string.h>
 #include <math.h>
 #include <limits.h>
+#include <ctype.h>
+#include <math.h>
+
+#define CTX_BITS 16
+#define CTX_SIZE (1<<CTX_BITS)
 
 #ifdef TEST_MAIN
 #include <fcntl.h>
@@ -61,7 +66,7 @@ static cram_slice fixed_slice = {0};
 #define BAM_FREVERSE 0
 #define BAM_FREAD2 128
 
-cram_slice *fake_slice(size_t buf_len, int *len, int *sel, int nlen) {
+cram_slice *fake_slice(size_t buf_len, int *len, int *r2, int *sel, int nlen) {
     fixed_slice.hdr = &fixed_hdr;
     fixed_hdr.num_records = (nlen == 1) ? (buf_len+len[0]-1) / len[0] : nlen;
     assert(fixed_hdr.num_records <= MAX_REC);
@@ -70,7 +75,8 @@ cram_slice *fake_slice(size_t buf_len, int *len, int *sel, int nlen) {
 	int idx = i < nlen ? i : nlen-1;
 	fixed_slice.crecs[i].len = len[idx];
 	fixed_slice.crecs[i].qual = tlen;
-	fixed_slice.crecs[i].flags = sel ? sel[idx]*BAM_FREAD2 : 0;
+	fixed_slice.crecs[i].flags = r2 ? r2[idx]*BAM_FREAD2 : 0;
+	fixed_slice.crecs[i].flags |= sel ? (sel[idx]<<16) : 0;
 	tlen += len[idx];
     }
 
@@ -244,14 +250,17 @@ static int read_array(unsigned char *in, unsigned int *array, int size) {
 }
 
 // FIXME: how to auto-tune these rather than trial and error?
-static int strat_opts[][10] = {
-    {10, 5, 4,-1, 2, 1, 0, 9, 10, 14},  // basic options (level < 7)
-    //{9, 5, 7, 0, 2, 0, 7, 15, 0, 14},  // e.g. HiSeq 2000, ~2.1% smaller than above
-    {8, 5, 7, 0, 0, 0, 7, 15, 0, 14},  // e.g. HiSeq 2000, ~2.1% smaller than above
-    {12, 6, 2, 0, 2, 3, 0, 9, 12, 14},  // e.g. MiSeq
-    {12, 6, 0, 0, 0, 0, 0, 12, 0, 0},   // e.g. IonTorrent; adaptive O1
-    {0, 0, 0, 0, 0,  0, 0, 0, 0, 0},    // custom
+// r2 = READ2
+// qa = qual avg (0, 2, 4)
+static int strat_opts[][12] = {
+//   qb  qs pb ps db ds ql sl pl  dl  r2 qa
+    {10, 5, 4,-1, 2, 1, 0, 14, 10, 14, 0,-1}, // basic options (level < 7)
+    {8,  5, 7, 0, 0, 0, 0, 14, 8,  14, 1,-1}, // e.g. HiSeq 2000
+    {12, 6, 2, 0, 2, 3, 0, 9,  12, 14, 0, 0}, // e.g. MiSeq
+    {12, 6, 0, 0, 0, 0, 0, 12, 0,  0,  0, 0}, // e.g. IonTorrent; adaptive O1
+    {0,  0, 0, 0, 0, 0, 0, 0,  0,  0,  0, 0}, // custom
 };
+static int nstrats = sizeof(strat_opts) / sizeof(*strat_opts);
 
 #ifdef __SSE__
 #   include <xmmintrin.h>
@@ -292,6 +301,7 @@ typedef struct {
     int dshift;
     int sshift;
     unsigned int qmask; // (1<<qbits)-1
+    int do_r2, do_qa;
 } fqz_param;
 
 // Some global params and a collection of parameter blocks
@@ -315,6 +325,7 @@ typedef struct {
     unsigned int delta; // delta running total
     unsigned int prevq; // previous quality
     unsigned int s;     // selector
+    unsigned int qtot, qlen;
 } fqz_state;
 
 
@@ -411,9 +422,9 @@ typedef struct {
 int fqz_create_models(fqz_model *m, fqz_gparams *gp) {
     int i;
 
-    if (!(m->qual = malloc(sizeof(*m->qual) * (1<<16))))
+    if (!(m->qual = malloc(sizeof(*m->qual) * CTX_SIZE)))
 	return -1;
-    for (i = 0; i < (1<<16); i++)
+    for (i = 0; i < CTX_SIZE; i++)
 	SIMPLE_MODEL(QMAX,_init)(&m->qual[i], gp->max_sym+1);
 
     for (i = 0; i < 4; i++)
@@ -441,21 +452,41 @@ static inline unsigned int fqz_update_ctx(fqz_param *pm, fqz_state *state, int q
     last += pm->dtab[MIN(255,  state->delta)];  // << pm->dloc
     last += state->s << pm->sloc;
 
-    last &= 0xffff;
-
-    state->delta += (state->prevq != q);
+    // On the fly average is slow work.
+    // However it can be slightly better than using a selector bit
+    // as it's something we can compute on the fly and thus doesn't
+    // consume output bits for storing the selector itself.
+    //
+    // Q4 (novaseq.bam)
+    // qtot+=q*q -DQ1=8.84 -DQ2=8.51 -DQ3=7.70; 7203598 (-0.7%)
+    // qtot+=q   -DQ1=2.96 -DQ2=2.85 -DQ3=2.69; 7207315
+    // vs old delta;                            7255614 (default params)
+    // vs 2 bit selector (no delta)             7203006 (-x 0x8261000e80)
+    // vs 2 bit selector (no delta)             7199153 (-x 0x7270000e70) -0.8%
+    // vs 2 bit selector (no delta)             7219668 (-x 0xa243000ea0)
+    //{
+    //	double qa = state->qtot / (state->qlen+.01);
+    //	//fprintf(stderr, "%f\n", qa);
+    //	int x = 0;
+    //	if (qa>=Q1) x=3;
+    //	else if (qa>=Q2) x=2;
+    //	else if (qa>=Q3) x=1;
+    //	else x=0;
+    //	last += x << pm->dloc; // tmp reuse of delta pos
+    //  state->qtot += q*q;
+    //  state->qlen++;
+    //}
 
     // Only update delta after 1st base.
     //state->delta += state->add_d * (state->prevq != q);
     //state->add_d = 1;
-
+    state->delta += (state->prevq != q);
     state->prevq = q;
 
     state->p--;
 
-    return last;
+    return last & (CTX_SIZE-1);
 }
-
 
 // Build quality stats for qhist and set nsym, do_dedup and do_sel params.
 static inline
@@ -464,12 +495,13 @@ void qual_stats(cram_slice *s,
 		unsigned int *q_len,
 		fqz_param *pm,
 		uint32_t qhist[256]) {
-
 #define NP 128
-    uint32_t qhist1[NP][256] = {{0}};
-    uint32_t qhist2[NP][256] = {{0}};
-    uint64_t t1[NP] = {0};
-    uint64_t t2[NP] = {0};
+    uint32_t qhistb[NP][256] = {{0}};  // both
+    uint32_t qhist1[NP][256] = {{0}};  // READ1 only
+    uint32_t qhist2[NP][256] = {{0}};  // READ2 only
+    uint64_t t1[NP] = {0};             // Count for READ1
+    uint64_t t2[NP] = {0};             // COUNT for READ2
+    uint32_t avg[2560] = {0};          // Avg qual *and later* avg-to-selector map.
 
     int dir = 0;
     int last_len = 0;
@@ -477,7 +509,25 @@ void qual_stats(cram_slice *s,
     size_t rec;
     size_t i, j;
 
+    // See what info we've been given.
+    // Do we have READ1 / READ2?
+    // Do we have selector hidden in the top bits of flag?
+    int max_sel = 0;
+    int has_r2 = 0;
+    for (rec = 0; rec < s->hdr->num_records; rec++) {
+	if (max_sel < (s->crecs[rec].flags >> 16))
+	    max_sel = (s->crecs[rec].flags >> 16);
+	if (s->crecs[rec].flags & BAM_FREAD2)
+	    has_r2 = 1;
+    }
+    //fprintf(stderr, "max_sel=%d\n", max_sel);
+
+
     // Dedup detection and histogram stats gathering
+    int *avg_qual = malloc((s->hdr->num_records+1) * sizeof(int));
+    if (!avg_qual)
+	return;
+
     rec = i = j = 0;
     while (i < in_size) {
 	if (rec < s->hdr->num_records) {
@@ -491,45 +541,213 @@ void qual_stats(cram_slice *s,
 	    dir = 0;
 	}
 	last_len = j;
-	rec++;
 
 	uint32_t (*qh)[256] = dir ? qhist2 : qhist1;
 	uint64_t *th        = dir ? t2     : t1;
 
+	uint32_t tot = 0;
 	for (; i < in_size && j > 0; i++, j--) {
+	    tot += in[i];
 	    qhist[in[i]]++;
+	    qhistb[j & (NP-1)][in[i]]++;
 	    qh[j & (NP-1)][in[i]]++;
 	    th[j & (NP-1)]++;
 	}
+	tot = last_len ? (tot*10.0)/last_len+.5 : 0;
+
+	avg_qual[rec] = tot;
+	avg[MIN(2559, tot)]++;
+
+	rec++;
     }
     pm->do_dedup = ((rec+1)/(do_dedup+1) < 500);
 
-    rec = 0;
     last_len = 0;
-
-    // Strand bias; compare 1st/2nd distribution by position by qual.
-    double e2 = 0;
-    int en = 0;
-    for (j = 0; j < NP; j++) {
-	if (!t1[j] || !t2[j]) continue;
-	double ex = 0;
-	for (i = 0; i < 256; i++) {
-	    if (!qhist[i]) continue;
-	    ex += qhist1[j][i] > qhist2[j][i]
-		? qhist1[j][i]/(t1[j]+1.) - qhist2[j][i]/(t2[j]+1.)
-		: qhist2[j][i]/(t2[j]+1.) - qhist1[j][i]/(t1[j]+1.);
-	}
-	e2 += ex*ex;
-	en++;
-    }
-    //fprintf(stderr, "e2=%f, en=%d, avg=%f\n", e2, en, e2/(en+.001));
-    pm->do_sel = (e2/(en+.001) > 1);
 
     // Unique symbol count
     for (i = pm->max_sym = pm->nsym = 0; i < 256; i++) {
 	if (qhist[i])
 	    pm->max_sym = i, pm->nsym++;
     }
+
+
+    // Auto tune: does average quality helps us?
+    if (pm->do_qa != 0) {
+	// Histogram of average qual
+	int total = 0;
+	i = 0;
+	// Few symbols means high compression which means
+	// selector bits become more significant fraction.
+	// Reduce selector bits by skewing the distribution
+	// to not be even binning.
+
+	double qf0 = pm->nsym > 4 ? 0.25 : 0.05;
+	double qf1 = pm->nsym > 4 ? 0.50 : 0.15;
+	double qf2 = pm->nsym > 4 ? 0.75 : 0.60;
+	while (i < 2560) {
+	    total += avg[i];
+	    if (total > qf0 * s->hdr->num_records) {
+		//fprintf(stderr, "Q1=%d\n", (int)i);
+		break;
+	    }
+	    //if (i > 320) break;
+	    avg[i++] = 0;
+	}
+	while (i < 2560) {
+	    total += avg[i];
+	    if (total > qf1 * s->hdr->num_records) {
+		//fprintf(stderr, "Q2=%d\n", (int)i);
+		break;
+	    }
+	    //if (i > 360) break;
+	    avg[i++] = 3;
+	}
+	while (i < 2560) {
+	    total += avg[i];
+	    if (total > qf2 * s->hdr->num_records) {
+		//fprintf(stderr, "Q3=%d\n", (int)i);
+		break;
+	    }
+	    if (i > 375) break;
+	    avg[i++] = 2;
+	}
+	while (i < 2560)
+	    avg[i++] = 1;
+
+	// Compute simple entropy of merged signal vs split signal.
+        i = 0;
+	rec = 0;
+
+	int qbin4[4][NP][256] = {{{0}}};
+	int qbin2[2][NP][256] = {{{0}}};
+	int qbin1   [NP][256] = {{0}};
+	int qcnt4[4][NP] = {{0}};
+	int qcnt2[4][NP] = {{0}};
+	int qcnt1   [NP] = {0};
+        while (i < in_size) {
+	    if (rec < s->hdr->num_records)
+		j = q_len[rec];
+	    else
+		j = in_size - i;
+	    last_len = j;
+
+	    uint32_t tot = avg_qual[rec];
+	    int qb4 = avg[MIN(2559, tot)];
+
+	    for (; i < in_size && j > 0; i++, j--) {
+		int x = j & (NP-1);
+		qbin4[qb4]  [x][in[i]]++;  qcnt4[qb4]  [x]++;
+		qbin2[qb4/2][x][in[i]]++;  qcnt2[qb4/2][x]++;
+		qbin1       [x][in[i]]++;  qcnt1       [x]++;
+	    }
+	    rec++;
+	}
+
+	double e1 = 0, e2 = 0, e4 = 0;
+	for (j = 0; j < NP; j++) {
+	    for (i = 0; i < 256; i++) {
+		if (qbin1   [j][i]) e1 += qbin1   [j][i] * log(qbin1   [j][i] / (double)qcnt1   [j]);
+		if (qbin2[0][j][i]) e2 += qbin2[0][j][i] * log(qbin2[0][j][i] / (double)qcnt2[0][j]);
+		if (qbin2[1][j][i]) e2 += qbin2[1][j][i] * log(qbin2[1][j][i] / (double)qcnt2[1][j]);
+		if (qbin4[0][j][i]) e4 += qbin4[0][j][i] * log(qbin4[0][j][i] / (double)qcnt4[0][j]);
+		if (qbin4[1][j][i]) e4 += qbin4[1][j][i] * log(qbin4[1][j][i] / (double)qcnt4[1][j]);
+		if (qbin4[2][j][i]) e4 += qbin4[2][j][i] * log(qbin4[2][j][i] / (double)qcnt4[2][j]);
+		if (qbin4[3][j][i]) e4 += qbin4[3][j][i] * log(qbin4[3][j][i] / (double)qcnt4[3][j]);
+	    }
+	}
+	e1 /= -log(2)/8;
+	e2 /= -log(2)/8;
+	e4 /= -log(2)/8;
+	//fprintf(stderr, "E1=%f E2=%f E4=%f\n", e1, e2+s->hdr->num_records/8, e4+s->hdr->num_records/4);
+
+	// Note by using the selector we're robbing bits from elsewhere in
+	// the context, which may reduce compression better.
+	// We don't know how much by, so this is basically a guess!
+	// For now we just say need 5% saving here.
+	double qm = pm->do_qa > 0 ? 1 : 0.95;
+	if ((pm->do_qa == -1 || pm->do_qa >= 4) &&
+	    e4 + s->hdr->num_records/4 < e2*qm + s->hdr->num_records/8 &&
+	    e4 + s->hdr->num_records/4 < e1*qm) {
+	    for (i = 0; i < s->hdr->num_records; i++) {
+		//fprintf(stderr, "%d -> %d -> %d, %d\n", (int)i, avg_qual[i], avg[MIN(2559, avg_qual[i])], s->crecs[i].flags>>16);
+		s->crecs[i].flags |= avg[MIN(2559, avg_qual[i])] <<16;
+	    }
+	    pm->do_sel = 1;
+	    max_sel = 3;
+	} else if ((pm->do_qa == -1 || pm->do_qa >= 2) && e2 + s->hdr->num_records/8 < e1*qm) {
+	    for (i = 0; i < s->hdr->num_records; i++)
+		s->crecs[i].flags |= (avg[MIN(2559, avg_qual[i])]>>1) <<16;
+	    pm->do_sel = 1;
+	    max_sel = 1;
+	}
+
+	if (pm->do_qa == -1) {
+	    // assume qual, pos, delta in that order.
+	    if (pm->pbits > 0 && pm->dbits > 0) {
+		// 1 from pos/delta
+		pm->sloc = pm->dloc-1;
+		pm->pbits--;
+		pm->dbits--;
+		pm->dloc++;
+	    } else if (pm->dbits >= 2) {
+		// 2 from delta
+		pm->sloc = pm->dloc;
+		pm->dbits -= 2;
+		pm->dloc += 2;
+	    } else if (pm->qbits >= 2) {
+		pm->qbits -= 2;
+		pm->ploc -= 2;
+		pm->sloc = 16-2 - pm->do_r2;
+		if (pm->qbits == 6 && pm->qshift == 5)
+		    pm->qbits--;
+	    }
+	    pm->do_qa = 4;
+	}
+    }
+
+    // Auto tune: does splitting up READ1 and READ2 help us?
+    if (has_r2 || pm->do_r2) { // FIXME: && but debug for now
+	double e1 = 0, e2 = 0; // entropy sum
+
+	for (j = 0; j < NP; j++) {
+	    if (!t1[j] || !t2[j]) continue;
+	    for (i = 0; i < 256; i++) {
+		if (!qhistb[j][i]) continue;
+		e1 -= (qhistb[j][i])*log(qhistb[j][i] / (double)(t1[j]+t2[j]));
+		if (qhist1[j][i])
+		    e2 -= qhist1[j][i] * log(qhist1[j][i] / (double)t1[j]);
+		if (qhist2[j][i])
+		    e2 -= qhist2[j][i] * log(qhist2[j][i] / (double)t2[j]);
+	    }
+	}
+	e1 /= log(2)*8; // bytes
+	e2 /= log(2)*8;
+
+	//fprintf(stderr, "read1/2 entropy merge %f split %f\n", e1, e2);
+
+	// Note by using the selector we're robbing bits from elsewhere in
+	// the context, which may reduce compression better.
+	// We don't know how much by, so this is basically a guess!
+	// For now we just say need 5% saving here.
+	double qm = pm->do_r2 > 0 ? 1 : 0.95;
+	if (e2 + (8+s->hdr->num_records/8) < e1*qm) {
+	    for (rec = 0; rec < s->hdr->num_records; rec++) {
+		int sel = s->crecs[rec].flags >> 16;
+		s->crecs[rec].flags =  (s->crecs[rec].flags & 0xffff)
+		    | ((s->crecs[rec].flags & BAM_FREAD2)
+		       ? ((sel*2)+1) << 16
+		       : ((sel*2)+0) << 16);
+		if (max_sel < (s->crecs[rec].flags>>16))
+		    max_sel = (s->crecs[rec].flags>>16);
+	    }
+	}
+    }
+
+    // We provided explicit selector data or auto-tuned it
+    if (max_sel > 0)
+	pm->do_sel = 1;
+
+    free(avg_qual);
 }
 
 static inline
@@ -611,7 +829,7 @@ int fqz_pick_parameters(fqz_gparams *gp,
 	6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
     };
 
-    if (strat > 4) strat = 4;
+    if (strat >= nstrats) strat = nstrats-1;
 
     // Compute quality length per sequence.
     // This isn't just s->crecs[i].len as some times we emit extra QS
@@ -640,6 +858,23 @@ int fqz_pick_parameters(fqz_gparams *gp,
 
     fqz_param *pm = gp->p;
 
+    // Programmed strategies, which we then amend based on our
+    // statistical analysis of the quality stream.
+    pm->qbits  = strat_opts[strat][0];
+    pm->qshift = strat_opts[strat][1];
+    pm->pbits  = strat_opts[strat][2];
+    pm->pshift = strat_opts[strat][3];
+    pm->dbits  = strat_opts[strat][4];
+    pm->dshift = strat_opts[strat][5];
+    pm->qloc   = strat_opts[strat][6];
+    pm->sloc   = strat_opts[strat][7];
+    pm->ploc   = strat_opts[strat][8];
+    pm->dloc   = strat_opts[strat][9];
+
+    // Params for controlling behaviour here.
+    pm->do_r2 = strat_opts[strat][10];
+    pm->do_qa = strat_opts[strat][11];
+
     // Quality metrics
     qual_stats(s, in, in_size, q_len, pm, qhist);
 
@@ -655,20 +890,7 @@ int fqz_pick_parameters(fqz_gparams *gp,
     pm->first_len = 1; // used as boolean condition now
     pm->use_qtab = 0; // unused by current encoder
 
-    // Programmed strategies, which we then amend based on our
-    // statistical analysis of the quality stream.
-    pm->qbits  = strat_opts[strat][0];
-    pm->qshift = strat_opts[strat][1];
-    pm->pbits  = strat_opts[strat][2];
-    pm->pshift = strat_opts[strat][3];
-    pm->dbits  = strat_opts[strat][4];
-    pm->dshift = strat_opts[strat][5];
-    pm->qloc   = strat_opts[strat][6];
-    pm->sloc   = strat_opts[strat][7];
-    pm->ploc   = strat_opts[strat][8];
-    pm->dloc   = strat_opts[strat][9];
-
-    if (strat >= 4)
+    if (strat >= nstrats-1)
 	goto manually_set; // used in TEST_MAIN for debugging
 
     if (pm->pshift < 0)
@@ -695,6 +917,13 @@ int fqz_pick_parameters(fqz_gparams *gp,
     }
 
  manually_set:
+//    fprintf(stderr, "-x 0x%x%x%x%x%x%x%x%x%x%x%x%x\n",
+//	    pm->qbits, pm->qshift,
+//	    pm->pbits, pm->pshift,
+//	    pm->dbits, pm->dshift,
+//	    pm->qloc, pm->sloc, pm->ploc, pm->dloc,
+//	    pm->do_r2, pm->do_qa);
+
     for (i = 0; i < sizeof(dsqr)/sizeof(*dsqr); i++)
 	if (dsqr[i] > (1<<pm->dbits)-1)
 	    dsqr[i] = (1<<pm->dbits)-1;
@@ -754,13 +983,23 @@ int fqz_pick_parameters(fqz_gparams *gp,
 	(pm->do_dedup   ?PFLAG_DO_DEDUP  :0)|
 	(pm->store_qmap ?PFLAG_HAVE_QMAP :0);
 
+    gp->max_sel = 0;
     if (pm->do_sel) {
 	// 2 selectors values, but 1 parameter block.
 	// We'll use the sloc instead to encode the selector bits into
 	// the context.
-	gp->max_sel = 1; // 0 or 1
+	gp->max_sel = 1; // indicator to check recs
 	gp->gflags |= GFLAG_HAVE_STAB;
 	// NB: stab is already all zero
+    }
+
+    if (gp->max_sel) {
+	int max = 0;
+	for (i = 0; i < s->hdr->num_records; i++) {
+	    if (max < (s->crecs[i].flags >> 16))
+		max = (s->crecs[i].flags >> 16);
+	}
+	gp->max_sel = max;
     }
 
     *comp_idx_p = fqz_store_parameters(gp, comp);
@@ -857,7 +1096,7 @@ unsigned char *compress_block_fqz2f(int vers,
     for (i = 0; i < in_size; i++) {
 	if (state.p == 0) {
 	    if (pm->do_sel) {
-		state.s = (s->crecs[rec].flags & BAM_FREAD2) ? 0 : 1;
+		state.s = s->crecs[rec].flags >> 16; // reuse spare bits
 		SIMPLE_MODEL(256,_encodeSymbol)(&model.sel, &rc, state.s);
 		//fprintf(stderr, "State %d\n", state.s);
 	    } else {
@@ -892,6 +1131,9 @@ unsigned char *compress_block_fqz2f(int vers,
 	    }
 
 	    rec++;
+
+	    state.qtot = 0;
+	    state.qlen = 0;
 
 	    state.p = len;
 	    state.add_d = 0;
@@ -954,7 +1196,12 @@ unsigned char *compress_block_fqz2f(int vers,
 	}
     }
 
+    // Clear selector abuse of flags
+    for (rec = 0; rec < s->hdr->num_records; rec++)
+	s->crecs[rec].flags &= 0xffff;
+
     *out_size = comp_idx + RC_OutSize(&rc);
+    //fprintf(stderr, "%d -> %d\n", (int)in_size, (int)*out_size);
 
     fqz_destroy_models(&model);
     free(q_len);
@@ -1321,6 +1568,7 @@ static unsigned char *load(char *fn, size_t *lenp) {
 }
 
 #define BLK_SIZE 200*1000000
+//#define BLK_SIZE 100*100000
 
 int count_lines(unsigned char *in, size_t len) {
     size_t i;
@@ -1333,18 +1581,42 @@ int count_lines(unsigned char *in, size_t len) {
     return lines;
 }
 
+// QUAL [is_read2 [selector]]
 void parse_lines(unsigned char *in, size_t len,
-		 int *rec_len, int *rec_sel, size_t *new_len) {
+		 int *rec_len, int *rec_r2, int *rec_sel, size_t *new_len) {
     size_t i, j, start;
     int rec = 0;
 
     for (start = i = j = 0; i < len; i++) {
 	if (in[i] == '\n' || in[i] == ' ' || in[i] == '\t') {
-	    rec_sel[rec] = atoi((char *)&in[i]);
-	    rec_len[rec++] = i-start;
-	    while (in[i] != '\n')
+	    rec_len[rec] = i-start;
+
+	    // Read2 marker
+	    while (i < len && in[i] != '\n' && isspace(in[i]))
 		i++;
+
+	    if (in[i] != '\n')
+		rec_r2[rec] = atoi((char *)&in[i]);
+	    else
+		rec_r2[rec] = 0;
+
+	    while (i < len && !isspace(in[i]))
+		i++;
+
+	    // selector
+	    while (i < len && in[i] != '\n' && isspace(in[i]))
+		i++;
+
+	    if (in[i] != '\n')
+		rec_sel[rec] = atoi((char *)&in[i]);
+	    else
+		rec_sel[rec] = 0;
+
+	    while (i < len && in[i] != '\n')
+		i++;
+
 	    start = i+1;
+	    rec++;
 	} else {
 	    in[j++] = in[i]-33; // ASCII phred to qual
 	}
@@ -1357,26 +1629,31 @@ int main(int argc, char **argv) {
     size_t in_len, out_len;
     int decomp = 0, vers = 4;
 
-    if (argc > 1 && strcmp(argv[1], "-d") == 0) {
-	decomp = 1;
-	argv++;
-	argc--;
-    }
-    while (argc > 1 && strcmp(argv[1], "-b") == 0) {
-	vers += 256;
-	argv++;
-	argc--;
-    }
-    while (argc > 2 && strcmp(argv[1], "-x") == 0) {
-	uint64_t x = strtol(argv[2], NULL, 0);
-	argv+=2;
-	argc-=2;
-	int z;
-	for (z=0; z<10; z++) {
-	    strat_opts[4][9-z] = x&15;
-	    x>>=4;
+    while (argc > 1 && argv[1][0] == '-') {
+	if (argc > 1 && strcmp(argv[1], "-d") == 0) {
+	    decomp = 1;
+	    argv++;
+	    argc--;
 	}
-	vers = 4*256 + 4;
+	if (argc > 2 && strcmp(argv[1], "-s") == 0) {
+	    vers += atoi(argv[2])*256;
+	    argv+=2;
+	    argc-=2;
+	}
+	if (argc > 2 && strcmp(argv[1], "-x") == 0) {
+	    // Examples: -x 0x5570000d5014 q40+dir = 30686053
+	    //           -x 0x5270000d5014 q4+dir  =  7165913
+	    uint64_t x = strtol(argv[2], NULL, 0);
+	    int olen = strlen(argv[2])-2; // -2 for "0x"
+	    argv+=2;
+	    argc-=2;
+	    int z;
+	    for (z=0; z<olen; z++) {
+		strat_opts[nstrats-1][(olen-1)-z] = x&15;
+		x>>=4;
+	    }
+	    vers = (nstrats-1)*256 + 4;
+	}
     }
     in = load(argc > 1 ? argv[1] : "/dev/stdin", &in_len);
     if (!in)
@@ -1398,7 +1675,7 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "out_len %ld, in_len %ld\n", out_len, in2_len);
 
 	    int fake_len = 99999; // we don't care; it'll be corrected
-	    cram_slice *s = fake_slice(out_len, &fake_len, NULL, 1);
+	    cram_slice *s = fake_slice(out_len, &fake_len, NULL, NULL, 1);
 	    out = uncompress_block_fqz2f(s, in2, in_len-8, &out_len);
 
 	    // Convert from binary back to ASCII with newlines
@@ -1423,9 +1700,10 @@ int main(int argc, char **argv) {
 	// We return an array of line lengths and optionally param selectors.
 	int nlines = count_lines(in, in_len);
 	fprintf(stderr, "nlines=%d\n", nlines);
-	int *rec_len = malloc(nlines * sizeof(*rec_len));
-	int *rec_sel = malloc(nlines * sizeof(*rec_sel));
-	parse_lines(in, in_len, rec_len, rec_sel, &in_len);
+	int *rec_len = calloc(nlines, sizeof(*rec_len));
+	int *rec_r2  = calloc(nlines, sizeof(*rec_r2));
+	int *rec_sel = calloc(nlines, sizeof(*rec_sel));
+	parse_lines(in, in_len, rec_len, rec_r2, rec_sel, &in_len);
 
 	unsigned char *in2 = in;
 	long t_out = 0;
@@ -1433,7 +1711,7 @@ int main(int argc, char **argv) {
 	while (in_len > 0) {
 	    // FIXME: blk_size no longer working in test.  One cycle only!
 	    size_t in2_len = in_len <= blk_size ? in_len : blk_size;
-	    cram_slice *s = fake_slice(in2_len, rec_len, rec_sel, nlines);
+	    cram_slice *s = fake_slice(in2_len, rec_len, rec_r2, rec_sel, nlines);
 	    out = compress_block_fqz2f(vers, 0, s, in2, in2_len, &out_len);
 
 	    // Write out 32-bit sizes.
