@@ -28,6 +28,7 @@
 #include <limits.h>
 #include <ctype.h>
 #include <math.h>
+#include <inttypes.h>
 
 #define CTX_BITS 16
 #define CTX_SIZE (1<<CTX_BITS)
@@ -88,7 +89,10 @@ cram_slice *fake_slice(size_t buf_len, int *len, int *r2, int *sel, int nlen) {
 #define MAX(a,b) ((a)>(b)?(a):(b))
 #endif
 
-#else
+static uint64_t manual_strats[10] = {0};
+static int manual_nstrat = 0;
+
+#else /* TEST_MAIN */
 #include "cram_block_compression.h"
 #include "fqzcomp_qual.h"
 #endif
@@ -489,12 +493,16 @@ static inline unsigned int fqz_update_ctx(fqz_param *pm, fqz_state *state, int q
 }
 
 // Build quality stats for qhist and set nsym, do_dedup and do_sel params.
+// One_param is -1 to gather stats on all data, or >= 0 to gather data
+// on one specific selector parameter.  Used only in TEST_MAIN via
+// fqz_manual_parameters at the moment.
 static inline
 void qual_stats(cram_slice *s,
 		unsigned char *in, size_t in_size,
 		unsigned int *q_len,
 		fqz_param *pm,
-		uint32_t qhist[256]) {
+		uint32_t qhist[256],
+		int one_param) {
 #define NP 128
     uint32_t qhistb[NP][256] = {{0}};  // both
     uint32_t qhist1[NP][256] = {{0}};  // READ1 only
@@ -508,6 +516,7 @@ void qual_stats(cram_slice *s,
     int do_dedup = 0;
     size_t rec;
     size_t i, j;
+    int num_rec = 0;
 
     // See what info we've been given.
     // Do we have READ1 / READ2?
@@ -515,13 +524,14 @@ void qual_stats(cram_slice *s,
     int max_sel = 0;
     int has_r2 = 0;
     for (rec = 0; rec < s->hdr->num_records; rec++) {
+	if (one_param >= 0 && (s->crecs[rec].flags >> 16) != one_param)
+	    continue;
+	num_rec++;
 	if (max_sel < (s->crecs[rec].flags >> 16))
 	    max_sel = (s->crecs[rec].flags >> 16);
 	if (s->crecs[rec].flags & BAM_FREAD2)
 	    has_r2 = 1;
     }
-    //fprintf(stderr, "max_sel=%d\n", max_sel);
-
 
     // Dedup detection and histogram stats gathering
     int *avg_qual = malloc((s->hdr->num_records+1) * sizeof(int));
@@ -530,8 +540,13 @@ void qual_stats(cram_slice *s,
 
     rec = i = j = 0;
     while (i < in_size) {
+	if (one_param >= 0 && (s->crecs[rec].flags >> 16) != one_param) {
+	    avg_qual[rec] = 0;
+	    i += s->crecs[rec++].len;
+	    continue;
+	}
 	if (rec < s->hdr->num_records) {
-	    j = q_len[rec];
+	    j = s->crecs[rec].len;
 	    dir = s->crecs[rec].flags & BAM_FREAD2 ? 1 : 0;
 	    if (i > 0 && j == last_len
 		&& !memcmp(in+i-last_len, in+i, j))
@@ -573,46 +588,45 @@ void qual_stats(cram_slice *s,
 
     // Auto tune: does average quality helps us?
     if (pm->do_qa != 0) {
-	// Histogram of average qual
-	int total = 0;
-	i = 0;
+	// Histogram of average qual in avg[]
+	// NB: we convert avg[] from count to selector index
+
 	// Few symbols means high compression which means
 	// selector bits become more significant fraction.
 	// Reduce selector bits by skewing the distribution
 	// to not be even binning.
+	double qf0 = pm->nsym > 8 ? 0.2 : 0.05;
+	double qf1 = pm->nsym > 8 ? 0.5 : 0.22;
+	double qf2 = pm->nsym > 8 ? 0.8 : 0.60;
 
-	double qf0 = pm->nsym > 4 ? 0.25 : 0.05;
-	double qf1 = pm->nsym > 4 ? 0.50 : 0.15;
-	double qf2 = pm->nsym > 4 ? 0.75 : 0.60;
+	int total = 0;
+	i = 0;
 	while (i < 2560) {
 	    total += avg[i];
-	    if (total > qf0 * s->hdr->num_records) {
+	    if (total > qf0 * num_rec) {
 		//fprintf(stderr, "Q1=%d\n", (int)i);
 		break;
 	    }
-	    //if (i > 320) break;
 	    avg[i++] = 0;
 	}
 	while (i < 2560) {
 	    total += avg[i];
-	    if (total > qf1 * s->hdr->num_records) {
+	    if (total > qf1 * num_rec) {
 		//fprintf(stderr, "Q2=%d\n", (int)i);
 		break;
 	    }
-	    //if (i > 360) break;
-	    avg[i++] = 3;
+	    avg[i++] = 1;
 	}
 	while (i < 2560) {
 	    total += avg[i];
-	    if (total > qf2 * s->hdr->num_records) {
+	    if (total > qf2 * num_rec) {
 		//fprintf(stderr, "Q3=%d\n", (int)i);
 		break;
 	    }
-	    if (i > 375) break;
 	    avg[i++] = 2;
 	}
 	while (i < 2560)
-	    avg[i++] = 1;
+	    avg[i++] = 3;
 
 	// Compute simple entropy of merged signal vs split signal.
         i = 0;
@@ -625,20 +639,25 @@ void qual_stats(cram_slice *s,
 	int qcnt2[4][NP] = {{0}};
 	int qcnt1   [NP] = {0};
         while (i < in_size) {
+	    if (one_param >= 0 && (s->crecs[rec].flags >> 16) != one_param) {
+		i += s->crecs[rec++].len;
+		continue;
+	    }
 	    if (rec < s->hdr->num_records)
-		j = q_len[rec];
+		j = s->crecs[rec].len;
 	    else
 		j = in_size - i;
 	    last_len = j;
 
 	    uint32_t tot = avg_qual[rec];
 	    int qb4 = avg[MIN(2559, tot)];
+	    int qb2 = qb4/2;
 
 	    for (; i < in_size && j > 0; i++, j--) {
 		int x = j & (NP-1);
-		qbin4[qb4]  [x][in[i]]++;  qcnt4[qb4]  [x]++;
-		qbin2[qb4/2][x][in[i]]++;  qcnt2[qb4/2][x]++;
-		qbin1       [x][in[i]]++;  qcnt1       [x]++;
+		qbin4[qb4][x][in[i]]++;  qcnt4[qb4][x]++;
+		qbin2[qb2][x][in[i]]++;  qcnt2[qb2][x]++;
+		qbin1     [x][in[i]]++;  qcnt1     [x]++;
 	    }
 	    rec++;
 	}
@@ -664,10 +683,11 @@ void qual_stats(cram_slice *s,
 	// the context, which may reduce compression better.
 	// We don't know how much by, so this is basically a guess!
 	// For now we just say need 5% saving here.
-	double qm = pm->do_qa > 0 ? 1 : 0.95;
+	double qm = pm->do_qa > 0 ? 1 : 0.98;
 	if ((pm->do_qa == -1 || pm->do_qa >= 4) &&
 	    e4 + s->hdr->num_records/4 < e2*qm + s->hdr->num_records/8 &&
 	    e4 + s->hdr->num_records/4 < e1*qm) {
+	    //fprintf(stderr, "do q4\n");
 	    for (i = 0; i < s->hdr->num_records; i++) {
 		//fprintf(stderr, "%d -> %d -> %d, %d\n", (int)i, avg_qual[i], avg[MIN(2559, avg_qual[i])], s->crecs[i].flags>>16);
 		s->crecs[i].flags |= avg[MIN(2559, avg_qual[i])] <<16;
@@ -675,6 +695,7 @@ void qual_stats(cram_slice *s,
 	    pm->do_sel = 1;
 	    max_sel = 3;
 	} else if ((pm->do_qa == -1 || pm->do_qa >= 2) && e2 + s->hdr->num_records/8 < e1*qm) {
+	    //fprintf(stderr, "do q2\n");
 	    for (i = 0; i < s->hdr->num_records; i++)
 		s->crecs[i].flags |= (avg[MIN(2559, avg_qual[i])]>>1) <<16;
 	    pm->do_sel = 1;
@@ -732,6 +753,8 @@ void qual_stats(cram_slice *s,
 	double qm = pm->do_r2 > 0 ? 1 : 0.95;
 	if (e2 + (8+s->hdr->num_records/8) < e1*qm) {
 	    for (rec = 0; rec < s->hdr->num_records; rec++) {
+		if (one_param >= 0 && (s->crecs[rec].flags >> 16) != one_param)
+		    continue;
 		int sel = s->crecs[rec].flags >> 16;
 		s->crecs[rec].flags =  (s->crecs[rec].flags & 0xffff)
 		    | ((s->crecs[rec].flags & BAM_FREAD2)
@@ -744,8 +767,10 @@ void qual_stats(cram_slice *s,
     }
 
     // We provided explicit selector data or auto-tuned it
-    if (max_sel > 0)
+    if (max_sel > 0) {
 	pm->do_sel = 1;
+	pm->max_sel = max_sel;
+    }
 
     free(avg_qual);
 }
@@ -818,8 +843,6 @@ int fqz_pick_parameters(fqz_gparams *gp,
 			cram_slice *s,
 			unsigned char *in,
 			size_t in_size,
-			unsigned char *comp,
-			int *comp_idx_p,
 			unsigned int *q_len) {
     //approx sqrt(delta), must be sequential
     int dsqr[] = {
@@ -875,8 +898,8 @@ int fqz_pick_parameters(fqz_gparams *gp,
     pm->do_r2 = strat_opts[strat][10];
     pm->do_qa = strat_opts[strat][11];
 
-    // Quality metrics
-    qual_stats(s, in, in_size, q_len, pm, qhist);
+    // Quality metrics, for all recs
+    qual_stats(s, in, in_size, q_len, pm, qhist, -1);
 
     pm->store_qmap = (pm->nsym <= 8 && pm->nsym*2 < pm->max_sym);
 
@@ -1002,10 +1025,150 @@ int fqz_pick_parameters(fqz_gparams *gp,
 	gp->max_sel = max;
     }
 
-    *comp_idx_p = fqz_store_parameters(gp, comp);
+    return 0;
+}
+
+#ifdef TEST_MAIN
+/*
+ * Manually specified strategies held in global manual_strats[].
+ */
+static inline
+int fqz_manual_parameters(fqz_gparams *gp,
+			  int vers,
+			  cram_slice *s,
+			  unsigned char *in,
+			  size_t in_size,
+			  unsigned int *q_len) {
+    int i, p;
+    int dsqr[] = {
+	0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3,
+	4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5,
+	5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+	6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+    };
+
+    gp->vers = 5;
+    gp->nparam = manual_nstrat;
+    gp->gflags = GFLAG_MULTI_PARAM | GFLAG_HAVE_STAB;
+    for (i = 0; i < 256; i++)
+	gp->stab[i] = 0;
+
+    // Fill these out later
+    gp->max_sel = 0;
+    gp->max_sym = 0;
+    gp->p = malloc(gp->nparam * sizeof(*gp->p));
+
+    for (p = 0; p < gp->nparam; p++) {
+	fqz_param *pm = &gp->p[p];
+	uint64_t st = manual_strats[p];
+
+	pm->do_qa  = st & 15; st >>= 4;
+	pm->do_r2  = st & 15; st >>= 4;
+	pm->dloc   = st & 15; st >>= 4;
+	pm->ploc   = st & 15; st >>= 4;
+	pm->sloc   = st & 15; st >>= 4;
+	pm->qloc   = st & 15; st >>= 4;
+	pm->dshift = st & 15; st >>= 4;
+	pm->dbits  = st & 15; st >>= 4;
+	pm->pshift = st & 15; st >>= 4;
+	pm->pbits  = st & 15; st >>= 4;
+	pm->qshift = st & 15; st >>= 4;
+	pm->qbits  = st & 15; st >>= 4;
+
+	// Gather some stats, as per qual_stats func.
+	// r in rec count.
+	// i = index to in[]
+	// j = index within this rec
+	uint32_t qhist[256] = {0};
+
+	// qual stats for seqs using this parameter only
+	qual_stats(s, in, in_size, q_len, pm, qhist, p);
+	int max_sel = pm->max_sel;
+
+	// Update max_sel running total. Eg with 4 sub-params:
+	//
+	// sel    param no.   => new
+	// 0      0              0
+	// 0/1    1              1,2
+	// 0/1    2              3,4
+	// 0      3              5
+	for (i = gp->max_sel; i < gp->max_sel + max_sel+1; i++)
+	    gp->stab[i] = p;
+	gp->max_sel += max_sel+1;
+
+	pm->fixed_len = pm->fixed_len > 0;
+	pm->first_len = 1;
+	pm->use_qtab = 0;  // unused by current encoder
+	pm->store_qmap = pm->nsym <= 8;
+
+	// Adjust parameters based on quality stats.
+	// FIXME:  dup from fqz_pick_parameters.
+	for (i = 0; i < sizeof(dsqr)/sizeof(*dsqr); i++)
+	    if (dsqr[i] > (1<<pm->dbits)-1)
+		dsqr[i] = (1<<pm->dbits)-1;
+
+	if (pm->store_qmap) {
+	    int j;
+	    for (i = j = 0; i < 256; i++)
+		if (qhist[i])
+		    pm->qmap[i] = j++;
+		else
+		    pm->qmap[i] = INT_MAX;
+	    pm->max_sym = pm->nsym;
+	} else {
+	    pm->nsym = 255;
+	    for (i = 0; i < 256; i++)
+		pm->qmap[i] = i;
+	}
+	if (gp->max_sym < pm->max_sym)
+	    gp->max_sym = pm->max_sym;
+
+	// Produce ptab from pshift.
+	if (pm->qbits) {
+	    for (i = 0; i < 256; i++) {
+		pm->qtab[i] = i; // 1:1
+
+		// Alternative mappings:
+		//qtab[i] = i > 30 ? MIN(max_sym,i)-15 : i/2;  // eg for 9827 BAM
+	    }
+
+	}
+	pm->qmask = (1<<pm->qbits)-1;
+
+	if (pm->pbits) {
+	    for (i = 0; i < 1024; i++)
+		pm->ptab[i] = MIN((1<<pm->pbits)-1, i>>pm->pshift);
+
+	    // Alternatively via analysis of quality distributions we
+	    // may select a bunch of positions that are special and
+	    // have a non-uniform ptab[].
+	    // Manual experimentation on a NovaSeq run saved 2.8% here.
+	}
+
+	if (pm->dbits) {
+	    for (i = 0; i < 256; i++)
+		pm->dtab[i] = dsqr[MIN(sizeof(dsqr)/sizeof(*dsqr)-1, i>>pm->dshift)];
+	}
+
+	pm->use_ptab = (pm->pbits > 0);
+	pm->use_dtab = (pm->dbits > 0);
+
+	pm->pflags =
+	    (pm->use_qtab   ?PFLAG_HAVE_QTAB :0)|
+	    (pm->use_dtab   ?PFLAG_HAVE_DTAB :0)|
+	    (pm->use_ptab   ?PFLAG_HAVE_PTAB :0)|
+	    (pm->do_sel     ?PFLAG_DO_SEL    :0)|
+	    (pm->fixed_len  ?PFLAG_DO_LEN    :0)|
+	    (pm->do_dedup   ?PFLAG_DO_DEDUP  :0)|
+	    (pm->store_qmap ?PFLAG_HAVE_QMAP :0);
+    }
+
+    for (i = gp->max_sel; i < 256; i++)
+	gp->stab[i] = gp->stab[gp->max_sel-1];
 
     return 0;
 }
+#endif
 
 unsigned char *compress_block_fqz2f(int vers,
 				    int level,
@@ -1034,12 +1197,23 @@ unsigned char *compress_block_fqz2f(int vers,
     }
 
     // Pick and store params
+#ifdef TEST_MAIN
+    if (manual_nstrat > 1) { 
+	if (fqz_manual_parameters(&gp, vers & 0xff,
+				  s, in, in_size, q_len) < 0)
+	    return NULL;
+   } else {
+	if (fqz_pick_parameters(&gp, vers & 0xff, vers >> 8, level,
+				s, in, in_size, q_len) < 0)
+	    return NULL;
+    }
+#else
     if (fqz_pick_parameters(&gp, vers & 0xff, vers >> 8, level,
-			    s, in, in_size,
-			    comp, &comp_idx, q_len) < 0)
+			    s, in, in_size, q_len) < 0)
 	return NULL;
-
+#endif
     //dump_params(&gp);
+    comp_idx = fqz_store_parameters(&gp, comp);
 
     fqz_param *pm;
 
@@ -1068,7 +1242,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	i = rec = j = 0;
 	while (i < in_size) {
 	    int len = rec < s->hdr->num_records-1
-		? q_len[rec] : in_size - i;
+		? s->crecs[rec].len : in_size - i;
 
 	    if (s->crecs[rec].flags & BAM_FREVERSE) {
 		// Reverse complement sequence - note: modifies buffer
@@ -1095,7 +1269,7 @@ unsigned char *compress_block_fqz2f(int vers,
 
     for (i = 0; i < in_size; i++) {
 	if (state.p == 0) {
-	    if (pm->do_sel) {
+	    if (pm->do_sel || (gp.gflags & GFLAG_MULTI_PARAM)) {
 		state.s = s->crecs[rec].flags >> 16; // reuse spare bits
 		SIMPLE_MODEL(256,_encodeSymbol)(&model.sel, &rc, state.s);
 		//fprintf(stderr, "State %d\n", state.s);
@@ -1110,7 +1284,7 @@ unsigned char *compress_block_fqz2f(int vers,
 	    // Quality buffer maybe longer than sum of reads if we've
 	    // inserted a specific base + quality pair.
 	    int len = rec < s->hdr->num_records
-		? q_len[rec] : in_size - s->crecs[s->hdr->num_records-1].qual;
+		? s->crecs[rec].len : in_size - s->crecs[s->hdr->num_records-1].qual;
 	    if (!pm->fixed_len || pm->first_len) {
 		SIMPLE_MODEL(256,_encodeSymbol)(&model.len[0], &rc, (len>> 0) & 0xff);
 		SIMPLE_MODEL(256,_encodeSymbol)(&model.len[1], &rc, (len>> 8) & 0xff);
@@ -1567,7 +1741,7 @@ static unsigned char *load(char *fn, size_t *lenp) {
     return data;
 }
 
-#define BLK_SIZE 200*1000000
+#define BLK_SIZE 300*1000000
 //#define BLK_SIZE 100*100000
 
 int count_lines(unsigned char *in, size_t len) {
@@ -1644,6 +1818,7 @@ int main(int argc, char **argv) {
 	    // Examples: -x 0x5570000d5014 q40+dir = 30686053
 	    //           -x 0x5270000d5014 q4+dir  =  7165913
 	    uint64_t x = strtol(argv[2], NULL, 0);
+	    manual_strats[manual_nstrat++] = x;
 	    int olen = strlen(argv[2])-2; // -2 for "0x"
 	    argv+=2;
 	    argc-=2;
