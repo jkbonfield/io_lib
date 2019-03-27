@@ -818,11 +818,11 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     qmethod  = method;
     qmethodF = method;
     if (v31_or_above && (fd->level > 4 || fd->use_fqz)) {
-	qmethod  |= 1<<FQZ;
+	qmethod  |= (1<<FQZ)|(1<<FQZ_b);
 	qmethodF |= 1<<FQZ;
 	if (fd->level > 6) {
-	    qmethod  |= (1<<FQZ_b) | (1<<FQZ_c) | (1<<FQZ_d);
-	    qmethodF |= (1<<FQZ_b) | (1<<FQZ_c) | (1<<FQZ_d);
+	    qmethod  |= (1<<FQZ_c) | (1<<FQZ_d);
+	    qmethodF |= (1<<FQZ_c) | (1<<FQZ_d);
 	}
     }
 
