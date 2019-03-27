@@ -1270,7 +1270,9 @@ unsigned char *compress_block_fqz2f(int vers,
     for (i = 0; i < in_size; i++) {
 	if (state.p == 0) {
 	    if (pm->do_sel || (gp.gflags & GFLAG_MULTI_PARAM)) {
-		state.s = s->crecs[rec].flags >> 16; // reuse spare bits
+		state.s = rec < s->hdr->num_records
+		    ? s->crecs[rec].flags >> 16 // reuse spare bits
+		    : 0;
 		SIMPLE_MODEL(256,_encodeSymbol)(&model.sel, &rc, state.s);
 		//fprintf(stderr, "State %d\n", state.s);
 	    } else {
