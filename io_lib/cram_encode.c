@@ -794,10 +794,13 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 #endif
 
     int method_rans   = (1<<RANS0) | (1<<RANS1);
-    int method_ranspr = (1<<RANS_PR0)   | (1<<RANS_PR1)
-	              | (1<<RANS_PR64)  | (1<<RANS_PR65)
-	              | (1<<RANS_PR128) | (1<<RANS_PR129)
-	              | (1<<RANS_PR192) | (1<<RANS_PR193);
+    int method_ranspr = method_rans;
+    if (fd->use_arith) {
+	method_ranspr = (1<<RANS_PR0)   | (1<<RANS_PR1)
+	    | (1<<RANS_PR64)  | (1<<RANS_PR65)
+	    | (1<<RANS_PR128) | (1<<RANS_PR129)
+	    | (1<<RANS_PR192) | (1<<RANS_PR193);
+    }
 
     int v31_or_above = (fd->version >= (3<<8)+1);
     if (fd->use_rans) {
@@ -817,9 +820,13 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 
     qmethod  = method;
     qmethodF = method;
-    if (v31_or_above && (fd->level > 4 || fd->use_fqz)) {
-	qmethod  |= (1<<FQZ)|(1<<FQZ_b);
+    if (v31_or_above && fd->use_fqz) {
+	qmethod  |= 1<<FQZ;
 	qmethodF |= 1<<FQZ;
+	if (fd->level > 4) {
+	    qmethod  |= 1<<FQZ_b;
+	    qmethodF |= 1<<FQZ_b;
+	}
 	if (fd->level > 6) {
 	    qmethod  |= (1<<FQZ_c) | (1<<FQZ_d);
 	    qmethodF |= (1<<FQZ_c) | (1<<FQZ_d);
@@ -894,7 +901,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     // NAME: best is generally xz, bzip2 and zlib.
     // It benefits well from a little bit extra compression level.
     int method_rn = method & ~(method_rans | method_ranspr | 1<<GZIP_RLE);
-    if (level > 4 && fd->version >= (3<<8)+1)
+    if (fd->version >= (3<<8)+1 && fd->use_tok)
 	method_rn |= (1<<NAME_TOK3);
     if (cram_compress_block(fd, s, s->block[DS_RN], fd->m[DS_RN],
 			    method_rn, level))

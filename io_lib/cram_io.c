@@ -4558,8 +4558,6 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    method |= 1<<BZIP2;
 	if (fd->use_bsc)
 	    method |= 1<<BSC;
-	if (fd->use_fqz)
-	    method |= 1<<FQZ;
 	if (fd->use_lzma)
 	    method |= 1<<LZMA;
 	cram_compress_block(fd, NULL, b, NULL, method, fd->level);
@@ -5640,7 +5638,6 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	fd->use_bz2 = va_arg(args, int);
 	break;
 
-    case CRAM_OPT_USE_ARITH:
     case CRAM_OPT_USE_RANS:
 	fd->use_rans = va_arg(args, int);
 	break;
@@ -5651,6 +5648,14 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_USE_FQZ:
 	fd->use_fqz = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_TOK:
+	fd->use_tok = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_ARITH:
+	fd->use_arith = va_arg(args, int);
 	break;
 
     case CRAM_OPT_USE_LZMA:

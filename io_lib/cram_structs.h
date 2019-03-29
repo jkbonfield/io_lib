@@ -813,6 +813,8 @@ typedef struct {
     int use_lzma;
     int use_bsc;
     int use_fqz;
+    int use_tok;
+    int use_arith;
     int shared_ref;
     enum quality_binning binning;
     unsigned int required_fields;
@@ -978,6 +980,7 @@ enum cram_option {
     CRAM_OPT_USE_BSC,
     CRAM_OPT_USE_FQZ,
     CRAM_OPT_EMBED_CONS,
+    CRAM_OPT_USE_TOK,
 };
 
 /* BF bitfields */

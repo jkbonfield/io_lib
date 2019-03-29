@@ -146,6 +146,27 @@ should only be used when attempting to recover from a data corruption.
 Do not append @PG header lines with the scramble program name and
 arguments.
 
+.TP
+\fB-X\fR \fImode\fR
+Encode CRAM using a set of predefined parameters defined by mode.
+This are one of fast, default, small or archive.
+.RS
+.TP
+.BR fast " (param: -1 -s 1000)"
+Lightweight compression for speed and small slice size for quick
+fine-grained random access.
+.TP
+.BR default " (param: none)"
+Default mode.  This is the same as not specifying \fB-X\fR.
+.TP
+.BR small " (param v3: -7j,  param v3.1 or v4: -7jTa)"
+Optimise for smaller files, but keep the default slice size.
+.TP
+.BR archive " (param v3: -7jZ -s 100000,  param v3.1 or v4: -7jfTa -s 100000)"
+Optimised for smallest files, intended for data archival.  This uses a
+large slice size and will have poorer random access.
+.RE
+
 .SH "EXAMPLES"
 .PP
 To convert a BAM file from stdin to CRAM on stdout, using reference MT.fa.

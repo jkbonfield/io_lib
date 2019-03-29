@@ -116,6 +116,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -x             [Cram] Non-reference based encoding.\n");
     fprintf(fp, "    -M             [Cram] Use multiple references per slice.\n");
     fprintf(fp, "    -m             [Cram] Generate MD and NM tags.\n");
+    fprintf(fp, "    -a             [Cram] Also compress using arithmetic coder (V3.1+).\n");
 #ifdef HAVE_LIBBZ2
     fprintf(fp, "    -j             [Cram] Also compress using bzip2.\n");
 #endif
@@ -126,6 +127,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -J             [Cram] Also compression using libbsc (V3.1+)\n");
 #endif
     fprintf(fp, "    -f             [Cram] Also compression using fqzcomp (V3.1+)\n");
+    fprintf(fp, "    -T             [Cram] Also compression using name tokeniser (V3.1+)\n");
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
     fprintf(fp, "    -P             Preserve all aux tags (incl RG,NM,MD)\n");
     fprintf(fp, "    -p             Preserve aux tag sizes ('i', 's', 'c')\n");
@@ -136,6 +138,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -!             Disable all checking of checksums\n");
     fprintf(fp, "    -g FILE        Convert to Bam using index (file.gzi)\n");
     fprintf(fp, "    -G FILE        Output Bam index when bam input(file.gzi)\n");
+    fprintf(fp, "    -X mode        [Cram] Mode is fast, default, small or archive.\n");
 }
 
 int main(int argc, char **argv) {
@@ -147,7 +150,8 @@ int main(int argc, char **argv) {
     int s_opt = 0, S_opt = 0, embed_ref = 0, embed_cons = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
-    int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0;
+    int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0, use_tok = 0, use_arith = 0;
+    double vers = 3.0; // 3.0, 3.1, 4.0, etc
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
@@ -160,14 +164,40 @@ int main(int argc, char **argv) {
     int bases_per_slice = 0;
     int lossy_read_names = 0;
     int preserve_aux_order = 0;
-    int preserve_aux_size = 0; 
-    int add_pg = 1;   
+    int preserve_aux_size = 0;
+    int add_pg = 1;
 
     scram_init();
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xXeEI:O:R:!MmjJZt:BN:F:Hb:nPpqg:G:f")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xeEI:O:R:!MmajJZt:BN:F:Hb:nPpqg:G:fTX:")) != -1) {
 	switch (c) {
+	case 'X':
+	    if (strcmp(optarg, "default") == 0) {
+		// nothing
+	    } else if (strcmp(optarg, "fast") == 0) {
+		level = '1';
+		s_opt = 1000;
+	    } else if (strcmp(optarg, "small") == 0) {
+		level = '7';
+		if (vers >= 3.099)
+		    use_arith = use_bz2 = use_tok = 1;
+		else
+		    use_bz2 = 1;
+	    } else if (strcmp(optarg, "archive") == 0) {
+		level = '7';
+		use_arith = 1;
+		if (vers >= 3.099)
+		    use_bz2 = use_fqz = use_tok = 1;
+		else
+		    use_bz2 = use_lzma = 1;
+		s_opt = 100000;
+	    } else {
+		fprintf(stderr, "Unknown parameter set: choose 'fast', 'default' or 'archive'\n");
+		fprintf(stderr, "Assuming default\n");
+	    }
+	    break;
+
 	case 'F':
 	    sam_fields = strtol(optarg, NULL, 0); // undocumented for testing
 	    break;
@@ -211,6 +241,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
+	    vers = atof(optarg);
 	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
 		return 1;
 	    break;
@@ -219,8 +250,6 @@ int main(int argc, char **argv) {
 	    ref_fn = optarg;
 	    break;
 
-	case 'X':
-	    fprintf(stderr, "-X is deprecated in favour of -e.\n");
 	case 'e':
 	    embed_ref = 1;
 	    break;
@@ -274,6 +303,10 @@ int main(int argc, char **argv) {
 	    multi_seq = 1;
 	    break;
 
+	case 'a':
+	    use_arith = 1;
+	    break;
+
 	case 'j':
 #ifdef HAVE_LIBBZ2
 	    use_bz2 = 1;
@@ -308,6 +341,10 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "Warning: FQZ support is not compiled into this"
 		    " version.\nPlease recompile.\n");
 #endif
+	    break;
+
+	case 'T':
+	    use_tok = 1;
 	    break;
 
 	case 't':
@@ -472,6 +509,14 @@ int main(int argc, char **argv) {
 
     if (use_fqz)
 	if (scram_set_option(out, CRAM_OPT_USE_FQZ, use_fqz))
+	    return 1;
+
+    if (use_tok)
+	if (scram_set_option(out, CRAM_OPT_USE_TOK, use_tok))
+	    return 1;
+
+    if (use_arith)
+	if (scram_set_option(out, CRAM_OPT_USE_ARITH, use_arith))
 	    return 1;
 
     if (binning != BINNING_NONE)
