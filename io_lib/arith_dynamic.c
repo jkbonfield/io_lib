@@ -656,7 +656,7 @@ unsigned char *arith_uncompress_O2(unsigned char *in, unsigned int in_size,
 #undef NSYM
 #define NSYM 258
 #include "c_simple_model.h"
-#define MAX_RUN 16
+#define MAX_RUN 4
 
 unsigned char *arith_compress_O0_RLE(unsigned char *in, unsigned int in_size,
 				     unsigned char *out, unsigned int *out_size) {

@@ -27,10 +27,10 @@
 #ifndef C_SIMPLE_MODEL_H
 #define C_SIMPLE_MODEL_H
 
-#define MAX_FREQ (1<<16)-16
+#define MAX_FREQ (1<<16)-17
 #define PASTE3(a,b,c) a##b##c
 #define SIMPLE_MODEL(a,b) PASTE3(SIMPLE_MODEL,a,b)
-#define STEP 8
+#define STEP 16
 typedef struct {
     uint16_t Freq;
     uint16_t Symbol;
