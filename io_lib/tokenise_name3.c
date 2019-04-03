@@ -1140,7 +1140,7 @@ static int64_t arith_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t
     return clen+nb;
 }
 
-static int compress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len) {
+static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint64_t *out_len) {
     uint64_t best_sz = UINT64_MAX;
     int best = 0;
     uint64_t olen = *out_len;
@@ -1154,16 +1154,26 @@ static int compress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_le
 	return 0;
     }
 
-    int rmethods[] = {0,1,128,129,64,65,192,193, 193+8, 0+4}, m; // slower mode
-    //int rmethods[] = {0,128,64,192, 193+8, 0+4}, m; // fast mode
-    //int rmethods[] = {0,193+8, 0+4}, m; // fastest mode
-    for (m = 0; m < sizeof(rmethods)/sizeof(*rmethods); m++) {
+    int m, rmethods[5][12] = {
+	{1,                              193+8},              // 1
+	{2,   0,                         193+8},              // 3
+	{6,   0,  128,    64,   192,     193+8, 0+4},         // 5
+	{10,  0,1,128,129,64,65,192,193, 193+8, 0+4},         // 7
+	{11,  0,1,128,129,64,65,192,193, 193+8, 0+4, 64+4},   // 9
+    };
+
+    // 1-9 to 0-4
+    level = (level-1)/2;
+    if (level<0) level=0;
+    if (level>4) level=4;
+
+    for (m = 1; m <= rmethods[level][0]; m++) {
 	*out_len = olen;
-	if (arith_encode(in, in_len, out, out_len, rmethods[m]) < 0) return -1;
+	if (arith_encode(in, in_len, out, out_len, rmethods[level][m]) < 0) return -1;
 
 	if (best_sz > *out_len) {
 	    best_sz = *out_len;
-	    best = rmethods[m];
+	    best = rmethods[level][m];
 	}
     }
 
@@ -1217,7 +1227,7 @@ static int uncompress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_
  * Returns a malloced buffer holding compressed data of size *out_len,
  *         or NULL on failure
  */
-uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
+uint8_t *encode_names(char *blk, int len, int level, int *out_len, int *last_start_p) {
     int last_start = 0, i, j, nreads;
     
     // Count lines
@@ -1328,7 +1338,7 @@ uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p) {
 	    return NULL;
 	}
 
-	if (compress(ctx->desc[i].buf, ctx->desc[i].buf_l, out, &out_len) < 0) {
+	if (compress(ctx->desc[i].buf, ctx->desc[i].buf_l, level, out, &out_len) < 0) {
 	    free_context(ctx);
 	    return NULL;
 	}
@@ -1601,7 +1611,7 @@ static int encode(int argc, char **argv) {
 	len += blk_offset;
 
 	int out_len;
-	uint8_t *out = encode_names(blk, len, &out_len, &last_start);
+	uint8_t *out = encode_names(blk, len, 9, &out_len, &last_start);
 	if (write(1, &out_len, 4) < 4) exit(1);
 	if (write(1, out, out_len) < out_len) exit(1);   // encoded data
 	free(out);

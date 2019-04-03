@@ -2048,7 +2048,7 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 
     case NAME_TOK3: {
 	int out_len;
-	uint8_t *cp = encode_names(in, in_size, &out_len, NULL);
+	uint8_t *cp = encode_names(in, in_size, level, &out_len, NULL);
 	*out_size = out_len;
 	return (char *)cp;
     }

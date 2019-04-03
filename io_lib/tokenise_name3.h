@@ -43,7 +43,7 @@
  * Returns a malloced buffer holding compressed data of size *out_len,
  *         or NULL on failure
  */
-uint8_t *encode_names(char *blk, int len, int *out_len, int *last_start_p);
+uint8_t *encode_names(char *blk, int len, int level, int *out_len, int *last_start_p);
 
 /*
  * Decodes a compressed block of read names into \0 separated names.
