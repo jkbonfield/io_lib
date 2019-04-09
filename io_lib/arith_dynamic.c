@@ -922,21 +922,64 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 	out2 = out+26;
 	for (i = 0; i < 4; i++) {
 	    // Brute force try all methods.
-	    // FIXME: optimise this bit.  Maybe cull the huge list!
-	    //int j, m[] = {0,1,128,129,64,65,192,193}, best_j = 0, best_sz = in_size+10;
-	    int j, m[] = {0,1,128,129,64,65,192,193}, best_j = 0, best_sz = in_size+10;
-	    for (j = 0; j < sizeof(m)/sizeof(*m); j++) {
-		if ((order & m[j]) != m[j])
+	    // FIXME: optimise this bit.  Maybe learn over time?
+	    int j, best_j = 0, best_sz = in_size+10;
+
+	    // Works OK with read names. The first byte is the most important,
+	    // as it has most variability (little-endian).  After that it's
+	    // often quite predictable.
+	    //
+	    // Do we gain in any other context in CRAM? Aux tags maybe?
+	    int m[][6] = {{3, 1,64,0},
+			  {2, 1,0},
+			  {2, 1,128},
+			  {2, 1,128}};
+
+// Other possibilities for methods to try.
+//	    int m[][9] = {{8, 1,128,129,64,65,192,193,0},
+//			  {8, 1,128,129,64,65,192,193,0},
+//			  {8, 1,128,129,64,65,192,193,0},
+//			  {8, 1,128,129,64,65,192,193,0}};
+
+//	    int m[][9] = {{5, 1,128,64,65,0},
+//			  {5, 1,128,64,65,0},
+//			  {5, 1,128,64,65,0},
+//			  {5, 1,128,64,65,0}};
+
+//	    int m[][6] = {{4, 0,1,128,64},
+//			  {5, 0,1,128,65,193},
+//			  {3, 0,1,128},
+//			  {3, 0,1,128}};
+
+//	    int m[][6] = {{4, 1,128,64,0},
+//			  {4, 1,128,65,0},
+//			  {2, 128,0},
+//			  {2, 128,0}};
+
+//	    int m[][6] = {{2, 64,0},
+//			  {1, 0},
+//			  {1, 128},
+//			  {1, 128}};
+
+//	    int m[][6] = {{1, 0},
+//			  {2, 128,0},
+//			  {1, 128},
+//			  {1, 128}};
+
+	    for (j = 1; j <= m[i][0]; j++) {
+		if ((order & m[i][j]) != m[i][j])
 		    continue;
 		olen2 = *out_size - (out2 - out);
-		arith_compress_to(in4+i*len4, len4, out2, &olen2, m[j] | X_NOSZ);
+		arith_compress_to(in4+i*len4, len4, out2, &olen2, m[i][j] | X_NOSZ);
 		if (best_sz > olen2) {
 		    best_sz = olen2;
 		    best_j = j;
 		}
 	    }
-	    olen2 = *out_size - (out2 - out);
-	    arith_compress_to(in4+i*len4, len4, out2, &olen2, m[best_j] | X_NOSZ);
+	    if (best_j != j-1) {
+		olen2 = *out_size - (out2 - out);
+		arith_compress_to(in4+i*len4, len4, out2, &olen2, m[i][best_j] | X_NOSZ);
+	    }
 	    out2 += olen2;
 	    c_meta_len += u32tou7(out+c_meta_len, olen2);
 	}
