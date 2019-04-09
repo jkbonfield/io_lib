@@ -922,8 +922,10 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 	out2 = out+26;
 	for (i = 0; i < 4; i++) {
 	    // Brute force try all methods.
+	    // FIXME: optimise this bit.  Maybe cull the huge list!
+	    //int j, m[] = {0,1,128,129,64,65,192,193}, best_j = 0, best_sz = in_size+10;
 	    int j, m[] = {0,1,128,129,64,65,192,193}, best_j = 0, best_sz = in_size+10;
-	    for (j = 0; j < 8; j++) {
+	    for (j = 0; j < sizeof(m)/sizeof(*m); j++) {
 		if ((order & m[j]) != m[j])
 		    continue;
 		olen2 = *out_size - (out2 - out);
@@ -932,7 +934,7 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 		    best_sz = olen2;
 		    best_j = j;
 		}
-	    }	
+	    }
 	    olen2 = *out_size - (out2 - out);
 	    arith_compress_to(in4+i*len4, len4, out2, &olen2, m[best_j] | X_NOSZ);
 	    out2 += olen2;
@@ -955,7 +957,7 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
     if (!no_size)
 	c_meta_len += u32tou7(&out[1], in_size);
 
-    order &= 0xf;
+    order &= 0x3;
 
     // Format is compressed meta-data, compressed data.
     // Meta-data can be empty, pack, rle lengths, or pack + rle lengths.
