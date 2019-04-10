@@ -1011,6 +1011,8 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 	int v[65536] = {0};
 	int i, j, c;
 	for (i = 0; i < in_size; i+=4) {
+	    // We only support 2-byte values at present in this encoder.
+	    // TODO: replace with a full hash table.
 	    if (in[i+2] || in[i+3])
 		break;
 	    v[in[i] | (in[i+1]<<8)]++;
@@ -1028,13 +1030,6 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 		out[c_meta_len++] = 4; // 4 byte -> 1 byte replacement
 		out[c_meta_len++] = c;
 
-#if 1
-		// Basic run length encode; N lit, M run
-		//fprintf(stderr, "c=%d\t", c);
-		//for (i = 0; i < c; i++)
-		//    fprintf(stderr, "%d ", val[i]);
-		//fprintf(stderr, "\n");
-
 		i = 0;
 		while (i < c) {
 		    // number of literals
@@ -1050,23 +1045,14 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 
 		    out[c_meta_len++] = (run<<4) | lit;
 		    for (j = i+1; j <= c; j++) {
-			//fprintf(stderr, "Store val %d\n", val[j-1]);
-			out[c_meta_len++] = val[j-1]&0xff;
-			out[c_meta_len++] = val[j-1]>>8;
+			//fprintf(stderr, "Store val %d:\n", val[j-1]);
+			c_meta_len += u32tou7(out+c_meta_len, val[j-1]);
 			if (j >= c || --lit == 0 || val[j] == 1+val[j-1])
 			    break;
 		    }
 
 		    i = j + run;
 		}
-#else
-		int last = 0;
-		for (i = 0; i < c; i++) {
-		    out[c_meta_len++] = val[i]&0xff;
-		    out[c_meta_len++] = val[i]>>8;
-		    //fprintf(stderr, "val[%d]=%d\n", i, val[i]);
-		}
-#endif
 
 		if (!(dict = malloc(in_size/4)))
 		    return NULL;
@@ -1258,7 +1244,6 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	if (in_size < nl*2)
 	    return NULL;
 
-#if 1
 	// Basic lit+run encoding
 	i = 0;
 	while (i < nl) {
@@ -1269,10 +1254,10 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	    //fprintf(stderr, "lit %d, run %d\n", lit, run);
 
 	    while (lit--) {
-		dict[i++] = in[0] | (in[1]<<8); // 16-bit, not 32!
+		int sz = u7tou32(in, in_end, &dict[i++]);
+		in      += sz;
+		in_size -= sz;
 		//fprintf(stderr, "L Dict[%d] = %d\n", i, dict[i-1]);
-		in += 2;
-		in_size -= 2;
 	    }
 
 	    while (run--) {
@@ -1281,17 +1266,6 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 		//fprintf(stderr, "R Dict[%d] = %d\n", i, dict[i-1]);
 	    }
 	}
-#else
-	for (i = 0; i < nl; i++) {
-	    dict[i] = in[i*2] | (in[i*2+1]<<8);
-	    //fprintf(stderr, "Dict[%d] = %d\n", i, dict[i]);
-	}
-	for (;i < 256;i++)
-	    dict[i] = 0; // security
-
-	in      += nl*2;
-	in_size -= nl*2;
-#endif
 	dsize = nl;
 	
 	//fprintf(stderr, "tmp3_size start at %d, out start at %d\n",
