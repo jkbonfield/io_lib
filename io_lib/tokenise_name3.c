@@ -247,32 +247,34 @@ static int append_uint32_var(char *cp, uint32_t i) {
 
 //-----------------------------------------------------------------------------
 // Simple variable sized unsigned integers
+// FIXME: almost identical to u7tou32 and u32tou7.
+// Put these in some common location
 static int i7put(uint8_t *cp, uint64_t i) {
     uint8_t *op = cp;
-    int s = 0;
-    uint64_t o = i;
 
     do {
-	s += 7;
-	o >>= 7;
-    } while (o);
-
-    do {
-	s -= 7;
-	*cp++ = ((i>>s)&0x7f) + (s?128:0);
-    } while (s);
+	*cp++ = (i&0x7f) + ((i>=0x80)<<7);
+	i >>= 7;
+    } while (i);
 
     return cp-op;
 }
 
 static int i7get(uint8_t *cp, uint64_t *i) {
+    unsigned char *cp_end = cp+100; // FIXME: add to arg list!
     uint8_t *op = cp, c;
-    uint64_t j = 0;
+    uint32_t j = 0, s = 0;
+
+    if (cp >= cp_end) {
+	*i = 0;
+	return 0;
+    }
 
     do {
 	c = *cp++;
-	j = (j<<7) | (c & 0x7f);
-    } while (c & 0x80);
+	j |= (c & 0x7f) << s;
+	s += 7;
+    } while ((c & 0x80) && cp < cp_end);
 
     *i = j;
     return cp-op;
@@ -1155,11 +1157,13 @@ static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint6
     }
 
     int m, rmethods[5][12] = {
-	{1,                              193+8},              // 1
-	{2,   0,                         193+8},              // 3
-	{6,   0,  128,    64,   192,     193+8, 0+4},         // 5
-	{10,  0,1,128,129,64,65,192,193, 193+8, 0+4},         // 7
-	{11,  0,1,128,129,64,65,192,193, 193+8, 0+4, 64+4},   // 9
+	//{2,   0,                         193},                // 1
+	{1,   0},
+
+	{2,   0,                         192+8},              // 3
+	{2,   0,                         193+8},              // 5
+	{6,   0,1,    129,   65,    193, 193+8},              // 7
+	{11,  0,1,128,129,64,65,192,193, 193+8, 0+4, 128+4},  // 9
     };
 
     // 1-9 to 0-4
@@ -1191,9 +1195,11 @@ static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint6
 static uint64_t uncompressed_size(uint8_t *in, uint64_t in_len) {
     uint64_t clen, ulen;
 
+    // in[0] in part of buffer written by us
     int nb = i7get(in, &clen);
     if (clen <= 3) return clen;
 
+    // in[nb] is part of buffer written to by arith_dynamic.
     i7get(in+nb+1, &ulen);
 
     return ulen;
@@ -1529,8 +1535,8 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	}
 	assert(ctx->desc[i].buf_a == ulen);
 
-	//	    fprintf(stderr, "%d: Decode tnum %d type %d clen %d ulen %d via %d\n",
-	//		    o, tnum, ttype, (int)clen, (int)ctx->desc[i].buf_a, ctx->desc[i].buf[0]);
+	// fprintf(stderr, "%d: Decode tnum %d type %d clen %d ulen %d via %d\n",
+	// 	o, tnum, ttype, (int)clen, (int)ctx->desc[i].buf_a, ctx->desc[i].buf[0]);
 
 	o += clen;
 
@@ -1587,8 +1593,14 @@ static char blk[BLK_SIZE*2]; // temporary fix for decoder, which needs more spac
 
 static int encode(int argc, char **argv) {
     FILE *fp;
-    int len, i, j;
+    int len, i, j, level = 9;
     name_context *ctx;
+
+    if (argc > 1 && argv[1][0] == '-') {
+	level = atoi(argv[1]+1);
+	argc -= 1;
+	argv++;
+    }
 
     if (argc > 1) {
 	fp = fopen(argv[1], "r");
@@ -1611,7 +1623,7 @@ static int encode(int argc, char **argv) {
 	len += blk_offset;
 
 	int out_len;
-	uint8_t *out = encode_names(blk, len, 9, &out_len, &last_start);
+	uint8_t *out = encode_names(blk, len, level, &out_len, &last_start);
 	if (write(1, &out_len, 4) < 4) exit(1);
 	if (write(1, out, out_len) < out_len) exit(1);   // encoded data
 	free(out);
