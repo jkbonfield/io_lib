@@ -1157,9 +1157,7 @@ static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint6
     }
 
     int m, rmethods[5][12] = {
-	//{2,   0,                         193},                // 1
-	{1,   0},
-
+	{1,   0},					      // 1
 	{2,   0,                         192+8},              // 3
 	{2,   0,                         193+8},              // 5
 	{6,   0,1,    129,   65,    193, 193+8},              // 7

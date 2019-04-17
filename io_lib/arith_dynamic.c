@@ -3,12 +3,15 @@
 // reduction in some data sets.
 
 // top bits in order byte
-#define X_PACK 0x80    // Pack 2,4,8 or infinite symbols into a byte.
-#define X_RLE  0x40    // Run length encoding with runs & lits encoded separately
-#define X_CAT  0x20    // Nop; for tiny segments where rANS overhead is too big
-#define X_NOSZ 0x10    // Don't store the original size; used by X4 mode
-#define X_4    0x08    // For 4-byte integer data; rotate & encode 4 streams.
-#define X_DICT 0x04    // Quantise 16-bit of 32-symbols to 8-bit.
+#define X_PACK  0x80    // Pack 2,4,8 or infinite symbols into a byte.
+#define X_RLE   0x40    // Run length encoding with runs & lits encoded separately
+#define X_CAT   0x20    // Nop; for tiny segments where rANS overhead is too big
+#define X_NOSZ  0x10    // Don't store the original size; used by X4 mode
+#define X_4     0x08    // For 4-byte integer data; rotate & encode 4 streams.
+#define X_EXT   0x04    // External compression codec via magic num (gz, xz, bz2)
+#define X_ORDER 0x03    // Mask to obtain order
+
+#include <bzlib.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -17,6 +20,7 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/time.h>
+#include <limits.h>
 #ifndef NO_THREADS
 #include <pthread.h>
 #endif
@@ -35,25 +39,18 @@
 
 static int u32tou7(uint8_t *cp, uint32_t i) {
     uint8_t *op = cp;
-    int s = 0;
-    uint32_t o = i;
 
     do {
-	s += 7;
-	o >>= 7;
-    } while (o);
-
-    do {
-	s -= 7;
-	*cp++ = ((i>>s)&0x7f) + (s?128:0);
-    } while (s);
+	*cp++ = (i&0x7f) + ((i>=0x80)<<7);
+	i >>= 7;
+    } while (i);
 
     return cp-op;
 }
 
 static int u7tou32(uint8_t *cp, uint8_t *cp_end, uint32_t *i) {
     uint8_t *op = cp, c;
-    uint32_t j = 0;
+    uint32_t j = 0, s = 0;
 
     if (cp >= cp_end) {
 	*i = 0;
@@ -62,7 +59,8 @@ static int u7tou32(uint8_t *cp, uint8_t *cp_end, uint32_t *i) {
 
     do {
 	c = *cp++;
-	j = (j<<7) | (c & 0x7f);
+	j |= (c & 0x7f) << s;
+	s += 7;
     } while ((c & 0x80) && cp < cp_end);
 
     *i = j;
@@ -497,7 +495,6 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 }
 
 //-----------------------------------------------------------------------------
-
 unsigned char *arith_compress_O1(unsigned char *in, unsigned int in_size,
 				 unsigned char *out, unsigned int *out_size) {
     int i, bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
@@ -570,8 +567,14 @@ unsigned char *arith_uncompress_O1(unsigned char *in, unsigned int in_size,
 
 //-----------------------------------------------------------------------------
 
+// Disable O2 for now
+#if 0
+
+#if 0
 unsigned char *arith_compress_O2(unsigned char *in, unsigned int in_size,
 				 unsigned char *out, unsigned int *out_size) {
+    fprintf(stderr, "WARNING: using undocumented O2 arith\n");
+
     int i, j;
     int bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
 
@@ -617,6 +620,67 @@ unsigned char *arith_compress_O2(unsigned char *in, unsigned int in_size,
 
     return out;
 }
+#else
+unsigned char *arith_compress_O2(unsigned char *in, unsigned int in_size,
+				 unsigned char *out, unsigned int *out_size) {
+    fprintf(stderr, "WARNING: using undocumented O2 arith\n");
+
+    int i, j;
+    int bound = arith_compress_bound(in_size,0)-5; // -5 for order/size
+
+    if (!out) {
+	*out_size = bound;
+	out = malloc(*out_size);
+    }
+    if (!out || bound > *out_size)
+	return NULL;
+
+    unsigned int m = 0;
+    if (1 || in_size > 1000) {
+	for (i = 0; i < in_size; i++)
+	    if (m < in[i])
+		m = in[i];
+	//fprintf(stderr, "%d max %d\n", in_size, m);
+	m++;
+    }
+    *out = m;
+
+    SIMPLE_MODEL(256,_) *byte_model;
+    byte_model = malloc(256*256*sizeof(*byte_model));
+    for (i = 0; i < 256; i++)
+	for (j = 0; j < 256; j++)
+	    SIMPLE_MODEL(256,_init)(&byte_model[i*256+j], m);
+    SIMPLE_MODEL(256,_) byte_model1[256];
+    for (i = 0; i < 256; i++)
+	SIMPLE_MODEL(256,_init)(&byte_model1[i], m);
+
+    RangeCoder rc;
+    RC_SetOutput(&rc, (char *)out+1);
+    RC_StartEncode(&rc);
+
+    unsigned char last1 = 0, last2 = 0;
+    for (i = 0; i < in_size; i++) {
+	// Use Order-1 is order-2 isn't sufficiently advanced yet (75+ symbols)
+	if (byte_model[last1*256+last2].TotFreq <= m+75*16) {
+	    SIMPLE_MODEL(256, _encodeSymbol)(&byte_model1[last1], &rc, in[i]);
+	    SIMPLE_MODEL(256, _updateSymbol)(&byte_model[last1*256 + last2], &rc, in[i]);
+	} else {
+	    SIMPLE_MODEL(256, _encodeSymbol)(&byte_model[last1*256 + last2], &rc, in[i]);
+	    //SIMPLE_MODEL(256, _updateSymbol)(&byte_model1[last1], &rc, in[i]);
+	}
+	last2 = last1;
+	last1 = in[i];
+    }
+
+    free(byte_model);
+    RC_FinishEncode(&rc);
+
+    // Finalise block size and return it
+    *out_size = RC_OutSize(&rc)+1;
+
+    return out;
+}
+#endif
 
 unsigned char *arith_uncompress_O2(unsigned char *in, unsigned int in_size,
 				   unsigned char *out, unsigned int out_sz) {
@@ -650,6 +714,7 @@ unsigned char *arith_uncompress_O2(unsigned char *in, unsigned int in_size,
     return out;
 }
 
+#endif // Disable O2
 /*-----------------------------------------------------------------------------
  */
 
@@ -887,7 +952,7 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 				 unsigned char *out, unsigned int *out_size,
 				 int order) {
     unsigned int c_meta_len;
-    uint8_t *rle = NULL, *packed = NULL, *dict = NULL;
+    uint8_t *rle = NULL, *packed = NULL;
 
     if (!out) {
 	*out_size = arith_compress_bound(in_size, order);
@@ -897,6 +962,13 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 
     if (in_size%4 != 0 || in_size <= 20)
 	order &= ~X_4;
+
+    if (order & X_CAT) {
+	out[0] = X_CAT;
+	c_meta_len = 1 + u32tou7(&out[1], in_size);
+	memcpy(out+c_meta_len, in, in_size);
+	*out_size = in_size+c_meta_len;
+    }
 
     if (order & X_4) {
 	unsigned char *in4 = malloc(in_size);
@@ -923,23 +995,28 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 	for (i = 0; i < 4; i++) {
 	    // Brute force try all methods.
 	    // FIXME: optimise this bit.  Maybe learn over time?
-	    int j, best_j = 0, best_sz = in_size+10;
+	    int j, best_j = 0, best_sz = INT_MAX;
 
 	    // Works OK with read names. The first byte is the most important,
 	    // as it has most variability (little-endian).  After that it's
 	    // often quite predictable.
 	    //
 	    // Do we gain in any other context in CRAM? Aux tags maybe?
-	    int m[][6] = {{3, 1,64,0},
+	    int m[][4] = {{3, 1,64,0},
 			  {2, 1,0},
 			  {2, 1,128},
 			  {2, 1,128}};
 
+//	    int m[][6] = {{4, 1,64,2,0},  //test of adding in an order-2 codec
+//			  {3, 1,2,0},
+//			  {3, 1,2,128},
+//			  {3, 1,2,128}};
+
 // Other possibilities for methods to try.
-//	    int m[][9] = {{8, 1,128,129,64,65,192,193,0},
-//			  {8, 1,128,129,64,65,192,193,0},
-//			  {8, 1,128,129,64,65,192,193,0},
-//			  {8, 1,128,129,64,65,192,193,0}};
+//	    int m[][10] = {{8, 1,128,129,64,65,192,193,4,0},
+//			   {8, 1,128,129,64,65,192,193,4,0},
+//			   {8, 1,128,129,64,65,192,193,4,0},
+//			   {8, 1,128,129,64,65,192,193,4,0}};
 
 //	    int m[][9] = {{5, 1,128,64,65,0},
 //			  {5, 1,128,64,65,0},
@@ -967,18 +1044,23 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 //			  {1, 128}};
 
 	    for (j = 1; j <= m[i][0]; j++) {
-		if ((order & m[i][j]) != m[i][j])
-		    continue;
 		olen2 = *out_size - (out2 - out);
+		//fprintf(stderr, "order=%d m=%d\n", order&3, m[i][j]);
+		if ((order&3) == 0 && (m[i][j]&1))
+		    continue;
+
 		arith_compress_to(in4+i*len4, len4, out2, &olen2, m[i][j] | X_NOSZ);
 		if (best_sz > olen2) {
 		    best_sz = olen2;
 		    best_j = j;
 		}
 	    }
+//	    if (best_j == 0) // none desireable
+//		return NULL;
 	    if (best_j != j-1) {
 		olen2 = *out_size - (out2 - out);
-		arith_compress_to(in4+i*len4, len4, out2, &olen2, m[i][best_j] | X_NOSZ);
+		if (!arith_compress_to(in4+i*len4, len4, out2, &olen2, m[i][best_j] | X_NOSZ))
+		    return NULL;
 	    }
 	    out2 += olen2;
 	    c_meta_len += u32tou7(out+c_meta_len, olen2);
@@ -992,7 +1074,7 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
     int do_pack = order & X_PACK;
     int do_rle  = order & X_RLE;
     int no_size = order & X_NOSZ;
-    int do_dict = order & X_DICT;
+    int do_ext  = order & X_EXT;
 
     out[0] = order;
     c_meta_len = 1;
@@ -1006,63 +1088,6 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
     // Meta-data can be empty, pack, rle lengths, or pack + rle lengths.
     // Data is either the original data, bit-packed packed, rle literals or
     // packed + rle literals.
-
-    if (do_dict) {
-	int v[65536] = {0};
-	int i, j, c;
-	for (i = 0; i < in_size; i+=4) {
-	    // We only support 2-byte values at present in this encoder.
-	    // TODO: replace with a full hash table.
-	    if (in[i+2] || in[i+3])
-		break;
-	    v[in[i] | (in[i+1]<<8)]++;
-	}
-
-	int val[257];
-	if (i == in_size) {
-	    for (i = c = 0; i < 65536 && c < 257; i++) {
-		if (v[i]) {
-		    val[c] = i;
-		    v[i] = ++c;
-		}
-	    }
-	    if (c <= 255) {
-		out[c_meta_len++] = 4; // 4 byte -> 1 byte replacement
-		out[c_meta_len++] = c;
-
-		i = 0;
-		while (i < c) {
-		    // number of literals
-		    int j, lit = 1, run = 0;
-		    for (j = i+1; j < c && lit < 15; j++, lit++)
-			if (val[j] == 1+val[j-1])
-			    break;
-		    // followed by consecutive run
-		    for (; j < c && run < 15; j++, run++)
-			if (val[j] != 1+val[j-1])
-			    break;
-		    //fprintf(stderr, "%d %d/%d: %d,%d\n", val[i], i,c, lit,run);
-
-		    out[c_meta_len++] = (run<<4) | lit;
-		    for (j = i+1; j <= c; j++) {
-			//fprintf(stderr, "Store val %d:\n", val[j-1]);
-			c_meta_len += u32tou7(out+c_meta_len, val[j-1]);
-			if (j >= c || --lit == 0 || val[j] == 1+val[j-1])
-			    break;
-		    }
-
-		    i = j + run;
-		}
-
-		if (!(dict = malloc(in_size/4)))
-		    return NULL;
-		for (i = j = 0; i < in_size; i+=4, j++)
-		    dict[j] =  v[in[i] | (in[i+1]<<8)]-1;
-		in_size = j;
-		in = dict;
-	    }
-	}
-    }
 
     if (do_pack && in_size) {
 	// PACK 2, 4 or 8 symbols into one byte.
@@ -1095,26 +1120,43 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 
     *out_size -= c_meta_len;
     if (order && in_size < 8) {
-	out[0] &= ~1;
-	order  &= ~1;
+	out[0] &= ~3;
+	order  &= ~3;
     }
 
-    if (do_rle) {
-	if (order == 0)
-	    arith_compress_O0_RLE(in, in_size, out+c_meta_len, out_size);
-	else
-	    arith_compress_O1_RLE(in, in_size, out+c_meta_len, out_size);
+    if (do_ext) {
+	// Use an external compression library instead.
+	// For now, bzip2
+	if (BZ_OK != BZ2_bzBuffToBuffCompress((char *)out+c_meta_len, out_size,
+					      (char *)in, in_size, 9, 0, 30))
+	    *out_size = in_size; // Didn't fit with bz2; force X_CAT below instead
+
+//      // lzma doesn't help generally, at least not for the name tokeniser
+//	size_t lzma_size = 0;
+//	lzma_easy_buffer_encode(9, LZMA_CHECK_CRC32, NULL,
+//				in, in_size, out+c_meta_len, &lzma_size,
+//				*out_size);
+//	*out_size = lzma_size;
+
     } else {
-	if (order == 2)
-	    arith_compress_O2(in, in_size, out+c_meta_len, out_size);
-	else if (order == 1)
-	    arith_compress_O1(in, in_size, out+c_meta_len, out_size);
-	else
-	    arith_compress_O0(in, in_size, out+c_meta_len, out_size);
+	if (do_rle) {
+	    if (order == 0)
+		arith_compress_O0_RLE(in, in_size, out+c_meta_len, out_size);
+	    else
+		arith_compress_O1_RLE(in, in_size, out+c_meta_len, out_size);
+	} else {
+	    //if (order == 2)
+	    //	arith_compress_O2(in, in_size, out+c_meta_len, out_size);
+	    //else
+	    if (order == 1)
+		arith_compress_O1(in, in_size, out+c_meta_len, out_size);
+	    else
+		arith_compress_O0(in, in_size, out+c_meta_len, out_size);
+	}
     }
 
     if (*out_size >= in_size) {
-	out[0] &= ~3;
+	out[0] &= ~(3|X_EXT); // no entropy encoding, but keep e.g. PACK
 	out[0] |= X_CAT | no_size;
 	memcpy(out+c_meta_len, in, in_size);
 	*out_size = in_size;
@@ -1122,7 +1164,6 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 
     free(rle);
     free(packed);
-    free(dict);
 
     *out_size += c_meta_len;
 
@@ -1200,7 +1241,7 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
     int do_rle  = order & X_RLE;
     int do_cat  = order & X_CAT;
     int no_size = order & X_NOSZ;
-    int do_dict = order & X_DICT;
+    int do_ext  = order & X_EXT;
     order &= 3;
 
     int sz = 0;
@@ -1228,94 +1269,27 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
     uint32_t c_meta_size = 0;
     unsigned int tmp1_size = *out_size;
     unsigned int tmp2_size = *out_size;
-    unsigned int tmp3_size = *out_size;
-    unsigned char *tmp1 = NULL, *tmp2 = NULL, *tmp3 = NULL, *tmp = NULL;
-
-    // Unpack dict meta-data
-    uint32_t dict[256], dsize = 0;
-
-    if (do_dict) {
-	if (in_size < 2 || in[0] != 4) //32to8
-	    return NULL;
-
-	int nl = in[1], i;
-	in      += 2;
-	in_size -= 2;
-	if (in_size < nl*2)
-	    return NULL;
-
-	// Basic lit+run encoding
-	i = 0;
-	while (i < nl) {
-	    int lit = in[0]&15;
-	    int run = in[0]>>4;
-	    in++; in_size--;
-
-	    //fprintf(stderr, "lit %d, run %d\n", lit, run);
-
-	    while (lit--) {
-		int sz = u7tou32(in, in_end, &dict[i++]);
-		in      += sz;
-		in_size -= sz;
-		//fprintf(stderr, "L Dict[%d] = %d\n", i, dict[i-1]);
-	    }
-
-	    while (run--) {
-		dict[i] = dict[i-1]+1;
-		i++;
-		//fprintf(stderr, "R Dict[%d] = %d\n", i, dict[i-1]);
-	    }
-	}
-	dsize = nl;
-	
-	//fprintf(stderr, "tmp3_size start at %d, out start at %d\n",
-	//	tmp3_size, *out_size);
-
-	tmp1_size/=4;
-	tmp2_size/=4;
-	tmp3_size/=4;
-    }
+    unsigned char *tmp1 = NULL, *tmp2 = NULL, *tmp = NULL;
 
     // Need In, Out and Tmp buffers with temporary buffer of the same size
-    // as output.  All use rANS, but with optional transforms (none, RLE,
-    // Pack, or both).
+    // as output.  Our entropy decode is either arithmetic (with/without RLE)
+    // or external (bz2, gzip, lzma) but with an optional unPACK transform
+    // at the end.
     //
-    //                    rans   unrle  unpack
-    // If none:     in -> out
-    // If RLE:      in -> tmp -> out
-    // If Pack:     in -> tmp        -> out
-    // If RLE+Pack: in -> out -> tmp -> out
-    //                    tmp1   tmp2   tmp3
-    //
-    // So rans is in   -> tmp1
-    // RLE     is tmp1 -> tmp2
-    // Unpack  is tmp2 -> tmp3
+    // To avoid pointless memcpy when unpacking we switch around which
+    // buffers we're writing to accordingly.
 
-    // Format is meta data (Pack and RLE in that order if present),
-    // followed by rANS compressed data.
-
-    if (do_pack || do_rle) {
+    // Format is pack meta data if present, followed by compressed data.
+    if (do_pack) {
 	if (!(tmp = malloc(*out_size)))
 	    return NULL;
-	if (do_pack && do_rle) {
-	    tmp1 = out;
-	    tmp2 = tmp;
-	    tmp3 = out;
-	} else if (do_pack) {
-	    tmp1 = tmp;
-	    tmp2 = tmp1;
-	    tmp3 = out;
-	} else if (do_rle) {
-	    tmp1 = tmp;
-	    tmp2 = out;
-	    tmp3 = out;
-	}
+	tmp1 = tmp;  // uncompress
+	tmp2 = out;  // unpack
     } else {
-	// neither
+	// no pack
 	tmp  = NULL;
-	tmp1 = out;
-	tmp2 = out;
-	tmp3 = out;
+	tmp1 = out;  // uncompress
+	tmp2 = out;  // NOP
     }
 
     
@@ -1354,73 +1328,50 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	    if (tmp1_size > *out_size)
 		return NULL;
 	    memcpy(tmp1, in, tmp1_size);
+	} else if (do_ext) {
+	    if (BZ_OK != BZ2_bzBuffToBuffDecompress((char *)tmp1, &tmp1_size,
+						    (char *)in, in_size, 0, 0))
+		return NULL;
 	} else {
 	    // in -> tmp1
 	    if (do_rle) {
-		//fprintf(stderr, "%d => %p, %p, %p; %p %p\n", do_pack, tmp1, tmp2, tmp3, tmp, out);
-		// +pack => out, tmp, out
-		// -pack => nul, nul, nul
 		tmp1 = order == 1
 		    ? arith_uncompress_O1_RLE(in, in_size, tmp1, tmp1_size)
 		    : arith_uncompress_O0_RLE(in, in_size, tmp1, tmp1_size);
 	    } else {
-		tmp1 = order == 2
-		    ? arith_uncompress_O2(in, in_size, tmp1, tmp1_size)
-		    : (order
-		       ? arith_uncompress_O1(in, in_size, tmp1, tmp1_size)
-		       : arith_uncompress_O0(in, in_size, tmp1, tmp1_size));
+		//if (order == 2)
+		//    tmp1 = arith_uncompress_O2(in, in_size, tmp1, tmp1_size)
+		//else
+		tmp1 = order == 1
+		    ? arith_uncompress_O1(in, in_size, tmp1, tmp1_size)
+		    : arith_uncompress_O0(in, in_size, tmp1, tmp1_size);
 	    }
 	    if (!tmp1)
 		return NULL;
 	}
- } else {
+    } else {
 	tmp1 = NULL;
 	tmp1_size = 0;
     }
-    tmp2_size = tmp3_size = tmp1_size;
 
-    if (do_rle) {
-	//fprintf(stderr, "unrle i %p, 1 %p, 2 %p, 3 %p, o %p (t %p)\n", in, tmp1, tmp2, tmp3, out, tmp);
-	memcpy(tmp2, tmp1, tmp1_size);
-	tmp3_size = tmp2_size = tmp1_size;
-
-	//fprintf(stderr, "%x %x %x .. %x %x %x\n", tmp2[0], tmp2[1], tmp2[2], tmp2[3],
-	//	tmp2[tmp2_size-3], tmp2[tmp2_size-2], tmp2[tmp2_size-1]);
-    }
     if (do_pack) {
-	//fprintf(stderr, "Unpack %d {%02x %02x %02x %02x}\n", tmp2_size, tmp2[0], tmp2[1], tmp2[2], tmp2[3]);
-	//fprintf(stderr, "%p -> %p\n", tmp2, tmp3);
-	// Unpack bits via pack-map.  tmp2 -> tmp3
+	// Unpack bits via pack-map.  tmp1 -> tmp2
 	if (npacked_sym == 1)
-	    unpacked_sz = tmp2_size;
+	    unpacked_sz = tmp1_size;
 	//uint8_t *porig = unpack(tmp2, tmp2_size, unpacked_sz, npacked_sym, map);
 	//memcpy(tmp3, porig, unpacked_sz);
-	if (!unpack(tmp2, tmp2_size, tmp3, unpacked_sz, npacked_sym, map))
+	if (!unpack(tmp1, tmp1_size, tmp2, unpacked_sz, npacked_sym, map))
 	    return NULL;
-	tmp3_size = unpacked_sz;
-    }
-
-    if (do_dict) {
-	uint32_t *tmpd = malloc(tmp3_size*4);
-	if (!tmpd)
-	    return NULL;
-	int i;
-	for (i = 0; i < tmp3_size; i++) {
-	    // FIXME: Assumes little-endian
-	    tmpd[i] = dict[tmp3[i]];
-	    if (tmp3[i] >= dsize)
-		abort();//return NULL;
-	}
-	tmp3_size *= 4;
-	memcpy(tmp3, tmpd, tmp3_size);
-	free(tmpd);
+	tmp2_size = unpacked_sz;
+    } else {
+	tmp2_size = tmp1_size;
     }
 
     if (tmp)
 	free(tmp);
 
-    *out_size = tmp3_size;
-    return tmp3;
+    *out_size = tmp2_size;
+    return tmp2;
 }
 
 unsigned char *arith_uncompress(unsigned char *in, unsigned int in_size,
@@ -1702,13 +1653,12 @@ int main(int argc, char **argv) {
 	}
 	fprintf(stderr, "Testing %d blocks\n", nb);
 
-	int O=0;
-	int order_map[] = {0,1,64,65,128,129,192,193};
-	for (O=0; O<32; O++) {
-	    order = order_map[O&7];
+	int O, order_map[10] = {0,1,64,65,128,129,192,193,4,128+4};
+	for (O=0; O<40; O++) {
+	    order = order_map[O%10];
 
-	    order |= (O&8) ? X_NOSZ : 0;
-	    order |= (O&16) ? X_4 : 0;
+	    order |= ((O/10)&1) ? X_NOSZ : 0;
+	    order |= ((O/10)&2) ? X_4    : 0;
 
 	    out_sz = 0;
 	    for (i = 0; i < nb; i++) {
