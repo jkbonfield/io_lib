@@ -625,10 +625,25 @@ int search_trie(name_context *ctx, char *data, size_t len, int n, int *exact, in
 	*fixed_len = 37;
 	*is_fixed = 1;
     } else {
-	// Anything else we give up on the trie method, but we still want to search
-	// for exact matches;
-	prefix_len = INT_MAX;
-	*is_fixed = 0;
+	// Check Illumina and trim back to lane:tile:x:y.
+	int colons = 0;
+	for (i = 0; i < len && data[i] > ' '; i++)
+	    ;
+	while (i > 0 && colons < 4)
+	    if (data[--i] == ':')
+		colons++;
+
+	if (colons == 4) {
+	    // Constant illumina prefix
+	    *fixed_len = i+1;
+	    prefix_len = i+1;
+	    *is_fixed = 1;
+	} else {
+	    // Unknown, don't use a fixed len, but still search
+	    // for any exact matches.
+	    prefix_len = INT_MAX;
+	    *is_fixed = 0;
+	}
     }
     //prefix_len = INT_MAX;
 
