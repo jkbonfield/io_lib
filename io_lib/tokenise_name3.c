@@ -112,10 +112,10 @@
 #define MAX_NAMES 1000000
 
 enum name_type {N_ERR = -1, N_TYPE = 0, N_ALPHA, N_CHAR, N_DIGITS0, N_DZLEN, N_DUP, N_DIFF, 
-		N_DIGITS, N_DDELTA, N_DDELTA0, N_MATCH, N_END,N_ALL};
+		N_DIGITS, N_DDELTA, N_DDELTA0, N_MATCH, N_NOP, N_END,N_ALL};
 
 char *types[]={"TYPE", "ALPHA", "CHAR", "DIG0", "DZLEN", "DUP", "DIFF",
-	       "DIGITS", "DDELTA", "DDELTA0", "MATCH", "END"};
+	       "DIGITS", "DDELTA", "DDELTA0", "MATCH", "NOP", "END"};
 
 typedef struct trie trie_t;
 
@@ -1064,6 +1064,10 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 	    //fprintf(stderr, "Tok %d DELTA %d\n", ntok, v);
 	    ctx->lc[cnum].last_token_type[ntok] = N_DIGITS;
 	    ctx->lc[cnum].last_token_int [ntok] = v;
+	    break;
+
+	case N_NOP:
+	    ctx->lc[cnum].last_token_type[ntok] = N_NOP;
 	    break;
 
 	case N_MATCH:
