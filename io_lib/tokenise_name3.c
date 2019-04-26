@@ -111,11 +111,11 @@
 // Number of names per block
 #define MAX_NAMES 1000000
 
-enum name_type {N_ERR = -1, N_TYPE = 0, N_ALPHA, N_CHAR, N_DZLEN, N_DIGITS0, N_DUP, N_DIFF, 
-		N_DIGITS, N_D1, N_D2, N_D3, N_DDELTA, N_DDELTA0, N_MATCH, N_END,N_ALL};
+enum name_type {N_ERR = -1, N_TYPE = 0, N_ALPHA, N_CHAR, N_DIGITS0, N_DZLEN, N_DUP, N_DIFF, 
+		N_DIGITS, N_DDELTA, N_DDELTA0, N_MATCH, N_END,N_ALL};
 
-char *types[]={"TYPE", "ALPHA", "CHAR", "DZLEN", "DIG0", "DUP", "DIFF",
-	       "DIGITS", "", "", "", "DDELTA", "DDELTA0", "MATCH", "END"};
+char *types[]={"TYPE", "ALPHA", "CHAR", "DIG0", "DZLEN", "DUP", "DIFF",
+	       "DIGITS", "DDELTA", "DDELTA0", "MATCH", "END"};
 
 typedef struct trie trie_t;
 
@@ -614,8 +614,8 @@ int search_trie(name_context *ctx, char *data, size_t len, int n, int *exact, in
 	prefix_len = 60; // PacBio
 	*is_fixed = 0;
     } else if (l == 17 && d[f+5] == ':' && d[f+11] == ':') {
-	prefix_len = 7;  // IonTorrent
-	*fixed_len = 7;
+	prefix_len = 6;  // IonTorrent
+	*fixed_len = 6;
 	*is_fixed = 1;
     } else if (l > 37 && d[f+8] == '-' && d[f+13] == '-' && d[f+18] == '-' && d[f+23] == '-' &&
 	       ((d[f+0] >= '0' && d[f+0] <='9') || (d[f+0] >= 'a' && d[f+0] <= 'f')) &&
@@ -1164,13 +1164,6 @@ static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint6
 
     //fprintf(stderr, "=== try %d ===\n", (int)in_len);
 
-    if (in_len <= 3) {
-	out[0] = in_len;
-	memcpy(out+1, in, in_len);
-	*out_len = in_len+1;
-	return 0;
-    }
-
     int m, rmethods[5][12] = {
 	{1,   0},					      // 1
 	{2,   0,                         192+8},              // 3
@@ -1197,8 +1190,6 @@ static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint6
     *out_len = olen;
     if (arith_encode(in, in_len, out, out_len, best) < 0) return -1;
 
-    assert(*out_len > 2);
-
 //    uint64_t tmp;
 //    fprintf(stderr, "%d -> %d via method %x, %x\n", (int)in_len, (int)best_sz, best, out[i7get(out,&tmp)]);
 
@@ -1210,7 +1201,6 @@ static uint64_t uncompressed_size(uint8_t *in, uint64_t in_len) {
 
     // in[0] in part of buffer written by us
     int nb = i7get(in, &clen);
-    if (clen <= 3) return clen;
 
     // in[nb] is part of buffer written to by arith_dynamic.
     i7get(in+nb+1, &ulen);
@@ -1221,17 +1211,6 @@ static uint64_t uncompressed_size(uint8_t *in, uint64_t in_len) {
 static int uncompress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len) {
     uint64_t clen;
     i7get(in, &clen);
-
-    if (clen <= 3) {
-	memcpy(out, in+1, clen);
-	*out_len = clen;
-	return clen+1;
-	
-	//*out = in[1];
-	//*out_len = 1;
-	//return 2;
-    }
-
     return arith_decode(in, in_len, out, out_len);
 }
 
@@ -1480,8 +1459,6 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 
 		ctx->desc[tnum<<4].buf_a = nreads;
 		ctx->desc[tnum<<4].buf[0] = ttype&15;
-		if ((ttype&15) == N_DZLEN)
-		    ctx->desc[tnum<<4].buf[0] = N_DIGITS0;
 		memset(&ctx->desc[tnum<<4].buf[1], N_MATCH, nreads-1);
 	    }
 
@@ -1512,8 +1489,6 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	    }
 	    ctx->desc[tnum<<4].buf_a = nreads;
 	    ctx->desc[tnum<<4].buf[0] = ttype&15;
-	    if ((ttype&15) == N_DZLEN)
-		ctx->desc[tnum<<4].buf[0] = N_DIGITS0;
 	    memset(&ctx->desc[tnum<<4].buf[1], N_MATCH, nreads-1);
 	}
 
