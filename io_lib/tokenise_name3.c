@@ -31,10 +31,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// cc -I.. -g -O3 tokenise_name3.c arith_dynamic.c pooled_alloc.c -pthread -DTEST_TOKENISER
+// cc -O3 -g -DTEST_TOKENISER tokenise_name3.c arith_dynamic.c rANS_static4x16pr.c pooled_alloc.c -I.. -I. -lbz2 -pthread
 
-// As per tokenise_name2 but has the entropy encoder built in already,
-// so we just have a single encode and decode binary.  (WIP; mainly TODO)
+// Name tokeniser.
+// It generates a series of byte streams (per token) and compresses these
+// either using static rANS or dynamic arithmetic coding.  Arith coding is
+// typically 1-5% smaller, but around 50-100% slower.  We only envisage it
+// being used at the higher compression levels.
 
 // TODO
 //
@@ -99,6 +102,7 @@
 
 #include "io_lib/pooled_alloc.h"
 #include "io_lib/arith_dynamic.h"
+#include "io_lib/rANS_static4x16.h"
 
 // 128 is insufficient for SAM names (max 256 bytes) as
 // we may alternate a0a0a0a0a0 etc.  However if we fail,
@@ -112,7 +116,7 @@
 #define MAX_NAMES 1000000
 
 enum name_type {N_ERR = -1, N_TYPE = 0, N_ALPHA, N_CHAR, N_DIGITS0, N_DZLEN, N_DUP, N_DIFF, 
-		N_DIGITS, N_DDELTA, N_DDELTA0, N_MATCH, N_NOP, N_END,N_ALL};
+		N_DIGITS, N_DDELTA, N_DDELTA0, N_MATCH, N_NOP, N_END, N_ALL};
 
 char *types[]={"TYPE", "ALPHA", "CHAR", "DIG0", "DZLEN", "DUP", "DIFF",
 	       "DIGITS", "DDELTA", "DDELTA0", "MATCH", "NOP", "END"};
@@ -1132,9 +1136,8 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
     return -1;
 }
 
-
 //-----------------------------------------------------------------------------
-// arith adaptive codec
+// arith adaptive codec or static rANS 4x16pr codec
 static int arith_encode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len, int method) {
     unsigned int olen = *out_len-6, nb;
     if (arith_compress_to(in, in_len, out+6, &olen, method) == NULL)
@@ -1161,7 +1164,34 @@ static int64_t arith_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t
     return clen+nb;
 }
 
-static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint64_t *out_len) {
+static int rans_encode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len, int method) {
+    unsigned int olen = *out_len-6, nb;
+    if (rans_compress_to_4x16(in, in_len, out+6, &olen, method) == NULL)
+	return -1;
+
+    nb = i7put(out, olen);
+    memmove(out+nb, out+6, olen);
+    *out_len = olen+nb;
+
+    return 0;
+}
+
+// Returns number of bytes read from 'in' on success,
+//        -1 on failure.
+static int64_t rans_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len) {
+    unsigned int olen = *out_len;
+
+    uint64_t clen;
+    int nb = i7get(in, &clen);
+    //fprintf(stderr, "Arith decode %x\n", in[nb]);
+    if (rans_uncompress_to_4x16(in+nb, in_len-nb, out, &olen) == NULL)
+	return -1;
+    //fprintf(stderr, "    Stored clen=%d\n", (int)clen);
+    return clen+nb;
+}
+
+static int compress(uint8_t *in, uint64_t in_len, int level, int use_arith,
+		    uint8_t *out, uint64_t *out_len) {
     uint64_t best_sz = UINT64_MAX;
     int best = 0;
     uint64_t olen = *out_len;
@@ -1183,7 +1213,13 @@ static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint6
 
     for (m = 1; m <= rmethods[level][0]; m++) {
 	*out_len = olen;
-	if (arith_encode(in, in_len, out, out_len, rmethods[level][m]) < 0) return -1;
+	if (use_arith) {
+	    if (arith_encode(in, in_len, out, out_len, rmethods[level][m]) < 0)
+		return -1;
+	} else {
+	    if (rans_encode(in, in_len, out, out_len, rmethods[level][m]) < 0)
+		return -1;
+	}
 
 	if (best_sz > *out_len) {
 	    best_sz = *out_len;
@@ -1192,7 +1228,13 @@ static int compress(uint8_t *in, uint64_t in_len, int level, uint8_t *out, uint6
     }
 
     *out_len = olen;
-    if (arith_encode(in, in_len, out, out_len, best) < 0) return -1;
+    if (use_arith) {
+	if (arith_encode(in, in_len, out, out_len, best) < 0)
+	    return -1;
+    } else {
+	if (rans_encode(in, in_len, out, out_len, best) < 0)
+	    return -1;
+    }
 
 //    uint64_t tmp;
 //    fprintf(stderr, "%d -> %d via method %x, %x\n", (int)in_len, (int)best_sz, best, out[i7get(out,&tmp)]);
@@ -1212,10 +1254,13 @@ static uint64_t uncompressed_size(uint8_t *in, uint64_t in_len) {
     return ulen;
 }
 
-static int uncompress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_len) {
+static int uncompress(int use_arith, uint8_t *in, uint64_t in_len,
+		      uint8_t *out, uint64_t *out_len) {
     uint64_t clen;
     i7get(in, &clen);
-    return arith_decode(in, in_len, out, out_len);
+    return use_arith
+	? arith_decode(in, in_len, out, out_len)
+	: rans_decode(in, in_len, out, out_len);
 }
 
 //-----------------------------------------------------------------------------
@@ -1229,7 +1274,8 @@ static int uncompress(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t *out_
  * Returns a malloced buffer holding compressed data of size *out_len,
  *         or NULL on failure
  */
-uint8_t *encode_names(char *blk, int len, int level, int *out_len, int *last_start_p) {
+uint8_t *encode_names(char *blk, int len, int level, int use_arith,
+		      int *out_len, int *last_start_p) {
     int last_start = 0, i, j, nreads;
     
     // Count lines
@@ -1323,7 +1369,7 @@ uint8_t *encode_names(char *blk, int len, int level, int *out_len, int *last_sta
     }
 
     // Serialise descriptors
-    uint32_t tot_size = 8;
+    uint32_t tot_size = 9;
     int ndesc = 0;
     for (i = 0; i < MAX_TBLOCKS; i++) {
 	if (!ctx->desc[i].buf_l) continue;
@@ -1340,7 +1386,8 @@ uint8_t *encode_names(char *blk, int len, int level, int *out_len, int *last_sta
 	    return NULL;
 	}
 
-	if (compress(ctx->desc[i].buf, ctx->desc[i].buf_l, level, out, &out_len) < 0) {
+	if (compress(ctx->desc[i].buf, ctx->desc[i].buf_l, level, use_arith,
+		     out, &out_len) < 0) {
 	    free_context(ctx);
 	    return NULL;
 	}
@@ -1382,7 +1429,7 @@ uint8_t *encode_names(char *blk, int len, int level, int *out_len, int *last_sta
 #endif
 
     // Write
-    uint8_t *out = malloc(tot_size+12);
+    uint8_t *out = malloc(tot_size+13);
     if (!out) {
 	free_context(ctx);
 	return NULL;
@@ -1395,6 +1442,7 @@ uint8_t *encode_names(char *blk, int len, int level, int *out_len, int *last_sta
     *out_len = tot_size;
     *(uint32_t *)cp = last_start; cp += 4;
     *(uint32_t *)cp = nreads;     cp += 4;
+    *cp++ = use_arith;
     //write(1, &nreads, 4);
     int last_tnum = -1;
     for (i = 0; i < MAX_TBLOCKS; i++) {
@@ -1438,9 +1486,10 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
     if (sz < 8)
 	return NULL;
 
-    int i, o = 8;
+    int i, o = 9;
     int ulen   = *(uint32_t *)in;
     int nreads = *(uint32_t *)(in+4);
+    int use_arith = in[8];
     name_context *ctx = create_context(nreads);
     if (!ctx)
 	return NULL;
@@ -1518,7 +1567,7 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 
 	ctx->desc[i].buf_a = ulen;
 	uint64_t usz = ctx->desc[i].buf_a; // convert from size_t for 32-bit sys
-	clen = uncompress(&in[o], sz-o, ctx->desc[i].buf, &usz);
+	clen = uncompress(use_arith, &in[o], sz-o, ctx->desc[i].buf, &usz);
 	ctx->desc[i].buf_a = usz;
 	if (clen < 0) {
 	    free(ctx->desc[i].buf);
@@ -1587,9 +1636,14 @@ static int encode(int argc, char **argv) {
     FILE *fp;
     int len, i, j, level = 9;
     name_context *ctx;
+    int use_arith = 1;
 
     if (argc > 1 && argv[1][0] == '-') {
 	level = atoi(argv[1]+1);
+	if (level > 10) {
+	    level -= 10;
+	    use_arith = 0;
+	}
 	argc -= 1;
 	argv++;
     }
@@ -1615,7 +1669,7 @@ static int encode(int argc, char **argv) {
 	len += blk_offset;
 
 	int out_len;
-	uint8_t *out = encode_names(blk, len, level, &out_len, &last_start);
+	uint8_t *out = encode_names(blk, len, level, use_arith, &out_len, &last_start);
 	if (write(1, &out_len, 4) < 4) exit(1);
 	if (write(1, out, out_len) < out_len) exit(1);   // encoded data
 	free(out);

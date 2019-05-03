@@ -1,6 +1,3 @@
-#define rans_compress_4x16 arith_compress
-#define rans_uncompress_4x16 arith_uncompress
-
 /*
  * Copyright (c) 2013 Genome Research Ltd.
  * Author(s): James Bonfield
@@ -97,6 +94,7 @@
 #include "io_lib/open_trace_file.h"
 #include "io_lib/rANS_static.h"
 #include "io_lib/rANS_static4x16.h"
+#include "io_lib/arith_dynamic.h"
 #include "io_lib/tokenise_name3.h"
 
 // Enable if we want V3.1 support.  TODO: add a configure param for this
@@ -1868,6 +1866,22 @@ int cram_uncompress_block(cram_block *b) {
 	break;
     }
 
+    case ARITH_PR0: {
+	unsigned int usize = b->uncomp_size, usize2;
+	uncomp = (char *)arith_uncompress_to(b->data, b->comp_size, NULL, &usize2);
+	if (!uncomp || usize != usize2)
+	    return -1;
+	b->orig_method = ARITH_PR0 + (b->data[0]&1)
+	    + 2*((b->data[0]&0x40)>0) + 4*((b->data[0]&0x80)>0);
+	free(b->data);
+	b->data = (unsigned char *)uncomp;
+	b->alloc = usize2;
+	b->method = RAW;
+	b->uncomp_size = usize2; // Just incase it differs
+	//fprintf(stderr, "Expanded %d to %d\n", b->comp_size, b->uncomp_size);
+	break;
+    }
+
     case NAME_TOK3: {
 	int out_len;
 	uint8_t *cp = decode_names(b->data, b->comp_size, &out_len);
@@ -2027,7 +2041,7 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
     case RANS_PR0:
     case RANS_PR1:
     case RANS_PR64:
-    case RANS_PR65:
+    case RANS_PR9:
     case RANS_PR128:
     case RANS_PR129:
     case RANS_PR192:
@@ -2036,19 +2050,41 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 	unsigned char *cp;
 	
 	// see enum cram_block. We map RANS_* methods to order bit-fields
-	static int methmap[] = {
-	    0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, // non-ranspr
-	    0,1, 64,65, 128,129, 192,193
-	};
+	static int methmap[] = { 0,1, 64,9, 128,129, 192,193 };
 
-	cp = rans_compress_4x16((unsigned char *)in, in_size, &out_size_i, methmap[method]);
+	cp = rans_compress_4x16((unsigned char *)in, in_size, &out_size_i,
+				methmap[method - RANS_PR0]);
 	*out_size = out_size_i;
 	return (char *)cp;
     }
 
-    case NAME_TOK3: {
+    case ARITH_PR0:
+    case ARITH_PR1:
+    case ARITH_PR64:
+    case ARITH_PR9:
+    case ARITH_PR128:
+    case ARITH_PR129:
+    case ARITH_PR192:
+    case ARITH_PR193: {
+	unsigned int out_size_i;
+	unsigned char *cp;
+
+	// see enum cram_block. We map ARITH_* methods to order bit-fields
+	static int methmap[] = { 0,1, 64,9, 128,129, 192,193 };
+
+	cp = arith_compress_to((unsigned char *)in, in_size,
+			       NULL, &out_size_i, methmap[method-ARITH_PR0]);
+	*out_size = out_size_i;
+	return (char *)cp;
+    }
+
+    case NAME_TOK3:
+    case NAME_TOKA: {
 	int out_len;
-	uint8_t *cp = encode_names(in, in_size, level, &out_len, NULL);
+	int lev = level;
+	if (method == NAME_TOK3 && lev > 3)
+	    lev = 3;
+	uint8_t *cp = encode_names(in, in_size, lev, strat, &out_len, NULL);
 	*out_size = out_len;
 	return (char *)cp;
     }
@@ -2088,7 +2124,9 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 	GZIP, GZIP, // GZIP_RLE and GZIP_1
 	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0, // RANS_PR1-193
 	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0,
-	NAME_TOK3,
+	NAME_TOK3, NAME_TOK3, // tokeniser
+	ARITH_PR0, ARITH_PR0, ARITH_PR0, ARITH_PR0,
+	ARITH_PR0, ARITH_PR0, ARITH_PR0, ARITH_PR0, // ARITH_PR0-193
     };
 
     if (b->method != RAW) {
@@ -2144,7 +2182,16 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		if (method & (1<<RANS_PR192))
 		    method = (method|(1<<RANS_PR64))&~(1<<RANS_PR192);
 		if (method & (1<<RANS_PR193))
-		    method = (method|(1<<RANS_PR65))&~(1<<RANS_PR193);
+		    method &= ~(1<<RANS_PR193);
+
+		if (method & (1<<ARITH_PR128))
+		    method = (method|(1<<ARITH_PR0))&~(1<<ARITH_PR128);
+		if (method & (1<<ARITH_PR129))
+		    method = (method|(1<<ARITH_PR1))&~(1<<ARITH_PR129);
+		if (method & (1<<ARITH_PR192))
+		    method = (method|(1<<ARITH_PR64))&~(1<<ARITH_PR192);
+		if (method & (1<<ARITH_PR193))
+		    method &= ~(1<<ARITH_PR193);
 	    }
             for (m = 0; m < CRAM_MAX_METHOD; m++) {
 		if (method & (1<<m)) {
@@ -2157,6 +2204,8 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		    case FQZ_b:    strat = CRAM_MAJOR_VERS(fd->version)+256; break;
 		    case FQZ_c:    strat = CRAM_MAJOR_VERS(fd->version)+2*256; break;
 		    case FQZ_d:    strat = CRAM_MAJOR_VERS(fd->version)+3*256; break;
+		    case NAME_TOK3:strat = 0; break;
+		    case NAME_TOKA:strat = 1; break;
 		    default:       strat = 0;
 		    }
 
@@ -2177,6 +2226,8 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		    } else {
 			sz[m] = b->uncomp_size*2+1000; // arbitrarily worse than raw
 		    }
+		} else {
+		    sz[m] = b->uncomp_size*2+1000; // arbitrarily worse than raw
 		}
 	    }
 
@@ -2193,7 +2244,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 	    // Accumulate stats for all methods tried
 	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
             for (m = 0; m < CRAM_MAX_METHOD; m++)
-                metrics->sz[m] += sz[m];
+                metrics->sz[m] += sz[m]+50; // don't be overly sure on small blocks
 
 	    // When enough trials performed, find the best on average
 	    if (--metrics->trial == 0) {
@@ -2202,25 +2253,34 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 
 		// Relative costs of methods. See enum_cram_block_method.
 		double meth_cost[32] = {
-		    1,    // raw
-		    1.04, // gzip
-		    1.08, // bzip2
-		    1.10, // lzma
-		    1.00, // rans0
-		    1.09, // bsc
-		    1.05, 1.05, 1.05, 1.05, // fqz
-		    1.02, // rans1
-		    1.00, // gzip rle
-		    1.02, // gzip -1
-		    1.00, // rans_pr0
-		    1.03, // rans_pr1
-		    1.00, // rans_pr64; if smaller, usually fast
-		    1.00, // rans_pr65
-		    1.00, // rans_pr128
-		    1.00, // rans_pr129
-		    1.00, // rans_pr192
-		    1.00, // rans_pr193
-		    1,1,1,1,1,1,1,1,1,1,1    // unused
+		    1,    // 0  raw
+		    1.04, // 1  gzip
+		    1.08, // 2  bzip2
+		    1.10, // 3  lzma
+		    1.00, // 4  rans0
+		    1.09, // 5  bsc
+		    1.05, 1.05, 1.05, 1.05, // 6-9 fqz
+		    1.01, // 10 rans1
+		    1.01, // 11 gzip rle
+		    1.02, // 12 gzip -1
+		    1.00, // 13 rans_pr0
+		    1.01, // 14 rans_pr1
+		    1.00, // 15 rans_pr64; if smaller, usually fast
+		    1.03, // 16 rans_pr65/9
+		    1.00, // 17 rans_pr128
+		    1.01, // 18 rans_pr129
+		    1.00, // 19 rans_pr192
+		    1.01, // 20 rans_pr193
+		    1.05,1.07, // tok3 rans/arith
+		    1.03, // arith_pr0
+		    1.04, // arith_pr1
+		    1.04, // arith_pr64
+		    1.04, // arith_pr65
+		    1.03, // arith_pr128
+		    1.04, // arith_pr129
+		    1.04, // arith_pr192
+		    1.04, // arith_pr193
+		    1,    // 31 unused
 		};
 
 		// Scale methods by cost based on compression level
@@ -2286,9 +2346,16 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
                         metrics->extra[m] = 0;
                     } else if (best_sz < metrics->sz[m]) {
                         double r = (double)metrics->sz[m] / best_sz - 1;
-                        if (++metrics->cnt[m] >= MAXFAILS && 
-                            (metrics->extra[m] += r) >= MAXDELTA)
+			int mul = 1+(fd->level>=7);
+                        if (++metrics->cnt[m] >= MAXFAILS*mul && 
+                            (metrics->extra[m] += r) >= MAXDELTA*mul)
                             method &= ~(1<<m);
+
+			// Special case for fqzcomp as it rarely changes
+			if (m == FQZ || m == FQZ_b || m == FQZ_c || m == FQZ_d) {
+			    if (metrics->sz[m] > best_sz)
+				method &= ~(1<<m);
+			}
                     }
                 }
 
@@ -2367,28 +2434,38 @@ cram_metrics *cram_new_metrics(void) {
 
 char *cram_block_method2str(enum cram_block_method m) {
     switch(m) {
-    case RAW:	     return "RAW";
-    case GZIP:	     return "GZIP";
-    case BZIP2:	     return "BZIP2";
-    case BSC:	     return "BSC";
-    case FQZ:	     return "FQZ";
-    case FQZ_b:	     return "FQZ_b";
-    case FQZ_c:	     return "FQZ_c";
-    case FQZ_d:	     return "FQZ_d";
-    case LZMA:       return "LZMA";
-    case RANS0:      return "RANS0";
-    case RANS1:      return "RANS1";
-    case GZIP_RLE:   return "GZIP_RLE";
-    case GZIP_1:     return "GZIP-1";
-    case RANS_PR0:   return "RANS_PR0";
-    case RANS_PR1:   return "RANS_PR1";
-    case RANS_PR64:  return "RANS_PR64";
-    case RANS_PR65:  return "RANS_PR65";
-    case RANS_PR128: return "RANS_PR128";
-    case RANS_PR129: return "RANS_PR129";
-    case RANS_PR192: return "RANS_PR192";
-    case RANS_PR193: return "RANS_PR193";
-    default:         break;
+    case RAW:	      return "RAW";
+    case GZIP:	      return "GZIP";
+    case BZIP2:	      return "BZIP2";
+    case BSC:	      return "BSC";
+    case FQZ:	      return "FQZ";
+    case FQZ_b:	      return "FQZ_b";
+    case FQZ_c:	      return "FQZ_c";
+    case FQZ_d:	      return "FQZ_d";
+    case LZMA:        return "LZMA";
+    case RANS0:       return "RANS0";
+    case RANS1:       return "RANS1";
+    case GZIP_RLE:    return "GZIP_RLE";
+    case GZIP_1:      return "GZIP-1";
+    case RANS_PR0:    return "RANS_PR0";
+    case RANS_PR1:    return "RANS_PR1";
+    case RANS_PR64:   return "RANS_PR64";
+    case RANS_PR9:    return "RANS_PR9";
+    case RANS_PR128:  return "RANS_PR128";
+    case RANS_PR129:  return "RANS_PR129";
+    case RANS_PR192:  return "RANS_PR192";
+    case RANS_PR193:  return "RANS_PR193";
+    case NAME_TOK3:   return "TOK3_R";
+    case NAME_TOKA:   return "TOK3_A";
+    case ARITH_PR0:   return "ARITH_PR0";
+    case ARITH_PR1:   return "ARITH_PR1";
+    case ARITH_PR64:  return "ARITH_PR64";
+    case ARITH_PR9:   return "ARITH_PR9";
+    case ARITH_PR128: return "ARITH_PR128";
+    case ARITH_PR129: return "ARITH_PR129";
+    case ARITH_PR192: return "ARITH_PR192";
+    case ARITH_PR193: return "ARITH_PR193";
+    default:          break;
     }
     return "?";
 }

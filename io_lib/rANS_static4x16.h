@@ -8,8 +8,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 unsigned char *rans_compress_4x16(unsigned char *in, unsigned int in_size,
 				  unsigned int *out_size, int order);
 unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
-				       unsigned char *out, unsigned int *out_size,
-				       int order);
+				       unsigned char *out, unsigned int *out_size);
 unsigned char *rans_uncompress_4x16(unsigned char *in, unsigned int in_size,
 				    unsigned int *out_size, int order);
 

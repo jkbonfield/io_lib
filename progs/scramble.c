@@ -138,7 +138,7 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -!             Disable all checking of checksums\n");
     fprintf(fp, "    -g FILE        Convert to Bam using index (file.gzi)\n");
     fprintf(fp, "    -G FILE        Output Bam index when bam input(file.gzi)\n");
-    fprintf(fp, "    -X mode        [Cram] Mode is fast, default, small or archive.\n");
+    fprintf(fp, "    -X mode        [Cram] Mode is fast, normal, small or archive.\n");
 }
 
 int main(int argc, char **argv) {
@@ -166,6 +166,7 @@ int main(int argc, char **argv) {
     int preserve_aux_order = 0;
     int preserve_aux_size = 0;
     int add_pg = 1;
+    int archive = 0;
 
     scram_init();
 
@@ -173,27 +174,33 @@ int main(int argc, char **argv) {
     while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xeEI:O:R:!MmajJZt:BN:F:Hb:nPpqg:G:fTX:")) != -1) {
 	switch (c) {
 	case 'X':
-	    if (strcmp(optarg, "default") == 0) {
+	    if (strcmp(optarg, "default") == 0 || strcmp(optarg, "normal") == 0) {
 		// nothing
 	    } else if (strcmp(optarg, "fast") == 0) {
-		level = '1';
+		if (!level) level = '1';
 		s_opt = 1000;
 	    } else if (strcmp(optarg, "small") == 0) {
-		level = '7';
 		if (vers >= 3.099)
-		    use_arith = use_bz2 = use_tok = 1;
+		    use_tok = 1;
 		else
 		    use_bz2 = 1;
+		if (s_opt != 10000) s_opt = 25000;
 	    } else if (strcmp(optarg, "archive") == 0) {
-		level = '7';
-		use_arith = 1;
+		archive = 1;
 		if (vers >= 3.099)
-		    use_bz2 = use_fqz = use_tok = 1;
+		    use_fqz = use_tok = 1;
 		else
-		    use_bz2 = use_lzma = 1;
-		s_opt = 100000;
+		    use_bz2 = 1;
+		if (level >= '7' || vers < 3.099) {
+		    if (vers >= 3.099)
+			use_arith = use_bz2 = 1;
+		    else
+			use_lzma = 1;
+		}
+		if (s_opt != 10000) s_opt = 50000;
 	    } else {
-		fprintf(stderr, "Unknown parameter set: choose 'fast', 'default' or 'archive'\n");
+		fprintf(stderr, "Unknown parameter set: choose 'fast', 'normal/default', "
+			"small or 'archive'\n");
 		fprintf(stderr, "Assuming default\n");
 	    }
 	    break;
@@ -205,6 +212,12 @@ int main(int argc, char **argv) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
 	    level = c;
+	    if (archive && level >= 7) {
+		if (vers >= 3.099)
+		    use_arith = use_bz2 = 1;
+		else
+		    use_lzma = use_bz2 = 1;
+	    }
 	    break;
 	    
 	case 'u':

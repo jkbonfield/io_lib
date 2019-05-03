@@ -8,7 +8,6 @@
 #define X_CAT  0x20    // Nop; for tiny segments where rANS overhead is too big
 #define X_NOSZ 0x10    // Don't store the original size; used by X4 mode
 #define X_4    0x08    // For 4-byte integer data; rotate & encode 4 streams.
-#define X_DICT 0x04    // Quantise 16-bit of 32-symbols to 8-bit.
 
 // FIXME Can we get decoder to return the compressed sized read, avoiding
 // us needing to store it?  Yes we can.  See c-size comments.  If we added all these
@@ -783,25 +782,18 @@ static int decode_freq_d(uint8_t *cp, uint8_t *cp_end, int *F0, int *F, int *tot
 
 static int u32tou7(uint8_t *cp, uint32_t i) {
     uint8_t *op = cp;
-    int s = 0;
-    uint32_t o = i;
 
     do {
-	s += 7;
-	o >>= 7;
-    } while (o);
-
-    do {
-	s -= 7;
-	*cp++ = ((i>>s)&0x7f) + (s?128:0);
-    } while (s);
+	*cp++ = (i&0x7f) + ((i>=0x80)<<7);
+	i >>= 7;
+    } while (i);
 
     return cp-op;
 }
 
 static int u7tou32(uint8_t *cp, uint8_t *cp_end, uint32_t *i) {
     uint8_t *op = cp, c;
-    uint32_t j = 0;
+    uint32_t j = 0, s = 0;
 
     if (cp >= cp_end) {
 	*i = 0;
@@ -810,12 +802,14 @@ static int u7tou32(uint8_t *cp, uint8_t *cp_end, uint32_t *i) {
 
     do {
 	c = *cp++;
-	j = (j<<7) | (c & 0x7f);
+	j |= (c & 0x7f) << s;
+	s += 7;
     } while ((c & 0x80) && cp < cp_end);
 
     *i = j;
     return cp-op;
 }
+
 
 unsigned int rans_compress_bound_4x16(unsigned int size, int order) {
     return (order == 0
@@ -2287,7 +2281,7 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 				     unsigned char *out, unsigned int *out_size,
 				     int order) {
     unsigned int c_meta_len;
-    uint8_t *meta = NULL, *rle = NULL, *packed = NULL, *dict = NULL;
+    uint8_t *meta = NULL, *rle = NULL, *packed = NULL;
 
     if (!out) {
 	*out_size = rans_compress_bound_4x16(in_size, order);
@@ -2320,25 +2314,27 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 	*out = order;
 	c_meta_len += u32tou7(out+c_meta_len, in_size);
 	out2 = out+26;
-	for (i = 0; i < 4; i++) {
-	    // Brute force try all methods.
-	    int j, m[] = {0,1,128,129,64,65,192,193}, best_j = 0, best_sz = in_size+10;
-	    for (j = 0; j < 8; j++) {
-		if ((order & m[j]) != m[j])
-		    continue;
+        for (i = 0; i < 4; i++) {
+            // Brute force try all methods.
+            int j, m[] = {1,64,128,0}, best_j = 0, best_sz = in_size+10;
+            for (j = 0; j < 4; j++) {
+                if ((order & m[j]) != m[j])
+                    continue;
+                olen2 = *out_size - (out2 - out);
+                rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, m[j] | X_NOSZ);
+                if (best_sz > olen2) {
+                    best_sz = olen2;
+                    best_j = j;
+                }
+            }
+	    if (best_j != j-1) {
 		olen2 = *out_size - (out2 - out);
-		rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, m[j] | X_NOSZ);
-		if (best_sz > olen2) {
-		    best_sz = olen2;
-		    best_j = j;
-		}
-	    }	
-	    olen2 = *out_size - (out2 - out);
-	    rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, m[best_j] | X_NOSZ);
-	    //rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, (order & ~X_4) | X_NOSZ);
-	    out2 += olen2;
-	    c_meta_len += u32tou7(out+c_meta_len, olen2);
-	}
+		rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, m[best_j] | X_NOSZ);
+	    }
+            //rans_compress_to_4x16(in4+i*len4, len4, out2, &olen2, (order & ~X_4) | X_NOSZ);
+            out2 += olen2;
+            c_meta_len += u32tou7(out+c_meta_len, olen2);
+        }
 	memmove(out+c_meta_len, out+26, out2-(out+26));
 	free(in4);
 	*out_size = c_meta_len + out2-(out+26);
@@ -2348,7 +2344,6 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     int do_pack = order & X_PACK;
     int do_rle  = order & X_RLE;
     int no_size = order & X_NOSZ;
-    int do_dict = order & X_DICT;
 
     out[0] = order;
     c_meta_len = 1;
@@ -2362,77 +2357,6 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
     // Meta-data can be empty, pack, rle lengths, or pack + rle lengths.
     // Data is either the original data, bit-packed packed, rle literals or
     // packed + rle literals.
-
-    if (do_dict) {
-	int v[65536] = {0};
-	int i, j, c;
-	for (i = 0; i < in_size; i+=4) {
-	    if (in[i+2] || in[i+3])
-		break;
-	    v[in[i] | (in[i+1]<<8)]++;
-	}
-
-	int val[257];
-	if (i == in_size) {
-	    for (i = c = 0; i < 65536 && c < 257; i++) {
-		if (v[i]) {
-		    val[c] = i;
-		    v[i] = ++c;
-		}
-	    }
-	    if (c <= 255) {
-		out[c_meta_len++] = 4; // 4 byte -> 1 byte replacement
-		out[c_meta_len++] = c;
-
-#if 1
-		// Basic run length encode; N lit, M run
-		//fprintf(stderr, "c=%d\t", c);
-		//for (i = 0; i < c; i++)
-		//    fprintf(stderr, "%d ", val[i]);
-		//fprintf(stderr, "\n");
-
-		i = 0;
-		while (i < c) {
-		    // number of literals
-		    int j, lit = 1, run = 0;
-		    for (j = i+1; j < c && lit < 15; j++, lit++)
-			if (val[j] == 1+val[j-1])
-			    break;
-		    // followed by consecutive run
-		    for (; j < c && run < 15; j++, run++)
-			if (val[j] != 1+val[j-1])
-			    break;
-		    //fprintf(stderr, "%d %d/%d: %d,%d\n", val[i], i,c, lit,run);
-
-		    out[c_meta_len++] = (run<<4) | lit;
-		    for (j = i+1; j <= c; j++) {
-			//fprintf(stderr, "Store val %d\n", val[j-1]);
-			out[c_meta_len++] = val[j-1]&0xff;
-			out[c_meta_len++] = val[j-1]>>8;
-			if (j >= c || --lit == 0 || val[j] == 1+val[j-1])
-			    break;
-		    }
-
-		    i = j + run;
-		}
-#else
-		int last = 0;
-		for (i = 0; i < c; i++) {
-		    out[c_meta_len++] = val[i]&0xff;
-		    out[c_meta_len++] = val[i]>>8;
-		    //fprintf(stderr, "val[%d]=%d\n", i, val[i]);
-		}
-#endif
-
-		if (!(dict = malloc(in_size/4)))
-		    return NULL;
-		for (i = j = 0; i < in_size; i+=4, j++)
-		    dict[j] =  v[in[i] | (in[i+1]<<8)]-1;
-		in_size = j;
-		in = dict;
-	    }
-	}
-    }
 
     if (do_pack && in_size) {
 	// PACK 2, 4 or 8 symbols into one byte.
@@ -2522,7 +2446,6 @@ unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     free(rle);
     free(packed);
-    free(dict);
 
     *out_size += c_meta_len;
 
@@ -2600,7 +2523,6 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     int do_rle  = order & X_RLE;
     int do_cat  = order & X_CAT;
     int no_size = order & X_NOSZ;
-    int do_dict = order & X_DICT;
     order &= 1;
 
     int sz = 0;
@@ -2635,63 +2557,6 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     unsigned int tmp2_size = *out_size;
     unsigned int tmp3_size = *out_size;
     unsigned char *tmp1 = NULL, *tmp2 = NULL, *tmp3 = NULL, *tmp = NULL;
-
-    // Unpack dict meta-data
-    uint32_t dict[256], dsize = 0;
-
-    if (do_dict) {
-	if (in_size < 2 || in[0] != 4) //32to8
-	    return NULL;
-
-	int nl = in[1], i;
-	in      += 2;
-	in_size -= 2;
-	if (in_size < nl*2)
-	    return NULL;
-
-#if 1
-	// Basic lit+run encoding
-	i = 0;
-	while (i < nl) {
-	    int lit = in[0]&15;
-	    int run = in[0]>>4;
-	    in++; in_size--;
-
-	    //fprintf(stderr, "lit %d, run %d\n", lit, run);
-
-	    while (lit--) {
-		dict[i++] = in[0] | (in[1]<<8);
-		//fprintf(stderr, "L Dict[%d] = %d\n", i, dict[i-1]);
-		in += 2;
-		in_size -= 2;
-	    }
-
-	    while (run--) {
-		dict[i] = dict[i-1]+1;
-		i++;
-		//fprintf(stderr, "R Dict[%d] = %d\n", i, dict[i-1]);
-	    }
-	}
-#else
-	for (i = 0; i < nl; i++) {
-	    dict[i] = in[i*2] | (in[i*2+1]<<8);
-	    //fprintf(stderr, "Dict[%d] = %d\n", i, dict[i]);
-	}
-	for (;i < 256;i++)
-	    dict[i] = 0; // security
-
-	in      += nl*2;
-	in_size -= nl*2;
-#endif
-	dsize = nl;
-	
-	//fprintf(stderr, "tmp3_size start at %d, out start at %d\n",
-	//	tmp3_size, *out_size);
-
-	tmp1_size/=4;
-	tmp2_size/=4;
-	tmp3_size/=4;
-    }
 
     // Need In, Out and Tmp buffers with temporary buffer of the same size
     // as output.  All use rANS, but with optional transforms (none, RLE,
@@ -2849,22 +2714,6 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 #ifdef JOINT_PACK_RLE
     }
 #endif
-
-    if (do_dict) {
-	uint32_t *tmpd = malloc(tmp3_size*4);
-	if (!tmpd)
-	    return NULL;
-	int i;
-	for (i = 0; i < tmp3_size; i++) {
-	    // FIXME: Assumes little-endian
-	    tmpd[i] = dict[tmp3[i]];
-	    if (tmp3[i] >= dsize)
-		abort();//return NULL;
-	}
-	tmp3_size *= 4;
-	memcpy(tmp3, tmpd, tmp3_size);
-	free(tmpd);
-    }
 
     if (tmp)
 	free(tmp);

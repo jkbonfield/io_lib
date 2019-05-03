@@ -201,13 +201,23 @@ enum cram_block_method {
     RANS_PR0   = 13, // Parameterised r4x16pr rANS codecs.
     RANS_PR1   = 14,
     RANS_PR64  = 15,
-    RANS_PR65  = 16,
+    RANS_PR9   = 16,
     RANS_PR128 = 17,
     RANS_PR129 = 18,
     RANS_PR192 = 19,
     RANS_PR193 = 20,
 
-    NAME_TOK3  = 21,
+    NAME_TOK3  = 21, // tok+rans
+    NAME_TOKA  = 22, // tok+arith
+
+    ARITH_PR0  = 23, // Parameterised dynamic arithmetic codecs.
+    ARITH_PR1  = 24,
+    ARITH_PR64 = 25,
+    ARITH_PR9  = 26,
+    ARITH_PR128= 27,
+    ARITH_PR129= 28,
+    ARITH_PR192= 29,
+    ARITH_PR193= 30,
 
     BLOCK_METHOD_END = 31
 };

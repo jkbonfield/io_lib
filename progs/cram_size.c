@@ -113,9 +113,11 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 
 	enum cram_block_method methods[] = {
 	    GZIP, BZIP2, LZMA, RANS0, RANS1,
-	    RANS_PR0, RANS_PR1, RANS_PR64, RANS_PR65,
+	    RANS_PR0, RANS_PR1, RANS_PR64, RANS_PR9,
 	    RANS_PR128, RANS_PR129, RANS_PR192, RANS_PR193,
-	    FQZ, NAME_TOK3, BSC
+	    FQZ, NAME_TOK3, NAME_TOKA, BSC,
+	    ARITH_PR0, ARITH_PR1, ARITH_PR64, ARITH_PR9,
+	    ARITH_PR128, ARITH_PR129, ARITH_PR192, ARITH_PR193,
 	};
 	int count[1+sizeof(methods)/sizeof(*methods)] = {0};
 
@@ -132,7 +134,7 @@ void print_sizes(HashTable *bsize_h, HashTable *ds_h, HashTable *dc_h, int bmax)
 	    printf("%s%s%c%s",
 		   (count[i]+0.01)/(count[0]+0.01) >= 0.50 ? "\033[7m":"",
 		   (count[i]+0.01)/(count[0]+0.01) >= 0.10 ? "\033[4m":"",
-		   " gblrR01458923fnB"[count[i]?i:0],
+		   " gblrR01458923fnNB01458923"[count[i]?i:0],
 		   "\033[0m");
 	}
 
@@ -237,6 +239,19 @@ int process_sizes(cram_fd *fd,
 		    s->block[id]->data[0] != 0) {
 		    // Assumption: PR1 to PR193 are consecutive
 		    s->block[id]->orig_method = RANS_PR1-1;
+		    s->block[id]->orig_method +=    s->block[id]->data[0]&0x01;
+		    s->block[id]->orig_method += 2*((s->block[id]->data[0]&0x40)>0);
+		    s->block[id]->orig_method += 4*((s->block[id]->data[0]&0x80)>0);
+		}
+	    }
+
+	    // Hack for arithPR*
+	    for (id = 0; id < s->hdr->num_blocks; id++) {
+		if (s->block[id]->comp_size >= 2 &&
+		    s->block[id]->orig_method == ARITH_PR0 &&
+		    s->block[id]->data[0] != 0) {
+		    // Assumption: PR1 to PR193 are consecutive
+		    s->block[id]->orig_method = ARITH_PR1-1;
 		    s->block[id]->orig_method +=    s->block[id]->data[0]&0x01;
 		    s->block[id]->orig_method += 2*((s->block[id]->data[0]&0x40)>0);
 		    s->block[id]->orig_method += 4*((s->block[id]->data[0]&0x80)>0);

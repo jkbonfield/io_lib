@@ -859,7 +859,7 @@ int main(int argc, char **argv) {
 	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'1':' ');
 	    id_type.method = RANS_PR64;
 	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'4':' ');
-	    id_type.method = RANS_PR65;
+	    id_type.method = RANS_PR9;
 	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'5':' ');
 	    id_type.method = RANS_PR128;
 	    putchar((HashTableSearch(dc_h, (char *)&id_type, sizeof(id_type)))?'8':' ');

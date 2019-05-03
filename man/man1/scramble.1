@@ -149,22 +149,24 @@ arguments.
 .TP
 \fB-X\fR \fImode\fR
 Encode CRAM using a set of predefined parameters defined by mode.
-This are one of fast, default, small or archive.
+This are one of fast, normal / default, small or archive.
 .RS
 .TP
 .BR fast " (param: -1 -s 1000)"
 Lightweight compression for speed and small slice size for quick
 fine-grained random access.
 .TP
-.BR default " (param: none)"
+.BR normal " (param: none)"
 Default mode.  This is the same as not specifying \fB-X\fR.
 .TP
-.BR small " (param v3: -7j,  param v3.1 or v4: -7jTa)"
+.BR small " (param v3: -j -s 25000,  param v3.1 or v4: -T -s 25000)"
 Optimise for smaller files, but keep the default slice size.
 .TP
-.BR archive " (param v3: -7jZ -s 100000,  param v3.1 or v4: -7jfTa -s 100000)"
+.BR archive " (param v3: -j -s 50000,  param v3.1 or v4: -fT -s 50000)"
 Optimised for smallest files, intended for data archival.  This uses a
-large slice size and will have poorer random access.
+large slice size and will have poorer random access. At level 7
+version 3.1 onwards also adds options arithmetic compression and bzip2
+("-a -j") and version 3.0 adds lzma compression ("-Z").
 .RE
 
 .SH "EXAMPLES"

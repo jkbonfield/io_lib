@@ -795,11 +795,14 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 
     int method_rans   = (1<<RANS0) | (1<<RANS1);
     int method_ranspr = method_rans;
-    if (fd->use_arith) {
-	method_ranspr = (1<<RANS_PR0)   | (1<<RANS_PR1)
-	    | (1<<RANS_PR64)  | (1<<RANS_PR65)
-	    | (1<<RANS_PR128) | (1<<RANS_PR129)
-	    | (1<<RANS_PR192) | (1<<RANS_PR193);
+    if (fd->use_rans) {
+	method_ranspr = (1<<RANS_PR0)   | (1<<RANS_PR1);
+	if (level > 1)
+	    method_ranspr |=
+		  (1<<RANS_PR64)  | (1<<RANS_PR9)
+		| (1<<RANS_PR128) | (1<<RANS_PR193);
+	if (level > 5)
+	    method_ranspr |= (1<<RANS_PR129) | (1<<RANS_PR192);
     }
 
     int v31_or_above = (fd->version >= (3<<8)+1);
@@ -808,13 +811,32 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	method  |= v31_or_above ? method_ranspr : method_rans;
     }
 
+    int method_arith   = 0;
+    if (fd->use_arith) {
+	method_arith = (1<<ARITH_PR0)   | (1<<ARITH_PR1);
+	if (level > 1)
+	    method_arith |=
+		  (1<<ARITH_PR64)  | (1<<ARITH_PR9)
+		| (1<<ARITH_PR128) | (1<<ARITH_PR129)
+		| (1<<ARITH_PR192) | (1<<ARITH_PR193);
+    }
+    if (fd->use_arith && v31_or_above) {
+	methodF |= method_arith;
+	method  |= method_arith;
+    }
+
     if (fd->use_lzma)
 	method |= (1<<LZMA);
 
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
-    if (level >= 6) {
+    if (level >= 5) {
 	method |= 1<<GZIP_1;
+	methodF = method;
+    }
+    if (level == 1) {
+	method &= ~(1<<GZIP);
+	method |=   1<<GZIP_1;
 	methodF = method;
     }
 
@@ -902,7 +924,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     // It benefits well from a little bit extra compression level.
     int method_rn = method & ~(method_rans | method_ranspr | 1<<GZIP_RLE);
     if (fd->version >= (3<<8)+1 && fd->use_tok)
-	method_rn |= (1<<NAME_TOK3);
+	method_rn |= fd->use_arith ? (1<<NAME_TOKA) : (1<<NAME_TOK3);
     if (cram_compress_block(fd, s, s->block[DS_RN], fd->m[DS_RN],
 			    method_rn, level))
 	return -1;
