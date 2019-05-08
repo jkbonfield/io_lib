@@ -175,34 +175,32 @@ int main(int argc, char **argv) {
 	switch (c) {
 	case 'X':
 	    if (strcmp(optarg, "default") == 0 || strcmp(optarg, "normal") == 0) {
-		// nothing
+		// nothing for 3.0
+		if (vers >= 3.099)
+		    use_tok = 1;
 	    } else if (strcmp(optarg, "fast") == 0) {
 		if (!level) level = '1';
 		s_opt = 1000;
 	    } else if (strcmp(optarg, "small") == 0) {
 		if (vers >= 3.099)
-		    use_tok = 1;
+		    use_fqz = use_tok = 1;
 		else
 		    use_bz2 = 1;
 		if (s_opt != 10000) s_opt = 25000;
 	    } else if (strcmp(optarg, "archive") == 0) {
 		archive = 1;
+		use_bz2 = 1;
 		if (vers >= 3.099)
-		    use_fqz = use_tok = 1;
-		else
-		    use_bz2 = 1;
-		if (level >= '7' || vers < 3.099) {
-		    if (vers >= 3.099)
-			use_arith = use_bz2 = 1;
-		    else
-			use_lzma = 1;
-		}
-		if (s_opt != 10000) s_opt = 50000;
+		    use_arith = use_fqz = use_tok = 1;
+		if (level >= '7')
+		    use_lzma = 1;
+		if (s_opt != 10000) s_opt = 100000;
 	    } else {
 		fprintf(stderr, "Unknown parameter set: choose 'fast', 'normal/default', "
 			"small or 'archive'\n");
 		fprintf(stderr, "Assuming default\n");
 	    }
+	    bases_per_slice = s_opt * 500; // guesswork...
 	    break;
 
 	case 'F':
@@ -212,12 +210,8 @@ int main(int argc, char **argv) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
 	    level = c;
-	    if (archive && level >= 7) {
-		if (vers >= 3.099)
-		    use_arith = use_bz2 = 1;
-		else
-		    use_lzma = use_bz2 = 1;
-	    }
+	    if (archive && level >= 7)
+		use_lzma = 1;
 	    break;
 	    
 	case 'u':

@@ -158,15 +158,15 @@ fine-grained random access.
 .TP
 .BR normal " (param: none)"
 Default mode.  This is the same as not specifying \fB-X\fR.
+For version 3.1 onwards this enables the name tokeniser ("-T").
 .TP
-.BR small " (param v3: -j -s 25000,  param v3.1 or v4: -T -s 25000)"
-Optimise for smaller files, but keep the default slice size.
+.BR small " (param v3.0: -j -s 25000,  param v3.1 or v4: -Tf -s 25000)"
+Optimise for smaller files, with larger slices.
 .TP
-.BR archive " (param v3: -j -s 50000,  param v3.1 or v4: -fT -s 50000)"
+.BR archive " (param v3.0: -j -s 100000,  param v3.1 or v4: -Tfa -s 100000)"
 Optimised for smallest files, intended for data archival.  This uses a
 large slice size and will have poorer random access. At level 7
-version 3.1 onwards also adds options arithmetic compression and bzip2
-("-a -j") and version 3.0 adds lzma compression ("-Z").
+onwards this also enables lzma compression if compiled in ("-Z").
 .RE
 
 .SH "EXAMPLES"
