@@ -468,4 +468,7 @@ void scram_init(void) {
 #if defined(HAVE_MALLOPT) && defined(M_MMAP_MAX)
     mallopt(M_MMAP_MAX, 0);
 #endif
+#if defined(HAVE_MALLOPT) && defined(M_TRIM_THRESHOLD)
+    mallopt(M_TRIM_THRESHOLD, 100000000);
+#endif
 }

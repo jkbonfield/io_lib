@@ -431,7 +431,7 @@ static inline void RansDecRenormSafe(RansState* r, uint8_t** pptr, uint8_t *ptr_
 
 // 9-11 is considerably faster in the O1sfb variant due to reduced table size.
 #ifndef TF_SHIFT_O1
-#define TF_SHIFT_O1 11
+#define TF_SHIFT_O1 10
 #endif
 #define TOTFREQ_O1 (1<<TF_SHIFT_O1)
 

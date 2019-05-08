@@ -156,6 +156,8 @@ typedef struct {
     int token_dcount[MAX_TOKENS];
     int token_icount[MAX_TOKENS];
     //int token_zcount[MAX_TOKENS];
+
+    int max_tok; // tracks which desc/[id]count elements have been initialised
 } name_context;
 
 name_context *create_context(int max_names) {
@@ -171,10 +173,10 @@ name_context *create_context(int max_names) {
     ctx->lc = (last_context *)(((char *)ctx) + sizeof(*ctx));
     ctx->pool = NULL;
 
-    memset(&ctx->desc[0], 0, MAX_TBLOCKS * sizeof(ctx->desc[0]));
-    memset(&ctx->token_dcount[0], 0, MAX_TOKENS * sizeof(int));
-    memset(&ctx->token_icount[0], 0, MAX_TOKENS * sizeof(int));
-    //memset(&ctx->token_zcount[0], 0, MAX_TOKENS * sizeof(int));
+     memset(&ctx->desc[0], 0, 16 * sizeof(ctx->desc[0]));
+     memset(&ctx->token_dcount[0], 0, sizeof(int));
+     memset(&ctx->token_icount[0], 0, sizeof(int));
+     ctx->max_tok = 1;
 
     return ctx;
 }
@@ -740,6 +742,12 @@ static int encode_name(name_context *ctx, char *name, int len, int mode) {
     int ntok = 1;
     i = 0;
     if (is_fixed) {
+	if (ntok >= ctx->max_tok) {
+	    memset(&ctx->desc[ctx->max_tok << 4], 0, 16*sizeof(ctx->desc[0]));
+	    memset(&ctx->token_dcount[ctx->max_tok], 0, sizeof(int));
+	    memset(&ctx->token_icount[ctx->max_tok], 0, sizeof(int));
+	    ctx->max_tok = ntok+1;
+	}
 	if (pnum < cnum && ntok < ctx->lc[pnum].last_ntok && ctx->lc[pnum].last_token_type[ntok] == N_ALPHA) {
 	    if (ctx->lc[pnum].last_token_int[ntok] == fixed_len && memcmp(name, ctx->lc[pnum].last_name, fixed_len) == 0) {
 		encode_token_match(ctx, ntok);
@@ -756,6 +764,13 @@ static int encode_name(name_context *ctx, char *name, int len, int mode) {
     }
 
     for (; i < len; i++) {
+	if (ntok >= ctx->max_tok) {
+	    memset(&ctx->desc[ctx->max_tok << 4], 0, 16*sizeof(ctx->desc[0]));
+	    memset(&ctx->token_dcount[ctx->max_tok], 0, sizeof(int));
+	    memset(&ctx->token_icount[ctx->max_tok], 0, sizeof(int));
+	    ctx->max_tok = ntok+1;
+	}
+
 	/* Determine data type of this segment */
 	if (isalpha(name[i])) {
 	    int s = i+1;
@@ -961,6 +976,12 @@ static int encode_name(name_context *ctx, char *name, int len, int mode) {
 #ifdef ENC_DEBUG
     fprintf(stderr, "Tok %d (end)\n", N_END);
 #endif
+    if (ntok >= ctx->max_tok) {
+	memset(&ctx->desc[ctx->max_tok << 4], 0, 16*sizeof(ctx->desc[0]));
+	memset(&ctx->token_dcount[ctx->max_tok], 0, sizeof(int));
+	memset(&ctx->token_icount[ctx->max_tok], 0, sizeof(int));
+	ctx->max_tok = ntok+1;
+    }
     if (encode_token_end(ctx, ntok) < 0) return -1;
 
     //printf("Encoded %.*s with %d tokens\n", len, name, ntok);
@@ -1006,6 +1027,10 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
     int ntok, len = 0, len2;
 
     for (ntok = 1; ntok < MAX_TOKENS; ntok++) {
+	if (ntok >= ctx->max_tok) {
+	    memset(&ctx->desc[ctx->max_tok << 4], 0, 16*sizeof(ctx->desc[0]));
+	    ctx->max_tok = ntok+1;
+	}
 	uint32_t v, vl;
 	enum name_type tok;
 	tok = decode_token_type(ctx, ntok);
@@ -1127,7 +1152,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
 
 	    ctx->lc[cnum].last_name = name;
 	    ctx->lc[cnum].last_ntok = ntok;
-	    
+
 	    return len;
 	}
     }
@@ -1323,7 +1348,7 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
     }
 
 #if 0
-    for (i = 0; i < MAX_TBLOCKS; i++) {
+    for (i = 0; i < ctx->max_tok*16; i++) {
 	char fn[1024];
 	if (!ctx->desc[i].buf_l) continue;
 	sprintf(fn, "_tok.%02d_%02d.%d", i>>4,i&15,i);
@@ -1349,7 +1374,7 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
     // Drop N_TYPE blocks if they all contain matches bar the first item,
     // as we can regenerate these from the subsequent blocks types during
     // decode.
-    for (i = 0; i < MAX_TBLOCKS; i+=16) {
+    for (i = 0; i < ctx->max_tok*16; i+=16) {
 	if (!ctx->desc[i].buf_l) continue;
 
 	int z;
@@ -1371,7 +1396,7 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
     // Serialise descriptors
     uint32_t tot_size = 9;
     int ndesc = 0;
-    for (i = 0; i < MAX_TBLOCKS; i++) {
+    for (i = 0; i < ctx->max_tok*16; i++) {
 	if (!ctx->desc[i].buf_l) continue;
 
 	ndesc++;
@@ -1418,7 +1443,7 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
     }
 
 #if 0
-    for (i = 0; i < MAX_TBLOCKS; i++) {
+    for (i = 0; i < ctx->max_tok*16; i++) {
 	char fn[1024];
 	if (!ctx->desc[i].buf_l && !ctx->desc[i].dup_from) continue;
 	sprintf(fn, "_tok.%02d_%02d.%d.comp", i>>4,i&15,i);
@@ -1445,7 +1470,7 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
     *cp++ = use_arith;
     //write(1, &nreads, 4);
     int last_tnum = -1;
-    for (i = 0; i < MAX_TBLOCKS; i++) {
+    for (i = 0; i < ctx->max_tok*16; i++) {
 	if (!ctx->desc[i].buf_l) continue;
 	uint8_t ttype8 = ctx->desc[i].ttype;
 	if (ctx->desc[i].tnum != last_tnum) {
@@ -1466,7 +1491,7 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
 
     //assert(cp-out == tot_size);
 
-    for (i = 0; i < MAX_TBLOCKS; i++) {
+    for (i = 0; i < ctx->max_tok*16; i++) {
 	if (!ctx->desc[i].buf_l) continue;
 	free(ctx->desc[i].buf);
     }
@@ -1607,7 +1632,7 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
     if (ret < 0)
 	free(out);
 
-    for (i = 0; i < MAX_TBLOCKS; i++) {
+    for (i = 0; i <= ctx->max_tok*16; i++) {
 	if (ctx->desc[i].buf) {
 	    free(ctx->desc[i].buf);
 	    ctx->desc[i].buf = 0;
