@@ -1027,10 +1027,6 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
     int ntok, len = 0, len2;
 
     for (ntok = 1; ntok < MAX_TOKENS; ntok++) {
-	if (ntok >= ctx->max_tok) {
-	    memset(&ctx->desc[ctx->max_tok << 4], 0, 16*sizeof(ctx->desc[0]));
-	    ctx->max_tok = ntok+1;
-	}
 	uint32_t v, vl;
 	enum name_type tok;
 	tok = decode_token_type(ctx, ntok);
@@ -1527,14 +1523,17 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	    if (o+2 >= sz) return NULL;
 	    int j = in[o++]<<4;
 	    j += in[o++];
-	    if (ttype & 128)
+	    if (ttype & 128) {
 		tnum++;
+		memset(&ctx->desc[tnum<<4], 0, 16*sizeof(ctx->desc[tnum]));
+	    }
 
 	    if ((ttype & 15) != 0 && (ttype & 128)) {
 		ctx->desc[tnum<<4].buf = malloc(nreads);
 		if (!ctx->desc[tnum<<4].buf)
 		    return NULL;
 
+		ctx->desc[tnum<<4].buf_l = 0;
 		ctx->desc[tnum<<4].buf_a = nreads;
 		ctx->desc[tnum<<4].buf[0] = ttype&15;
 		memset(&ctx->desc[tnum<<4].buf[1], N_MATCH, nreads-1);
@@ -1556,8 +1555,10 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	}
 
 	//if (ttype == 0)
-	if (ttype & 128)
+	if (ttype & 128) {
 	    tnum++;
+	    memset(&ctx->desc[tnum<<4], 0, 16*sizeof(ctx->desc[tnum]));
+	}
 
 	if ((ttype & 15) != 0 && (ttype & 128)) {
 	    ctx->desc[tnum<<4].buf = malloc(nreads);
@@ -1565,6 +1566,7 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 		free_context(ctx);
 		return NULL;
 	    }
+	    ctx->desc[tnum<<4].buf_l = 0;
 	    ctx->desc[tnum<<4].buf_a = nreads;
 	    ctx->desc[tnum<<4].buf[0] = ttype&15;
 	    memset(&ctx->desc[tnum<<4].buf[1], N_MATCH, nreads-1);
