@@ -181,6 +181,7 @@ int main(int argc, char **argv) {
 	    } else if (strcmp(optarg, "fast") == 0) {
 		if (!level) level = '1';
 		s_opt = 1000;
+		use_tok = 0;
 	    } else if (strcmp(optarg, "small") == 0) {
 		if (vers >= 3.099)
 		    use_fqz = use_tok = 1;
@@ -251,6 +252,8 @@ int main(int argc, char **argv) {
 	    vers = atof(optarg);
 	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
 		return 1;
+	    if (vers >= 3.099)
+		use_tok = 1;
 	    break;
 
 	case 'r':

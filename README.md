@@ -97,7 +97,8 @@ on an Intel i5-4570 processor at 3.2GHz.
 
 |Scramble opts.      |Size(MB) |Enc(s)|Dec(s)|Codecs used                |
 |--------------------|--------:|-----:|----:|----------------------------|
-|-O bam              |    531.9|  92.3|  7.5|bgzf                        |
+|-O bam              |    531.9|  92.3|  7.5|bgzf(zlib)                  |
+|-O bam              |    539.5|  48.5|  3.7|bgzf(libdeflate)            |
 ||||||
 |-V3.0               |    223.7|  39.9|  9.8|(default)                   |
 |-V3.0 -X fast       |    274.0|  35.6| 10.6|(default, level 1)          |
