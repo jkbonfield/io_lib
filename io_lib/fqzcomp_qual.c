@@ -138,6 +138,8 @@ static const int PFLAG_HAVE_QTAB   = 128;
 // the actual run length.
 // Alternatively we could bit-encode instead of byte encode, eg BETA.
 static int store_array(unsigned char *out, unsigned int *array, int size) {
+    char tmp[2048];
+
     int i, j, k;
     for (i = j = k = 0; i < size; j++) {
 	int run_len = i;
@@ -148,22 +150,22 @@ static int store_array(unsigned char *out, unsigned int *array, int size) {
 	int r;
 	do {
 	    r = MIN(255, run_len);
-	    out[k++] = r;
+	    tmp[k++] = r;
 	    run_len -= r;
 	} while (r == 255);
     }
     while (i < size)
-	out[k++] = 0, j++;
+	tmp[k++] = 0, j++;
 
     // RLE on out.
     //    1 2 3 3 3 3 3 4 4    5
     // => 1 2 3 3 +3... 4 4 +0 5
     int last = -1;
     for (i = j = 0; j < k; i++) {
-	out[i] = out[j++];
+	out[i] = tmp[j++];
 	if (out[i] == last) {
 	    int n = j;
-	    while (j < k && out[j] == last)
+	    while (j < k && tmp[j] == last)
 		j++;
 	    out[++i] = j-n;
 	} else {
@@ -180,35 +182,32 @@ static int store_array(unsigned char *out, unsigned int *array, int size) {
 }
 
 static int read_array(unsigned char *in, unsigned int *array, int size) {
-#if 0
-    unsigned char A[1024];
-    int i, j, k, last = -1, nb = 0;
+    unsigned char R[1024];
+    int i, j, z, last = -1, nb = 0;
 
     size = MIN(1024, size);
 
     // Remove level one of run-len encoding
-    for (i = j = k = 0; k < size; i++) {
-	k += in[i];
-	A[j++] = in[i];
+    for (i = j = z = 0; z < size; i++) {
 	int run = in[i];
-	if (in[i] == last) {
-	    int r = in[++i];
-	    while (r-- && k < size) {
-		A[j++] = run;
-		k += run;
-	    }
+	R[j++] = run;
+	z += run;
+	if (run == last) {
+	    int copy = in[++i];
+	    z += run * copy;
+	    while (copy-- && z < size)
+		R[j++] = run;
 	}
 	last = run;
     }
     nb = i;
 
     // Now expand inner level of run-length encoding
-    in = A;
-    for (i = j = k = 0; j < size; i++) {
+    for (i = j = z = 0; j < size; i++) {
 	int run_len = 0;
 	int run_part;
 	do {
-	    run_part = in[k++];
+	    run_part = R[z++];
 	    run_len += run_part;
 	} while (run_part == 255);
 
@@ -217,40 +216,6 @@ static int read_array(unsigned char *in, unsigned int *array, int size) {
     }
 
     return nb;
-#else
-    int i, j, k, last = -1, r2 = 0;
-
-    for (i = j = k = 0; j < size; i++) {
-	int run_len;
-	if (r2) {
-	    run_len = last;
-	} else {
-	    run_len = 0;
-	    int r, loop = 0;
-	    do {
-		r = in[k++];
-		//fprintf(stderr, "%d,", r);
-		if (++loop == 3)
-		    run_len += r*255, r=255;
-		else
-		    run_len += r;
-	    } while (r == 255);
-	}
-	if (r2 == 0 &&  run_len == last) {
-	    r2 = in[k++];
-	    //fprintf(stderr, "%d,", r2);
-	} else {
-	    if (r2) r2--;
-	    last = run_len;
-	}
-
-	while (run_len && j < size)
-	    run_len--, array[j++] = i;
-    }
-    //fprintf(stderr, "}\n");
-
-    return k;
-#endif
 }
 
 // FIXME: how to auto-tune these rather than trial and error?
