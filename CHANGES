@@ -3,6 +3,14 @@ Version ??? (ongoing)
 
 Updates:
 
+* Added CRAM compression profiles: fast, normal (default), small and
+  archive.  Specify using scramble -X profile-name.
+
+  These change the codecs used as well as the granularity.  For
+  example "-X fast" alters compression level, disables some slower
+  codecs and uses only 1000 sequences per slice.  Here fast implies
+  fast random access as well as fast(er) cpu time.
+
 * INCOMPATIBILITY: The CRAM fqzcomp quality codec has been updated for
   the experimental cram versions (3.1 & 4.0).  This cannot read older
   fqzcomp files (and vice versa).
@@ -21,6 +29,8 @@ Updates:
   implementations will choke if the md5sum for the embedded "reference"
   does not match the md5sum for the reference listed in the @SQ
   headers.
+
+* Lots more minor updates to CRAM 3.1 compression codecs.
 
 * NM and MD tags are now checked during encode to validate that they
   match the decode algorithm.  If not they are automatically stored

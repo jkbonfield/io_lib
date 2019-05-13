@@ -33,6 +33,21 @@ See the CHANGES for a summary of older updates or git logs for the
 full details.
 
 
+This branch (as of 13th May 2019)
+-----------
+
+* CRAM: Added compression profiles to scramble.  Specify with -X
+  profile where "profile" is one of fast, normal (default), small or
+  archive.
+
+* Improved CRAM v3.1/4.0 codec compression ratios and speed.  See below
+  for a small benchmark.
+
+* CRAM (EXPERIMENTAL): scramble -E permits use of a consensus as the
+  embedded reference instead of real reference.  Note this breaks some
+  CRAM decoders, so will probably be reserved for CRAM v4.0.
+
+
 Version 1.14.11 (16th October 2018)
 ---------------
 
@@ -53,59 +68,6 @@ Bug fixes:
   using bashisms.
 
 
-Version 1.14.10 (26th September 2018)
----------------
-
-Updates:
-
-* BAM: Libdeflate support (https://github.com/ebiggers/libdeflate).
-  This library is significantly faster than zlib, so it is a good
-  alternative to the Cloudflare and/or Intel libraries.
-
-  See below for details.
-
-* CRAM *EXPERIMENTAL*: Added custom quality and identifier codecs.
-  Also added the ability to use libbsc as a general purpose codec.
-
-  These are NOT OFFICIAL and so not enabled by default (version 3.0).
-  However as a technology demonstration only, they are available with
-  scramble -V3.1 or -V4.0 for evaluation and to promote discussion on
-  future CRAM formats.  Do not use these on production data.
-
-  Implementations of the codecs and CRAM version 4.0 layout are liable
-  to change without prior warning.
-
-* CRAM: name sorted files now automatically switch to non-ref mode.
-
-Bug fixes:
-
-* CRAM: Considerable fixes to multi-threading.
-  - Using more than 1 slice per container with threading now works.
-  - Removal of race conditions when using CRAM_OPT_REQUIRED_FIELDS.
-  - Combinations of ref and no-ref mode in adjacent containers.
-  - Other misc. threading bugs.
-
-* Corrected end-of-range check in some scenarios.
-
-* CRAM: bug fix to index creation when a slice contains exactly one
-  alignment.
-
-* SAM: fixed parsing of illegal sequence characters (eg "Z").
-  These are now treated as "N" and not "=".
-
-* BAM/SAM: protect against out of bound CIGAR operations.
-
-* CRAM: hardening of rANS codec against malicious input.
-  Also fixed a very rare frequency renormalisation case.
-
-* CRAM: fix with range queries used in conjuction with turning off
-  sequence retrieval (via CRAM_OPT_REQUIRED_FIELDS).
-
-* Improved test harness for Windows and some header file problems.
-
-* Fixed bgzip on big endian systems. (Debian bugs 876839, 876840)
-
-
 Technology Demo: CRAM 3.1 and 4.0
 =================================
 
@@ -117,30 +79,35 @@ file layout to 3.0), and 4.0 with a few additional format
 modifications, such as 64-bit sizes.
 
 They can be turned on using e.g. scramble -V3.1 or scramble -V4.0.
+It is likely CRAM v4.0 will be official significantly later, but we
+plan on v3.1 being a recognised GA4GH standard this year.
 
-By default enabling either of these will also enable the new codecs,
-bar libbsc (see below for how to compile with this).  These new codecs
-are slower, but will not be used at lighter levels of compression.  So
-for example "scramble -V4.0 -4 in.bam out.cram" will only use the same
-codecs available in CRAM 3.0 bar the fast new rANS variants (rANS++).
+By default enabling either of these will also enable the new codecs.
+Which codecs are used also depends on the profile specified (eg via
+"-X small").  Some of the new codecs are considerably slower,
+especially at decompression, but by default CRAM 3.1 aims to be
+comparable speed to 3.0.  Note the profiles also change the
+granularity of random access (1k, 10k, 25k, 100k for fast, normal,
+small and archive respectively).
 
 Here are some example file sizes and timings with different codecs and
-levels on 10 million NovaSeq reads, with 4 threads (-t4).  Decode
-timing is checked using "scram_flagstat -b -t4".  Tests were performed
+levels on 10 million 150bp NovaSeq reads, single threaded.  Decode
+timing is checked using "scram_flagstat -b".  Tests were performed
 on an Intel i5-4570 processor at 3.2GHz.
 
-|Scramble opts.|  Size   |Enc(s)|Dec(s)|Codecs used           |
-|--------------|---------|-----:|----:|----------------------|
-|-V3.0         |224743050|  12.9|   3.8|(default)             |
-|-V3.0 -7jZ    |211734953| 105.9|   5.4|bzip2, lzma           |
+|Scramble opts.      |Size(MB) |Enc(s)|Dec(s)|Codecs used                |
+|--------------------|--------:|-----:|----:|----------------------------|
+|-O bam              |    531.9|  92.3|  7.5|bgzf                        |
 ||||||
-|-V3.1 -4      |226888980|  13.2|   3.8|rANS++                |
-|-V3.1         |187238214|  35.8|  12.8|tok3,fqz,rANS++       |
-|-V3.1 -7J     |180217109|  49.2|  25.6|tok3,fqz,rANS++,libbsc|
+|-V3.0               |    223.7|  39.9|  9.8|(default)                   |
+|-V3.0 -X fast       |    274.0|  35.6| 10.6|(default, level 1)          |
+|-V3.0 -X small      |    212.2|  94.3| 18.0|bzip2                       |
+|-V3.0 -X archive    |    209.3| 106.6| 17.6|bzip2, lzma                 |
 ||||||
-|-V4.0 -4      |211515487|  15.6|   3.8|rANS++                |
-|-V4.0         |182657527|  34.9|  13.5|tok3,fqz,rANS++       |
-|-V4.0 -7J     |178819704|  46.5|  19.6|tok3,fqz,rANS++,libbsc|
+|-V3.1               |    186.5|  38.3|  8.9|rANS++,tok3                 |
+|-V3.1 -X fast       |    282.7|  29.5|  9.2|rANS++                      |
+|-V3.1 -X small      |    177.0|  78.7| 33.3|rANS++,tok3,fqz             |
+|-V3.1 -X archive    |    172.1| 137.2| 34.9|rANS++,tok3,fqz,bzip2,arith |
 
 
 
