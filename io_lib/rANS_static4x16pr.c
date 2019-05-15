@@ -586,66 +586,8 @@ static int normalise_freq(int *F, int size, int tot) {
     return F[M]>0 ? 0 : -1;
 }
 
-static int encode_freq(uint8_t *cp, int *F) {
-    uint8_t *op = cp;
-    int rle, j;
-
-    for (rle = j = 0; j < 256; j++) {
-	if (F[j]) {
-	    // j
-	    if (rle) {
-		rle--;
-	    } else {
-		*cp++ = j;
-		if (!rle && j && F[j-1])  {
-		    for(rle=j+1; rle<256 && F[rle]; rle++)
-			;
-		    rle -= j+1;
-		    *cp++ = rle;
-		}
-		//fprintf(stderr, "%d: %d %d\n", j, rle, N[j]);
-	    }
-	    
-	    // F[j]
-	    cp += u32tou7(cp, F[j]);
-	}
-    }
-    *cp++ = 0;
-    
-    return cp - op;
-}
-
-static int decode_freq(uint8_t *cp, uint8_t *cp_end, int *F) {
-    if (cp == cp_end)
-	return 0;
-
-    uint8_t *op = cp;
-    int rle = 0;
-    int j = *cp++;
-
-    do {
-	uint32_t f;
-	cp += u7tou32(cp, cp_end, &f);
-	F[j] = f;
-
-	if (!rle && j+1 == *cp) {
-	    j = *cp++;
-	    rle = *cp++;
-	} else if (rle) {
-	    rle--;
-	    j++;
-	    if (j > 255)
-		return 0;
-	} else {
-	    j = *cp++;
-	}
-    } while(j && cp < cp_end);
-
-    return cp - op;
-}
-
 // symbols only
-static int encode_freq0(uint8_t *cp, int *F) {
+static int encode_alphabet(uint8_t *cp, int *F) {
     uint8_t *op = cp;
     int rle, j;
 
@@ -671,7 +613,7 @@ static int encode_freq0(uint8_t *cp, int *F) {
     return cp - op;
 }
 
-static int decode_freq0(uint8_t *cp, uint8_t *cp_end, int *F) {
+static int decode_alphabet(uint8_t *cp, uint8_t *cp_end, int *F) {
     if (cp == cp_end)
 	return 0;
 
@@ -719,6 +661,37 @@ static int decode_freq0(uint8_t *cp, uint8_t *cp_end, int *F) {
 
     return cp - op;
 }
+
+static int encode_freq(uint8_t *cp, int *F) {
+    uint8_t *op = cp;
+    int j;
+
+    cp += encode_alphabet(cp, F);
+
+    for (j = 0; j < 256; j++) {
+	if (F[j])
+	    cp += u32tou7(cp, F[j]);
+    }
+
+    return cp - op;
+}
+
+static int decode_freq(uint8_t *cp, uint8_t *cp_end, int *F) {
+    if (cp == cp_end)
+	return 0;
+
+    uint8_t *op = cp;
+    cp += decode_alphabet(cp, cp_end, F);
+
+    int j;
+    for (j = 0; j < 256; j++) {
+	if (F[j])
+	    cp += u7tou32(cp, cp_end, (unsigned int *)&F[j]);
+    }
+
+    return cp - op;
+}
+
 
 // Use the order-0 freqs in F0 to encode the order-1 stats in F.
 // All symbols present in F are present in F0, but some in F0 will
@@ -1839,7 +1812,7 @@ unsigned char *rans_compress_O1_4x16(unsigned char *in, unsigned int in_size,
     int F0[256+MAGIC] = {0};
     present8(in, in_size, F0);
     F0[0]=1;
-    cp += encode_freq0(cp, F0);
+    cp += encode_alphabet(cp, F0);
 
     // Normalise so T[i] == TOTFREQ_O1
     for (i = 0; i < 256; i++) {
@@ -2055,7 +2028,7 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 
     // Decode order-0 symbol list; avoids needing in order-1 tables
     int F0[256] = {0};
-    int fsz = decode_freq0(cp, c_freq_end, F0);
+    int fsz = decode_alphabet(cp, c_freq_end, F0);
     if (!fsz)
 	goto err;
     cp += fsz;
