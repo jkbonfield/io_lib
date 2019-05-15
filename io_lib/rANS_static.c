@@ -1358,7 +1358,7 @@ int main(int argc, char **argv) {
 	    gettimeofday(&tv2, NULL);
 
 	    for (i = 0; i < nb; i++) {
-		bu[i].blk = rans_uncompress(bc[i].blk, bc[i].sz, &bu[i].sz, order);
+		bu[i].blk = rans_uncompress(bc[i].blk, bc[i].sz, &bu[i].sz);
 	    }
 
 	    gettimeofday(&tv3, NULL);
@@ -1400,7 +1400,7 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "Truncated input\n");
 		exit(1);
 	    }
-	    out = rans_uncompress(in_buf, in_size, &out_size, order);
+	    out = rans_uncompress(in_buf, in_size, &out_size);
 	    if (!out)
 		abort();
 
