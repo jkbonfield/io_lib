@@ -96,19 +96,23 @@ timing is checked using "scram_flagstat -b".  Tests were performed
 on an Intel i5-4570 processor at 3.2GHz.
 
 |Scramble opts.      |Size(MB) |Enc(s)|Dec(s)|Codecs used                |
-|--------------------|--------:|-----:|----:|----------------------------|
-|-O bam              |    531.9|  92.3|  7.5|bgzf(zlib)                  |
-|-O bam              |    539.5|  48.5|  3.7|bgzf(libdeflate)            |
+|--------------------|--------:|-----:|-----:|---------------------------|
+|-O bam              |    531.9|  92.3|   7.5|bgzf(zlib)                 |
+|-O bam              |    539.5|  48.5|   3.7|bgzf(libdeflate)           |
 ||||||
-|-V3.0               |    223.7|  39.9|  9.8|(default)                   |
-|-V3.0 -X fast       |    274.0|  35.6| 10.6|(default, level 1)          |
-|-V3.0 -X small      |    212.2|  94.3| 18.0|bzip2                       |
-|-V3.0 -X archive    |    209.3| 106.6| 17.6|bzip2, lzma                 |
+|-V2.0               |    257.0|  43.5|  10.9|(default)                  |
+|-V2.0 -X fast       |    302.6|  37.0|  12.1|(default, level 1)         |
+|-V2.0 -X small      |    216.3| 126.9|  31.2|bzip2                      |
 ||||||
-|-V3.1               |    186.5|  38.3|  8.9|rANS++,tok3                 |
-|-V3.1 -X fast       |    282.7|  29.5|  9.2|rANS++                      |
-|-V3.1 -X small      |    177.0|  78.7| 33.3|rANS++,tok3,fqz             |
-|-V3.1 -X archive    |    172.1| 137.2| 34.9|rANS++,tok3,fqz,bzip2,arith |
+|-V3.0               |    223.7|  39.9|   9.8|(default)                  |
+|-V3.0 -X fast       |    274.0|  35.6|  10.6|(default, level 1)         |
+|-V3.0 -X small      |    212.2|  94.3|  18.0|bzip2                      |
+|-V3.0 -X archive    |    209.3| 106.6|  17.6|bzip2, lzma                |
+||||||
+|-V3.1               |    186.5|  38.3|   8.9|rANS++,tok3                |
+|-V3.1 -X fast       |    282.7|  29.5|   9.2|rANS++                     |
+|-V3.1 -X small      |    177.0|  78.7|  33.3|rANS++,tok3,fqz            |
+|-V3.1 -X archive    |    172.1| 137.2|  34.9|rANS++,tok3,fqz,bzip2,arith|
 
 
 
