@@ -931,7 +931,7 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     RansDecInit(&R[2], &cp); if (R[2] < RANS_BYTE_L) return NULL;
     RansDecInit(&R[3], &cp); if (R[3] < RANS_BYTE_L) return NULL;
 
-    for (i = 0; cp < cp_end+16 && i < (out_sz&~7); i+=8) {
+    for (i = 0; cp < cp_end-8 && i < (out_sz&~7); i+=8) {
         for(j=0; j<8;j++) {
             RansState m = RansDecGet(&R[j%4], TF_SHIFT);
 	    R[j%4] = sfreq[m] * (R[j%4] >> TF_SHIFT) + sbase[m];

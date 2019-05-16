@@ -993,6 +993,10 @@ int fqz_pick_parameters(fqz_gparams *gp,
     return 0;
 }
 
+void fqz_free_parameters(fqz_gparams *gp) {
+    if (gp && gp->p) free(gp->p);
+}
+
 #ifdef TEST_MAIN
 /*
  * Manually specified strategies held in global manual_strats[].
@@ -1345,6 +1349,7 @@ unsigned char *compress_block_fqz2f(int vers,
     //fprintf(stderr, "%d -> %d\n", (int)in_size, (int)*out_size);
 
     fqz_destroy_models(&model);
+    fqz_free_parameters(&gp);
     free(q_len);
 
     return comp;
@@ -1628,6 +1633,7 @@ unsigned char *uncompress_block_fqz2f(cram_slice *s,
     //free(model.qual);
     free(rev_a);
     free(len_a);
+    fqz_free_parameters(&gp);
 
 #ifdef TEST_MAIN
     s->hdr->num_records = rec;

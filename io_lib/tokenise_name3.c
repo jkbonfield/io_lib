@@ -1525,6 +1525,7 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	    j += in[o++];
 	    if (ttype & 128) {
 		tnum++;
+		ctx->max_tok = tnum;
 		memset(&ctx->desc[tnum<<4], 0, 16*sizeof(ctx->desc[tnum]));
 	    }
 
@@ -1557,6 +1558,7 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, int *out_len) {
 	//if (ttype == 0)
 	if (ttype & 128) {
 	    tnum++;
+	    ctx->max_tok = tnum;
 	    memset(&ctx->desc[tnum<<4], 0, 16*sizeof(ctx->desc[tnum]));
 	}
 
