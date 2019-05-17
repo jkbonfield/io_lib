@@ -1,0 +1,19 @@
+#!/bin/sh
+out=test.out
+if test ! -d $out
+then
+    mkdir $out
+fi
+
+for f in $srcdir/names/*
+do
+    for lvl in 1 3 5 7 9
+    do
+        echo -n Testing tokenise_name3 -$lvl on $f "	"
+	./tokenise_name3 -$lvl < $f > $out/tok3.comp
+	wc -c < $out/tok3.comp
+	./tokenise_name3 -d < $out/tok3.comp | tr '\000' '\012' > $out/tok3.uncomp
+	cmp $f $out/tok3.uncomp || exit 1
+    done
+    echo
+done

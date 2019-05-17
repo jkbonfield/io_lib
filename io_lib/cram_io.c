@@ -92,10 +92,10 @@
 #include "io_lib/md5.h"
 #include "io_lib/crc32.h"
 #include "io_lib/open_trace_file.h"
-#include "io_lib/rANS_static.h"
-#include "io_lib/rANS_static4x16.h"
-#include "io_lib/arith_dynamic.h"
-#include "io_lib/tokenise_name3.h"
+#include "rANS_static.h"
+#include "rANS_static4x16.h"
+#include "arith_dynamic.h"
+#include "tokenise_name3.h"
 
 // Enable if we want V3.1 support.  TODO: add a configure param for this
 #define HAVE_FQZ
@@ -1798,7 +1798,7 @@ int cram_uncompress_block(cram_block *b) {
 #ifdef HAVE_FQZ
     case FQZ: {
 	uncomp_size = b->uncomp_size;
-	uncomp = fqz_decompress((char *)b->data, b->comp_size, &uncomp_size);
+	uncomp = fqz_decompress((char *)b->data, b->comp_size, &uncomp_size, NULL);
 	if (!uncomp)
 	    return -1;
 	free(b->data);
@@ -1837,7 +1837,7 @@ int cram_uncompress_block(cram_block *b) {
     case RANS0: {
 	unsigned int usize = b->uncomp_size, usize2;
 	if (*b->data == 1) b->orig_method = RANS1; // useful in debugging
-	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2, 0);
+	uncomp = (char *)rans_uncompress(b->data, b->comp_size, &usize2);
 	if (!uncomp || usize != usize2)
 	    return -1;
 	b->orig_method = b->data[0]&1 ? RANS1 : RANS0;
@@ -1852,7 +1852,7 @@ int cram_uncompress_block(cram_block *b) {
 
     case RANS_PR0: {
 	unsigned int usize = b->uncomp_size, usize2;
-	uncomp = (char *)rans_uncompress_4x16(b->data, b->comp_size, &usize2, 0);
+	uncomp = (char *)rans_uncompress_4x16(b->data, b->comp_size, &usize2);
 	if (!uncomp || usize != usize2)
 	    return -1;
 	b->orig_method = RANS_PR0 + (b->data[0]&1)
@@ -1883,7 +1883,7 @@ int cram_uncompress_block(cram_block *b) {
     }
 
     case NAME_TOK3: {
-	int out_len;
+	uint32_t out_len;
 	uint8_t *cp = decode_names(b->data, b->comp_size, &out_len);
 	b->orig_method = NAME_TOK3;
 	b->method = RAW;
@@ -2013,12 +2013,29 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
     case FQZ:
     case FQZ_b:
     case FQZ_c:
-    case FQZ_d:
+    case FQZ_d: {
 #ifdef HAVE_FQZ
-	return fqz_compress(strat, s, in, in_size, out_size, level);
+	// Extract the necessary portion of the slice into an fqz_slice struct.
+	// These previously were the same thing, but this permits us to detach
+	// the codec from the rest of this CRAM implementation.
+	fqz_slice *f = malloc(s->hdr->num_records * sizeof(fqz_rec) + sizeof(fqz_slice));
+	if (!f)
+	    return NULL;
+	f->num_records = s->hdr->num_records;
+	f->crecs = (fqz_rec *)(((char *)f) + sizeof(fqz_slice));
+	int i;
+	for (i = 0; i < s->hdr->num_records; i++) {
+	    f->crecs[i].flags = s->crecs[i].flags;
+	    f->crecs[i].len = s->crecs[i].len;
+	    f->crecs[i].qual = s->crecs[i].qual;
+	}
+	char *comp = fqz_compress(strat, f, in, in_size, out_size, level);
+	free(f);
+	return comp;
 #else
 	return NULL;
 #endif
+    }
 
     case LZMA:
 #ifdef HAVE_LIBLZMA

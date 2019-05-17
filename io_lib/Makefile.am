@@ -100,12 +100,6 @@ libstaden_read_la_SOURCES = \
 	sam_header.h \
 	sam_header.c \
 	cram.h \
-	rANS_static.c \
-	rANS_static.h \
-	rANS_static4x16pr.c \
-	rANS_static4x16.h \
-	arith_dynamic.c \
-	arith_dynamic.h \
 	cram_codecs.c \
 	cram_codecs.h \
 	cram_encode.c \
@@ -138,17 +132,8 @@ libstaden_read_la_SOURCES = \
 	cram_bambam.c \
 	bgzip.c \
 	bgzip.h \
-	tokenise_name3.c \
-	tokenise_name3.h \
-	fqzcomp_qual.c \
-	fqzcomp_qual.h \
-	c_simple_model.h \
-	c_range_coder.h \
 	cram_block_compression.h
 
-libstaden_read_la_CPPFLAGS = @LIBCURL_CPPFLAGS@
-
+libstaden_read_la_CPPFLAGS = -I${top_srcdir} -I${top_srcdir}/hts_codecs/hts_codecs @LIBCURL_CPPFLAGS@
 libstaden_read_la_LDFLAGS = -version-info @VERS_CURRENT@:@VERS_REVISION@:@VERS_AGE@ 
-libstaden_read_la_LIBADD = @LIBZ@ @LIBCURL@
-
-INCLUDES = -I${top_srcdir}
+libstaden_read_la_LIBADD = @LIBZ@ @LIBCURL@ ${top_builddir}/hts_codecs/hts_codecs/libhts-codecs.la

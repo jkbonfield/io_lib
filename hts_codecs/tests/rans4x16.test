@@ -1,0 +1,19 @@
+#!/bin/sh
+out=test.out
+if test ! -d $out
+then
+    mkdir $out
+fi
+
+for f in $srcdir/dat/*
+do
+    tr -d '\012' < $f > $out/r4x16-nl
+    for o in 0 1 64 65 128 129 192 193 8 9
+    do
+        echo -n Testing rans4x16 -o$o on $f "	"
+        ./rans4x16pr -o$o  $out/r4x16-nl $out/r4x16.comp 2>>$out/r4x16.stderr
+	wc -c < $out/r4x16.comp
+        ./rans4x16pr -d $out/r4x16.comp $out/r4x16.uncomp  2>>$out/r4x16.stderr
+        cmp $out/r4x16-nl $out/r4x16.uncomp || exit 1
+    done
+done

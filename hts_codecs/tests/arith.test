@@ -1,0 +1,19 @@
+#!/bin/sh
+out=test.out
+if test ! -d $out
+then
+    mkdir $out
+fi
+
+for f in $srcdir/dat/*
+do 
+    tr -d '\012' < $f > $out/arith-nl
+    for o in 0 1 64 65 128 129 192 193 8 9
+    do
+        echo -n Testing arith_dynamic -o$o on $f "	"
+        ./arith_dynamic -o$o $out/arith-nl $out/arith.comp 2>>$out/arith.stderr
+	wc -c < $out/arith.comp
+        ./arith_dynamic -d $out/arith.comp $out/arith.uncomp  2>>$out/arith.stderr
+        cmp $out/arith-nl $out/arith.uncomp || exit 1
+    done
+done
