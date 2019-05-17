@@ -179,6 +179,8 @@ int main(int argc, char **argv) {
 	    in2 += in2_len;
 	    in_len -= in2_len+8;
 
+	    free(lengths);
+
 	    break; // One cycle only until we fix blocking to be \n based
 	}
     } else {
@@ -212,6 +214,9 @@ int main(int argc, char **argv) {
 	    break; // One cycle only until we fix blocking to be \n based
 	}
 	free(out);
+	free(rec_len);
+	free(rec_r2);
+	free(rec_sel);
 	fprintf(stderr, "Total output = %ld\n", t_out);
     }
 
