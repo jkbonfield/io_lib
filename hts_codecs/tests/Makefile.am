@@ -31,7 +31,7 @@
 # 
 
 # Standalone test programs
-bin_PROGRAMS = rans4x16pr tokenise_name3 arith_dynamic rans4x8 rans4x16pr fqzcomp_qual
+noinst_PROGRAMS = rans4x16pr tokenise_name3 arith_dynamic rans4x8 rans4x16pr fqzcomp_qual
 
 LDADD = $(top_builddir)/hts_codecs/libhts-codecs.la -lm
 CPPFLAGS = -I$(top_srcdir)
@@ -55,3 +55,22 @@ test_outdir = test.out
 
 distclean-local:
 	-rm -rf $(test_outdir)
+
+# Fuzz testing programs, for local use.
+# Hence hardcoded pathnames for the "fuzz" target (we have a
+# rather broken local install of clang).
+#
+# May also wish to recompile from scratch with
+# CPPFLAGS=-DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+# so we limit the maximum size of some uncomp_len fields
+# to speed up fuzzing.
+
+fuzz: $(EXTRA_PROGRAMS)
+fuzz: CC=/software/badger/opt/llvm/7.0.0/bin/clang
+fuzz: LDFLAGS=/software/badger/opt/gcc/8.1.0/lib64/libstdc++.a
+fuzz: CFLAGS=-fsanitize=fuzzer,address -g -O3
+
+EXTRA_PROGRAMS = rans4x8_fuzz rans4x16pr_fuzz arith_dynamic_fuzz
+rans4x8_fuzz_SOURCES        = rANS_static_fuzz.c
+rans4x16pr_fuzz_SOURCES     = rANS_static4x16pr_fuzz.c
+arith_dynamic_fuzz_SOURCES  = arith_dynamic_fuzz.c

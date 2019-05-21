@@ -64,6 +64,7 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/time.h>
+#include <limits.h>
 #ifndef NO_THREADS
 #include <pthread.h>
 #endif
@@ -529,16 +530,25 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     if (in_size < 16) // 4-states at least
 	return NULL;
 
+    if (out_sz >= INT_MAX)
+	return NULL; // protect against some overflow cases
+
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (out_sz > 100000)
+	return NULL;
+#endif
+
     /* Load in the static tables */
-    unsigned char *cp = in;
+    unsigned char *cp = in, *out_free = NULL;
     unsigned char *cp_end = in + in_size - 8; // within 8 => be extra safe
-    int i, j, x, y;
+    int i, j;
+    unsigned int x, y;
     uint16_t sfreq[TOTFREQ+32];
     uint16_t sbase[TOTFREQ+32]; // faster to use 32-bit on clang
     uint8_t  ssym [TOTFREQ+64]; // faster to use 16-bit on clang
 
     if (!out)
-	out = malloc(out_sz);
+	out_free = out = malloc(out_sz);
 
     if (!out)
 	return NULL;
@@ -547,14 +557,14 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     int F[256] = {0};
     int fsz = decode_freq(cp, cp_end, F);
     if (!fsz)
-	return NULL;
+	goto err;
     cp += fsz;
 
     // Build symbols; fixme, do as part of decode, see the _d variant
     for (j = x = 0; j < 256; j++) {
 	if (F[j]) {
-	    if (x + F[j] > TOTFREQ)
-		return NULL;
+	    if (x + F[j] > TOTFREQ || F[j] < 0)
+		goto err;
 	    for (y = 0; y < F[j]; y++) {
 		ssym [y + x] = j;
 		sfreq[y + x] = F[j];
@@ -565,16 +575,16 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     }
 
     if (x != TOTFREQ)
-	return NULL;
+	goto err;
 
     if (cp+16 > cp_end+8)
-	return NULL;
+	goto err;
 
     RansState R[4];
-    RansDecInit(&R[0], &cp); if (R[0] < RANS_BYTE_L) return NULL;
-    RansDecInit(&R[1], &cp); if (R[1] < RANS_BYTE_L) return NULL;
-    RansDecInit(&R[2], &cp); if (R[2] < RANS_BYTE_L) return NULL;
-    RansDecInit(&R[3], &cp); if (R[3] < RANS_BYTE_L) return NULL;
+    RansDecInit(&R[0], &cp); if (R[0] < RANS_BYTE_L) goto err;
+    RansDecInit(&R[1], &cp); if (R[1] < RANS_BYTE_L) goto err;
+    RansDecInit(&R[2], &cp); if (R[2] < RANS_BYTE_L) goto err;
+    RansDecInit(&R[3], &cp); if (R[3] < RANS_BYTE_L) goto err;
 
     for (i = 0; cp < cp_end-8 && i < (out_sz&~7); i+=8) {
         for(j=0; j<8;j++) {
@@ -595,6 +605,10 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
     //fprintf(stderr, "    0 Decoded %d bytes\n", (int)(cp-in)); //c-size
 
     return out;
+
+ err:
+    free(out_free);
+    return NULL;
 }
 
 #ifdef UNUSED
@@ -764,7 +778,7 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t 
     j = meta[m++];
     if (j == 0)
 	j = 256;
-    for (; j; j--)
+    for (; j && m < meta_sz; j--)
 	saved[meta[m++]]=1;
 
     j = 0;
@@ -1603,9 +1617,13 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     if (in_size < 16) // 4-states at least
 	return NULL;
 
+    if (out_sz >= INT_MAX)
+	return NULL; // protect against some overflow cases
+
     /* Load in the static tables */
     unsigned char *cp = in, *cp_end = in+in_size, *out_free = NULL;
-    int i, j = -999, x, y;
+    int i, j = -999;
+    unsigned int x, y;
 
 #ifndef NO_THREADS
     /*
@@ -1703,7 +1721,7 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
 	// Build symbols; fixme, do as part of decode, see the _d variant
 	for (j = x = 0; j < 256; j++) {
 	    if (F[j]) {
-		if (x + F[j] > TOTFREQ_O1)
+		if (x + F[j] > TOTFREQ_O1 || F[j] < 0)
 		    goto err;
 		for (y = 0; y < F[j]; y++) {
 		    sfb[i][y + x].c = j;
@@ -1732,9 +1750,9 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     RansDecInit(&rans2, &ptr); if (rans2 < RANS_BYTE_L) goto err;
     RansDecInit(&rans3, &ptr); if (rans3 < RANS_BYTE_L) goto err;
 
-    int isz4 = out_sz>>2;
+    unsigned int isz4 = out_sz>>2;
     int l0 = 0, l1 = 0, l2 = 0, l3 = 0;
-    int i4[] = {0*isz4, 1*isz4, 2*isz4, 3*isz4};
+    unsigned int i4[] = {0*isz4, 1*isz4, 2*isz4, 3*isz4};
 
     RansState R[4];
     R[0] = rans0;
@@ -2001,7 +2019,7 @@ unsigned char *rans_compress_4x16(unsigned char *in, unsigned int in_size,
 unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 				       unsigned char *out, unsigned int *out_size) {
     unsigned char *in_end = in + in_size;
-    unsigned char *out_free = NULL;
+    unsigned char *out_free = NULL, *tmp_free = NULL;
 
     if (in_size == 0)
 	return NULL;
@@ -2013,6 +2031,8 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	// Decode lengths
 	c_meta_len += u7tou32(in+c_meta_len, in_end, &ulen);
 	if (!out) {
+	    if (ulen >= INT_MAX)
+		return NULL;
 	    if (!(out_free = out = malloc(ulen)))
 		return NULL;
 	    *out_size = ulen;
@@ -2035,8 +2055,11 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	}
 	for (i = 0; i < 4; i++) {
 	    olen = ulen/4;
-	    if (in_size < c_meta_len)
+	    if (in_size < c_meta_len) {
+		free(out_free);
+		free(out4);
 		return NULL;
+	    }
 	    if (!rans_uncompress_to_4x16(in+c_meta_len, in_size-c_meta_len, out4 + i*(ulen/4), &olen)
 		|| olen != ulen/4) {
 		free(out_free);
@@ -2076,15 +2099,15 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     in_size -= sz;
 
     if (no_size && !out)
-	return NULL; // Need one or the other
+	goto err; // Need one or the other
 
     if (!out) {
 	*out_size = osz;
-	if (!(out = malloc(*out_size)))
+	if (!(out = out_free = malloc(*out_size)))
 	    return NULL;
     } else {
 	if (*out_size < osz)
-	    return NULL;
+	goto err;
 	*out_size = osz;
     }
 
@@ -2118,8 +2141,8 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     // followed by rANS compressed data.
 
     if (do_pack || do_rle) {
-	if (!(tmp = malloc(*out_size)))
-	    return NULL;
+	if (!(tmp = tmp_free = malloc(*out_size)))
+	    goto err;
 	if (do_pack && do_rle) {
 #define JOINT_PACK_RLE
 #ifndef JOINT_PACK_RLE
@@ -2156,7 +2179,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     if (do_pack) {
 	c_meta_size = unpack_meta(in, in_size, *out_size, map, &npacked_sym);
 	if (c_meta_size == 0)
-	    return NULL;
+	    goto err;
 
 	unpacked_sz = osz;
 	in      += c_meta_size;
@@ -2169,7 +2192,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	in += sz;
 	in_size -= sz;
 	if (osz > tmp1_size)
-	    return NULL;
+	    goto err;
 	tmp1_size = osz;
     }
 
@@ -2181,7 +2204,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	sz  = u7tou32(in,    in_end, &u_meta_size);
 	sz += u7tou32(in+sz, in_end, &rle_len);
 	if (rle_len > tmp1_size) // should never grow
-	    return NULL;
+	    goto err;
 	if (u_meta_size & 1) {
 	    meta = in + sz;
 	    u_meta_size = u_meta_size/2 > (in_end-meta) ? (in_end-meta) : u_meta_size/2;
@@ -2191,10 +2214,10 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	    u_meta_size /= 2;
 	    meta_free = meta = rans_uncompress_O0_4x16(in+sz, in_size-sz, NULL, u_meta_size);
 	    if (!meta)
-		return NULL;
+		goto err;
 	}
 	if (c_meta_size+sz > in_size)
-	    return NULL;
+	    goto err;
 	in      += c_meta_size+sz;
 	in_size -= c_meta_size+sz;
 	tmp1_size = rle_len;
@@ -2207,16 +2230,16 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	if (do_cat) {
 	    //fprintf(stderr, "    CAT %d\n", tmp1_size); //c-size
 	    if (tmp1_size > in_size)
-		return NULL;
+		goto err;
 	    if (tmp1_size > *out_size)
-		return NULL;
+		goto err;
 	    memcpy(tmp1, in, tmp1_size);
 	} else {
 	    tmp1 = order
 		? rans_uncompress_O1sfb_4x16(in, in_size, tmp1, tmp1_size)
 		: rans_uncompress_O0_4x16(in, in_size, tmp1, tmp1_size);
 	    if (!tmp1)
-		return NULL;
+		goto err;
 	}
     } else {
 	tmp1 = NULL;
@@ -2229,7 +2252,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	// Unrle and unpack in one step
 	if (!rle_decode_unpack(tmp1, tmp1_size, meta, u_meta_size,
 			       npacked_sym, map, tmp3, unpacked_sz))
-	    return NULL;
+	    goto err;
 	tmp3_size = unpacked_sz;
 	free(meta_free);
     } else {
@@ -2238,7 +2261,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	// Unpack RLE.  tmp1 -> tmp2.
 	uint64_t unrle_size = *out_size;
 	if (!rle_decode(tmp1, tmp1_size, meta, u_meta_size, tmp2, &unrle_size))
-	    return NULL;
+	    goto err;
 	tmp3_size = tmp2_size = unrle_size;
 	free(meta_free);
     }
@@ -2249,7 +2272,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	//uint8_t *porig = unpack(tmp2, tmp2_size, unpacked_sz, npacked_sym, map);
 	//memcpy(tmp3, porig, unpacked_sz);
 	if (!unpack(tmp2, tmp2_size, tmp3, unpacked_sz, npacked_sym, map))
-	    return NULL;
+	    goto err;
 	tmp3_size = unpacked_sz;
     }
 #ifdef JOINT_PACK_RLE
@@ -2261,6 +2284,11 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 
     *out_size = tmp3_size;
     return tmp3;
+
+ err:
+    free(out_free);
+    free(tmp_free);
+    return NULL;
 }
 
 unsigned char *rans_uncompress_4x16(unsigned char *in, unsigned int in_size,
