@@ -64,6 +64,7 @@
 #include <inttypes.h>
 
 #include "fqzcomp_qual.h"
+#include "varint.h"
 
 #define CTX_BITS 16
 #define CTX_SIZE (1<<CTX_BITS)
@@ -153,18 +154,20 @@ static int store_array(unsigned char *out, unsigned int *array, int size) {
     return k;
 }
 
-static int read_array(unsigned char *in, unsigned int *array, int size) {
+static int read_array(unsigned char *in, size_t in_size, unsigned int *array, int size) {
     unsigned char R[1024];
     int i, j, z, last = -1, nb = 0;
 
     size = MIN(1024, size);
 
     // Remove level one of run-len encoding
-    for (i = j = z = 0; z < size; i++) {
+    for (i = j = z = 0; z < size && i < in_size; i++) {
 	int run = in[i];
 	R[j++] = run;
 	z += run;
 	if (run == last) {
+	    if (i+1 >= in_size)
+		return -1;
 	    int copy = in[++i];
 	    z += run * copy;
 	    while (copy-- && z < size)
@@ -175,13 +178,18 @@ static int read_array(unsigned char *in, unsigned int *array, int size) {
     nb = i;
 
     // Now expand inner level of run-length encoding
+    int R_max = j;
     for (i = j = z = 0; j < size; i++) {
 	int run_len = 0;
 	int run_part;
+	if (z >= R_max)
+	    return -1;
 	do {
 	    run_part = R[z++];
 	    run_len += run_part;
-	} while (run_part == 255);
+	} while (run_part == 255 && z < R_max);
+	if (run_part == 255)
+	    return -1;
 
 	while (run_len && j < size)
 	    run_len--, array[j++] = i;
@@ -1159,7 +1167,8 @@ unsigned char *compress_block_fqz2f(int vers,
 	return NULL;
 #endif
     //dump_params(&gp);
-    comp_idx = fqz_store_parameters(&gp, comp);
+    comp_idx = u32tou7(comp, in_size);
+    comp_idx = fqz_store_parameters(&gp, comp+comp_idx);
 
     fqz_param *pm;
 
@@ -1339,9 +1348,12 @@ unsigned char *compress_block_fqz2f(int vers,
 // Returns number of bytes read on success,
 //         -1 on failure.
 static inline
-int fqz_read_parameters1(fqz_param *pm, unsigned char *in) {
+int fqz_read_parameters1(fqz_param *pm, unsigned char *in, size_t in_size) {
     int in_idx = 0;
     size_t i;
+
+    if (in_size < 7)
+	return -1;
 
     // Starting context
     pm->context = in[in_idx] + (in[in_idx+1]<<8);
@@ -1370,6 +1382,8 @@ int fqz_read_parameters1(fqz_param *pm, unsigned char *in) {
     // Maps and tables
     if (pm->store_qmap) {
 	for (i = 0; i < 256; i++) pm->qmap[i] = INT_MAX; // so dump_map works
+	if (in_idx + pm->max_sym > in_size)
+	    return -1;
 	for (i = 0; i < pm->max_sym; i++)
 	    pm->qmap[i] = in[in_idx++];
     } else {
@@ -1379,20 +1393,20 @@ int fqz_read_parameters1(fqz_param *pm, unsigned char *in) {
 
     if (pm->qbits) {
 	if (pm->use_qtab)
-	    in_idx += read_array(in+in_idx, pm->qtab, 256);
+	    in_idx += read_array(in+in_idx, in_size-in_idx, pm->qtab, 256);
 	else
 	    for (i = 0; i < 256; i++)
 		pm->qtab[i] = i;
     }
 
     if (pm->use_ptab)
-	in_idx += read_array(in+in_idx, pm->ptab, 1024);
+	in_idx += read_array(in+in_idx, in_size-in_idx, pm->ptab, 1024);
     else
 	for (i = 0; i < 1024; i++)
 	    pm->ptab[i] = 0;
 
     if (pm->use_dtab)
-        in_idx += read_array(in+in_idx, pm->dtab, 256);
+        in_idx += read_array(in+in_idx, in_size-in_idx, pm->dtab, 256);
     else
 	for (i = 0; i < 256; i++)
 	    pm->dtab[i] = 0;
@@ -1402,27 +1416,30 @@ int fqz_read_parameters1(fqz_param *pm, unsigned char *in) {
     return in_idx;
 }
 
-int fqz_read_parameters(fqz_gparams *gp, unsigned char *in) {
+int fqz_read_parameters(fqz_gparams *gp, unsigned char *in, size_t in_size) {
     int in_idx = 0;
     int i;
 
+    if (in_size < 10)
+	return -1;
+
     // Format version
     gp->vers = in[in_idx++];
-    if (gp->vers != 5) {
-	fprintf(stderr, "This version of fqzcomp only supports format 5\n");
+    if (gp->vers != 5)
 	return -1;
-    }
 
     // Global glags
     gp->gflags = in[in_idx++];
 
     // Number of param blocks and param selector details
     gp->nparam = (gp->gflags & GFLAG_MULTI_PARAM) ? in[in_idx++] : 1;
+    if (gp->nparam <= 0)
+	return -1;
     gp->max_sel = gp->nparam > 1 ? gp->nparam : 0;
 
     if (gp->gflags & GFLAG_HAVE_STAB) {
 	gp->max_sel = in[in_idx++];
-	in_idx += read_array(in+in_idx, gp->stab, 256);
+	in_idx += read_array(in+in_idx, in_size-in_idx, gp->stab, 256);
     } else {
 	for (i = 0; i < gp->nparam; i++)
 	    gp->stab[i] = i;
@@ -1436,9 +1453,9 @@ int fqz_read_parameters(fqz_gparams *gp, unsigned char *in) {
 
     gp->max_sym = 0;
     for (i = 0; i < gp->nparam; i++) {
-	int e = fqz_read_parameters1(&gp->p[i], in + in_idx);
+	int e = fqz_read_parameters1(&gp->p[i], in + in_idx, in_size-in_idx);
 	if (e < 0)
-	    return -1;
+	    goto err;
 	in_idx += e;
 
 	if (gp->max_sym < gp->p[i].max_sym)
@@ -1447,6 +1464,11 @@ int fqz_read_parameters(fqz_gparams *gp, unsigned char *in) {
 
     //fprintf(stderr, "Decoded %d bytes of param\n", in_idx);
     return in_idx;
+
+ err:
+    fqz_free_parameters(gp);
+    gp->nparam = 0;
+    return -1;
 }
 
 unsigned char *uncompress_block_fqz2f(fqz_slice *s,
@@ -1456,15 +1478,26 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
 				      int *lengths) {
     fqz_gparams gp;
     fqz_param *pm;
+    char *rev_a = NULL;
+    int *len_a = NULL;
     memset(&gp, 0, sizeof(gp));
+
+    uint32_t len;
+    ssize_t i, rec = 0, in_idx;
+    in_idx = u7tou32(in, in+in_size, &len);
+    *out_size = len;
+
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (len > 100000)
+	return NULL;
+#endif
 
     unsigned char *uncomp = NULL;
     RangeCoder rc;
-    size_t i, rec = 0, len = *out_size, in_idx = 0;
     unsigned int last = 0;
 
     // Decode parameter blocks
-    if ((in_idx = fqz_read_parameters(&gp, in)) < 0)
+    if ((in_idx = fqz_read_parameters(&gp, in+in_idx, in_size-in_idx)) < 0)
 	return NULL;
     //dump_params(&gp);
 
@@ -1483,20 +1516,20 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
     if (fqz_create_models(&model, &gp) < 0)
 	return NULL;
 
-    RC_SetInput(&rc, (char *)in+in_idx);
+    RC_SetInput(&rc, (char *)in+in_idx, (char *)in+in_size);
     RC_StartDecode(&rc);
 
 
     // Allocate buffers
     uncomp = (unsigned char *)malloc(*out_size);
     if (!uncomp)
-	return NULL;
+	goto err;
 
     int nrec = 1000;
-    char *rev_a = malloc(nrec);
-    int *len_a = malloc(nrec * sizeof(int));
+    rev_a = malloc(nrec);
+    len_a = malloc(nrec * sizeof(int));
     if (!rev_a || !len_a)
-	return NULL;
+	goto err;
 
     // Main decode loop
     fqz_state state;
@@ -1516,7 +1549,7 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
 	    rev_a = realloc(rev_a, nrec);
 	    len_a = realloc(len_a, nrec*sizeof(int));
 	    if (!rev_a || !len_a)
-		return NULL;
+		goto err;
 	}
 
 	if (state.p == 0) {
@@ -1529,7 +1562,7 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
 	    }
 	    x = (gp.gflags & GFLAG_HAVE_STAB) ? gp.stab[MIN(255, state.s)] : state.s;
 	    if (x >= gp.nparam)
-		return NULL;
+		goto err;
 	    pm = &gp.p[x];
 
 	    int len = last_len;
@@ -1542,6 +1575,9 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
 		pm->first_len = 0;
 		last_len = len;
 	    }
+	    if (len > *out_size-i)
+		goto err;
+
 	    if (lengths)
 		lengths[rec] = len;
 
@@ -1617,6 +1653,15 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
 #endif
 
     return uncomp;
+
+ err:
+    fqz_destroy_models(&model);
+    free(rev_a);
+    free(len_a);
+    fqz_free_parameters(&gp);
+    free(uncomp);
+
+    return NULL;
 }
 
 char *fqz_compress(int vers, fqz_slice *s, char *in, size_t uncomp_size,

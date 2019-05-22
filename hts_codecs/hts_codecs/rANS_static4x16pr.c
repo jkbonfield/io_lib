@@ -71,6 +71,7 @@
 
 #include "rANS_word.h"
 #include "rANS_static4x16.h"
+#include "varint.h"
 
 #define TF_SHIFT 12
 #define TOTFREQ (1<<TF_SHIFT)
@@ -157,36 +158,6 @@ static void present8(unsigned char *in, unsigned int in_size, int F0[256]) {
 
     for (i = 0; i < 256; i++)
 	F0[i] += F1[i] + F2[i] + F3[i] + F4[i] + F5[i] + F6[i] + F7[i];
-}
-
-static int u32tou7(uint8_t *cp, uint32_t i) {
-    uint8_t *op = cp;
-
-    do {
-	*cp++ = (i&0x7f) + ((i>=0x80)<<7);
-	i >>= 7;
-    } while (i);
-
-    return cp-op;
-}
-
-static int u7tou32(uint8_t *cp, uint8_t *cp_end, uint32_t *i) {
-    uint8_t *op = cp, c;
-    uint32_t j = 0, s = 0;
-
-    if (cp >= cp_end) {
-	*i = 0;
-	return 0;
-    }
-
-    do {
-	c = *cp++;
-	j |= (c & 0x7f) << s;
-	s += 7;
-    } while ((c & 0x80) && cp < cp_end);
-
-    *i = j;
-    return cp-op;
 }
 
 static int normalise_freq(int *F, int size, int tot) {
@@ -549,7 +520,6 @@ unsigned char *rans_uncompress_O0_4x16(unsigned char *in, unsigned int in_size,
 
     if (!out)
 	out_free = out = malloc(out_sz);
-
     if (!out)
 	return NULL;
 
@@ -770,6 +740,11 @@ static uint8_t *rle_decode(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t 
 			   unsigned char *out, uint64_t *out_len) {
     uint64_t j, m = 0;
     uint8_t *meta_end = meta + meta_sz;
+
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (*out_len > 100000)
+	return NULL;
+#endif
 
     if (meta_sz == 0 || meta[0] >= meta_sz)
 	return NULL;
@@ -1142,6 +1117,11 @@ static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_le
 static uint8_t *rle_decode_unpack(uint8_t *in, int64_t in_len, uint8_t *meta, uint32_t meta_sz,
 				  int nsym, uint8_t *p, unsigned char *out, int64_t out_len) {
     int64_t i, j, m;
+
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (out_len > 100000)
+	return NULL;
+#endif
 
     if (meta_sz == 0 || meta[0] >= meta_sz)
 	return NULL;
@@ -1620,6 +1600,11 @@ unsigned char *rans_uncompress_O1sfb_4x16(unsigned char *in, unsigned int in_siz
     if (out_sz >= INT_MAX)
 	return NULL; // protect against some overflow cases
 
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (out_sz > 100000)
+	return NULL;
+#endif
+
     /* Load in the static tables */
     unsigned char *cp = in, *cp_end = in+in_size, *out_free = NULL;
     int i, j = -999;
@@ -2019,7 +2004,7 @@ unsigned char *rans_compress_4x16(unsigned char *in, unsigned int in_size,
 unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 				       unsigned char *out, unsigned int *out_size) {
     unsigned char *in_end = in + in_size;
-    unsigned char *out_free = NULL, *tmp_free = NULL;
+    unsigned char *out_free = NULL, *tmp_free = NULL, *meta_free = NULL;
 
     if (in_size == 0)
 	return NULL;
@@ -2097,6 +2082,11 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	sz = 0, osz = *out_size;
     in += sz;
     in_size -= sz;
+
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (osz > 100000)
+	return NULL;
+#endif
 
     if (no_size && !out)
 	goto err; // Need one or the other
@@ -2196,7 +2186,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	tmp1_size = osz;
     }
 
-    uint8_t *meta = NULL, *meta_free = NULL;
+    uint8_t *meta = NULL;
     uint32_t u_meta_size = 0;
     if (do_rle) {
 	// Uncompress meta data
@@ -2255,6 +2245,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	    goto err;
 	tmp3_size = unpacked_sz;
 	free(meta_free);
+	meta_free = NULL;
     } else {
 #endif
     if (do_rle) {
@@ -2264,6 +2255,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
 	    goto err;
 	tmp3_size = tmp2_size = unrle_size;
 	free(meta_free);
+	meta_free = NULL;
     }
     if (do_pack) {
 	// Unpack bits via pack-map.  tmp2 -> tmp3
@@ -2286,6 +2278,7 @@ unsigned char *rans_uncompress_to_4x16(unsigned char *in,  unsigned int in_size,
     return tmp3;
 
  err:
+    free(meta_free);
     free(out_free);
     free(tmp_free);
     return NULL;

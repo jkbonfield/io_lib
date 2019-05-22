@@ -159,22 +159,29 @@ typedef struct {
     //int token_zcount[MAX_TOKENS];
 
     int max_tok; // tracks which desc/[id]count elements have been initialised
+    int max_names;
 } name_context;
 
 name_context *create_context(int max_names) {
     if (max_names <= 0)
 	return NULL;
 
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    if (max_names > 100000)
+	return NULL;
+#endif
+
     name_context *ctx = malloc(sizeof(*ctx) + ++max_names*sizeof(*ctx->lc));
     if (!ctx) return NULL;
 
     ctx->counter = 0;
     ctx->t_head = NULL;
+    ctx->max_names = max_names;
 
     ctx->lc = (last_context *)(((char *)ctx) + sizeof(*ctx));
     ctx->pool = NULL;
 
-     memset(&ctx->desc[0], 0, 16 * sizeof(ctx->desc[0]));
+     memset(&ctx->desc[0], 0, 2*16 * sizeof(ctx->desc[0]));
      memset(&ctx->token_dcount[0], 0, sizeof(int));
      memset(&ctx->token_icount[0], 0, sizeof(int));
      ctx->max_tok = 1;
@@ -191,6 +198,10 @@ void free_context(name_context *ctx) {
 	free(ctx->t_head);
     if (ctx->pool)
 	pool_destroy(ctx->pool);
+
+    int i;
+    for (i = 0; i < ctx->max_tok*16; i++)
+	free(ctx->desc[i].buf);
 
     free(ctx);
 }
@@ -267,8 +278,7 @@ static int i7put(uint8_t *cp, uint64_t i) {
     return cp-op;
 }
 
-static int i7get(uint8_t *cp, uint64_t *i) {
-    unsigned char *cp_end = cp+100; // FIXME: add to arg list!
+static int i7get(uint8_t *cp, uint64_t *i, uint8_t *cp_end) {
     uint8_t *op = cp, c;
     uint32_t j = 0, s = 0;
 
@@ -1001,7 +1011,10 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
     uint32_t dist;
     int pnum, cnum = ctx->counter++;
 
-    if (t0 < 0)
+    if (cnum >= ctx->max_names)
+	return -1;
+
+    if (t0 < 0 || t0 >= ctx->max_tok*16)
 	return 0;
 
     if (decode_token_int(ctx, 0, t0, &dist) < 0 || dist > cnum)
@@ -1011,6 +1024,9 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
     //fprintf(stderr, "t0=%d, dist=%d, pnum=%d, cnum=%d\n", t0, dist, pnum, cnum);
 
     if (t0 == N_DUP) {
+	if (pnum == cnum)
+	    return -1;
+
 	if (strlen(ctx->lc[pnum].last_name) +1 >= name_len) return -1;
 	strcpy(name, ctx->lc[pnum].last_name);
 	// FIXME: optimise this
@@ -1027,7 +1043,7 @@ static int decode_name(name_context *ctx, char *name, int name_len) {
     *name = 0;
     int ntok, len = 0, len2;
 
-    for (ntok = 1; ntok < MAX_TOKENS; ntok++) {
+    for (ntok = 1; ntok < MAX_TOKENS && ntok < ctx->max_tok; ntok++) {
 	uint32_t v, vl;
 	enum name_type tok;
 	tok = decode_token_type(ctx, ntok);
@@ -1178,7 +1194,7 @@ static int64_t arith_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t
     unsigned int olen = *out_len;
 
     uint64_t clen;
-    int nb = i7get(in, &clen);
+    int nb = i7get(in, &clen, in+in_len);
     //fprintf(stderr, "Arith decode %x\n", in[nb]);
     if (arith_uncompress_to(in+nb, in_len-nb, out, &olen) == NULL)
 	return -1;
@@ -1204,7 +1220,7 @@ static int64_t rans_decode(uint8_t *in, uint64_t in_len, uint8_t *out, uint64_t 
     unsigned int olen = *out_len;
 
     uint64_t clen;
-    int nb = i7get(in, &clen);
+    int nb = i7get(in, &clen, in+in_len);
     //fprintf(stderr, "Arith decode %x\n", in[nb]);
     if (rans_uncompress_to_4x16(in+nb, in_len-nb, out, &olen) == NULL)
 	return -1;
@@ -1268,10 +1284,10 @@ static uint64_t uncompressed_size(uint8_t *in, uint64_t in_len) {
     uint64_t clen, ulen;
 
     // in[0] in part of buffer written by us
-    int nb = i7get(in, &clen);
+    int nb = i7get(in, &clen, in+in_len);
 
     // in[nb] is part of buffer written to by arith_dynamic.
-    i7get(in+nb+1, &ulen);
+    i7get(in+nb+1, &ulen, in+in_len);
 
     return ulen;
 }
@@ -1279,7 +1295,7 @@ static uint64_t uncompressed_size(uint8_t *in, uint64_t in_len) {
 static int uncompress(int use_arith, uint8_t *in, uint64_t in_len,
 		      uint8_t *out, uint64_t *out_len) {
     uint64_t clen;
-    i7get(in, &clen);
+    i7get(in, &clen, in+in_len);
     return use_arith
 	? arith_decode(in, in_len, out, out_len)
 	: rans_decode(in, in_len, out, out_len);
@@ -1387,6 +1403,7 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
 
 	    ctx->desc[i].buf_l = 0;
 	    free(ctx->desc[i].buf);
+	    ctx->desc[i].buf = NULL;
 	}
     }
 
@@ -1488,11 +1505,6 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
 
     //assert(cp-out == tot_size);
 
-    for (i = 0; i < ctx->max_tok*16; i++) {
-	if (!ctx->desc[i].buf_l) continue;
-	free(ctx->desc[i].buf);
-    }
-
     free_context(ctx);
 
     return out;
@@ -1505,11 +1517,15 @@ uint8_t *encode_names(char *blk, int len, int level, int use_arith,
  * Returns NULL on failure.
  */
 uint8_t *decode_names(uint8_t *in, uint32_t sz, uint32_t *out_len) {
-    if (sz < 8)
+    if (sz < 9)
 	return NULL;
 
     int i, o = 9;
     int ulen   = *(uint32_t *)in;
+
+    if (ulen < 0 || ulen >= INT_MAX-1024)
+	return NULL;
+
     int nreads = *(uint32_t *)(in+4);
     int use_arith = in[8];
     name_context *ctx = create_context(nreads);
@@ -1521,19 +1537,19 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, uint32_t *out_len) {
     while (o < sz) {
 	uint8_t ttype = in[o++];
 	if (ttype & 64) {
-	    if (o+2 >= sz) return NULL;
+	    if (o+2 >= sz) goto err;
 	    int j = in[o++]<<4;
 	    j += in[o++];
 	    if (ttype & 128) {
 		tnum++;
-		ctx->max_tok = tnum;
+		ctx->max_tok = tnum+1;
 		memset(&ctx->desc[tnum<<4], 0, 16*sizeof(ctx->desc[tnum]));
 	    }
 
 	    if ((ttype & 15) != 0 && (ttype & 128)) {
 		ctx->desc[tnum<<4].buf = malloc(nreads);
 		if (!ctx->desc[tnum<<4].buf)
-		    return NULL;
+		    goto err;
 
 		ctx->desc[tnum<<4].buf_l = 0;
 		ctx->desc[tnum<<4].buf_a = nreads;
@@ -1543,13 +1559,14 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, uint32_t *out_len) {
 
 	    i = (tnum<<4) | (ttype&15);
 	    if (j >= i)
-		return NULL;
+		goto err;
 
 	    ctx->desc[i].buf_l = 0;
 	    ctx->desc[i].buf_a = ctx->desc[j].buf_a;
+	    if (ctx->desc[i].buf) free(ctx->desc[i].buf);
 	    ctx->desc[i].buf = malloc(ctx->desc[i].buf_a);
 	    if (!ctx->desc[i].buf)
-		return NULL;
+		goto err;
 
 	    memcpy(ctx->desc[i].buf, ctx->desc[j].buf, ctx->desc[i].buf_a);
 	    //fprintf(stderr, "Copy ttype %d, i=%d,j=%d, size %d\n", ttype, i, j, (int)ctx->desc[i].buf_a);
@@ -1559,16 +1576,15 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, uint32_t *out_len) {
 	//if (ttype == 0)
 	if (ttype & 128) {
 	    tnum++;
-	    ctx->max_tok = tnum;
+	    ctx->max_tok = tnum+1;
 	    memset(&ctx->desc[tnum<<4], 0, 16*sizeof(ctx->desc[tnum]));
 	}
 
 	if ((ttype & 15) != 0 && (ttype & 128)) {
+	    if (ctx->desc[tnum<<4].buf) free(ctx->desc[tnum<<4].buf);
 	    ctx->desc[tnum<<4].buf = malloc(nreads);
-	    if (!ctx->desc[tnum<<4].buf) {
-		free_context(ctx);
-		return NULL;
-	    }
+	    if (!ctx->desc[tnum<<4].buf)
+		goto err;
 	    ctx->desc[tnum<<4].buf_l = 0;
 	    ctx->desc[tnum<<4].buf_a = nreads;
 	    ctx->desc[tnum<<4].buf[0] = ttype&15;
@@ -1579,31 +1595,25 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, uint32_t *out_len) {
 
 	// Load compressed block
 	int64_t clen, ulen = uncompressed_size(&in[o], sz-o);
-	if (ulen < 0) {
-	    free_context(ctx);
-	    return NULL;
-	}
+	if (ulen < 0 || ulen >= INT_MAX)
+	    goto err;
 	i = (tnum<<4) | (ttype&15);
 
 	if (i >= MAX_TBLOCKS || i < 0)
-	    return NULL;
+	    goto err;
 
 	ctx->desc[i].buf_l = 0;
+	if (ctx->desc[i].buf) free(ctx->desc[i].buf);
 	ctx->desc[i].buf = malloc(ulen);
-	if (!ctx->desc[i].buf) {
-	    free_context(ctx);
-	    return NULL;
-	}
+	if (!ctx->desc[i].buf)
+	    goto err;
 
 	ctx->desc[i].buf_a = ulen;
 	uint64_t usz = ctx->desc[i].buf_a; // convert from size_t for 32-bit sys
 	clen = uncompress(use_arith, &in[o], sz-o, ctx->desc[i].buf, &usz);
 	ctx->desc[i].buf_a = usz;
-	if (clen < 0) {
-	    free(ctx->desc[i].buf);
-	    free_context(ctx);
-	    return NULL;
-	}
+	if (clen < 0)
+	    goto err;
 	assert(ctx->desc[i].buf_a == ulen);
 
 	// fprintf(stderr, "%d: Decode tnum %d type %d clen %d ulen %d via %d\n",
@@ -1623,10 +1633,8 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, uint32_t *out_len) {
     int ret;
     ulen += 1024; // for easy coding in decode_name.
     uint8_t *out = malloc(ulen);
-    if (!out) {
-	free_context(ctx);
-	return NULL;
-    }
+    if (!out)
+	goto err;
 
     size_t out_sz = 0;
     while ((ret = decode_name(ctx, (char *)out+out_sz, ulen)) > 0) {
@@ -1637,17 +1645,14 @@ uint8_t *decode_names(uint8_t *in, uint32_t sz, uint32_t *out_len) {
     if (ret < 0)
 	free(out);
 
-    for (i = 0; i <= ctx->max_tok*16; i++) {
-	if (ctx->desc[i].buf) {
-	    free(ctx->desc[i].buf);
-	    ctx->desc[i].buf = 0;
-	}
-    }
-
     free_context(ctx);
 
     *out_len = out_sz;
     return ret == 0 ? out : NULL;
+
+ err:
+    free_context(ctx);
+    return NULL;
 }
 
 

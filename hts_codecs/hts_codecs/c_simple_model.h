@@ -45,7 +45,7 @@ typedef struct {
     uint32_t TotFreq;  // Total frequency
 
     // Array of Symbols approximately sorted by Freq. 
-    SymFreqs sentinel, F[NSYM+1];
+    SymFreqs sentinel, F[NSYM+1], terminal;
 } SIMPLE_MODEL(NSYM,_);
 
 
@@ -64,7 +64,8 @@ static inline void SIMPLE_MODEL(NSYM,_init)(SIMPLE_MODEL(NSYM,_) *m, int max_sym
     m->TotFreq         = max_sym;
     m->sentinel.Symbol = 0;
     m->sentinel.Freq   = MAX_FREQ; // Always first; simplifies sorting.
-
+    m->terminal.Symbol = 0;
+    m->terminal.Freq   = MAX_FREQ;
     m->F[NSYM].Freq    = 0; // terminates normalize() loop. See below.
 }
 
@@ -116,8 +117,13 @@ static inline uint16_t SIMPLE_MODEL(NSYM,_decodeSymbol)(SIMPLE_MODEL(NSYM,_) *m,
     uint32_t freq = RC_GetFreq(rc, m->TotFreq);
     uint32_t AccFreq;
 
+    if (freq > MAX_FREQ)
+        return 0; // error
+
     for (AccFreq = 0; (AccFreq += s->Freq) <= freq; s++)
         _mm_prefetch((const char *)s, _MM_HINT_T0);
+    if (s - m->F > NSYM)
+        return 0; // error
 
     AccFreq -= s->Freq;
 

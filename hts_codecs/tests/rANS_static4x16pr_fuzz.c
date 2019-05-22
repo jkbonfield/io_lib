@@ -32,6 +32,7 @@ stream.)
 #include <sys/time.h>
 
 #include "hts_codecs/rANS_static4x16.h"
+#include "hts_codecs/rANS_static4x16pr.c"
 
 int LLVMFuzzerTestOneInput(uint8_t *in, size_t in_size) {
     unsigned int uncomp_size;
@@ -78,7 +79,6 @@ static unsigned char *load(char *fn, uint64_t *lenp) {
 int main(int argc, char **argv) {
     uint64_t in_size;
     unsigned char *in = load(argv[1], &in_size);
-    unsigned int uncomp_size;
 
     LLVMFuzzerTestOneInput(in, in_size);
 

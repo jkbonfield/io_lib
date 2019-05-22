@@ -1,0 +1,4 @@
+language: c
+compiler: gcc
+
+script: autoreconf -i; ./configure CFLAGS="-g -Wall -O3 -fsanitize=address" && make && (make check || (cat tests/test-suite.log; false))

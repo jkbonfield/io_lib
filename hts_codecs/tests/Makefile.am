@@ -34,7 +34,7 @@
 noinst_PROGRAMS = rans4x16pr tokenise_name3 arith_dynamic rans4x8 rans4x16pr fqzcomp_qual
 
 LDADD = $(top_builddir)/hts_codecs/libhts-codecs.la -lm
-CPPFLAGS = -I$(top_srcdir)
+AM_CPPFLAGS = -I$(top_srcdir)
 
 fqzcomp_qual_SOURCES = fqzcomp_qual_test.c
 rans4x8_SOURCES = rANS_static_test.c
@@ -60,17 +60,44 @@ distclean-local:
 # Hence hardcoded pathnames for the "fuzz" target (we have a
 # rather broken local install of clang).
 #
-# May also wish to recompile from scratch with
-# CPPFLAGS=-DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-# so we limit the maximum size of some uncomp_len fields
-# to speed up fuzzing.
+# Best configure the main package with (local):
+# ../configure --disable-shared CFLAGS="-g -Wall -O3 -fsanitize=address -gdwarf-2" CC=clang70
+# Then "cd tests;make fuzz" to recompile these tools.
+#
+# We can get non-fuzzing code for valgrind use, having found a bug, with e.g.
+# clang70 -I. -I../../tests -I..  -I../.. -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION -Wall -g -Wall -gdwarf-2 ../../tests/tokenise_name3_fuzz.c /software/badger/opt/gcc/8.1.0/lib64/libstdc++.a -DNOFUZZ -lbz2 -lpthread
+
+
+# Our fuzz tools #include the C code so we can recompile
+# them with -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION.
+# This limits the maximum size of some data blocks to speed up
+# fuzz testing, avoiding small inputs uncompressing to huge
+# outputs.
 
 fuzz: $(EXTRA_PROGRAMS)
-fuzz: CC=/software/badger/opt/llvm/7.0.0/bin/clang
-fuzz: LDFLAGS=/software/badger/opt/gcc/8.1.0/lib64/libstdc++.a
-fuzz: CFLAGS=-fsanitize=fuzzer,address -g -O3
+#fuzz: CC=/software/badger/opt/llvm/7.0.0/bin/clang
 
-EXTRA_PROGRAMS = rans4x8_fuzz rans4x16pr_fuzz arith_dynamic_fuzz
-rans4x8_fuzz_SOURCES        = rANS_static_fuzz.c
-rans4x16pr_fuzz_SOURCES     = rANS_static4x16pr_fuzz.c
-arith_dynamic_fuzz_SOURCES  = arith_dynamic_fuzz.c
+# Additional flags
+FUZZ_LIB=/software/badger/opt/gcc/8.1.0/lib64/libstdc++.a
+FUZZ_CFLAGS=-fsanitize=fuzzer -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+
+EXTRA_PROGRAMS = rans4x8_fuzz rans4x16pr_fuzz arith_dynamic_fuzz tokenise_name3_fuzz fqzcomp_qual_fuzz
+rans4x8_fuzz_SOURCES = rANS_static_fuzz.c
+rans4x8_fuzz_CFLAGS  = $(FUZZ_CFLAGS)
+rans4x8_fuzz_LDADD   = $(FUZZ_LIB)
+
+rans4x16pr_fuzz_SOURCES = rANS_static4x16pr_fuzz.c
+rans4x16pr_fuzz_CFLAGS  = $(FUZZ_CFLAGS)
+rans4x16pr_fuzz_LDADD   = $(FUZZ_LIB)
+
+arith_dynamic_fuzz_SOURCES = arith_dynamic_fuzz.c
+arith_dynamic_fuzz_CFLAGS  = $(FUZZ_CFLAGS)
+arith_dynamic_fuzz_LDADD   = $(FUZZ_LIB)
+
+tokenise_name3_fuzz_SOURCES = tokenise_name3_fuzz.c
+tokenise_name3_fuzz_CFLAGS  = $(FUZZ_CFLAGS)
+tokenise_name3_fuzz_LDADD   = $(FUZZ_LIB)
+
+fqzcomp_qual_fuzz_SOURCES = fqzcomp_qual_fuzz.c
+fqzcomp_qual_fuzz_CFLAGS  = $(FUZZ_CFLAGS)
+fqzcomp_qual_fuzz_LDADD   = $(FUZZ_LIB)

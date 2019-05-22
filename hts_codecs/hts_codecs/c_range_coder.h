@@ -30,9 +30,13 @@ typedef struct {
     uint32_t Carry;  // Flag to indicate if we emit Cache or Cache+1
     uc *in_buf;
     uc *out_buf;
+    uc *in_end;
 } RangeCoder;
 
-static inline void RC_SetInput(RangeCoder *rc, char *in) { rc->out_buf = rc->in_buf = (uc *)in; }
+static inline void RC_SetInput(RangeCoder *rc, char *in, char *in_end) {
+    rc->out_buf = rc->in_buf = (uc *)in;
+    rc->in_end = (uc *)in_end;
+}
 static inline void RC_SetOutput(RangeCoder *rc, char *out) { rc->in_buf = rc->out_buf = (uc *)out; }
 static inline char *RC_GetInput(RangeCoder *rc) { return (char *)rc->in_buf; }
 static inline char *RC_GetOutput(RangeCoder *rc) { return (char *)rc->out_buf; }
@@ -57,6 +61,10 @@ static inline void RC_StartDecode(RangeCoder *rc)
     rc->Carry = 0;
     rc->Cache = 0;
     rc->code  = 0;
+    if (rc->in_buf+5 >= rc->in_end) {
+        rc->in_buf = rc->in_end; // prevent decode
+        return;
+    }
     DO(5) rc->code = (rc->code<<8) | *rc->in_buf++;
 }
 
@@ -102,7 +110,8 @@ static inline void RC_Encode (RangeCoder *rc, uint32_t cumFreq, uint32_t freq, u
 }
 
 static inline uint32_t RC_GetFreq (RangeCoder *rc, uint32_t totFreq) {
-    return rc->code/(rc->range/=totFreq);
+    //return rc->code/(rc->range/=totFreq);
+    return (totFreq && rc->range >= totFreq) ? rc->code/(rc->range/=totFreq) : 0;
 }
 
 static inline void RC_Decode (RangeCoder *rc, uint32_t cumFreq, uint32_t freq, uint32_t totFreq) 
@@ -110,6 +119,8 @@ static inline void RC_Decode (RangeCoder *rc, uint32_t cumFreq, uint32_t freq, u
     rc->code -= cumFreq * rc->range;
     rc->range *= freq;
     while (rc->range < TOP) {
+        if (rc->in_buf >= rc->in_end)
+            return; // FIXME: could signal error, instead of caller just generating nonsense
 	rc->code = (rc->code<<8) + *rc->in_buf++;
 	rc->range <<= 8;
     }
