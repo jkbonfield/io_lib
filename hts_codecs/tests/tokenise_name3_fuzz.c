@@ -8,12 +8,15 @@
 #include <string.h>
 #include <sys/time.h>
 
-#include "hts_codecs/arith_dynamic.h"
+#include "hts_codecs/tokenise_name3.h"
+
 #include "hts_codecs/arith_dynamic.c"
+#include "hts_codecs/rANS_static4x16pr.c"
+#include "hts_codecs/tokenise_name3.c"
 
 int LLVMFuzzerTestOneInput(uint8_t *in, size_t in_size) {
     unsigned int uncomp_size;
-    unsigned char *uncomp = arith_uncompress(in, in_size, &uncomp_size);
+    unsigned char *uncomp = decode_names(in, in_size, &uncomp_size);
     if (uncomp)
 	free(uncomp);
     

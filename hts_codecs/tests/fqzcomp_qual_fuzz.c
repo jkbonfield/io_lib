@@ -1,19 +1,23 @@
 /* Fuzz testing target. */
 
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <assert.h>
-#include <string.h>
-#include <sys/time.h>
+#include <fcntl.h>
+#include <ctype.h>
 
-#include "hts_codecs/arith_dynamic.h"
+#include "hts_codecs/fqzcomp_qual.h"
+#include "hts_codecs/fqzcomp_qual.c"
+#undef NSYM
+#define MODEL_256 // Prevent double definition
 #include "hts_codecs/arith_dynamic.c"
 
 int LLVMFuzzerTestOneInput(uint8_t *in, size_t in_size) {
-    unsigned int uncomp_size;
-    unsigned char *uncomp = arith_uncompress(in, in_size, &uncomp_size);
+    size_t uncomp_size;
+    char *uncomp = fqz_decompress((char *)in, in_size, &uncomp_size, NULL);
     if (uncomp)
 	free(uncomp);
     
@@ -31,7 +35,12 @@ static unsigned char *load(char *fn, uint64_t *lenp) {
     uint64_t dsize = 0;
     uint64_t dcurr = 0;
     signed int len;
+
     int fd = open(fn, O_RDONLY);
+    if (!fd) {
+	perror(fn);
+	return NULL;
+    }
 
     do {
 	if (dsize - dcurr < BS) {
@@ -47,8 +56,8 @@ static unsigned char *load(char *fn, uint64_t *lenp) {
     if (len == -1) {
 	perror("read");
     }
-
     close(fd);
+
     *lenp = dcurr;
     return data;
 }

@@ -639,7 +639,7 @@ unsigned char *rans_uncompress_O1(unsigned char *in, unsigned int in_size,
     ari_decoder *const D = calloc(256, sizeof(*D));
     RansDecSymbol32 (*const syms)[256] = malloc(256 * sizeof(*syms));
 #else
-    ari_decoder D[256] = {0}; //256*4k    => 1.0Mb
+    ari_decoder D[256] = {{{0}}}; //256*4k    => 1.0Mb
     RansDecSymbol32 syms[256][256+6] = {{{0}}}; //256*262*8 => 0.5Mb
 #endif
     int16_t map[256], map_i = 0;

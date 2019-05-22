@@ -59,6 +59,7 @@
 #endif
 
 #include "arith_dynamic.h"
+#include "varint.h"
 
 #define MIN(a,b) ((a)<(b)?(a):(b))
 
@@ -70,36 +71,6 @@
  */
 #define MAGIC 8
 
-static int u32tou7(uint8_t *cp, uint32_t i) {
-    uint8_t *op = cp;
-
-    do {
-	*cp++ = (i&0x7f) + ((i>=0x80)<<7);
-	i >>= 7;
-    } while (i);
-
-    return cp-op;
-}
-
-static int u7tou32(uint8_t *cp, uint8_t *cp_end, uint32_t *i) {
-    uint8_t *op = cp, c;
-    uint32_t j = 0, s = 0;
-
-    if (cp >= cp_end) {
-	*i = 0;
-	return 0;
-    }
-
-    do {
-	c = *cp++;
-	j |= (c & 0x7f) << s;
-	s += 7;
-    } while ((c & 0x80) && cp < cp_end);
-
-    *i = j;
-    return cp-op;
-}
-
 unsigned int arith_compress_bound(unsigned int size, int order) {
     return (order == 0
 	? 1.05*size + 257*3 + 4
@@ -108,8 +79,10 @@ unsigned int arith_compress_bound(unsigned int size, int order) {
 	((order & X_RLE) ? 1 + 257*3+4: 0) + 5;
 }
 
+#ifndef MODEL_256 // see fqzcomp_qual_fuzz.c
 #define NSYM 256
 #include "c_simple_model.h"
+#endif
 
 // Compresses in_size bytes from 'in' to *out_size bytes in 'out'.
 //
@@ -165,7 +138,7 @@ unsigned char *arith_uncompress_O0(unsigned char *in, unsigned int in_size,
     if (!out)
 	return NULL;
 
-    RC_SetInput(&rc, (char *)in+1);
+    RC_SetInput(&rc, (char *)in+1, (char *)in+in_size);
     RC_StartDecode(&rc);
 
     for (i = 0; i < out_sz; i++)
@@ -180,8 +153,8 @@ unsigned char *arith_uncompress_O0(unsigned char *in, unsigned int in_size,
 //-----------------------------------------------------------------------------
 
 // Bit packing symbols to take 0, 1(8 sym), 2(4 sym), or 4(16) bits.
-static uint8_t *pack(uint8_t *data, int64_t len,
-		     uint8_t *out_meta, int *out_meta_len, uint64_t *out_len) {
+static uint8_t *a_pack(uint8_t *data, int64_t len,
+		       uint8_t *out_meta, int *out_meta_len, uint64_t *out_len) {
     int p[256] = {0}, n;
     uint64_t i, j;
     uint8_t *out = malloc(len+1);
@@ -287,8 +260,8 @@ static uint8_t *pack(uint8_t *data, int64_t len,
 //
 // Returns number of bytes of data[] consumed on success,
 //         zero on failure.
-static uint8_t unpack_meta(uint8_t *data, uint32_t data_len,
-			   uint64_t udata_len, uint8_t *map, int *nsym) {
+static uint8_t a_unpack_meta(uint8_t *data, uint32_t data_len,
+			     uint64_t udata_len, uint8_t *map, int *nsym) {
     if (data_len <= 1)
 	return 0;
 
@@ -316,7 +289,7 @@ static uint8_t unpack_meta(uint8_t *data, uint32_t data_len,
     return j-1 < d ? 0 : j;
 }
 
-static uint8_t *unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_len, int nsym, uint8_t *p) {
+static uint8_t *a_unpack(uint8_t *data, int64_t len, uint8_t *out, uint64_t out_len, int nsym, uint8_t *p) {
     //uint8_t *out;
     uint8_t c = 0;
     int64_t i, j = 0, olen;
@@ -584,7 +557,7 @@ unsigned char *arith_uncompress_O1(unsigned char *in, unsigned int in_size,
     if (!out)
 	return NULL;
 
-    RC_SetInput(&rc, (char *)in+1);
+    RC_SetInput(&rc, (char *)in+1, (char *)in+in_size);
     RC_StartDecode(&rc);
 
     unsigned char last = 0;
@@ -731,7 +704,7 @@ unsigned char *arith_uncompress_O2(unsigned char *in, unsigned int in_size,
     if (!out)
 	return NULL;
 
-    RC_SetInput(&rc, (char *)in+1);
+    RC_SetInput(&rc, (char *)in+1, (char *)in+in_size);
     RC_StartDecode(&rc);
 
     unsigned char last1 = 0, last2 = 0;
@@ -837,7 +810,7 @@ unsigned char *arith_uncompress_O0_RLE(unsigned char *in, unsigned int in_size,
     if (!out)
 	return NULL;
 
-    RC_SetInput(&rc, (char *)in+1);
+    RC_SetInput(&rc, (char *)in+1, (char *)in+in_size);
     RC_StartDecode(&rc);
 
     for (i = 0; i < out_sz; i++) {
@@ -853,8 +826,8 @@ unsigned char *arith_uncompress_O0_RLE(unsigned char *in, unsigned int in_size,
 		rctx += (rctx < NSYM-1);
 	    //fprintf(stderr, "run %d (ctx %d, %d)\n", r, last, l);
 	    run += r;
-	} while (r == MAX_RUN-1);
-	while (run-- && i < out_sz)
+	} while (r == MAX_RUN-1 && run < out_sz);
+	while (run-- && i+1 < out_sz)
 	    out[++i] = last;
     }
 
@@ -949,7 +922,7 @@ unsigned char *arith_uncompress_O1_RLE(unsigned char *in, unsigned int in_size,
     if (!out)
 	return NULL;
 
-    RC_SetInput(&rc, (char *)in+1);
+    RC_SetInput(&rc, (char *)in+1, (char *)in+in_size);
     RC_StartDecode(&rc);
 
     unsigned char last = 0;
@@ -966,8 +939,8 @@ unsigned char *arith_uncompress_O1_RLE(unsigned char *in, unsigned int in_size,
 	    else
 		rctx += (rctx < NSYM-1);
 	    run += r;
-	} while (r == MAX_RUN-1);
-	while (run-- && i < out_sz)
+	} while (r == MAX_RUN-1 && run < out_sz);
+	while (run-- && i+1 < out_sz)
 	    out[++i] = last;
     }
 
@@ -1126,7 +1099,7 @@ unsigned char *arith_compress_to(unsigned char *in,  unsigned int in_size,
 	// PACK 2, 4 or 8 symbols into one byte.
 	int pmeta_len;
 	uint64_t packed_len;
-	packed = pack(in, in_size, out+c_meta_len, &pmeta_len, &packed_len);
+	packed = a_pack(in, in_size, out+c_meta_len, &pmeta_len, &packed_len);
 	if (!packed || (pmeta_len == 1 && out[c_meta_len] == 1)) {
 	    out[0] &= ~X_PACK;
 	    do_pack = 0;
@@ -1212,6 +1185,7 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 				   unsigned char *out, unsigned int *out_size) {
     unsigned char *in_end = in + in_size;
     unsigned char *out_free = NULL;
+    unsigned char *tmp_free = NULL;
 
     if (in_size == 0)
 	return NULL;
@@ -1245,8 +1219,11 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	}
 	for (i = 0; i < 4; i++) {
 	    olen = ulen/4;
-	    if (in_size < c_meta_len)
+	    if (in_size < c_meta_len) {
+		free(out_free);
+		free(out4);
 		return NULL;
+	    }
 	    if (!arith_uncompress_to(in+c_meta_len, in_size-c_meta_len, out4 + i*(ulen/4), &olen)
 		|| olen != ulen/4) {
 		free(out_free);
@@ -1286,12 +1263,21 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
     in += sz;
     in_size -= sz;
 
+    if (osz >= INT_MAX)
+	return NULL;
+
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+	// Limit maximum size to get fast turnaround on fuzzing test cases
+	if (osz > 100000)
+	    goto err;
+#endif
+
     if (no_size && !out)
 	return NULL; // Need one or the other
 
     if (!out) {
 	*out_size = osz;
-	if (!(out = malloc(*out_size)))
+	if (!(out_free = out = malloc(*out_size)))
 	    return NULL;
     } else {
 	if (*out_size < osz)
@@ -1314,8 +1300,8 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 
     // Format is pack meta data if present, followed by compressed data.
     if (do_pack) {
-	if (!(tmp = malloc(*out_size)))
-	    return NULL;
+	if (!(tmp_free = tmp = malloc(*out_size)))
+	    goto err;
 	tmp1 = tmp;  // uncompress
 	tmp2 = out;  // unpack
     } else {
@@ -1331,9 +1317,9 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
     int npacked_sym = 0;
     uint64_t unpacked_sz = 0; // FIXME: rename to packed_per_byte
     if (do_pack) {
-	c_meta_size = unpack_meta(in, in_size, *out_size, map, &npacked_sym);
+	c_meta_size = a_unpack_meta(in, in_size, *out_size, map, &npacked_sym);
 	if (c_meta_size == 0)
-	    return NULL;
+	    goto err;;
 
 	unpacked_sz = osz;
 	in      += c_meta_size;
@@ -1346,7 +1332,7 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	in += sz;
 	in_size -= sz;
 	if (osz > tmp1_size)
-	    return NULL;
+	    goto err;;
 	tmp1_size = osz;
     }
 
@@ -1354,17 +1340,22 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 
     // uncompress RLE data.  in -> tmp1
     if (in_size) {
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+	// Limit maximum size to get fast turnaround on fuzzing test cases
+	if (tmp1_size > 100000)
+	    goto err;
+#endif
 	if (do_cat) {
 	    //fprintf(stderr, "    CAT %d\n", tmp1_size); //c-size
 	    if (tmp1_size > in_size)
-		return NULL;
+		goto err;;
 	    if (tmp1_size > *out_size)
-		return NULL;
+		goto err;;
 	    memcpy(tmp1, in, tmp1_size);
 	} else if (do_ext) {
 	    if (BZ_OK != BZ2_bzBuffToBuffDecompress((char *)tmp1, &tmp1_size,
 						    (char *)in, in_size, 0, 0))
-		return NULL;
+		goto err;;
 	} else {
 	    // in -> tmp1
 	    if (do_rle) {
@@ -1380,7 +1371,7 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 		    : arith_uncompress_O0(in, in_size, tmp1, tmp1_size);
 	    }
 	    if (!tmp1)
-		return NULL;
+		goto err;;
 	}
     } else {
 	tmp1 = NULL;
@@ -1393,8 +1384,8 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 	    unpacked_sz = tmp1_size;
 	//uint8_t *porig = unpack(tmp2, tmp2_size, unpacked_sz, npacked_sym, map);
 	//memcpy(tmp3, porig, unpacked_sz);
-	if (!unpack(tmp1, tmp1_size, tmp2, unpacked_sz, npacked_sym, map))
-	    return NULL;
+	if (!a_unpack(tmp1, tmp1_size, tmp2, unpacked_sz, npacked_sym, map))
+	    goto err;;
 	tmp2_size = unpacked_sz;
     } else {
 	tmp2_size = tmp1_size;
@@ -1405,6 +1396,11 @@ unsigned char *arith_uncompress_to(unsigned char *in,  unsigned int in_size,
 
     *out_size = tmp2_size;
     return tmp2;
+
+ err:
+    free(tmp_free);
+    free(out_free);
+    return NULL;
 }
 
 unsigned char *arith_uncompress(unsigned char *in, unsigned int in_size,
