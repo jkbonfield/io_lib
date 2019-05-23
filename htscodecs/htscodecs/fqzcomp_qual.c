@@ -1576,7 +1576,7 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
 		pm->first_len = 0;
 		last_len = len;
 	    }
-	    if (len > *out_size-i || len < 0)
+	    if (len > *out_size-i || len <= 0)
 		goto err;
 
 	    if (lengths)
@@ -1593,6 +1593,8 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
 		if (SIMPLE_MODEL(2,_decodeSymbol)(&model.dup, &rc)) {
 		    //fprintf(stderr, "Dup 1\n");
 		    // Dup of last line
+		    if (len > i)
+			goto err;
 		    memcpy(uncomp+i, uncomp+i-len, len);
 		    i += len-1;
 		    state.p = 0;
