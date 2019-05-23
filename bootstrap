@@ -9,4 +9,4 @@ aclocal -I . -I m4 && \
 autoheader && \
 automake --foreign --add-missing --copy && \
 autoconf
-(cd hts_codecs; autoreconf -i)
+(cd htscodecs; autoreconf -i)
