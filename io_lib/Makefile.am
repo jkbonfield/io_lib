@@ -134,6 +134,6 @@ libstaden_read_la_SOURCES = \
 	bgzip.h \
 	cram_block_compression.h
 
-libstaden_read_la_CPPFLAGS = -I${top_srcdir} -I${top_srcdir}/hts_codecs/hts_codecs @LIBCURL_CPPFLAGS@
+libstaden_read_la_CPPFLAGS = -I${top_srcdir} -I${top_srcdir}/htscodecs/htscodecs @LIBCURL_CPPFLAGS@
 libstaden_read_la_LDFLAGS = -version-info @VERS_CURRENT@:@VERS_REVISION@:@VERS_AGE@ 
-libstaden_read_la_LIBADD = @LIBZ@ @LIBCURL@ ${top_builddir}/hts_codecs/hts_codecs/libhts-codecs.la
+libstaden_read_la_LIBADD = @LIBZ@ @LIBCURL@ ${top_builddir}/htscodecs/htscodecs/libhtscodecs.la

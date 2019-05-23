@@ -8,11 +8,11 @@
 #include <string.h>
 #include <sys/time.h>
 
-#include "hts_codecs/tokenise_name3.h"
+#include "htscodecs/tokenise_name3.h"
 
-#include "hts_codecs/arith_dynamic.c"
-#include "hts_codecs/rANS_static4x16pr.c"
-#include "hts_codecs/tokenise_name3.c"
+#include "htscodecs/arith_dynamic.c"
+#include "htscodecs/rANS_static4x16pr.c"
+#include "htscodecs/tokenise_name3.c"
 
 int LLVMFuzzerTestOneInput(uint8_t *in, size_t in_size) {
     unsigned int uncomp_size;

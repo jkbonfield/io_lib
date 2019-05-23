@@ -32,7 +32,7 @@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = hts_codecs io_lib progs tests
+SUBDIRS = htscodecs io_lib progs tests
 
 man_MANS = \
 	man/man1/srf_index_hash.1 \

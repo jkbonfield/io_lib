@@ -32,4 +32,4 @@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = hts_codecs tests
+SUBDIRS = htscodecs tests

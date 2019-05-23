@@ -1,5 +1,5 @@
-Hts_codecs
-==========
+Htscodecs
+=========
 
 This repository implements the custom CRAM codecs used for "EXTERNAL"
 block types.  These consist of two variants of the rANS codec (8-bit
@@ -52,7 +52,7 @@ needed to be allocated when compressing a block of data.
 ### Static rANS 4x8 (introduced in CRAM v3.0)
 
 ```
-#include "hts_codecs/rANS_static.h"
+#include "htscodecs/rANS_static.h"
 
 unsigned char *rans_compress(unsigned char *in, unsigned int in_size,
                              unsigned int *out_size, int order);
@@ -66,7 +66,7 @@ No (un)compress_to functions exist for this older codec.
 ### Static rANS 4x16 with bit-pack/RLE (CRAM v3.1):
 
 ```
-#include "hts_codecs/rANS_static4x16.h"
+#include "htscodecs/rANS_static4x16.h"
 
 unsigned int rans_compress_bound_4x16(unsigned int size, int order);
 unsigned char *rans_compress_to_4x16(unsigned char *in,  unsigned int in_size,
@@ -83,7 +83,7 @@ unsigned char *rans_uncompress_4x16(unsigned char *in, unsigned int in_size,
 ### Adaptive arithmetic coding (CRAM v3.1):
 
 ```
-#include "hts_codecs/arith_dynamic.h"
+#include "htscodecs/arith_dynamic.h"
 
 unsigned char *arith_compress(unsigned char *in, unsigned int in_size,
                               unsigned int *out_size, int order);
@@ -104,7 +104,7 @@ unsigned int arith_compress_bound(unsigned int size, int order);
 ### Name tokeniser (CRAM v3.1):
 
 ```
-#include "hts_codecs/tokenise_name3.h"
+#include "htscodecs/tokenise_name3.h"
 
 uint8_t *encode_names(char *blk, int len, int level, int use_arith,
                       int *out_len, int *last_start_p);
@@ -132,7 +132,7 @@ name. (Is this useful?  Probably not.)
 
 
 ```
-#include "hts_codecs/fqzcomp_qual.h"
+#include "htscodecs/fqzcomp_qual.h"
 
 #define FQZ_FREVERSE 16
 #define FQZ_FREAD2 128

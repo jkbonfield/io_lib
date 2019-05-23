@@ -5,13 +5,13 @@ AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([serial-tests])
 AM_MAINTAINER_MODE
 
-# Hts_codec subdirectory.
+# Htscodec subdirectory.
 #
 # For simplicity, we use --disable-shared and --with-pic here so we can
 # compile these directly into libstaden-read itself.
 
-dnl AC_CONFIG_SUBDIRS([hts_codecs])
-AX_SUBDIRS_CONFIGURE([hts_codecs],[[--disable-shared],[--with-pic]])
+dnl AC_CONFIG_SUBDIRS([htscodecs])
+AX_SUBDIRS_CONFIGURE([htscodecs],[[--disable-shared],[--with-pic]])
 
 
 # For my own benefit, here's a summary of how versioning should work.
