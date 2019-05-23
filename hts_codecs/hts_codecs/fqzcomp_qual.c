@@ -111,7 +111,7 @@ static const int PFLAG_HAVE_QTAB   = 128;
 // the actual run length.
 // Alternatively we could bit-encode instead of byte encode, eg BETA.
 static int store_array(unsigned char *out, unsigned int *array, int size) {
-    char tmp[2048];
+    unsigned char tmp[2048];
 
     int i, j, k;
     for (i = j = k = 0; i < size; j++) {
@@ -1168,7 +1168,7 @@ unsigned char *compress_block_fqz2f(int vers,
 #endif
     //dump_params(&gp);
     comp_idx = u32tou7(comp, in_size);
-    comp_idx = fqz_store_parameters(&gp, comp+comp_idx);
+    comp_idx += fqz_store_parameters(&gp, comp+comp_idx);
 
     fqz_param *pm;
 
@@ -1497,9 +1497,10 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
     unsigned int last = 0;
 
     // Decode parameter blocks
-    if ((in_idx = fqz_read_parameters(&gp, in+in_idx, in_size-in_idx)) < 0)
+    if ((i = fqz_read_parameters(&gp, in+in_idx, in_size-in_idx)) < 0)
 	return NULL;
     //dump_params(&gp);
+    in_idx += i;
 
     // Optimisations to remove shifts from main loop
     for (i = 0; i < gp.nparam; i++) {
@@ -1575,7 +1576,7 @@ unsigned char *uncompress_block_fqz2f(fqz_slice *s,
 		pm->first_len = 0;
 		last_len = len;
 	    }
-	    if (len > *out_size-i)
+	    if (len > *out_size-i || len < 0)
 		goto err;
 
 	    if (lengths)
