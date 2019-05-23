@@ -33,7 +33,7 @@
 # Standalone test programs
 noinst_PROGRAMS = rans4x16pr tokenise_name3 arith_dynamic rans4x8 rans4x16pr fqzcomp_qual
 
-LDADD = $(top_builddir)/hts_codecs/libhts-codecs.la -lm
+LDADD = $(top_builddir)/htscodecs/libhtscodecs.la -lm
 AM_CPPFLAGS = -I$(top_srcdir)
 
 fqzcomp_qual_SOURCES = fqzcomp_qual_test.c

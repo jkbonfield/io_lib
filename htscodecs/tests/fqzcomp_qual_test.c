@@ -7,7 +7,7 @@
 #include <fcntl.h>
 #include <ctype.h>
 
-#include "hts_codecs/fqzcomp_qual.h"
+#include "htscodecs/fqzcomp_qual.h"
 
 #ifndef MAX_REC
 #define MAX_REC 1000000

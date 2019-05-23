@@ -29,9 +29,9 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # 
-lib_LTLIBRARIES = libhts-codecs.la
+lib_LTLIBRARIES = libhtscodecs.la
 
-libhts_codecs_la_SOURCES = \
+libhtscodecs_la_SOURCES = \
 	fqzcomp_qual.c \
 	fqzcomp_qual.h \
 	rANS_static.c \
@@ -46,7 +46,8 @@ libhts_codecs_la_SOURCES = \
 	arith_dynamic.c \
 	arith_dynamic.h \
 	c_range_coder.h \
-	c_simple_model.h
+	c_simple_model.h \
+	varint.h
 
-libhts_codecs_la_LDFLAGS = -version-info @VERS_CURRENT@:@VERS_REVISION@:@VERS_AGE@ 
-libhts_codecs_la_LIBADD = @LIBZ@
+libhtscodecs_la_LDFLAGS = -version-info @VERS_CURRENT@:@VERS_REVISION@:@VERS_AGE@ 
+libhtscodecs_la_LIBADD = @LIBZ@

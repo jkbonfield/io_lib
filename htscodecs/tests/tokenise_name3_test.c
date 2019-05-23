@@ -46,7 +46,7 @@
 #include <errno.h>
 #include <time.h>
 
-#include "hts_codecs/tokenise_name3.h"
+#include "htscodecs/tokenise_name3.h"
 
 //-----------------------------------------------------------------------------
 // main() implementation for testing

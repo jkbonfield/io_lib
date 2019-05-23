@@ -2,7 +2,7 @@
 Fuzz testing target.
 
 Local instructions: compile, from a build subdir, with
-/software/badger/opt/llvm/7.0.0/bin/clang -O3 -g ../../tests/rANS_static_fuzz.c -I../.. ../../hts_codecs/rANS_static.c  -pthread -fsanitize=fuzzer,address /software/badger/opt/gcc/8.1.0/lib64/libstdc++.a -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+/software/badger/opt/llvm/7.0.0/bin/clang -O3 -g ../../tests/rANS_static_fuzz.c -I../.. ../../htscodecs/rANS_static.c  -pthread -fsanitize=fuzzer,address /software/badger/opt/gcc/8.1.0/lib64/libstdc++.a -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 
 (This bizarrity is because our local clang install wasn't built with
 C++ support.)
@@ -31,8 +31,8 @@ stream.)
 #include <string.h>
 #include <sys/time.h>
 
-#include "hts_codecs/rANS_static.h"
-#include "hts_codecs/rANS_static.c"
+#include "htscodecs/rANS_static.h"
+#include "htscodecs/rANS_static.c"
 
 int LLVMFuzzerTestOneInput(uint8_t *in, size_t in_size) {
     unsigned int uncomp_size;

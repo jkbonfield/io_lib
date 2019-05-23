@@ -6,7 +6,7 @@
 #include <string.h>
 #include <sys/time.h>
 
-#include "hts_codecs/rANS_static4x16.h"
+#include "htscodecs/rANS_static4x16.h"
 
 #ifndef BLK_SIZE
 #  define BLK_SIZE 1013*1047

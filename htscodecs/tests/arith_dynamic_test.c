@@ -7,7 +7,7 @@
 #include <sys/time.h>
 #include <limits.h>
 
-#include "hts_codecs/arith_dynamic.h"
+#include "htscodecs/arith_dynamic.h"
 
 #ifndef BLK_SIZE
 #  define BLK_SIZE 1013*1047
