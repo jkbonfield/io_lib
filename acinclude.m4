@@ -300,7 +300,7 @@ AC_DEFUN([ZLIB_CHECK_CONFIG],
     _cppflags=$CPPFLAGS
     CPPFLAGS="$CPPFLAGS -I${ZLIB_ROOT}/include"
     _ldflags=$LDFLAGS
-    LDFLAGS="$LFDLAGS -L${ZLIB_ROOT}/lib"
+    LDFLAGS="$LDFLAGS -L${ZLIB_ROOT}/lib"
     AC_LANG_SAVE
     AC_LANG_C
     AC_CHECK_LIB(z, inflateEnd,
