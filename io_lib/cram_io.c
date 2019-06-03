@@ -2026,8 +2026,9 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 	int i;
 	for (i = 0; i < s->hdr->num_records; i++) {
 	    f->crecs[i].flags = s->crecs[i].flags;
-	    f->crecs[i].len = s->crecs[i].len;
-	    f->crecs[i].qual = s->crecs[i].qual;
+	    f->crecs[i].len = (i+1 < s->hdr->num_records
+			       ? s->crecs[i+1].qual - s->crecs[i].qual
+			       : s->block[DS_QS]->uncomp_size - s->crecs[i].qual);
 	}
 	char *comp = fqz_compress(strat, f, in, in_size, out_size, level);
 	free(f);

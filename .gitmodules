@@ -1,3 +1,4 @@
 [submodule "htscodecs"]
 	path = htscodecs
 	url = https://github.com/jkbonfield/htscodecs.git
+	ignore = untracked
