@@ -1798,7 +1798,7 @@ int cram_uncompress_block(cram_block *b) {
 #ifdef HAVE_FQZ
     case FQZ: {
 	uncomp_size = b->uncomp_size;
-	uncomp = fqz_decompress((char *)b->data, b->comp_size, &uncomp_size, NULL);
+	uncomp = fqz_decompress((char *)b->data, b->comp_size, &uncomp_size, NULL, 0);
 	if (!uncomp)
 	    return -1;
 	free(b->data);
@@ -2018,19 +2018,21 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 	// Extract the necessary portion of the slice into an fqz_slice struct.
 	// These previously were the same thing, but this permits us to detach
 	// the codec from the rest of this CRAM implementation.
-	fqz_slice *f = malloc(s->hdr->num_records * sizeof(fqz_rec) + sizeof(fqz_slice));
+	fqz_slice *f = malloc(2*s->hdr->num_records * sizeof(uint32_t) + sizeof(fqz_slice));
 	if (!f)
 	    return NULL;
 	f->num_records = s->hdr->num_records;
-	f->crecs = (fqz_rec *)(((char *)f) + sizeof(fqz_slice));
+	f->len = (uint32_t *)(((char *)f) + sizeof(fqz_slice));
+	f->flags = f->len + s->hdr->num_records;
 	int i;
 	for (i = 0; i < s->hdr->num_records; i++) {
-	    f->crecs[i].flags = s->crecs[i].flags;
-	    f->crecs[i].len = (i+1 < s->hdr->num_records
-			       ? s->crecs[i+1].qual - s->crecs[i].qual
-			       : s->block[DS_QS]->uncomp_size - s->crecs[i].qual);
+	    f->flags[i] = s->crecs[i].flags;
+	    f->len[i] = (i+1 < s->hdr->num_records
+			 ? s->crecs[i+1].qual - s->crecs[i].qual
+			 : s->block[DS_QS]->uncomp_size - s->crecs[i].qual);
 	}
-	char *comp = fqz_compress(strat, f, in, in_size, out_size, level);
+	char *comp = fqz_compress(strat & 0xff /* cram vers */, f,
+				  in, in_size, out_size, strat >> 8, NULL);
 	free(f);
 	return comp;
 #else
