@@ -1,7 +1,11 @@
 language: c
 compiler: gcc
 
+os:
+  - linux
+  - osx
+
 before_script:
-  - git submodule update --init --remote --recursive
+  - git submodule update --init --recursive
 
 script: ./bootstrap; ./configure && make && (make check || (cat tests/test-suite.log; false))
