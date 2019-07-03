@@ -88,7 +88,7 @@ static int cram_flush_container2(cram_fd *fd, cram_container *c) {
  *        -1 on failure
  */
 int
-cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
+cram_block_compression_hdr_decoder2encoder(cram_fd *fd_in, cram_fd *fd_out, cram_container *c,
 					   cram_block_compression_hdr *ch) {
     int i;
 
@@ -100,7 +100,7 @@ cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
 	if (!co)
 	    continue;
 
-	if (-1 == cram_codec_decoder2encoder(fd, co))
+	if (-1 == cram_codec_decoder2encoder(fd_in, co))
 	    return -1;
     }
 
@@ -116,7 +116,7 @@ cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
 	    if (!tm) return -1;
 	    unsigned char key[3];
 	    tm->codec = m->codec;
-	    if (-1 == cram_codec_decoder2encoder(fd, tm->codec))
+	    if (-1 == cram_codec_decoder2encoder(fd_in, tm->codec))
 		return -1;
 	    hd.p = tm;
 	    key[0] = (m->key>>16)&0xff;
@@ -129,6 +129,8 @@ cram_block_compression_hdr_decoder2encoder(cram_fd *fd, cram_container *c,
 
     // Migrate misc. container header bits into the container itself.
     c->pos_sorted = ch->AP_delta;
+    if (ch->read_names_included == 0)
+	fd_out->lossy_read_names = 1;
 
     return 0;
 }
@@ -215,7 +217,7 @@ int ds_to_id(cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
  * Returns 0 on success;
  *        -1 on failure.
  */
-static int process_comp_hdr(cram_fd *fd_in, HashTable *ds_h,
+static int process_comp_hdr(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
 			    cram_container *c, char *keep_aux,
 			    char (*tag_to_keep)[128]) {
     if (!(c->comp_hdr_block = cram_read_block(fd_in)))
@@ -226,7 +228,7 @@ static int process_comp_hdr(cram_fd *fd_in, HashTable *ds_h,
     if (!c->comp_hdr)
 	return -1;
 
-    if (cram_block_compression_hdr_decoder2encoder(fd_in, c, c->comp_hdr))
+    if (cram_block_compression_hdr_decoder2encoder(fd_in, fd_out, c, c->comp_hdr))
 	return -1;
 
     // If we have any tags listed in keep_aux, then explicitly
@@ -616,7 +618,7 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
 	    continue;
 
 	// Load compression header and parse the content IDs.
-	if (process_comp_hdr(fd_in, ds_h, c, keep_aux, tag_to_keep))
+	if (process_comp_hdr(fd_in, fd_out, ds_h, c, keep_aux, tag_to_keep))
 	    return -1;
 
 	// Check RI tag if we're doing a range query and in multi-ref mode.
