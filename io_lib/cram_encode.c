@@ -1492,7 +1492,6 @@ int add_read_names(cram_fd *fd, cram_container *c, cram_slice *s,
     return 0;
 }
 
-
 /*
  * Encodes all slices in a container into blocks.
  * Returns 0 on success
@@ -1670,6 +1669,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     if (fd->verbose > 1) fprintf(stderr, "RI_stats: ");
     cram_stats_encoding(fd, c->stats[DS_RI]);
     multi_ref = c->stats[DS_RI]->nvals > 1;
+    fd->last_RI = c->stats[DS_RI]->nvals;
 
     if (multi_ref) {
 	if (fd->verbose)
@@ -1892,7 +1892,6 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     E_BYTE_ARRAY, (void *)i2,
 					     fd->version);
     }
-
 
     /* Encode slices */
     for (i = 0; i < c->curr_slice; i++) {
@@ -2966,6 +2965,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     if (c->pos_sorted) {
 	if (cr->apos < s->last_apos) {
 	    c->pos_sorted = 0;
+	    //cram_stats_add(c->stats[DS_AP], cr->apos);
 	} else {
 	    cram_stats_add(c->stats[DS_AP], cr->apos - s->last_apos);
 	    s->last_apos = cr->apos;
@@ -3556,13 +3556,20 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	 *
 	 * This option isn't available if we choose to embed references
 	 * since we can only have one per slice.
+	 *
+	 * The multi_seq var here refers to our intention for the next slice.
+	 * This slice has already been encoded so we output as-is.
 	 */
 	if (fd->multi_seq == -1 && c->curr_rec < c->max_rec/4+10 &&
 	    fd->last_slice && fd->last_slice < c->max_rec/4+10 &&
 	    !fd->embed_ref) {
 	    if (fd->verbose && !c->multi_seq)
-		fprintf(stderr, "Multi-ref enabled for this container\n");
+		fprintf(stderr, "Multi-ref enabled for next container\n");
 	    multi_seq = 1;
+	} else if (fd->multi_seq == 1 && fd->last_RI <= c->max_slice) {
+	    multi_seq = 0;
+	    if (fd->verbose)
+	        fprintf(stderr, "Multi-ref disabled for next container\n");
 	}
 
 	slice_rec = c->slice_rec;
@@ -3586,7 +3593,9 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	 * multiple sequences per container we emit the small partial
 	 * container as-is and then start a fresh one in a different mode.
 	 */
-	if (multi_seq) {
+	if (multi_seq == 0 && fd->multi_seq == 1 && fd->multi_seq_user == -1) {
+	    fd->multi_seq = -1;
+	} else if (multi_seq || fd->multi_seq == 1) {
 	    fd->multi_seq = 1;
 	    c->multi_seq = 1;
 	    c->pos_sorted = 0; // required atm for multi_seq slices

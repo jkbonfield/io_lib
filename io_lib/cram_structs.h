@@ -842,7 +842,8 @@ typedef struct {
     off_t first_container;
     int eof;
     int last_slice;                     // number of recs encoded in last slice
-    int multi_seq;
+    int last_RI;                        // number of references encoded in last container
+    int multi_seq, multi_seq_user;
     int unsorted;
     int empty_container; 		// Marker for EOF block
     

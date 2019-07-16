@@ -5168,8 +5168,10 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->use_bsc = 0;
     fd->use_lzma = 0;
     fd->multi_seq = 0;
+    fd->multi_seq_user = 0;
     fd->unsorted   = 0;
     fd->shared_ref = 0;
+    fd->last_RI = 0;
 
     fd->index       = NULL;
     fd->own_pool    = 0;
@@ -5276,6 +5278,7 @@ cram_fd *cram_open_by_callbacks(
     fd->use_bsc = 0;
     fd->use_lzma = 0;
     fd->multi_seq = 0;
+    fd->multi_seq_user = 0;
     fd->unsorted   = 0;
     fd->shared_ref = 0;
 
@@ -5401,6 +5404,7 @@ cram_fd *cram_openw_by_callbacks(
     fd->use_bsc = 0;
     fd->use_lzma = 0;
     fd->multi_seq = 0;
+    fd->multi_seq_user = 0;
     fd->unsorted   = 0;
     fd->shared_ref = 0;
 
@@ -5809,7 +5813,7 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
     }
 
     case CRAM_OPT_MULTI_SEQ_PER_SLICE:
-	fd->multi_seq = va_arg(args, int);
+	fd->multi_seq_user = fd->multi_seq = va_arg(args, int);
 	break;
 
     case CRAM_OPT_NTHREADS: {
