@@ -2190,8 +2190,6 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		    metrics->sz[m] /= 2;
 	    }
 
-	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
-	    
             // Compress this block using the best method
 	    if (metrics->stats && metrics->stats->nvals > 16) {
 		// No point trying bit-pack if 17+ symbols.
@@ -2213,6 +2211,8 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		if (method & (1<<ARITH_PR193))
 		    method &= ~(1<<ARITH_PR193);
 	    }
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
+
             for (m = 0; m < CRAM_MAX_METHOD; m++) {
 		if (method & (1<<m)) {
 		    int lvl = level;

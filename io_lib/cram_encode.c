@@ -863,8 +863,10 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     squash_qual(s->block[DS_QS]);
 #endif
 
+    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
     for (i = 0; i < DS_END; i++)
 	fd->m[i]->stats = c->stats[i];
+    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 
 
     /* Specific compression methods for certain block types */
@@ -1669,7 +1671,9 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     if (fd->verbose > 1) fprintf(stderr, "RI_stats: ");
     cram_stats_encoding(fd, c->stats[DS_RI]);
     multi_ref = c->stats[DS_RI]->nvals > 1;
+    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
     fd->last_RI = c->stats[DS_RI]->nvals;
+    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 
     if (multi_ref) {
 	if (fd->verbose)
@@ -3566,10 +3570,14 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    if (fd->verbose && !c->multi_seq)
 		fprintf(stderr, "Multi-ref enabled for next container\n");
 	    multi_seq = 1;
-	} else if (fd->multi_seq == 1 && fd->last_RI <= c->max_slice) {
-	    multi_seq = 0;
-	    if (fd->verbose)
-	        fprintf(stderr, "Multi-ref disabled for next container\n");
+	} else if (fd->multi_seq == 1) {
+	    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
+	    if (fd->last_RI <= c->max_slice) {
+		multi_seq = 0;
+		if (fd->verbose)
+		    fprintf(stderr, "Multi-ref disabled for next container\n");
+	    }
+	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	}
 
 	slice_rec = c->slice_rec;
@@ -3618,21 +3626,24 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	}
 
 	// Have we seen this reference before?
-	if (bam_ref(b) >= 0 && curr_ref >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref &&
-	    !fd->unsorted && multi_seq) {
-	    
-	    if (!c->refs_used) {
-		if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
-		c->refs_used = calloc(fd->refs->nref, sizeof(int));
-		if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
-		if (!c->refs_used)
-		    return -1;
-	    } else if (c->refs_used && c->refs_used[bam_ref(b)]) {
-		fprintf(stderr, "Unsorted mode enabled\n");
-		if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
-		fd->unsorted = 2; // 2 is marker to reset block metrics stats
-		if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
-		fd->multi_seq = 1;
+	if (bam_ref(b) >= 0 && curr_ref >= 0 && bam_ref(b) != curr_ref && !fd->embed_ref) {
+	    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
+	    int unsorted = fd->unsorted;
+	    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
+	    if (unsorted && multi_seq) {
+		if (!c->refs_used) {
+		    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
+		    c->refs_used = calloc(fd->refs->nref, sizeof(int));
+		    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
+		    if (!c->refs_used)
+			return -1;
+		} else if (c->refs_used && c->refs_used[bam_ref(b)]) {
+		    fprintf(stderr, "Unsorted mode enabled\n");
+		    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
+		    fd->unsorted = 2; // 2 is marker to reset block metrics stats
+		    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
+		    fd->multi_seq = 1;
+		}
 	    }
 	}
 
