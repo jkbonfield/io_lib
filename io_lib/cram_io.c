@@ -2200,7 +2200,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		if (method & (1<<RANS_PR192))
 		    method = (method|(1<<RANS_PR64))&~(1<<RANS_PR192);
 		if (method & (1<<RANS_PR193))
-		    method &= ~(1<<RANS_PR193);
+		    method = (method|(1<<RANS_PR64)|(1<<RANS_PR1))&~(1<<RANS_PR193);
 
 		if (method & (1<<ARITH_PR128))
 		    method = (method|(1<<ARITH_PR0))&~(1<<ARITH_PR128);
@@ -2209,7 +2209,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		if (method & (1<<ARITH_PR192))
 		    method = (method|(1<<ARITH_PR64))&~(1<<ARITH_PR192);
 		if (method & (1<<ARITH_PR193))
-		    method &= ~(1<<ARITH_PR193);
+		    method = (method|(1<<ARITH_PR64)|(1<<ARITH_PR1))&~(1<<ARITH_PR193);
 	    }
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 
@@ -3852,7 +3852,7 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
     cp += 4;
 
     if (c->multi_seq) {
-	cp += itf8_put(cp, -2);
+	cp += itf8_put(cp, (uint32_t)-2);
 	cp += itf8_put(cp, 0);
 	cp += itf8_put(cp, 0);
     } else {

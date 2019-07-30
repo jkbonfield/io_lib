@@ -363,6 +363,15 @@ int main(int argc, char **argv) {
 		    bmax = s->block[id]->content_id;
 	    }
 
+	    // Temporary copy of the actual method so we
+	    // can distinguish between CRAM format (RANS) and
+	    // "orig_method" format (RANS0 or RANS1).
+	    uint32_t *bmethod = malloc(s->hdr->num_blocks * sizeof(*bmethod));
+	    if (!bmethod)
+		return 1;
+	    for (id = 0; id < s->hdr->num_blocks; id++)
+		bmethod[id] = s->block[id]->method;
+
 	    for (id = 0; id < s->hdr->num_blocks; id++)
 		cram_uncompress_block(s->block[id]);
 
@@ -724,8 +733,8 @@ int main(int argc, char **argv) {
 		printf("\n\tBlock %d/%d\n", id+1, s->hdr->num_blocks);
 		printf("\t    Size:         %d comp / %d uncomp\n",
 		       b->comp_size, b->uncomp_size);
-		printf("\t    Method:       %s\n",
-		       cram_block_method2str(b->orig_method));
+		printf("\t    Method:       %s\t(%d)\n",
+		       cram_block_method2str(b->orig_method), bmethod[id]);
 		struct {
 		    int id;
 		    enum cram_block_method method;
@@ -798,6 +807,7 @@ int main(int argc, char **argv) {
 		}
 	    }
 
+	    free(bmethod);
 	    cram_free_slice(s);
 	}
 
