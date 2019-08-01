@@ -2070,10 +2070,10 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 	unsigned char *cp;
 	
 	// see enum cram_block. We map RANS_* methods to order bit-fields
-	static int methmap[] = { 0,1, 64,9, 128,129, 192,193 };
+	static int methmap[] = { 1, 64,9, 128,129, 192,193 };
 
 	cp = rans_compress_4x16((unsigned char *)in, in_size, &out_size_i,
-				methmap[method - RANS_PR0]);
+				method == RANS_PR0 ? 0 : methmap[method - RANS_PR1]);
 	*out_size = out_size_i;
 	return (char *)cp;
     }
@@ -2090,10 +2090,10 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 	unsigned char *cp;
 
 	// see enum cram_block. We map ARITH_* methods to order bit-fields
-	static int methmap[] = { 0,1, 64,9, 128,129, 192,193 };
+	static int methmap[] = { 1, 64,9, 128,129, 192,193 };
 
-	cp = arith_compress_to((unsigned char *)in, in_size,
-			       NULL, &out_size_i, methmap[method-ARITH_PR0]);
+	cp = arith_compress_to((unsigned char *)in, in_size, NULL, &out_size_i,
+			       method == ARITH_PR0 ? 0 : methmap[method - ARITH_PR1]);
 	*out_size = out_size_i;
 	return (char *)cp;
     }
@@ -2139,14 +2139,20 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
     // to the same CRAM method value.
     // See enum_cram_block_method.
     int methmap[] = {
-	RAW, GZIP, BZIP2, LZMA, RANS0, BSC, FQZ, FQZ, FQZ, FQZ,
-	RANS0, // RANS1
-	GZIP, GZIP, // GZIP_RLE and GZIP_1
-	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0, // RANS_PR1-193
-	RANS_PR0, RANS_PR0, RANS_PR0, RANS_PR0,
-	NAME_TOK3, NAME_TOK3, // tokeniser
-	ARITH_PR0, ARITH_PR0, ARITH_PR0, ARITH_PR0,
-	ARITH_PR0, ARITH_PR0, ARITH_PR0, ARITH_PR0, // ARITH_PR0-193
+	// Externally defined values
+	RAW, GZIP, BZIP2, LZMA, RANS, RANSPR, ARITH, FQZ, TOK3,
+
+	// Reserved for possible expansion
+	BSC, ZSTD,
+
+	// Internally parameterised versions matching back to above
+	// external values
+	FQZ, FQZ, FQZ,
+	RANS,
+	GZIP, GZIP,
+	RANSPR, RANSPR, RANSPR, RANSPR, RANSPR, RANSPR, RANSPR,
+	TOK3,
+	ARITH,  ARITH,  ARITH,  ARITH,  ARITH,  ARITH,  ARITH,
     };
 
     if (b->method != RAW) {

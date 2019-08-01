@@ -183,43 +183,56 @@ typedef struct {
 struct cram_slice;
 
 enum cram_block_method {
+// Also see methmap[] in cram_compress_block() @ cram_io.c
     BM_ERROR  = -1,
     RAW    = 0,
-    GZIP   = 1,    // Z_FILTERED
+    GZIP   = 1, // Z_FILTERED
     BZIP2  = 2,
     LZMA   = 3,
-    RANS0  = 4,
-    BSC    = 5,
-    FQZ    = 6,
-    FQZ_b  = 7,    // Not externalised; stored as FQZ
-    FQZ_c  = 8,    // Not externalised; stored as FQZ
-    FQZ_d  = 9,    // Not externalised; stored as FQZ
-    RANS1  = 10,   // Not externalised; stored as RANS (generic)
-    GZIP_RLE = 11, // Z_RLE, NB: not externalised in CRAM
-    GZIP_1 = 12,   // Z_DEFAULT_STRATEGY level 1, NB: not externalised in CRAM
+    RANS   = 4, RANS0     = RANS,
+    RANSPR = 5, RANS_PR0  = RANSPR,
+    ARITH  = 6, ARITH_PR0 = ARITH,
+    FQZ    = 7,
+    TOK3   = 8, NAME_TOK3 = TOK3,
 
-    RANS_PR0   = 13, // Parameterised r4x16pr rANS codecs.
-    RANS_PR1   = 14,
-    RANS_PR64  = 15,
-    RANS_PR9   = 16,
-    RANS_PR128 = 17,
-    RANS_PR129 = 18,
-    RANS_PR192 = 19,
-    RANS_PR193 = 20,
+    // Reserved for expansion
+    BSC    = 9,
+    ZSTD   = 10,
 
-    NAME_TOK3  = 21, // tok+rans
-    NAME_TOKA  = 22, // tok+arith
+    // Methods not externalised, but used in metrics.
+    // Externally they become one of the above methods.
+    FQZ_b, FQZ_c, FQZ_d, // Various preset FQZ methods
 
-    ARITH_PR0  = 23, // Parameterised dynamic arithmetic codecs.
-    ARITH_PR1  = 24,
-    ARITH_PR64 = 25,
-    ARITH_PR9  = 26,
-    ARITH_PR128= 27,
-    ARITH_PR129= 28,
-    ARITH_PR192= 29,
-    ARITH_PR193= 30,
+  //RANS0,       // Order 0
+    RANS1,       // Order 1
 
-    BLOCK_METHOD_END = 31
+    GZIP_RLE,    // Z_RLE
+    GZIP_1,      // Z_DEFAULT_STRATEGY level 1, NB: not externalised in CRAM
+
+  //RANS_PR0,    // Order 0
+    RANS_PR1,    // Order 1
+    RANS_PR64,   // O0 + RLE
+    RANS_PR9,    // O1 + X4
+    RANS_PR128,  // O0 + Pack
+    RANS_PR129,  // O1 + Pack
+    RANS_PR192,  // O0 + RLE + pack
+    RANS_PR193,  // O1 + RLE + pack
+
+  //NAME_TOK3,   // tok+rans
+    NAME_TOKA,   // tok+arith
+
+  //ARITH_PR0,   // Order 0
+    ARITH_PR1,   // Order 1
+    ARITH_PR64,  // O0 + RLE
+    ARITH_PR9,   // O1 + X4
+    ARITH_PR128, // O0 + Pack
+    ARITH_PR129, // O1 + Pack
+    ARITH_PR192, // O0 + RLE + pack
+    ARITH_PR193, // O1 + RLE + pack
+    // End with ARITH_PR193 == 31
+
+    // NB: must end on no more than 31 unless we change to a
+    // 64-bit method type.
 };
 
 enum cram_content_type {
