@@ -4559,7 +4559,7 @@ SAM_hdr *cram_read_SAM_hdr(cram_fd *fd) {
  */
 static void full_path(char *out, char *in) {
     if (*in == '/') {
-	strncpy(out, in, PATH_MAX);
+	strncpy(out, in, PATH_MAX-1);
 	out[PATH_MAX-1] = 0;
     } else {
 	int len;
@@ -4567,7 +4567,7 @@ static void full_path(char *out, char *in) {
 	// unable to get dir or out+in is too long
 	if (!getcwd(out, PATH_MAX) ||
 	    (len = strlen(out))+1+strlen(in) >= PATH_MAX) {
-	    strncpy(out, in, PATH_MAX);
+	    strncpy(out, in, PATH_MAX-1);
 	    out[PATH_MAX-1] = 0;
 	    return;
 	}
@@ -5133,7 +5133,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
 	def.major_version = major_version;
 	def.minor_version = minor_version;
 	memset(def.file_id, 0, 20);
-	strncpy(def.file_id, filename, 20);
+	memcpy(def.file_id, filename, MIN(strlen(filename),20));
 	if (0 != cram_write_file_def(fd, &def))
 	    goto err;
 
@@ -5368,7 +5368,7 @@ cram_fd *cram_openw_by_callbacks(
 	def.minor_version = minor_version;
 	memset(def.file_id, 0, 20);
 	if (filename)
-	    strncpy(def.file_id, filename, 20);
+	    memcpy(def.file_id, filename, MIN(strlen(filename),20));
 	if (0 != cram_write_file_def(fd, &def))
 	    goto err;
 

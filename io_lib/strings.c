@@ -114,9 +114,8 @@ void c2fstr(char *c, int max_c, char *f, int max_f)
 {
     int i;
     i = MIN((int)strlen(c),max_f);
-    strncpy(f,c,i);
+    memcpy(f,c,i);
     for( ; i<max_f; i++) f[i]=' ';
-
 }
 
 

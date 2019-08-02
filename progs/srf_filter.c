@@ -240,7 +240,7 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
 	    if (!strcmp(filter_type, "prefix")) {
 		prefix = strtok (NULL, "=");
 		if(prefix == NULL) {
-		    fprintf(stderr, "Bad prefix \"%s\" in read filter \"%s\".\n", prefix, cThisLine);
+		    fprintf(stderr, "Bad prefix in read filter \"%s\".\n", cThisLine);
 		    usage(1);
 		} else {
 		    ++(read_filter->prefixes_size);
@@ -251,7 +251,7 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
 	    } else if (!strcmp(filter_type, "read")) {
 		read = strtok (NULL, "=");
 		if(read == NULL) {
-		    fprintf(stderr, "Bad read \"%s\" in read filter \"%s\".\n", read, cThisLine);
+		    fprintf(stderr, "Bad read in read filter \"%s\".\n", cThisLine);
 		    usage(1);
 		} else {
                   char *file;
@@ -324,7 +324,7 @@ read_filter_t *get_read_filter(char *filter_value)
         /* Read the file. */
 	file_name = strtok (NULL, "=");
 	if(file_name == NULL) {
-	    fprintf(stderr, "Bad file name \"%s\" in read filter \"%s\".\n", file_name, filter_value);
+	    fprintf(stderr, "Bad file name in read filter \"%s\".\n", filter_value);
 	    usage(1);
 	}
 	fp = fopen(file_name, "r");
@@ -342,7 +342,7 @@ read_filter_t *get_read_filter(char *filter_value)
     } else if (!strcmp("prefix", filter_type)) {
 	prefix = strtok (NULL, "=");
 	if(prefix == NULL) {
-	    fprintf(stderr, "Bad prefix \"%s\" in read filter \"%s\".\n", prefix, filter_value);
+	    fprintf(stderr, "Bad prefix in read filter \"%s\".\n", filter_value);
 	    usage(1);
 	} else {
 	    ++(read_filter->prefixes_size);
@@ -353,7 +353,7 @@ read_filter_t *get_read_filter(char *filter_value)
     } else if (!strcmp("read", filter_type)) {
 	read = strtok (NULL, "=");
 	if(read == NULL) {
-	    fprintf(stderr, "Bad read \"%s\" in read filter \"%s\".\n", read, filter_value);
+	    fprintf(stderr, "Bad read in read filter \"%s\".\n", filter_value);
 	    usage(1);
 	} else {
             HashItem *hi;
