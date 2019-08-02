@@ -115,7 +115,11 @@ int ltf8_put(char *cp, int64_t val);
 extern const int itf8_bytes[16];
 extern const int ltf8_bytes[256];
 
-
+#if defined(__GNUC__) && (__GNUC__ == 5 && __GNUC_MINOR < 5)
+// Work around a gcc over-optimisation.
+// See https://github.com/jkbonfield/io_lib/issues/17
+__attribute__((optimize("O1")))
+#endif
 static inline int safe_itf8_get(const char *cp, const char *endp,
 				int32_t *val_p) {
     const unsigned char *up = (unsigned char *)cp;
