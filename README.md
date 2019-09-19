@@ -182,13 +182,17 @@ Git clone
 
 We recommend building from a release tarball, which has the configure
 script already created for you.  However if you wish to build from the
-latest code and have done a "git clone" then you will need to create
-the configure script yourself using autotools:
+latest code then use "git clone -r" to clone recursively to get the
+htscodecs submodule (or follow up a normal "git clone" with
+"git submodule update --init --recursive").  You will then need to
+create the configure script using autoreconf in both io_lib and
+htscodecs directories.  This is easiest achieved using the supply
+bootstrap script.
 
-  autoreconf -i
+  ./bootstrap
 
-This program may not be on your system.  If it fails, then install
-autoconf, automake and libtool packages; see above for example
+The autotools programs may not be on your system.  If it fails, then
+install autoconf, automake and libtool packages; see above for example
 OS-specific installation commands.
 
 

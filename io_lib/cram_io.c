@@ -2277,36 +2277,44 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		int best_method = RAW;
 		int best_sz = INT_MAX;
 
-		// Relative costs of methods. See enum_cram_block_method.
+		// Relative costs of methods. See enum_cram_block_method and methmap.
 		double meth_cost[32] = {
-		    1,    // 0  raw
-		    1.04, // 1  gzip
-		    1.08, // 2  bzip2
-		    1.10, // 3  lzma
-		    1.00, // 4  rans0
-		    1.09, // 5  bsc
-		    1.05, 1.05, 1.05, 1.05, // 6-9 fqz
-		    1.01, // 10 rans1
-		    1.01, // 11 gzip rle
-		    1.02, // 12 gzip -1
-		    1.00, // 13 rans_pr0
-		    1.01, // 14 rans_pr1
-		    1.00, // 15 rans_pr64; if smaller, usually fast
-		    1.03, // 16 rans_pr65/9
-		    1.00, // 17 rans_pr128
-		    1.01, // 18 rans_pr129
-		    1.00, // 19 rans_pr192
-		    1.01, // 20 rans_pr193
-		    1.05,1.07, // tok3 rans/arith
-		    1.03, // arith_pr0
-		    1.04, // arith_pr1
-		    1.04, // arith_pr64
-		    1.04, // arith_pr65
-		    1.03, // arith_pr128
-		    1.04, // arith_pr129
-		    1.04, // arith_pr192
-		    1.04, // arith_pr193
-		    1,    // 31 unused
+                    // Externally defined methods
+                    1,    // 0  raw
+                    1.04, // 1  gzip (Z_FILTERED)
+                    1.08, // 2  bzip2
+                    1.04, // 3  lzma
+                    1.00, // 4  rans    (O0)
+                    1.00, // 5  ranspr  (O0)
+                    1.03, // 6  arithpr (O0)
+                    1.05, // 7  fqz
+                    1.05, // 8  tok3 (rans)
+                    9, 9, // 9,10 reserved
+
+                    // Paramterised versions of above
+                    1.05, 1.05, 1.05, // FQZ_b,c,d
+                    1.01, // rans O1
+
+                    1.01, // gzip rle
+                    1.02, // gzip -1
+
+                    1.01, // rans_pr1
+                    1.00, // rans_pr64; if smaller, usually fast
+                    1.03, // rans_pr65/9
+                    1.00, // rans_pr128
+                    1.01, // rans_pr129
+                    1.00, // rans_pr192
+                    1.01, // rans_pr193
+
+                    1.07, // tok3 arith
+
+                    1.04, // arith_pr1
+                    1.04, // arith_pr64
+                    1.04, // arith_pr65
+                    1.03, // arith_pr128
+                    1.04, // arith_pr129
+                    1.04, // arith_pr192
+                    1.04, // arith_pr193
 		};
 
 		// Scale methods by cost based on compression level
