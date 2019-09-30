@@ -97,12 +97,7 @@
 #include "arith_dynamic.h"
 #include "tokenise_name3.h"
 
-// Enable if we want V3.1 support.  TODO: add a configure param for this
-#define HAVE_FQZ
-
-#ifdef HAVE_FQZ
 #include "fqzcomp_qual.h"
-#endif
 
 #if defined(HAVE_STDIO_EXT_H)
 #include <stdio_ext.h>
@@ -1795,7 +1790,6 @@ int cram_uncompress_block(cram_block *b) {
 	return -1;
 #endif
 
-#ifdef HAVE_FQZ
     case FQZ: {
 	uncomp_size = b->uncomp_size;
 	uncomp = fqz_decompress((char *)b->data, b->comp_size, &uncomp_size, NULL, 0);
@@ -1807,12 +1801,6 @@ int cram_uncompress_block(cram_block *b) {
 	b->method = RAW;
 	break;
     }
-#else
-    case FQZ:
-	fprintf(stderr, "Fqzcomp compression is not compiled into this "
-		"version.\nPlease rebuild and try again.\n");
-	return -1;
-#endif
 
 #ifdef HAVE_LIBLZMA
     case LZMA:
@@ -2014,7 +2002,6 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
     case FQZ_b:
     case FQZ_c:
     case FQZ_d: {
-#ifdef HAVE_FQZ
 	// Extract the necessary portion of the slice into an fqz_slice struct.
 	// These previously were the same thing, but this permits us to detach
 	// the codec from the rest of this CRAM implementation.
@@ -2035,9 +2022,6 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 				  in, in_size, out_size, strat >> 8, NULL);
 	free(f);
 	return comp;
-#else
-	return NULL;
-#endif
     }
 
     case LZMA:
