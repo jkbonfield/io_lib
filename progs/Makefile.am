@@ -147,4 +147,4 @@ scram_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 cram_filter_SOURCES = cram_filter.c
 cram_filter_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
-AM_CPPFLAGS= -I${top_srcdir}
+AM_CPPFLAGS= -I${top_srcdir} -I${top_srcdir}/htscodecs 

@@ -174,11 +174,16 @@ typedef struct {
     char    file_id[20];      // Filename or SHA1 checksum
 } cram_file_def;
 
+// NB, some of these are >= (eg >= 3).  This is so old code that checks
+// for Version 3 is also going to work on V4, V5 etc.
+// Therefore in if-elseif-else clauses, start with higher version
+// numbers first.
 #define CRAM_MAJOR_VERS(v) ((v) >> 8)
 #define CRAM_MINOR_VERS(v) ((v) & 0xff)
 #define IS_CRAM_1_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==1)
 #define IS_CRAM_2_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==2)
 #define IS_CRAM_3_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)>=3)
+#define IS_CRAM_4_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)>=4)
 
 struct cram_slice;
 
@@ -771,7 +776,33 @@ typedef struct {
 } cram_fd_output_buffer;
 #endif
 
-typedef struct {
+struct cram_fd;
+typedef struct varint_vec {
+    // Returns number of bytes decoded from fd, 0 on error
+    int (*varint_decode32_crc)(struct cram_fd *fd, int32_t *val_p, uint32_t *crc);
+    int (*varint_decode64_crc)(struct cram_fd *fd, int64_t *val_p, uint32_t *crc);
+
+    //int (*varint_get32)(const char *cp, const char *endp, int32_t *val_p);
+    //int (*varint_get64)(const char *cp, const char *endp, int64_t *val_p);
+
+    // Returns the value and increments *cp.  Sets err to 1 iff an error occurs.
+    // NOTE: Does not set err to 0 on success.
+    int64_t (*varint_get32)(char **cp, const char *endp, int *err);
+    int64_t (*varint_get64)(char **cp, const char *endp, int *err);
+
+    // Returns the number of bytes written, <= 0 on error.
+    int (*varint_put32)(char *cp, const char *endp, int32_t val_p);
+    int (*varint_put64)(char *cp, const char *endp, int64_t val_p);
+
+    // Returns the number of bytes written, <= 0 on error.
+    int (*varint_put32_blk)(cram_block *blk, int32_t val_p);
+    int (*varint_put64_blk)(cram_block *blk, int64_t val_p);
+
+    // Returns number of bytes needed to encode 'val'
+    int (*varint_size)(int64_t val);
+} varint_vec;
+
+typedef struct cram_fd {
     FILE                 *fp_in;
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
     cram_fd_input_buffer            *fp_in_buffer;
@@ -875,6 +906,10 @@ typedef struct {
     int lossy_read_names;
     int preserve_aux_order;             // if set implies emitting RG, MD and NM
     int preserve_aux_size;              // does not replace 'i' with 'c' etc in aux.
+
+    // variable integer decoding callbacks.
+    // This changed in CRAM4.0 to a data-size agnostic encoding.
+    varint_vec vv;
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)

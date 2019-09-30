@@ -119,6 +119,7 @@ typedef struct {
 typedef struct cram_codec {
     enum cram_encoding codec;
     cram_block *out;
+    varint_vec *vv;
     void (*free)(struct cram_codec *codec);
     int (*decode)(cram_slice *slice, struct cram_codec *codec,
 		  cram_block *in, char *out, int *out_size);
@@ -148,10 +149,10 @@ const char *cram_encoding2str(enum cram_encoding t);
 
 cram_codec *cram_decoder_init(enum cram_encoding codec, char *data, int size,
 			      enum cram_external_type option,
-			      int version);
+			      int version, varint_vec *vv);
 cram_codec *cram_encoder_init(enum cram_encoding codec, cram_stats *st,
 			      enum cram_external_type option, void *dat,
-			      int version);
+			      int version, varint_vec *vv);
 
 //int cram_decode(void *codes, char *in, int in_size, char *out, int *out_size);
 //void cram_decoder_free(void *codes);

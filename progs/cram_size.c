@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015 Genome Research Ltd.
+ * Copyright (c) 2013-2015, 2019 Genome Research Ltd.
  * Author(s): James Bonfield
  * 
  * Redistribution and use in source and binary forms, with or without 
@@ -47,6 +47,9 @@
 
 #include <io_lib/cram.h>
 
+// Variable sized integer function pointers.
+varint_vec vv;
+
 // Accumulate per {data_series, content_id} combination.
 void ParseMap(cram_map **ma, char *data, HashTable *ds_h) {
     int i;
@@ -65,7 +68,7 @@ void ParseMap(cram_map **ma, char *data, HashTable *ds_h) {
 
 		cram_codec *c = cram_decoder_init(m->encoding,
 						  data + m->offset,
-						  m->size, E_BYTE_ARRAY, 0);
+						  m->size, E_BYTE_ARRAY, 0, &vv);
 		int id1, id2;
 		if (c) {
 		    id1 = cram_codec_to_id(c, &id2);
@@ -335,7 +338,9 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[1]);
 	return 1;
     }
-
+    
+    cram_init_varint(&vv, fd->file_def->major_version);
+    
     if (0 != process_sizes(fd, bsize_h, ds_h, dc_h, &bmax))
 	return 1;
     cram_close(fd);

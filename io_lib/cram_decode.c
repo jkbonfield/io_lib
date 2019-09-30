@@ -73,18 +73,19 @@
  * Returns number of bytes decoded on success
  *        -1 on failure
  */
-int cram_decode_TD(char *cp, const char *endp, cram_block_compression_hdr *h) {
+int cram_decode_TD(cram_fd *fd, char *cp, const char *endp,
+		   cram_block_compression_hdr *h) {
     char *op = cp;
     unsigned char *dat;
     cram_block *b;
     int32_t blk_size = 0;
-    int nTL, i, sz;
+    int nTL, i, sz, err = 0;
 
     if (!(b = cram_new_block(0, 0)))
 	return -1;
 
     /* Decode */
-    cp += safe_itf8_get(cp, endp, &blk_size);
+    blk_size = fd->vv.varint_get32(&cp, endp, &err);
     if (!blk_size) {
 	h->nTL = 0;
 	h->TL = NULL;
@@ -92,7 +93,7 @@ int cram_decode_TD(char *cp, const char *endp, cram_block_compression_hdr *h) {
 	return cp - op;
     }
 
-    if (blk_size < 0 || endp - cp < blk_size) {
+    if (err || blk_size < 0 || endp - cp < blk_size) {
         cram_free_block(b);
 	return -1;
     }
@@ -140,7 +141,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 							   cram_block *b) {
     char *cp, *endp, *cp_copy;
     cram_block_compression_hdr *hdr = calloc(1, sizeof(*hdr));
-    int i;
+    int i, err = 0;
     int32_t map_size = 0, map_count = 0;
 
     if (!hdr)
@@ -157,25 +158,22 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     endp = cp + b->uncomp_size;
 
     if (IS_CRAM_1_VERS(fd)) {
-	int32_t i32;
-	cp += safe_itf8_get(cp, endp, &hdr->ref_seq_id);
+	hdr->ref_seq_id = fd->vv.varint_get32(&cp, endp, &err);
 	if (CRAM_MAJOR_VERS(fd->version) >= 4) {
-	    int64_t i64;
-	    cp += safe_ltf8_get(cp, endp, &i64); hdr->ref_seq_start=i64;
-	    cp += safe_ltf8_get(cp, endp, &i64); hdr->ref_seq_span=i64;
+	    hdr->ref_seq_start = fd->vv.varint_get64(&cp, endp, &err);
+	    hdr->ref_seq_span  = fd->vv.varint_get64(&cp, endp, &err);
 	} else {
-	    cp += safe_itf8_get(cp, endp, &i32); hdr->ref_seq_start=i32;
-	    cp += safe_itf8_get(cp, endp, &i32); hdr->ref_seq_span=i32;
+	    hdr->ref_seq_start = fd->vv.varint_get32(&cp, endp, &err);
+	    hdr->ref_seq_span  = fd->vv.varint_get32(&cp, endp, &err);
 	}
-	cp += safe_itf8_get(cp, endp, &hdr->num_records);
-	cp += safe_itf8_get(cp, endp, &hdr->num_landmarks);
+	hdr->num_records   = fd->vv.varint_get32(&cp, endp, &err);
+	hdr->num_landmarks = fd->vv.varint_get32(&cp, endp, &err);
 	if (!(hdr->landmark = malloc(hdr->num_landmarks * sizeof(int32_t)))) {
 	    free(hdr);
 	    return NULL;
 	}
-	for (i = 0; i < hdr->num_landmarks; i++) {
-	    cp += safe_itf8_get(cp, endp, &hdr->landmark[i]);
-	}
+	for (i = 0; i < hdr->num_landmarks; i++)
+	    hdr->landmark[i] = fd->vv.varint_get32(&cp, endp, &err);;
     }
 
     hdr->preservation_map = HashTableCreate(4, HASH_NONVOLATILE_KEYS |
@@ -200,8 +198,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     memcpy(hdr->substitution_matrix, "CGTNAGTNACTNACGNACGT", 20);
 
     /* Preservation map */
-    cp += safe_itf8_get(cp, endp, &map_size); cp_copy = cp;
-    cp += safe_itf8_get(cp, endp, &map_count);
+    map_size  = fd->vv.varint_get32(&cp, endp, &err); cp_copy = cp;
+    map_count = fd->vv.varint_get32(&cp, endp, &err);
     for (i = 0; i < map_count; i++) {
 	HashData hd;
 	if (endp - cp < 2) {
@@ -302,7 +300,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    break;
 
 	case CRAM_KEY('T','D'): {
-	    int sz = cram_decode_TD(cp, endp, hdr); // tag dictionary
+	    int sz = cram_decode_TD(fd, cp, endp, hdr); // tag dictionary
 	    if (sz < 0) {
 		cram_free_compression_header(hdr);
 		return NULL;
@@ -330,8 +328,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     }
 
     /* Record encoding map */
-    cp += safe_itf8_get(cp, endp, &map_size); cp_copy = cp;
-    cp += safe_itf8_get(cp, endp, &map_count);
+    map_size  = fd->vv.varint_get32(&cp, endp, &err); cp_copy = cp;
+    map_count = fd->vv.varint_get32(&cp, endp, &err);
     int is_v4 = CRAM_MAJOR_VERS(fd->version) >= 4 ? 1 : 0;
     for (i = 0; i < map_count; i++) {
 	char *key = cp;
@@ -346,8 +344,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	}
 
 	cp += 2;
-	cp += safe_itf8_get(cp, endp, &encoding);
-	cp += safe_itf8_get(cp, endp, &size);
+	encoding = fd->vv.varint_get32(&cp, endp, &err);
+	size     = fd->vv.varint_get32(&cp, endp, &err);
 
 	// Fill out cram_map purely for cram_dump to dump out.
 	m->key = (key[0]<<8)|key[1];
@@ -379,187 +377,187 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 
 	if (key[0] == 'B' && key[1] == 'F') {
 	    if (!(hdr->codecs[DS_BF] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'C' && key[1] == 'F') {
 	    if (!(hdr->codecs[DS_CF] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'I') {
 	    if (!(hdr->codecs[DS_RI] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'L') {
 	    if (!(hdr->codecs[DS_RL] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'A' && key[1] == 'P') {
 	    if (!(hdr->codecs[DS_AP] = cram_decoder_init(encoding, cp, size,
 							 is_v4 ? E_LONG : E_INT,
-							 fd->version))) {
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'G') {
 	    if (!(hdr->codecs[DS_RG] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'M' && key[1] == 'F') {
 	    if (!(hdr->codecs[DS_MF] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'N' && key[1] == 'S') {
 	    if (!(hdr->codecs[DS_NS] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'N' && key[1] == 'P') {
 	    if (!(hdr->codecs[DS_NP] = cram_decoder_init(encoding, cp, size,
 							 is_v4 ? E_LONG : E_INT,
-							 fd->version))) {
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'T' && key[1] == 'S') {
 	    if (!(hdr->codecs[DS_TS] = cram_decoder_init(encoding, cp, size,
 							 is_v4 ? E_LONG : E_INT,
-							 fd->version))) {
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'N' && key[1] == 'F') {
 	    if (!(hdr->codecs[DS_NF] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'T' && key[1] == 'C') {
 	    if (!(hdr->codecs[DS_TC] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'T' && key[1] == 'N') {
 	    if (!(hdr->codecs[DS_TN] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'F' && key[1] == 'N') {
 	    if (!(hdr->codecs[DS_FN] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'F' && key[1] == 'C') {
 	    if (!(hdr->codecs[DS_FC] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'F' && key[1] == 'P') {
 	    if (!(hdr->codecs[DS_FP] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'B' && key[1] == 'S') {
 	    if (!(hdr->codecs[DS_BS] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'I' && key[1] == 'N') {
 	    if (!(hdr->codecs[DS_IN] = cram_decoder_init(encoding, cp, size,
 						    E_BYTE_ARRAY,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'S' && key[1] == 'C') {
 	    if (!(hdr->codecs[DS_SC] = cram_decoder_init(encoding, cp, size,
 						    E_BYTE_ARRAY,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'D' && key[1] == 'L') {
 	    if (!(hdr->codecs[DS_DL] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'B' && key[1] == 'A') {
 	    if (!(hdr->codecs[DS_BA] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'B' && key[1] == 'B') {
 	    if (!(hdr->codecs[DS_BB] = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'S') {
 	    if (!(hdr->codecs[DS_RS] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'P' && key[1] == 'D') {
 	    if (!(hdr->codecs[DS_PD] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'H' && key[1] == 'C') {
 	    if (!(hdr->codecs[DS_HC] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'M' && key[1] == 'Q') {
 	    if (!(hdr->codecs[DS_MQ] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'N') {
 	    if (!(hdr->codecs[DS_RN] = cram_decoder_init(encoding, cp, size,
 							 E_BYTE_ARRAY_BLOCK,
-							 fd->version))) {
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'Q' && key[1] == 'S') {
 	    if (!(hdr->codecs[DS_QS] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'Q' && key[1] == 'Q') {
 	    if (!(hdr->codecs[DS_QQ] = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'T' && key[1] == 'L') {
 	    if (!(hdr->codecs[DS_TL] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version))) {
+						    fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
@@ -579,8 +577,8 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     }
 
     /* Tag encoding map */
-    cp += safe_itf8_get(cp, endp, &map_size); cp_copy = cp;
-    cp += safe_itf8_get(cp, endp, &map_count);
+    map_size  = fd->vv.varint_get32(&cp, endp, &err); cp_copy = cp;
+    map_count = fd->vv.varint_get32(&cp, endp, &err);
     for (i = 0; i < map_count; i++) {
 	int32_t encoding = E_NULL;
 	int32_t size = 0;
@@ -593,19 +591,20 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    return NULL;
 	}
 
-	cp += safe_itf8_get(cp, endp, &m->key);
+	m->key = fd->vv.varint_get32(&cp, endp, &err);
 	key[0] = m->key>>16;
 	key[1] = m->key>>8;
 	key[2] = m->key;
-	cp += safe_itf8_get(cp, endp, &encoding);
-	cp += safe_itf8_get(cp, endp, &size);
+	encoding = fd->vv.varint_get32(&cp, endp, &err);
+	size     = fd->vv.varint_get32(&cp, endp, &err);
 
 	m->encoding = encoding;
 	m->size     = size;
 	m->offset   = cp - (char *)b->data;
 	if (size < 0 || endp - cp < size ||
 	    !(m->codec = cram_decoder_init(encoding, cp, size,
-					   E_BYTE_ARRAY_BLOCK, fd->version))) {
+					   E_BYTE_ARRAY_BLOCK, fd->version,
+					   &fd->vv))) {
 	    cram_free_compression_header(hdr);
 	    free(m);
 	    return NULL;
@@ -616,7 +615,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	m->next = hdr->tag_encoding_map[CRAM_MAP(key[0],key[1])];
 	hdr->tag_encoding_map[CRAM_MAP(key[0],key[1])] = m;
     }
-    if (cp - cp_copy != map_size) {
+    if (err || cp - cp_copy != map_size) {
 	cram_free_compression_header(hdr);
 	return NULL;
     }
@@ -1036,7 +1035,7 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     cram_block_slice_hdr *hdr;
     unsigned char *cp;
     unsigned char *cp_end;
-    int i;
+    int i, err = 0;
 
     if (b->method != RAW) {
         /* Spec. says slice header should be RAW, but we can future-proof
@@ -1058,32 +1057,24 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     hdr->content_type = b->content_type;
 
     if (b->content_type == MAPPED_SLICE) {
-	int32_t i32;
-        cp += safe_itf8_get((char *)cp, (char *)cp_end, &hdr->ref_seq_id);
+        hdr->ref_seq_id = fd->vv.varint_get32((char **)&cp, (char *)cp_end, &err);
 	if (CRAM_MAJOR_VERS(fd->version) >= 4) {
-	    int64_t i64;
-	    cp += safe_ltf8_get((char *)cp, (char *)cp_end, &i64);
-	    hdr->ref_seq_start = i64;
-	    cp += safe_ltf8_get((char *)cp, (char *)cp_end, &i64);
-	    hdr->ref_seq_span = i64;
+	    hdr->ref_seq_start = fd->vv.varint_get64((char **)&cp, (char *)cp_end, &err);
+	    hdr->ref_seq_span  = fd->vv.varint_get64((char **)&cp, (char *)cp_end, &err);
 	} else {
-	    cp += safe_itf8_get((char *)cp, (char *)cp_end, &i32);
-	    hdr->ref_seq_start = i32;
-	    cp += safe_itf8_get((char *)cp, (char *)cp_end, &i32);
-	    hdr->ref_seq_span = i32;
+	    hdr->ref_seq_start = fd->vv.varint_get32((char **)&cp, (char *)cp_end, &err);
+	    hdr->ref_seq_span  = fd->vv.varint_get32((char **)&cp, (char *)cp_end, &err);
 	}
     }
-    cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->num_records);
+    hdr->num_records = fd->vv.varint_get32((char **)&cp, (char *) cp_end, &err);
     hdr->record_counter = 0;
     if (CRAM_MAJOR_VERS(fd->version) == 2) {
-	int32_t i32 = 0;
-	cp += safe_itf8_get((char *)cp, (char *)cp_end, &i32);
-	hdr->record_counter = i32;
+	hdr->record_counter = fd->vv.varint_get32((char **)&cp, (char *)cp_end, &err);
     } else if (CRAM_MAJOR_VERS(fd->version) >= 3) {
-	cp += safe_ltf8_get((char *)cp, (char *)cp_end, &hdr->record_counter);
+	hdr->record_counter = fd->vv.varint_get64((char **)&cp, (char *)cp_end, &err);
     }
-    cp += safe_itf8_get((char *)cp, (char *)cp_end, &hdr->num_blocks);
-    cp += safe_itf8_get((char *)cp, (char *)cp_end, &hdr->num_content_ids);
+    hdr->num_blocks      = fd->vv.varint_get32((char **)&cp, (char *)cp_end, &err);
+    hdr->num_content_ids = fd->vv.varint_get32((char **)&cp, (char *)cp_end, &err);
     if (hdr->num_content_ids < 1 ||
 	hdr->num_content_ids >= SIZE_MAX / sizeof(int32_t)) {
         /* Slice must have at least one data block,
@@ -1098,18 +1089,18 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     }
 
     for (i = 0; i < hdr->num_content_ids; i++) {
-	int l = safe_itf8_get((char *)cp, (char *) cp_end,
-			      &hdr->block_content_ids[i]);
-	if (l <= 0) {
-	    free(hdr->block_content_ids);
-	    free(hdr);
-	    return NULL;
-	}
-	cp += l;
+	hdr->block_content_ids[i] = fd->vv.varint_get32((char **)&cp,
+							 (char *)cp_end,
+							 &err);
+    }
+    if (err) {
+	free(hdr->block_content_ids);
+	free(hdr);
+	return NULL;
     }
 
     if (b->content_type == MAPPED_SLICE) {
-        cp += safe_itf8_get((char *)cp, (char *) cp_end, &hdr->ref_base_id);
+        hdr->ref_base_id = fd->vv.varint_get32((char **)&cp, (char *) cp_end, &err);
     }
 
     if (!IS_CRAM_1_VERS(fd)) {
@@ -1260,9 +1251,13 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
 	    unsigned char *p = hd.p;
 	    hdr->SD_crc =  p[5] | (p[6]<<8) | (p[7]<<16) | (p[8]<<24);
 	}
-   }
+    }
 
-    return hdr;
+    if (!err)
+	return hdr;
+
+    free(hdr);
+    return NULL;
 }
 
 
