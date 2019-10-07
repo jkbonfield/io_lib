@@ -1456,8 +1456,16 @@ int add_read_names(cram_fd *fd, cram_container *c, cram_slice *s,
 	cr->name        = BLOCK_SIZE(s->name_blk);
 #if 1
 	if ((cr->cram_flags & CRAM_FLAG_DETACHED) || keep_names) {
- 	    BLOCK_APPEND(s->name_blk, bam_name(b), bam_name_len(b));
-	    cr->name_len    = bam_name_len(b);
+	    if (IS_CRAM_4_VERS(fd)
+		&& (cr->cram_flags & CRAM_FLAG_MATE_DOWNSTREAM)
+		&& cr->mate_line) {
+		// Dedup read names in V4
+		BLOCK_APPEND(s->name_blk, "\0", 1);
+		cr->name_len    = 1;
+	    } else {
+		BLOCK_APPEND(s->name_blk, bam_name(b), bam_name_len(b));
+		cr->name_len    = bam_name_len(b);
+	    }
 	} else {
 	    // Can only discard duplicate names if not detached
 	    cr->name_len = 0;
@@ -1468,7 +1476,7 @@ int add_read_names(cram_fd *fd, cram_container *c, cram_slice *s,
 #else
 	// Experiment with using delta encoding to last name
 	{
-	    int l = bam_name_len(b);
+	    int l = bam_name_len(b), i;
 	    char *n1 = bam_name(b), *n0 = c->last_name;
 	    for (i = 0; i < l; i++) {
 		if (n1[i] != n0[i])

@@ -3049,18 +3049,28 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	    name_len = cr->name_len;
 	} else {
 	    name = name_a;
-	    name_len = strlen(fd->prefix);
-	    memcpy(name, fd->prefix, name_len);
-	    name += name_len;
-	    *name++ = ':';
-	    if (cr->mate_line >= 0 && cr->mate_line < rec)
-		name = (char *)append_uint64((unsigned char *)name,
-					     s->hdr->record_counter +
-					     cr->mate_line + 1);
-	    else
-		name = (char *)append_uint64((unsigned char *)name,
-					     s->hdr->record_counter +
-					     rec + 1);
+	    if (cr->mate_line >= 0 && cr->mate_line < s->max_rec &&
+		s->crecs[cr->mate_line].name_len > 0) {
+		// Copy our mate if non-zero.
+		memcpy(name_a, BLOCK_DATA(s->name_blk)+s->crecs[cr->mate_line].name,
+		       s->crecs[cr->mate_line].name_len);
+		name = name_a + s->crecs[cr->mate_line].name_len;
+	    } else {
+		// Otherwise generate a name based on prefix
+		name_len = strlen(fd->prefix);
+		memcpy(name, fd->prefix, name_len);
+		name += name_len;
+		*name++ = ':';
+		if (cr->mate_line >= 0 && cr->mate_line < rec) {
+		    name = (char *)append_uint64((unsigned char *)name,
+						 s->hdr->record_counter +
+						 cr->mate_line + 1);
+		} else {
+		    name = (char *)append_uint64((unsigned char *)name,
+						 s->hdr->record_counter +
+						 rec + 1);
+		}
+	    }
 	    name_len = name - name_a;
 	    name = name_a;
 	}
