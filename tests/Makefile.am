@@ -49,8 +49,9 @@ TESTS                   = \
 			srf_filter.test \
 			srf_index.test \
 			scram.test \
-			scram_mt.test \
-			scram_mt4.test \
+			scram_mt30.test \
+			scram_mt31.test \
+			scram_mt40.test \
 			cram_io.test \
 			java.test
 
