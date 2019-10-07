@@ -356,7 +356,6 @@ static char *cram_extract_block(cram_block *b, int size) {
 
 int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 			     cram_block *in, char *out, int *out_size) {
-    int l;
     char *cp;
     cram_block *b;
 
@@ -377,7 +376,6 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
 
 int cram_external_decode_long(cram_slice *slice, cram_codec *c,
 			      cram_block *in, char *out, int *out_size) {
-    int l;
     char *cp;
     cram_block *b;
 

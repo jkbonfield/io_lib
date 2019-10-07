@@ -139,6 +139,12 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 	if (!(HashTableAdd(h->preservation_map, "AP", 2, hd, NULL)))
 	    return NULL;
 
+	if (IS_CRAM_4_VERS(fd)) {
+	    hd.i = h->qs_seq_orient;
+	    if (!(HashTableAdd(h->preservation_map, "QO", 2, hd, NULL)))
+		return NULL;
+	}
+
 	if (fd->no_ref || fd->embed_ref) {
 	    // Reference Required == No
 	    hd.i = 0;
@@ -162,26 +168,12 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
 
 	    switch(CRAM_KEY(hi->key[0], hi->key[1])) {
 	    case CRAM_KEY('M','I'):
-		BLOCK_APPEND_CHAR(map, hi->data.i);
-		break;
-
 	    case CRAM_KEY('U','I'):
-		BLOCK_APPEND_CHAR(map, hi->data.i);
-		break;
-
 	    case CRAM_KEY('P','I'):
-		BLOCK_APPEND_CHAR(map, hi->data.i);
-		break;
-
 	    case CRAM_KEY('A','P'):
-		BLOCK_APPEND_CHAR(map, hi->data.i);
-		break;
-
 	    case CRAM_KEY('R','N'):
-		BLOCK_APPEND_CHAR(map, hi->data.i);
-		break;
-
 	    case CRAM_KEY('R','R'):
+	    case CRAM_KEY('Q','O'):
 		BLOCK_APPEND_CHAR(map, hi->data.i);
 		break;
 
@@ -1916,6 +1908,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	h->mapped_qs_included = 0;   // fixme
 	h->unmapped_qs_included = 0; // fixme
 	h->AP_delta = c->pos_sorted;
+	h->qs_seq_orient = c->qs_seq_orient;
 	// h->...  fixme
 	memcpy(h->substitution_matrix, CRAM_SUBST_MATRIX, 20);
 
@@ -2912,6 +2905,7 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 
     c->curr_rec = 0;
     c->s_num_bases = 0;
+    c->qs_seq_orient = IS_CRAM_4_VERS(fd) ? 0 : 1;
 
     return c;
 }
@@ -3329,9 +3323,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		s->SD_crc += crc32(0L, (Bytef *) to, cr->len);
 
 	    // Store quality in original orientation for better compression.
-	    // FIXME: Put this into the compression header prev map.
-	    // QO maybe (default 1) meaning keep existing quality orientation.
-	    if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+	    if (!c->qs_seq_orient) {
 		if (cr->flags & BAM_FREVERSE) {
 		    int i, j;
 		    for (i = 0, j = cr->len-1; i < j; i++, j--) {

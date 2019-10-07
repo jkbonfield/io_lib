@@ -395,7 +395,7 @@ static int filter_container(cram_fd *fd_in, cram_fd *fd_out,
 		
 		cram_uncompress_block(dup);
 		int32_t rid;
-		char *cp = BLOCK_DATA(dup);
+		char *cp = (char *)BLOCK_DATA(dup);
 		rid = fd_in->vv.varint_get32(&cp, NULL, NULL);
 		cram_free_block(dup);
 		if (rid > fd_in->range.refid) {

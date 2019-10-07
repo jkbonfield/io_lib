@@ -321,9 +321,10 @@ typedef struct {
     int qs_included;
     int read_names_included;
     int AP_delta;
+    int no_ref;
+    int qs_seq_orient; // 1 => same as seq. 0 => original orientation
     // indexed by ref-base and subst. code
     char substitution_matrix[5][4];
-    int no_ref;
 
     // TD Dictionary as a concatenated block
     cram_block *TD_blk;  // Tag Dictionary
@@ -418,6 +419,7 @@ typedef struct {
     int last_slice;              // number of reads in last slice (0 for 1st)
     int multi_seq;               // true if packing multi seqs per cont/slice
     int unsorted;		 // true is AP_delta is 0.
+    int qs_seq_orient;           // 1 => same as seq. 0 => original orientation
 
     /* Copied from fd before encoding, to allow multi-threading */
     int64_t ref_start, first_base, last_base, ref_id, ref_end;

@@ -642,7 +642,7 @@ int cram_io_output_buffer_putc(int c, cram_fd * fd)
  * billion) the byte stream is different when written using ITF8 and
  * LTF8, removing the ability to transparently upgrade sizes.
  * Thus for version 4.0 we switch to a different variable size integer
- * encoding (see uint7_encode below).
+ * encoding (see uint7_size below).
  */
 
 const int itf8_bytes[16] = {
@@ -1290,13 +1290,6 @@ static int uint7_put_blk_64(cram_block *blk, int64_t v) {
     int sz = var_put_u64(buf, buf+10, v);
     BLOCK_APPEND(blk, buf, sz);
     return sz;
-}
-
-// Put direct to cram_fd
-static int uint7_encode(cram_fd *fd, int64_t val) {
-    unsigned char buf[10];
-    int len = var_put_u64(buf, NULL, val);
-    return CRAM_IO_WRITE(buf, 1, len, fd) == len ? 0 : -1;
 }
 
 // Decode 32-bits with CRC update from cram_fd
@@ -3694,9 +3687,10 @@ cram_container *cram_new_container(int nrec, int nslice) {
     c->max_slice = nslice;
     c->curr_slice = 0;
 
-    c->pos_sorted = 1;
-    c->max_apos   = 0;
-    c->multi_seq  = 0;
+    c->pos_sorted    = 1;
+    c->max_apos      = 0;
+    c->multi_seq     = 0;
+    c->qs_seq_orient = 1;
 
     c->bams = NULL;
 

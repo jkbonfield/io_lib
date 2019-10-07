@@ -195,6 +195,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     hdr->qs_included = 0;
     hdr->read_names_included = 0;
     hdr->AP_delta = 1;
+    hdr->qs_seq_orient = 1;
     memcpy(hdr->substitution_matrix, "CGTNAGTNACTNACGNACGT", 20);
 
     /* Preservation map */
@@ -260,6 +261,15 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 		return NULL;
 	    }
 	    hdr->no_ref = !hd.i;
+	    break;
+
+	case CRAM_KEY('Q','O'):
+	    hd.i = *cp++;
+	    if (!HashTableAdd(hdr->preservation_map, "QO", 2, hd, NULL)) {
+		cram_free_compression_header(hdr);
+		return NULL;
+	    }
+	    hdr->qs_seq_orient = hd.i;
 	    break;
 
 	case CRAM_KEY('S','M'):
@@ -1959,6 +1969,16 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	cr->aux_size += 7;
     }
 
+    if (!c->comp_hdr->qs_seq_orient && (ds & CRAM_QS) && (cr->flags & BAM_FREVERSE)) {
+	int i, j;
+	for (i = 0, j = cr->len-1; i < j; i++, j--) {
+	    unsigned char c;
+	    c = qual[i];
+	    qual[i] = qual[j];
+	    qual[j] = c;
+	}
+    }
+
     return r;
 }
 
@@ -3067,17 +3087,6 @@ static int cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s,
 	if (!BLOCK_DATA(s->qual_blk))
 	    return -1;
 	qual = (char *)BLOCK_DATA(s->qual_blk) + cr->qual;
-	if (CRAM_MAJOR_VERS(fd->version) >= 4) {
-	    if (cr->flags & BAM_FREVERSE) {
-		int i, j;
-		for (i = 0, j = cr->len-1; i < j; i++, j--) {
-		    unsigned char c;
-		    c = qual[i];
-		    qual[i] = qual[j];
-		    qual[j] = c;
-		}
-	    }
-	}
     } else {
 	qual = NULL;
     }
