@@ -457,10 +457,16 @@ int main(int argc, char **argv) {
 
 			r = c->comp_hdr->codecs[DS_TS]->decode(s,c->comp_hdr->codecs[DS_TS], b, (char *)&i32, &out_sz);
 			printf("TS = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
-		    } else if (cf & CRAM_FLAG_MATE_DOWNSTREAM) {
-			puts("Not detached, and mate is downstream");
-			r = c->comp_hdr->codecs[DS_NF]->decode(s,c->comp_hdr->codecs[DS_NF], b, (char *)&i32, &out_sz);
-			printf("NF = %d+%d = %d (ret %d, out_sz %d)\n", i32, rec+1, i32+rec+1, r, out_sz);
+		    } else {
+			if (cf & CRAM_FLAG_MATE_DOWNSTREAM) {
+			    puts("Not detached, and mate is downstream");
+			    r = c->comp_hdr->codecs[DS_NF]->decode(s,c->comp_hdr->codecs[DS_NF], b, (char *)&i32, &out_sz);
+			    printf("NF = %d+%d = %d (ret %d, out_sz %d)\n", i32, rec+1, i32+rec+1, r, out_sz);
+			}
+			if (cf & CRAM_FLAG_EXPLICIT_TLEN) {
+			    r = c->comp_hdr->codecs[DS_TS]->decode(s,c->comp_hdr->codecs[DS_TS], b, (char *)&i32, &out_sz);
+			    printf("TS = %d (ret %d, out_sz %d, explicit)\n", i32, r, out_sz);
+			}
 		    }
 
 		    if (IS_CRAM_1_VERS(fd)) {

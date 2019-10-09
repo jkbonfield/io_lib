@@ -2251,6 +2251,13 @@ static int cram_decode_slice_xref(cram_slice *s, int required_fields) {
 	if (cr->tlen == INT_MIN)
 	    cr->tlen = 0; // Just incase
     }
+
+    for (rec = 0; rec < s->hdr->num_records; rec++) {
+	cram_record *cr = &s->crecs[rec];
+	if (cr->explicit_tlen != INT_MIN)
+	    cr->tlen = cr->explicit_tlen;
+    }
+
     return 0;
 }
 
@@ -2331,6 +2338,31 @@ static int bulk_cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s) {
     }
 
     return 0;
+}
+
+/*
+ * Utility function to decode tlen (ISIZE), as it's called
+ * in multiple places.
+ *
+ * Returns codec return value (0 on success).
+ */
+static int cram_decode_tlen(cram_fd *fd, cram_container *c, cram_slice *s,
+			    cram_block *blk, int64_t *tlen) {
+    int out_sz = 1, r = 0;
+
+    if (!c->comp_hdr->codecs[DS_TS]) return -1;
+    if (CRAM_MAJOR_VERS(fd->version) < 4) {
+	int32_t i32;
+	r |= c->comp_hdr->codecs[DS_TS]
+	    ->decode(s, c->comp_hdr->codecs[DS_TS], blk,
+		     (char *)&i32, &out_sz);
+	*tlen = i32;
+    } else {
+	r |= c->comp_hdr->codecs[DS_TS]
+	    ->decode(s, c->comp_hdr->codecs[DS_TS], blk,
+		     (char *)tlen, &out_sz);
+    }
+    return r;
 }
 
 /*
@@ -2680,6 +2712,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	cr->mate_pos = 0;
 	cr->mate_line = -1;
 	cr->mate_ref_id = -1;
+	cr->explicit_tlen = INT_MIN;
 	if ((ds & CRAM_CF) && (cf & CRAM_FLAG_DETACHED)) {
 	    if (ds & CRAM_MF) {
 		if (IS_CRAM_1_VERS(fd)) {
@@ -2751,18 +2784,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    }
 
 	    if (ds & CRAM_TS) {
-		if (!c->comp_hdr->codecs[DS_TS]) return -1;
-		if (CRAM_MAJOR_VERS(fd->version) < 4) {
-		    int32_t i32;
-		    r |= c->comp_hdr->codecs[DS_TS]
-			->decode(s, c->comp_hdr->codecs[DS_TS], blk,
-				 (char *)&i32, &out_sz);
-		    cr->tlen = i32;
-		} else {
-		    r |= c->comp_hdr->codecs[DS_TS]
-		                    ->decode(s, c->comp_hdr->codecs[DS_TS], blk,
-					     (char *)&cr->tlen, &out_sz);
-		}
+		r = cram_decode_tlen(fd, c, s, blk, &cr->tlen);
 		if (r) return r;
 	    } else {
 		cr->tlen = INT_MIN;
@@ -2787,6 +2809,13 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		cr->mate_flags = 0;
 		cr->tlen = INT_MIN;
 	    }
+	    if ((ds & CRAM_CF) && (cf & CRAM_FLAG_EXPLICIT_TLEN)) {
+		r = cram_decode_tlen(fd, c, s, blk, &cr->explicit_tlen);
+		if (r) return r;
+	    }
+	} else if ((ds & CRAM_CF) && (cf & CRAM_FLAG_EXPLICIT_TLEN)) {
+	    r = cram_decode_tlen(fd, c, s, blk, &cr->explicit_tlen);
+	    if (r) return r;
 	} else {
 	    cr->mate_flags = 0;
 	    cr->tlen = INT_MIN;

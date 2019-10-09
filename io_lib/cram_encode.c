@@ -593,9 +593,21 @@ static int cram_encode_slice_read(cram_fd *fd,
 					  (char *)&i32, 1);
 	}
 
-    } else if (cr->cram_flags & CRAM_FLAG_MATE_DOWNSTREAM) {
-	r |= h->codecs[DS_NF]->encode(s, h->codecs[DS_NF],
-				      (char *)&cr->mate_line, 1);
+    } else {
+	if (cr->cram_flags & CRAM_FLAG_MATE_DOWNSTREAM) {
+	    r |= h->codecs[DS_NF]->encode(s, h->codecs[DS_NF],
+					  (char *)&cr->mate_line, 1);
+	}
+	if (cr->cram_flags & CRAM_FLAG_EXPLICIT_TLEN) {
+	    if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+		r |= h->codecs[DS_TS]->encode(s, h->codecs[DS_TS],
+					      (char *)&cr->tlen, 1);
+	    } else {
+		i32 = cr->tlen;
+		r |= h->codecs[DS_TS]->encode(s, h->codecs[DS_TS],
+					      (char *)&i32, 1);
+	    }
+	}
     }
 
     /* Aux tags */
@@ -3391,9 +3403,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    }
 
 	    // This vs p: tlen, matepos, flags
-	    if (bam_ins_size(b) != sign*(aright-aleft+1))
-		goto detached;
-
 	    if (MAX(bam_mate_pos(b)+1, 0) != p->apos)
 		goto detached;
 
@@ -3408,9 +3417,6 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
 	    // p vs this: tlen, matepos, flags
 	    if (p->ref_id != cr->ref_id)
-		goto detached;
-
-	    if (p->tlen != -sign*(aright-aleft+1))
 		goto detached;
 
 	    if (p->mate_pos != cr->apos)
@@ -3437,6 +3443,22 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 		 !((p->cram_flags & CRAM_FLAG_DISCARD_NAME))))
 		goto detached;
 
+	    // Now check TLEN.  We do this last as sometimes it's the
+	    // only thing that differs.  In CRAM4 we have a better way
+	    // of handling this that doesn't break detached status
+	    int explicit_tlen = 0;
+	    if ((bam_ins_size(b) != sign*(aright-aleft+1)) ||
+		(p->tlen != -sign*(aright-aleft+1))) {
+		if (IS_CRAM_4_VERS(fd)) {
+		    explicit_tlen = CRAM_FLAG_EXPLICIT_TLEN;
+		} else {
+		    // Stil do detached for unmapped data in CRAM4 as this
+		    // also impacts RNEXT calculation.
+		    goto detached;
+		}
+	    }
+
+
 	    /*
 	     * The fields below are unused when encoding this read as it is
 	     * no longer detached.  In theory they may get referred to when
@@ -3447,7 +3469,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	     * not emitted.
 	     */
 	    cr->mate_pos = p->apos;
-	    cr->tlen = sign*(aright-aleft+1);
+	    cr->tlen = explicit_tlen ? bam_ins_size(b) : sign*(aright-aleft+1);
 	    cr->mate_flags =
 	    	((p->flags & BAM_FMUNMAP)   == BAM_FMUNMAP)   * CRAM_M_UNMAP +
 	    	((p->flags & BAM_FMREVERSE) == BAM_FMREVERSE) * CRAM_M_REVERSE;
@@ -3456,7 +3478,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    if (p->cram_flags & CRAM_FLAG_STATS_ADDED) {
 		cram_stats_del(c->stats[DS_NP], p->mate_pos);
 		cram_stats_del(c->stats[DS_MF], p->mate_flags);
-		cram_stats_del(c->stats[DS_TS], p->tlen);
+		if (!(p->cram_flags & CRAM_FLAG_EXPLICIT_TLEN))
+		    cram_stats_del(c->stats[DS_TS], p->tlen);
 		cram_stats_del(c->stats[DS_NS], p->mate_ref_id);
 	    }
 
@@ -3472,6 +3495,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
 	    // Clear detached from cr flags
 	    cr->cram_flags &= ~CRAM_FLAG_DETACHED;
+	    cr->cram_flags |= explicit_tlen;
 	    cram_stats_add(c->stats[DS_CF], cr->cram_flags & CRAM_FLAG_MASK);
 
 	    // Clear detached from p flags and set downstream
@@ -3481,7 +3505,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    }
 
 	    p->cram_flags  &= ~CRAM_FLAG_DETACHED;
-	    p->cram_flags  |=  CRAM_FLAG_MATE_DOWNSTREAM;
+	    p->cram_flags  |=  CRAM_FLAG_MATE_DOWNSTREAM | explicit_tlen;
 	    cram_stats_add(c->stats[DS_CF], p->cram_flags & CRAM_FLAG_MASK);
 
 	    p->mate_line = hd.i - (hi->data.i + 1);

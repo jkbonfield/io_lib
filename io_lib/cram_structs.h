@@ -462,6 +462,7 @@ typedef struct {
     int32_t mate_ref_id;
     int64_t mate_pos;     // NP
     int64_t tlen;         // TS
+    int64_t explicit_tlen;// TS, but PNEXT/RNEXT still need auto-computing
 
     // Auxiliary data
     int32_t ntags;        // TC
@@ -1075,7 +1076,8 @@ enum cram_option {
 #define CRAM_FLAG_DETACHED             (1<<1)
 #define CRAM_FLAG_MATE_DOWNSTREAM      (1<<2)
 #define CRAM_FLAG_NO_SEQ               (1<<3)
-#define CRAM_FLAG_MASK                 ((1<<4)-1)
+#define CRAM_FLAG_EXPLICIT_TLEN        (1<<4)
+#define CRAM_FLAG_MASK                 ((1<<5)-1)
 
 /* Internal only */
 #define CRAM_FLAG_STATS_ADDED  (1<<30)
