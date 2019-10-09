@@ -2413,6 +2413,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	if (omit_RG && aux[0] == 'R' && aux[1] == 'G' && aux[2] == 'Z') {
 	    rg = &aux[3];
 	    while (*aux++);
+	    if (IS_CRAM_4_VERS(fd)) BLOCK_APPEND(td_b, "RG*", 3);
 	    continue;
 	}
 
@@ -2421,6 +2422,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    if (cr->len && !fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
 		if (MD && strncasecmp(DSTRING_STR(MD), aux+3, orig + aux_size - (aux+3)) == 0) {
 		    while (*aux++);
+		    if (IS_CRAM_4_VERS(fd)) BLOCK_APPEND(td_b, "MD*", 3);
 		    continue;
 		} else {
 		    MD_done = 1;
@@ -2443,6 +2445,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 			fprintf(stderr, "Unhandled type code for NM tag\n");
 			return NULL;
 		    }
+		    if (IS_CRAM_4_VERS(fd)) BLOCK_APPEND(td_b, "NM*", 3);
 		    continue;
 		} else {
 		    NM_done = 1;

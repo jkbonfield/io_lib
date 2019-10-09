@@ -1322,8 +1322,8 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
     uint32_t nm = 0;
     int32_t md_dist = 0;
     int orig_aux = 0;
-    int decode_md = s->decode_md && s->ref && !has_MD;
-    int decode_nm = s->decode_md && s->ref && !has_NM;
+    int decode_md = s->ref && ((s->decode_md && !has_MD) || has_MD < 0);
+    int decode_nm = s->ref && ((s->decode_md && !has_NM) || has_NM < 0);
     uint32_t ds = s->data_series;
 
     if ((ds & CRAM_QS) && !(cf & CRAM_FLAG_PRESERVE_QUAL_SCORES)) {
@@ -1334,8 +1334,9 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
         decode_md = decode_nm = 0;
 
     if (decode_md) {
-	orig_aux = BLOCK_SIZE(s->aux_blk);
-	BLOCK_APPEND(s->aux_blk, "MDZ", 3);
+	orig_aux = BLOCK_SIZE(s->aux_blk); // end of existing aux block
+	if (has_MD == 0)
+	    BLOCK_APPEND(s->aux_blk, "MDZ", 3);
     }
     
     if (ds & CRAM_FN) {
@@ -1955,18 +1956,53 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 
     if (decode_md) {
 	BLOCK_APPEND_CHAR(s->aux_blk, '\0'); // null terminate MD:Z:
-	cr->aux_size += BLOCK_SIZE(s->aux_blk) - orig_aux;
+	size_t sz = BLOCK_SIZE(s->aux_blk) - orig_aux;
+	if (has_MD < 0) {
+	    // has_MD < 0; already have MDZ allocated in aux at -has_MD,
+	    // but wrote MD to end of aux (at orig_aux).
+	    // We need some memmoves to shuffle it around.
+	    char tmp_MD_[1024], *tmp_MD = tmp_MD_;
+	    unsigned char *orig_aux_p = BLOCK_DATA(s->aux_blk) + orig_aux;
+	    if (sz > 1024) {
+		tmp_MD = malloc(sz);
+		if (!tmp_MD)
+		    return -1;
+	    }
+	    memcpy(tmp_MD, orig_aux_p, sz);
+	    memmove(&BLOCK_DATA(s->aux_blk)[-has_MD] + sz,
+		    &BLOCK_DATA(s->aux_blk)[-has_MD],
+		    orig_aux_p - &BLOCK_DATA(s->aux_blk)[-has_MD]);
+	    memcpy(&BLOCK_DATA(s->aux_blk)[-has_MD], tmp_MD, sz);
+	    if (tmp_MD != tmp_MD_)
+		free(tmp_MD);
+
+	    if (-has_NM > -has_MD)
+		// we inserted before NM, so move it up a bit
+		has_NM -= sz;
+	}
+	// else has_MD == 0 and we've already appended MD to the end.
+
+	cr->aux_size += sz;
     }
 
     if (decode_nm) {
-	char buf[7];
-	buf[0] = 'N'; buf[1] = 'M'; buf[2] = 'I';
-	buf[3] = (nm>> 0) & 0xff;
-	buf[4] = (nm>> 8) & 0xff;
-	buf[5] = (nm>>16) & 0xff;
-	buf[6] = (nm>>24) & 0xff;
-	BLOCK_APPEND(s->aux_blk, buf, 7);
-	cr->aux_size += 7;
+	if (has_NM == 0) {
+	    char buf[7];
+	    buf[0] = 'N'; buf[1] = 'M'; buf[2] = 'I';
+	    buf[3] = (nm>> 0) & 0xff;
+	    buf[4] = (nm>> 8) & 0xff;
+	    buf[5] = (nm>>16) & 0xff;
+	    buf[6] = (nm>>24) & 0xff;
+	    BLOCK_APPEND(s->aux_blk, buf, 7);
+	    cr->aux_size += 7;
+	} else {
+	    // Preallocated space for NM at -has_NM into aux block
+	    char *buf = BLOCK_DATA(s->aux_blk) + -has_NM;
+	    buf[0] = (nm>> 0) & 0xff;
+	    buf[1] = (nm>> 8) & 0xff;
+	    buf[2] = (nm>>16) & 0xff;
+	    buf[3] = (nm>>24) & 0xff;
+	}
     }
 
     return r;
@@ -2035,7 +2071,10 @@ static int cram_decode_aux_1_0(cram_container *c, cram_slice *s,
     return r;
 }
 
-static int cram_decode_aux(cram_container *c, cram_slice *s,
+// has_MD and has_NM are filled out with 0 for none present,
+// 1 for present and verbatim, and -pos for present as placeholder
+// (MD*, NM*) to be generated and filled out at offset +pos.
+static int cram_decode_aux(cram_fd *fd, cram_container *c, cram_slice *s,
 			   cram_block *blk, cram_record *cr,
 			   int *has_MD, int *has_NM) {
     int i, r = 0, out_sz = 1;
@@ -2067,29 +2106,61 @@ static int cram_decode_aux(cram_container *c, cram_slice *s,
 
     for (i = 0; i < cr->ntags; i++) {
 	int32_t id, out_sz = 1;
-	unsigned char tag_data[3];
+	unsigned char tag_data[7];
 	cram_map *m;
 
 	if (TN[0] == 'M' && TN[1] == 'D' && has_MD)
-	    *has_MD = 1;
+	    *has_MD = (BLOCK_SIZE(s->aux_blk)+3) * (TN[2] == '*' ? -1 : 1);
 	if (TN[0] == 'N' && TN[1] == 'M' && has_NM)
-	    *has_NM = 1;
+	    *has_NM = (BLOCK_SIZE(s->aux_blk)+3) * (TN[2] == '*' ? -1 : 1);;
 
 	//printf("Tag %d/%d\n", i+1, cr->ntags);
-	tag_data[0] = *TN++;
-	tag_data[1] = *TN++;
-	tag_data[2] = *TN++;
-	id = (tag_data[0]<<16) | (tag_data[1]<<8) | tag_data[2];
+	tag_data[0] = TN[0];
+	tag_data[1] = TN[1];
+	tag_data[2] = TN[2];
+	if (IS_CRAM_4_VERS(fd) && TN[2] == '*') {
+	    // Place holder, fill out contents later.
+	    int tag_data_size;
+	    if (TN[0] == 'N' && TN[1] == 'M') {
+		// Use a fixed size, so we can allocate room for it now.
+		memcpy(&tag_data[2], "I\0\0\0\0", 5);
+		tag_data_size = 7;
+	    } else if (TN[0] == 'R' && TN[1] == 'G') {
+		// RG is variable size, but known already.  Insert now
+		TN += 3;
+		if (cr->rg < 0 || cr->rg >= fd->header->nrg)
+		    continue;
+		tag_data[2] = 'Z';
+		BLOCK_APPEND(s->aux_blk, (char *)tag_data, 3);
+		BLOCK_APPEND(s->aux_blk, fd->header->rg[cr->rg].name,
+			     fd->header->rg[cr->rg].name_len);
+		BLOCK_APPEND_CHAR(s->aux_blk, '\0');
+		cr->aux_size += 3 + fd->header->rg[cr->rg].name_len + 1;
+		cr->rg = -1; // prevents auto-add later
+		continue;
+	    } else {
+		// Unknown size.  We'll insert MD into stream later.
+		tag_data[2] = 'Z';
+		tag_data_size = 3;
+	    }
+	    BLOCK_APPEND(s->aux_blk, (char *)tag_data, tag_data_size);
+	    cr->aux_size += tag_data_size;
+	    TN += 3;
+	} else {
+	    TN += 3;
+	    // Actual tag, so copy into BAM tag data stream
+	    id = (tag_data[0]<<16) | (tag_data[1]<<8) | tag_data[2];
 
-	m = map_find(c->comp_hdr->tag_encoding_map, tag_data, id);
-	if (!m)
-	    return -1;
-	BLOCK_APPEND(s->aux_blk, (char *)tag_data, 3);
+	    m = map_find(c->comp_hdr->tag_encoding_map, tag_data, id);
+	    if (!m)
+		return -1;
+	    BLOCK_APPEND(s->aux_blk, (char *)tag_data, 3);
 
-	if (!m->codec) return -1;
-	r |= m->codec->decode(s, m->codec, blk, (char *)s->aux_blk, &out_sz);
-	if (r) break;
-	cr->aux_size += out_sz + 3;
+	    if (!m->codec) return -1;
+	    r |= m->codec->decode(s, m->codec, blk, (char *)s->aux_blk, &out_sz);
+	    if (r) break;
+	    cr->aux_size += out_sz + 3;
+	}
     }
     
     return r;
@@ -2828,7 +2899,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	if (IS_CRAM_1_VERS(fd))
 	    r |= cram_decode_aux_1_0(c, s, blk, cr);
 	else
-	    r |= cram_decode_aux(c, s, blk, cr, &has_MD, &has_NM);
+	    r |= cram_decode_aux(fd, c, s, blk, cr, &has_MD, &has_NM);
 	if (r) return r;
 
 	/* Fake up dynamic string growth and appending */
