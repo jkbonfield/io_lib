@@ -1969,16 +1969,6 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	cr->aux_size += 7;
     }
 
-    if (!c->comp_hdr->qs_seq_orient && (ds & CRAM_QS) && (cr->flags & BAM_FREVERSE)) {
-	int i, j;
-	for (i = 0, j = cr->len-1; i < j; i++, j--) {
-	    unsigned char c;
-	    c = qual[i];
-	    qual[i] = qual[j];
-	    qual[j] = c;
-	}
-    }
-
     return r;
 }
 
@@ -2908,6 +2898,16 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    } else {
 		if (ds & CRAM_RL)
 		    memset(qual, 255, cr->len);
+	    }
+	}
+
+	if (!c->comp_hdr->qs_seq_orient && (ds & CRAM_QS) && (cr->flags & BAM_FREVERSE)) {
+	    int i, j;
+	    for (i = 0, j = cr->len-1; i < j; i++, j--) {
+		unsigned char c;
+		c = qual[i];
+		qual[i] = qual[j];
+		qual[j] = c;
 	    }
 	}
 
