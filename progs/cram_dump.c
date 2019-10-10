@@ -486,20 +486,21 @@ int main(int argc, char **argv) {
 			    key[2] = id&0xff;
 			    printf("%3d: TN= %.3s\n", f, key);
 
-			    printf("id=%d\n", id);
-			    if ((m = map_find(c->comp_hdr->tag_encoding_map,
-					      (unsigned char *)key, id))) {
-				int i, out_sz;
+			    if (key[2] != '*') {
+				if ((m = map_find(c->comp_hdr->tag_encoding_map,
+						  (unsigned char *)key, id))) {
+				    int i, out_sz;
 
-				BLOCK_SIZE(tag) = 0;
-				r = m->codec->decode(s, m->codec, b, (char *)tag, &out_sz);
-				printf("%3d: Val", f);
-				for(i = 0; i < out_sz; i++) {
-				    printf(" %02x", BLOCK_DATA(tag)[i]);
+				    BLOCK_SIZE(tag) = 0;
+				    r = m->codec->decode(s, m->codec, b, (char *)tag, &out_sz);
+				    printf("%3d: Val", f);
+				    for(i = 0; i < out_sz; i++) {
+					printf(" %02x", BLOCK_DATA(tag)[i]);
+				    }
+				    printf("\n");
+				} else {
+				    fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
 				}
-				printf("\n");
-			    } else {
-				fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
 			    }
 
 			    cram_free_block(tag);
@@ -527,20 +528,21 @@ int main(int argc, char **argv) {
 			    id = (key[0]<<16) | (key[1]<<8) | key[2];
 			    printf("%3d: TN= %.3s\n", f, key);
 
-			    printf("id=%d\n", id);
-			    if ((m = map_find(c->comp_hdr->tag_encoding_map,
-					      (unsigned char *)key, id))) {
-				int i, out_sz;
+			    if (key[2] != '*') {
+				if ((m = map_find(c->comp_hdr->tag_encoding_map,
+						  (unsigned char *)key, id))) {
+				    int i, out_sz;
 
-				BLOCK_SIZE(tag) = 0;
-				r = m->codec->decode(s, m->codec, b, (char *)tag, &out_sz);
-				printf("%3d: Val", f);
-				for(i = 0; i < out_sz; i++) {
-				    printf(" %02x", BLOCK_DATA(tag)[i]);
+				    BLOCK_SIZE(tag) = 0;
+				    r = m->codec->decode(s, m->codec, b, (char *)tag, &out_sz);
+				    printf("%3d: Val", f);
+				    for(i = 0; i < out_sz; i++) {
+					printf(" %02x", BLOCK_DATA(tag)[i]);
+				    }
+				    printf("\n");
+				} else {
+				    fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
 				}
-				printf("\n");
-			    } else {
-				fprintf(stderr, "*** ERROR: unrecognised aux key ***\n");
 			    }
 
 			    cram_free_block(tag);
