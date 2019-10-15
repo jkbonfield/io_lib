@@ -76,16 +76,16 @@ typedef struct {
 } cram_huffman_encoder;
 
 typedef struct {
-    int32_t offset;
+    int64_t offset;
     int32_t nbits;
 } cram_beta_decoder;
 
 typedef struct {
-    int32_t offset;
+    int64_t offset;
 } cram_gamma_decoder;
 
 typedef struct {
-    int32_t offset;
+    int64_t offset;
     int32_t k;
 } cram_subexp_decoder;
 

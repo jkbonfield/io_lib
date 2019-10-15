@@ -160,6 +160,25 @@ void dump_tag_block(cram_block *b, int verbose) {
     return dump_core_block(b, verbose);
 }
 
+static int cram_decode_i64(cram_fd *fd, cram_container *c, cram_slice *s,
+			   cram_block *blk, int ds, int64_t *tlen) {
+    int out_sz = 1, r = 0;
+
+    if (!c->comp_hdr->codecs[ds]) return -1;
+    if (CRAM_MAJOR_VERS(fd->version) < 4) {
+        int32_t i32;
+        r |= c->comp_hdr->codecs[ds]
+            ->decode(s, c->comp_hdr->codecs[ds], blk,
+                     (char *)&i32, &out_sz);
+        *tlen = i32;
+    } else {
+        r |= c->comp_hdr->codecs[ds]
+            ->decode(s, c->comp_hdr->codecs[ds], blk,
+                     (char *)tlen, &out_sz);
+    }
+    return r;
+}
+
 int main(int argc, char **argv) {
     cram_fd *fd;
     cram_container *c;
@@ -379,6 +398,7 @@ int main(int argc, char **argv) {
 	    if (verbose) {
 		cram_block *b = s->block[0];
 		int32_t i32, bf, fn, prev_pos, rl;
+		int64_t i64;
 		unsigned char cf;
 		int out_sz, r, f;
 		int rec;
@@ -414,8 +434,16 @@ int main(int argc, char **argv) {
 		    r = c->comp_hdr->codecs[DS_RL]->decode(s,c->comp_hdr->codecs[DS_RL], b, (char *)&rl, &out_sz);
 		    printf("RL = %d (ret %d, out_sz %d)\n", rl, r, out_sz);
 
-		    r = c->comp_hdr->codecs[DS_AP]->decode(s,c->comp_hdr->codecs[DS_AP], b, (char *)&i32, &out_sz);
-		    printf("AP = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
+		    int64_t pos;
+		    if (CRAM_MAJOR_VERS(fd->version) < 4) {
+			r = c->comp_hdr->codecs[DS_AP]->decode(s,c->comp_hdr->codecs[DS_AP],
+							       b, (char *)&i32, &out_sz);
+			pos = i32;
+		    } else {
+			r = c->comp_hdr->codecs[DS_AP]->decode(s,c->comp_hdr->codecs[DS_AP],
+							       b, (char *)&pos, &out_sz);
+		    }
+		    printf("AP = %"PRId64" (ret %d, out_sz %d)\n", pos, r, out_sz);
 
 		    r = c->comp_hdr->codecs[DS_RG]->decode(s,c->comp_hdr->codecs[DS_RG], b, (char *)&i32, &out_sz);
 		    printf("RG = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
@@ -452,11 +480,11 @@ int main(int argc, char **argv) {
 			r = c->comp_hdr->codecs[DS_NS]->decode(s,c->comp_hdr->codecs[DS_NS], b, (char *)&i32, &out_sz);
 			printf("NS = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
 
-			r = c->comp_hdr->codecs[DS_NP]->decode(s,c->comp_hdr->codecs[DS_NP], b, (char *)&i32, &out_sz);
-			printf("NP = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
+			r = cram_decode_i64(fd, c, s, b, DS_NP, &i64);
+			printf("NP = %"PRId64" (ret %d, out_sz %d)\n", i64, r, out_sz);
 
-			r = c->comp_hdr->codecs[DS_TS]->decode(s,c->comp_hdr->codecs[DS_TS], b, (char *)&i32, &out_sz);
-			printf("TS = %d (ret %d, out_sz %d)\n", i32, r, out_sz);
+			r = cram_decode_i64(fd, c, s, b, DS_TS, &i64);
+			printf("TS = %"PRId64" (ret %d, out_sz %d)\n", i64, r, out_sz);
 		    } else {
 			if (cf & CRAM_FLAG_MATE_DOWNSTREAM) {
 			    puts("Not detached, and mate is downstream");
@@ -464,8 +492,8 @@ int main(int argc, char **argv) {
 			    printf("NF = %d+%d = %d (ret %d, out_sz %d)\n", i32, rec+1, i32+rec+1, r, out_sz);
 			}
 			if (cf & CRAM_FLAG_EXPLICIT_TLEN) {
-			    r = c->comp_hdr->codecs[DS_TS]->decode(s,c->comp_hdr->codecs[DS_TS], b, (char *)&i32, &out_sz);
-			    printf("TS = %d (ret %d, out_sz %d, explicit)\n", i32, r, out_sz);
+			    r = cram_decode_i64(fd, c, s, b, DS_TS, &i64);
+			    printf("TS = %"PRId64" (ret %d, out_sz %d, explicit)\n", i64, r, out_sz);
 			}
 		    }
 

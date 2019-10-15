@@ -1,4 +1,24 @@
 #!/bin/sh
 
-SCRAMBLE_ENC_ARGS="-V4.0 -7" $srcdir/scram.test
-SCRAMBLE_ARGS="-t4" $srcdir/scram.test
+SCRAMBLE_ENC_ARGS="-V4.0 -7"
+SCRAMBLE_ARGS="-t4"
+scramble_enc="${VALGRIND} $top_builddir/progs/scramble ${SCRAMBLE_ARGS} ${SCRAMBLE_ENC_ARGS}"
+scramble="${VALGRIND} $top_builddir/progs/scramble ${SCRAMBLE_ARGS}"
+compare_sam=$srcdir/compare_sam.pl
+
+export SCRAMBLE_ENC_ARGS
+export SCRAMBLE_ARGS
+$srcdir/scram.test || exit 1
+
+# 64-bit position support
+#
+# Round trip should be perfect.
+base=longref
+echo "$scramble_enc -x $base.sam $outdir/$base.cram"
+$scramble_enc -x $srcdir/data/$base.sam $outdir/$base.cram
+
+echo "$scramble -q $outdir/$base.cram $outdir/$base.sam"
+$scramble -q $outdir/$base.cram $outdir/$base.sam
+
+echo "$compare_sam $outdir/$base.sam $srcdir/data/$base.sam"
+$compare_sam $outdir/$base.sam $srcdir/data/$base.sam || exit 1

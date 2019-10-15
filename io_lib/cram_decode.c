@@ -1997,7 +1997,7 @@ static int cram_decode_seq(cram_fd *fd, cram_container *c, cram_slice *s,
 	    cr->aux_size += 7;
 	} else {
 	    // Preallocated space for NM at -has_NM into aux block
-	    char *buf = BLOCK_DATA(s->aux_blk) + -has_NM;
+	    unsigned char *buf = BLOCK_DATA(s->aux_blk) + -has_NM;
 	    buf[0] = (nm>> 0) & 0xff;
 	    buf[1] = (nm>> 8) & 0xff;
 	    buf[2] = (nm>>16) & 0xff;
@@ -2200,10 +2200,10 @@ static int cram_decode_slice_xref(cram_slice *s, int required_fields) {
 		 * Or do we just admit defeat and output 0 for tlen? It's the
 		 * safe option...
 		 */
-		if (cr->tlen == INT_MIN) {
+		if (cr->tlen == INT64_MIN) {
 		    int id1 = rec, id2 = rec;
-		    int aleft = cr->apos, aright = cr->aend;
-		    int tlen;
+		    int64_t aleft = cr->apos, aright = cr->aend;
+		    int64_t tlen;
 		    int ref = cr->ref_id;
 
 		    // number of segments starting at the same point.
@@ -2309,13 +2309,13 @@ static int cram_decode_slice_xref(cram_slice *s, int required_fields) {
 		cr->mate_ref_id = -1;
 	}
 
-	if (cr->tlen == INT_MIN)
+	if (cr->tlen == INT64_MIN)
 	    cr->tlen = 0; // Just incase
     }
 
     for (rec = 0; rec < s->hdr->num_records; rec++) {
 	cram_record *cr = &s->crecs[rec];
-	if (cr->explicit_tlen != INT_MIN)
+	if (cr->explicit_tlen != INT64_MIN)
 	    cr->tlen = cr->explicit_tlen;
     }
 
@@ -2773,7 +2773,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	cr->mate_pos = 0;
 	cr->mate_line = -1;
 	cr->mate_ref_id = -1;
-	cr->explicit_tlen = INT_MIN;
+	cr->explicit_tlen = INT64_MIN;
 	if ((ds & CRAM_CF) && (cf & CRAM_FLAG_DETACHED)) {
 	    if (ds & CRAM_MF) {
 		if (IS_CRAM_1_VERS(fd)) {
@@ -2848,7 +2848,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		r = cram_decode_tlen(fd, c, s, blk, &cr->tlen);
 		if (r) return r;
 	    } else {
-		cr->tlen = INT_MIN;
+		cr->tlen = INT64_MIN;
 	    }
 	} else if ((ds & CRAM_CF) && (cf & CRAM_FLAG_MATE_DOWNSTREAM)) {
 	    if (ds & CRAM_NF) {
@@ -2864,11 +2864,11 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 		//dstring_nappend(name_ds, name, cr->name_len);
 
 		cr->mate_ref_id = -1;
-		cr->tlen = INT_MIN;
+		cr->tlen = INT64_MIN;
 		cr->mate_pos = 0;
 	    } else  {
 		cr->mate_flags = 0;
-		cr->tlen = INT_MIN;
+		cr->tlen = INT64_MIN;
 	    }
 	    if ((ds & CRAM_CF) && (cf & CRAM_FLAG_EXPLICIT_TLEN)) {
 		r = cram_decode_tlen(fd, c, s, blk, &cr->explicit_tlen);
@@ -2879,7 +2879,7 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    if (r) return r;
 	} else {
 	    cr->mate_flags = 0;
-	    cr->tlen = INT_MIN;
+	    cr->tlen = INT64_MIN;
 	}
 	/*
 	else if (!name[0]) {

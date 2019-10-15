@@ -1744,7 +1744,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     is_v4 ? E_LONG : E_INT,
 					     NULL, fd->version, &fd->vv);
     } else {
-	int p[2] = {0, c->max_apos};
+	int64_t p[2] = {0, c->max_apos};
 	h->codecs[DS_AP] = cram_encoder_init(E_BETA, NULL,
 					     is_v4 ? E_LONG : E_INT,
 					     p, fd->version, &fd->vv);
@@ -2422,7 +2422,8 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 	    if (cr->len && !fd->no_ref && !(cr->flags & BAM_FUNMAP)) {
 		if (MD && strncasecmp(DSTRING_STR(MD), aux+3, orig + aux_size - (aux+3)) == 0) {
 		    while (*aux++);
-		    if (IS_CRAM_4_VERS(fd)) BLOCK_APPEND(td_b, "MD*", 3);
+		    if (IS_CRAM_4_VERS(fd) && !need_MD_NM)
+			BLOCK_APPEND(td_b, "MD*", 3);
 		    continue;
 		} else {
 		    MD_done = 1;
@@ -2445,7 +2446,8 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 			fprintf(stderr, "Unhandled type code for NM tag\n");
 			return NULL;
 		    }
-		    if (IS_CRAM_4_VERS(fd)) BLOCK_APPEND(td_b, "NM*", 3);
+		    if (IS_CRAM_4_VERS(fd) && !need_MD_NM)
+			BLOCK_APPEND(td_b, "NM*", 3);
 		    continue;
 		} else {
 		    NM_done = 1;
@@ -3472,7 +3474,9 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	     * not emitted.
 	     */
 	    cr->mate_pos = p->apos;
+	    cram_stats_add(c->stats[DS_NP], cr->mate_pos);
 	    cr->tlen = explicit_tlen ? bam_ins_size(b) : sign*(aright-aleft+1);
+	    cram_stats_add(c->stats[DS_TS], cr->tlen);
 	    cr->mate_flags =
 	    	((p->flags & BAM_FMUNMAP)   == BAM_FMUNMAP)   * CRAM_M_UNMAP +
 	    	((p->flags & BAM_FMREVERSE) == BAM_FMREVERSE) * CRAM_M_REVERSE;

@@ -157,8 +157,8 @@ static void store_bytes_MSB(cram_block *block, char *bytes, int len) {
 #endif
 
 /* Local optimised copy for inlining */
-static inline unsigned int get_bits_MSB(cram_block *block, int nbits) {
-    unsigned int val = 0;
+static inline int64_t get_bits_MSB(cram_block *block, int nbits) {
+    uint64_t val = 0;
     int i;
 
 #if 0
@@ -253,7 +253,7 @@ static inline unsigned int get_bits_MSB(cram_block *block, int nbits) {
  * characters with exactly the correct frequency distribution we check
  * for it elsewhere.)
  */
-static int store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
+static int store_bits_MSB(cram_block *block, uint64_t val, int nbits) {
     /* fprintf(stderr, " store_bits: %02x %d\n", val, nbits); */
 
     /*
@@ -262,15 +262,15 @@ static int store_bits_MSB(cram_block *block, unsigned int val, int nbits) {
      */
     unsigned int mask;
 
-    if (block->byte+4 >= block->alloc) {
+    if (block->byte+8 >= block->alloc) {
 	if (block->byte) {
 	    block->alloc *= 2;
-	    block->data = realloc(block->data, block->alloc + 4);
+	    block->data = realloc(block->data, block->alloc + 8);
 	    if (!block->data)
 		return -1;
 	} else {
 	    block->alloc = 1024;
-	    block->data = realloc(block->data, block->alloc + 4);
+	    block->data = realloc(block->data, block->alloc + 8);
 	    if (!block->data)
 		return -1;
 	    block->data[0] = 0; // initialise first byte of buffer
@@ -642,7 +642,7 @@ cram_codec *cram_beta_decode_init(char *data, int size,
     c->beta.nbits  = vv->varint_get32(&cp, NULL, NULL);
 
     if (cp - data != size
-        || c->beta.nbits < 0 || c->beta.nbits > 8 * sizeof(int)) {
+        || c->beta.nbits < 0 || c->beta.nbits > 8 * sizeof(int64_t)) {
 	fprintf(stderr, "Malformed beta header stream\n");
 	free(c);
 	return NULL;
@@ -716,7 +716,7 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
 				  void *dat,
 				  int version, varint_vec *vv) {
     cram_codec *c;
-    int min_val, max_val, len = 0;
+    int64_t min_val, max_val, len = 0;
     int64_t range;
 
     c = malloc(sizeof(*c));
@@ -733,11 +733,11 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
     c->store  = cram_beta_encode_store;
 
     if (dat) {
-	min_val = ((int *)dat)[0];
-	max_val = ((int *)dat)[1];
+	min_val = ((int64_t *)dat)[0];
+	max_val = ((int64_t *)dat)[1];
     } else {
-	min_val = INT_MAX;
-	max_val = INT_MIN;
+	min_val = INT64_MAX;
+	max_val = INT64_MIN;
 	int i;
 	for (i = 0; i < MAX_STAT_VAL; i++) {
 	    if (!st->freqs[i])
@@ -750,7 +750,7 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
 	    HashItem *hi;
 	    HashIter *iter = HashTableIterCreate();
 	    while ((hi = HashTableIterNext(st->h, iter))) {
-		i = (int)(size_t)hi->key;
+		i = (int64_t)(size_t)hi->key;
 		if (min_val > i)
 		    min_val = i;
 		if (max_val < i)
@@ -1416,7 +1416,8 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 				     void *dat,
 				     int version, varint_vec *vv) {
     int *vals = NULL, *freqs = NULL, vals_alloc = 0, *lens, code, len;
-    int nvals, i, ntot = 0, max_val = 0, min_val = INT_MAX, k;
+    int nvals, i, ntot = 0, k;
+    int64_t max_val = 0, min_val = INT64_MAX;
     cram_codec *c;
     cram_huffman_code *codes;
 
@@ -1482,7 +1483,7 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
      * a sorted list? This is currently O(nvals^2) complexity.
      */
     for (;;) {
-	int low1 = INT_MAX, low2 = INT_MAX;
+	int64_t low1 = INT64_MAX, low2 = INT64_MAX;
 	int ind1 = 0, ind2 = 0;
 	for (i = 0; i < nvals; i++) {
 	    if (freqs[i] < 0)
@@ -1492,7 +1493,7 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 	    else if (low2 > freqs[i])
 		low2 = freqs[i], ind2 = i;
 	}
-	if (low2 == INT_MAX)
+	if (low2 == INT64_MAX)
 	    break;
 
 	freqs[nvals] = low1 + low2;
