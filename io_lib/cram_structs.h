@@ -1077,7 +1077,8 @@ enum cram_option {
 #define CRAM_FLAG_MATE_DOWNSTREAM      (1<<2)
 #define CRAM_FLAG_NO_SEQ               (1<<3)
 #define CRAM_FLAG_EXPLICIT_TLEN        (1<<4)
-#define CRAM_FLAG_MASK                 ((1<<5)-1)
+#define CRAM_FLAG_TLEN0                (1<<5)
+#define CRAM_FLAG_MASK                 ((1<<6)-1)
 
 /* Internal only */
 #define CRAM_FLAG_STATS_ADDED  (1<<30)

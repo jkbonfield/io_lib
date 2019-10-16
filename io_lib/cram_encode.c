@@ -3391,6 +3391,15 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	//       cr->apos, cr->aend,
 	//       cr->name_len, (char *)BLOCK_DATA(s->name_blk)+cr->name, new, bam_ins_size(b));
 
+// 	// RNEXT *, PNEXT 0 and TLEN 0 is a common idiom in SAM.
+// 	// We don't want to force detached status because our computation
+// 	// differs.  So in this case we set a flag (and restore it as
+// 	// * 0 0 also) permitting mate-pair encoding.
+// 	if (IS_CRAM_4_VERS(fd) && 0) {
+// 	    if (bam_mate_pos(b)+1 == 0 && bam_mate_ref(b)+1 == 0 && cr->ref_id == 0)
+// 		cr->flags |= CRAM_FLAG_TLEN0;
+// 	}
+
 	if (!new) {
 	    cram_record *p = &s->crecs[hi->data.i];
 	    int aleft, aright, sign;
@@ -3408,6 +3417,8 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 	    }
 
 	    // This vs p: tlen, matepos, flags
+//	    if (!((cr->flags & CRAM_FLAG_TLEN0) && (p->flags & CRAM_FLAG_TLEN0))
+//		&& MAX(bam_mate_pos(b)+1, 0) != p->apos)
 	    if (MAX(bam_mate_pos(b)+1, 0) != p->apos)
 		goto detached;
 
@@ -3421,9 +3432,13 @@ static int process_one_read(cram_fd *fd, cram_container *c,
 
 
 	    // p vs this: tlen, matepos, flags
+//	    if (!((cr->flags & CRAM_FLAG_TLEN0) && (p->flags & CRAM_FLAG_TLEN0))
+//		&& p->ref_id != cr->ref_id)
 	    if (p->ref_id != cr->ref_id)
 		goto detached;
 
+//	    if (!((cr->flags & CRAM_FLAG_TLEN0) && (p->flags & CRAM_FLAG_TLEN0))
+//		&& p->mate_pos != cr->apos)
 	    if (p->mate_pos != cr->apos)
 		goto detached;
 
