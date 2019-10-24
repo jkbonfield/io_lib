@@ -4040,8 +4040,65 @@ static int cram_flush_result(cram_fd *fd) {
     return ret;
 }
 
+// Note: called while metrics_lock is held.
+// Will be left in this state too, but may temporarily unlock.
+void reset_metrics(cram_fd *fd) {
+    int i, j;
+
+    if (fd->pool) {
+	// If multi-threaded we have multiple blocks being
+	// compressed already and several on the to-do list
+	// (fd->rqueue->pending).  It's tricky to reset the
+	// metrics exactly the correct point, so instead we
+	// just flush the pool, reset, and then continue again.
+
+	// Don't bother starting a new trial before then though.
+	for (i = 0; i < DS_END; i++) {
+	    cram_metrics *m = fd->m[i];
+	    if (!m)
+		continue;
+	    m->next_trial = 999;
+	}
+
+	if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
+	t_pool_flush(fd->pool);
+	if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
+    }
+
+    for (i = 0; i < DS_END; i++) {
+	cram_metrics *m = fd->m[i];
+	if (!m)
+	    continue;
+
+	m->trial = NTRIALS;
+	m->next_trial = TRIAL_SPAN;
+	m->revised_method = 0;
+
+	for (j = 0; j < CRAM_MAX_METHOD; j++)
+	    m->sz[j] = 0;
+    }
+}
+
 int cram_flush_container_mt(cram_fd *fd, cram_container *c) {
     cram_job *j;
+
+    // At the junction of mapped to unmapped data the compression
+    // methods may need to change due to very different statistical
+    // properties; particularly BA if minhash sorted.
+    //
+    // However with threading we'll have several in-flight blocks
+    // arriving out of order.
+    //
+    // So we do one trial reset of NThreads to last for NThreads
+    // duration to get us over this transition period, followed
+    // by another retrial of the usual ntrials & trial span.
+    if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
+    if (c->n_mapped < 0.5*c->curr_rec &&
+	fd->last_mapped > 0.5*c->max_rec) {
+	reset_metrics(fd);
+    }
+    fd->last_mapped = c->n_mapped * (c->max_rec+1)/(c->curr_rec+1) ;
+    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 
     if (!fd->pool)
 	return cram_flush_container(fd, c);

@@ -435,6 +435,8 @@ typedef struct {
     uint32_t crc32;       // Raw container bytes CRC
 
     uint64_t s_num_bases; // number of bases in this slice
+
+    uint32_t n_mapped;    // Number of mapped reads
 } cram_container;
 
 /*
@@ -858,6 +860,7 @@ typedef struct {
     int last_RI;                        // number of references encoded in last container
     int multi_seq, multi_seq_user;
     int unsorted;
+    int last_mapped;                    // number of mapped reads in last container
     int empty_container; 		// Marker for EOF block
     
     // thread pool
