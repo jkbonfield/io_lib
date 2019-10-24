@@ -191,10 +191,6 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
     }
 
     /* Initialise defaults for preservation map */
-    hdr->mapped_qs_included = 0;
-    hdr->unmapped_qs_included = 0;
-    hdr->unmapped_placed = 0;
-    hdr->qs_included = 0;
     hdr->read_names_included = 0;
     hdr->AP_delta = 1;
     memcpy(hdr->substitution_matrix, "CGTNAGTNACTNACGNACGT", 20);
@@ -210,31 +206,10 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	}
 	cp += 2;
 	switch(CRAM_KEY(cp[-2],cp[-1])) {
-	case CRAM_KEY('M','I'):
+	case CRAM_KEY('M','I'): // was mapped QS included in V1.0
+	case CRAM_KEY('U','I'): // was unmapped QS included in V1.0
+	case CRAM_KEY('P','I'): // was unmapped placed in V1.0
 	    hd.i = *cp++;
-	    if (!HashTableAdd(hdr->preservation_map, "MI", 2, hd, NULL)) {
-		cram_free_compression_header(hdr);
-		return NULL;
-	    }
-	    hdr->mapped_qs_included = hd.i;
-	    break;
-
-	case CRAM_KEY('U','I'):
-	    hd.i = *cp++;
-	    if (!HashTableAdd(hdr->preservation_map, "UI", 2, hd, NULL)) {
-		cram_free_compression_header(hdr);
-		return NULL;
-	    }
-	    hdr->unmapped_qs_included = hd.i;
-	    break;
-
-	case CRAM_KEY('P','I'):
-	    hd.i = *cp++;
-	    if (!HashTableAdd(hdr->preservation_map, "PI", 2, hd, NULL)) {
-		cram_free_compression_header(hdr);
-		return NULL;
-	    }
-	    hdr->unmapped_placed = hd.i;
 	    break;
 
 	case CRAM_KEY('R','N'):
