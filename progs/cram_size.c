@@ -51,7 +51,8 @@
 varint_vec vv;
 
 // Accumulate per {data_series, content_id} combination.
-void ParseMap(cram_map **ma, char *data, HashTable *ds_h) {
+void ParseMap(cram_block_compression_hdr *hdr,
+	      cram_map **ma, char *data, HashTable *ds_h) {
     int i;
     uintptr_t k;
     for (i = 0; i < CRAM_MAP_HASH; i++) {
@@ -66,7 +67,7 @@ void ParseMap(cram_map **ma, char *data, HashTable *ds_h) {
 
 		k = (m->key << 8) | hd.i;
 
-		cram_codec *c = cram_decoder_init(m->encoding,
+		cram_codec *c = cram_decoder_init(hdr, m->encoding,
 						  data + m->offset,
 						  m->size, E_BYTE_ARRAY, 0, &vv);
 		int id1, id2;
@@ -194,9 +195,9 @@ int process_sizes(cram_fd *fd,
 	if (!c->comp_hdr)
 	    return 1;
 
-	ParseMap(c->comp_hdr->rec_encoding_map,
+	ParseMap(c->comp_hdr, c->comp_hdr->rec_encoding_map,
 		 (char *)c->comp_hdr_block->data, ds_h);
-	ParseMap(c->comp_hdr->tag_encoding_map,
+	ParseMap(c->comp_hdr, c->comp_hdr->tag_encoding_map,
 		 (char *)c->comp_hdr_block->data, ds_h);
 
 	for (j = 0; j < c->num_landmarks; j++) {

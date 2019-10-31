@@ -1299,12 +1299,28 @@ static int uint7_decode_crc32(cram_fd *fd, int32_t *val_p, uint32_t *crc) {
     int c;
     uint32_t v = 0;
 
+#ifdef VARINT2
+    b[0] = CRAM_IO_GETC(fd);
+    if (b[0] < 177) {
+    } else if (b[0] < 241) {
+	b[1] = CRAM_IO_GETC(fd);
+    } else if (b[0] < 249) {
+	b[1] = CRAM_IO_GETC(fd);
+	b[2] = CRAM_IO_GETC(fd);
+    } else {
+	int n = b[0]+2, z = 1;
+	while (n-- >= 249)
+	    b[z++] = CRAM_IO_GETC(fd);
+    }
+    i = var_get_u32(b, NULL, &v);
+#else
     do {
         b[i++] = c = CRAM_IO_GETC(fd);
         if (c < 0)
             return -1;
         v = (v<<7) | (c & 0x7f);
     } while (i < 5 && (c & 0x80));
+#endif
     *crc = iolib_crc32(*crc, b, i);
 
     *val_p = v;
@@ -1318,12 +1334,28 @@ static int uint7_decode_crc64(cram_fd *fd, int64_t *val_p, uint32_t *crc) {
     int c;
     uint64_t v = 0;
 
+#ifdef VARINT2
+    b[0] = CRAM_IO_GETC(fd);
+    if (b[0] < 177) {
+    } else if (b[0] < 241) {
+	b[1] = CRAM_IO_GETC(fd);
+    } else if (b[0] < 249) {
+	b[1] = CRAM_IO_GETC(fd);
+	b[2] = CRAM_IO_GETC(fd);
+    } else {
+	int n = b[0]+2, z = 1;
+	while (n-- >= 249)
+	    b[z++] = CRAM_IO_GETC(fd);
+    }
+    i = var_get_u64(b, NULL, &v);
+#else
     do {
         b[i++] = c = CRAM_IO_GETC(fd);
         if (c < 0)
             return -1;
         v = (v<<7) | (c & 0x7f);
     } while (i < 10 && (c & 0x80));
+#endif
     *crc = iolib_crc32(*crc, b, i);
 
     *val_p = v;
@@ -1625,6 +1657,7 @@ cram_block *cram_new_block(enum cram_content_type content_type,
     b->byte = 0;
     b->bit = 7; // MSB
     b->crc32 = 0;
+    b->idx = 0;
 
     return b;
 }
@@ -4466,9 +4499,12 @@ cram_slice *cram_read_slice(cram_fd *fd) {
 		min_id = s->block[i]->content_id;
 	}
     }
-    if (!(s->block_by_id = calloc(512, sizeof(s->block[0]))))
+    if (!(s->block_by_id = calloc(768, sizeof(s->block[0]))))
 	goto err;
 
+    // 0-255 are pure content_id
+    // 256-511 are basic hash of content id (eg aux tags)
+    // 512-768 are Nth codec or sub-codec for data transform cache
     for (i = 0; i < n; i++) {
 	if (s->block[i]->content_type != EXTERNAL)
 	    continue;

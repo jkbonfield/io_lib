@@ -145,7 +145,8 @@ cram_block_compression_hdr_decoder2encoder(cram_fd *fd_in, cram_fd *fd_out, cram
 //
 // Also updates the content ID hash, ci_h, indicating which
 // content IDs we to keep and to remove.
-int ds_to_id(cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
+int ds_to_id(cram_block_compression_hdr *hdr,
+	     cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
     int i;
     uintptr_t k;
 
@@ -169,7 +170,7 @@ int ds_to_id(cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
 		if (k>>16)
 		    k &= ~0xff;
 
-		cram_codec *c = cram_decoder_init(m->encoding,
+		cram_codec *c = cram_decoder_init(hdr, m->encoding,
 						  data + m->offset,
 						  m->size, E_BYTE_ARRAY, 0, &vv);
 		int id1 = 0, id2;
@@ -273,10 +274,10 @@ static int find_tags_to_del(cram_fd *fd_in,
     HashItem *hi;
     HashIter *iter;
 
-    if (ds_to_id(c->comp_hdr->rec_encoding_map,
+    if (ds_to_id(c->comp_hdr, c->comp_hdr->rec_encoding_map,
 		 (char *)c->comp_hdr_block->data, ds_h, ci_h))
 	return -1;
-    if (ds_to_id(c->comp_hdr->tag_encoding_map,
+    if (ds_to_id(c->comp_hdr, c->comp_hdr->tag_encoding_map,
 		 (char *)c->comp_hdr_block->data, ds_h, ci_h))
 	return -1;
 

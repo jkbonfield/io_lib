@@ -614,7 +614,9 @@ static int cram_encode_slice_read(cram_fd *fd,
     r |= h->codecs[DS_TL]->encode(s, h->codecs[DS_TL], (char *)&cr->TL, 1);
 
     // qual
-    // QS codec : Already stored in block[2].
+    r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS],
+				  (char *)BLOCK_DATA(s->qual_blk) + cr->qual,
+				  cr->len);
 
     // features (diffs)
     if (!(cr->flags & BAM_FUNMAP)) {
@@ -685,10 +687,9 @@ static int cram_encode_slice_read(cram_fd *fd,
 		r |= h->codecs[DS_BA]->encode(s, h->codecs[DS_BA],
 					      (char *)&uc, 1);
 
-		//                  Already added
-		//		    uc  = f->B.qual;
-		//		    r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS], 
-		//					     (char *)&uc, 1);
+		uc  = f->B.qual;
+		r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS],
+					      (char *)&uc, 1);
 		break;
 
 	    case 'b':
@@ -700,10 +701,9 @@ static int cram_encode_slice_read(cram_fd *fd,
 		break;
 
 	    case 'Q':
-		//                  Already added
-		//		    uc  = f->B.qual;
-		//		    r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS], 
-		//					     (char *)&uc, 1);
+		uc  = f->B.qual;
+		r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS],
+					      (char *)&uc, 1);
 		break;
 
 	    case 'N':
@@ -859,14 +859,6 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	}
     }
 
-#if 0
-    // Squash qual.
-    // Experimental to see what packing into nibbles first does if 
-    // the qualities have been quantised and fit. (NB: misses lookup
-    // table in output.)
-    squash_qual(s->block[DS_QS]);
-#endif
-
     if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
     for (i = 0; i < DS_END; i++)
 	fd->m[i]->stats = c->stats[i];
@@ -981,6 +973,84 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 }
 
 /*
+ * Allocates a block associated with the cram codec associated with
+ * data series ds_id or the internal codec_id (depending on codec
+ * type).
+ *
+ * The ds_ids are what end up written to disk as an external block.
+ * The c_ids are internal and used when daisy-chaining transforms
+ * such as MAP and RLE.  These blocks are also allocated, but
+ * are ephemeral in nature.  (The codecs themselves cannot allocate
+ * these as the same codec pointer may be operating on multiple slices
+ * if we're using a multi-slice container.)
+ *
+ * Returns 0 on success
+ *        -1 on failure
+ */
+static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
+    if (!codec)
+	return 0;
+
+    switch(codec->codec) {
+    // Codecs which are hard-coded to use the CORE block
+    case E_GOLOMB:
+    case E_HUFFMAN:
+    case E_BETA:
+    case E_SUBEXP:
+    case E_GOLOMB_RICE:
+    case E_GAMMA:
+	codec->out = s->block[0];
+	break;
+
+    // Codecs that emit directly to external blocks
+    case E_EXTERNAL:
+	if (!(s->block[ds_id] = cram_new_block(EXTERNAL, ds_id)))
+	    return -1;
+	codec->external.content_id = ds_id;
+	codec->out = s->block[ds_id];
+	break;
+
+    case E_BYTE_ARRAY_STOP:
+	if (!(s->block[ds_id] = cram_new_block(EXTERNAL, ds_id)))
+	    return -1;
+	codec->byte_array_stop.content_id = ds_id;
+	codec->out = s->block[ds_id];
+	break;
+	
+
+    // Codecs that contain sub-codecs which may in turn
+    // emit to external blocks.
+    case E_BYTE_ARRAY_LEN:
+	if (cram_allocate_block(codec->e_byte_array_len.len_codec, s, ds_id))
+	    return -1;
+	if (cram_allocate_block(codec->e_byte_array_len.val_codec, s, ds_id))
+	    return -1;
+
+	break;
+
+    case E_XBETA:
+	if (cram_allocate_block(codec->e_xbeta.sub_codec, s, ds_id))
+	    return -1;
+	codec->out = cram_new_block(0, 0); // ephemeral
+	if (!codec->out)
+	    return -1;
+
+	break;
+
+    case E_XMAP:
+	if (cram_allocate_block(codec->e_xmap.sub_codec, s, ds_id))
+	    return -1;
+	codec->out = cram_new_block(0, 0); // ephemeral
+	if (!codec->out)
+	    return -1;
+
+	break;
+    }
+
+    return 0;
+}
+
+/*
  * Encodes a single slice from a container
  *
  * Returns 0 on success
@@ -1038,55 +1108,9 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     /*
      * All the data-series blocks if appropriate. 
      */
-    for (id = DS_BF; id < DS_TN; id++) {
-	if (h->codecs[id] && (h->codecs[id]->codec == E_EXTERNAL ||
-			      h->codecs[id]->codec == E_BYTE_ARRAY_STOP ||
-			      h->codecs[id]->codec == E_BYTE_ARRAY_LEN)) {
-	    switch (h->codecs[id]->codec) {
-	    case E_EXTERNAL:
-		if (!(s->block[id] = cram_new_block(EXTERNAL, id)))
-		    return -1;
-		h->codecs[id]->external.content_id = id;
-		break;
-
-	    case E_BYTE_ARRAY_STOP:
-		if (!(s->block[id] = cram_new_block(EXTERNAL, id)))
-		    return -1;
-		h->codecs[id]->byte_array_stop.content_id = id;
-		break;
-
-	    case E_BYTE_ARRAY_LEN: {
-		cram_codec *cc;
-
-		cc = h->codecs[id]->e_byte_array_len.len_codec;
-		if (cc->codec == E_EXTERNAL) {
-		    int eid = cc->external.content_id;
-		    if (!(s->block[eid] = cram_new_block(EXTERNAL, eid)))
-			return -1;
-		    cc->external.content_id = eid;
-		    cc->out = s->block[eid];
-		}
-
-		cc = h->codecs[id]->e_byte_array_len.val_codec;
-		if (cc->codec == E_EXTERNAL) {
-		    int eid = cc->external.content_id;
-		    if (!s->block[eid])
-			if (!(s->block[eid] = cram_new_block(EXTERNAL, eid)))
-			    return -1;
-		    cc->external.content_id = eid;
-		    cc->out = s->block[eid];
-		}
-		break;
-	    }
-	    default:
-		break;
-	    }
-	} else {
-	    if (!(id == DS_BB && !h->codecs[DS_BB]))
-		s->block[id] = s->block[0];
-	}
-	if (h->codecs[id])
-	    h->codecs[id]->out = s->block[id];
+    for (id = DS_QS; id < DS_TN; id++) {
+	if (cram_allocate_block(h->codecs[id], s, id) < 0)
+	    return -1;
     }
 
     /*
@@ -1112,9 +1136,15 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
 
     // Make sure the fixed blocks point to the correct sources
     s->block[DS_IN] = s->base_blk; s->base_blk = NULL;
-    s->block[DS_QS] = s->qual_blk; s->qual_blk = NULL;
+    //s->block[DS_QS] = s->qual_blk; s->qual_blk = NULL;
     s->block[DS_RN] = s->name_blk; s->name_blk = NULL;
     s->block[DS_SC] = s->soft_blk; s->soft_blk = NULL;
+
+    // Finalise any data transforms.
+    for (id = DS_QS; id < DS_TN; id++) {
+	if (h->codecs[id] && h->codecs[id]->flush)
+	    h->codecs[id]->flush(h->codecs[id]);
+    }
 
     // Ensure block sizes are up to date.
     for (id = 1; id < s->hdr->num_blocks; id++) {
@@ -1898,9 +1928,64 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     fd->version, &fd->vv);
     }
 
-    h->codecs[DS_QS] = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
-					 (void *)DS_QS,
-					 fd->version, &fd->vv);
+    // To EXTERNAL block
+    if (0) {
+	h->codecs[DS_QS] = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
+					     (void *)DS_QS,
+					     fd->version, &fd->vv);
+    }
+
+    // BETA to CORE block
+    if (0) {
+	int64_t p[2] = {0, 255};
+	h->codecs[DS_QS] = cram_encoder_init(E_BETA, NULL,
+					     E_BYTE_ARRAY, p,
+					     fd->version, &fd->vv);
+    }
+
+    // XBETA to EXTERNAL block
+    if (0) {
+	cram_xbeta_encoder e;
+	e.sub_encoding = E_EXTERNAL;
+	e.sub_codec_dat = (void *)DS_QS;
+	//e.offset = 0; // already shifted by 33
+	//e.nbits = 6;
+	e.offset = 0;
+      //e.nbits = 8; // 126394 comp / 1501179 uncomp
+      //e.nbits = 7; // 146598 comp / 1313531 uncomp
+	e.nbits = 6; // 127566 comp / 1125885 uncomp
+	h->codecs[DS_QS] = cram_encoder_init(E_XBETA, NULL,
+					     E_BYTE_ARRAY,
+					     (void *)&e,
+					     fd->version, &fd->vv);
+    }
+
+    // XMAP to XBETA to EXTERNAL block
+    if (1) {
+	cram_xbeta_encoder xb;
+	xb.sub_encoding = E_EXTERNAL;
+	xb.sub_codec_dat = (void *)DS_QS;
+	xb.offset = 0;
+	xb.nbits = 2;
+
+	cram_xmap_encoder xm;
+	xm.sub_encoding = E_XBETA;
+	xm.sub_codec_dat = (void *)&xb;
+
+	// FIXME: detect this
+	xm.nval = 4;
+	xm.val[0] = '#'-33;
+	xm.val[1] = '-'-33;
+	xm.val[2] = '3'-33;
+	xm.val[3] = 'E'-33;
+
+	// 1st block = 375294 bytes (1501176 quals)
+	
+	h->codecs[DS_QS] = cram_encoder_init(E_XMAP, NULL,
+					     E_BYTE_ARRAY,
+					     (void *)&xm,
+					     fd->version, &fd->vv);
+    }
 
     {
 	int i2[2] = {0, DS_RN};
@@ -2999,7 +3084,7 @@ static int process_one_read(cram_fd *fd, cram_container *c,
     cr->seq         = BLOCK_SIZE(s->seqs_blk);
     cr->qual        = BLOCK_SIZE(s->qual_blk);
     BLOCK_GROW(s->seqs_blk, cr->len+1);
-    BLOCK_GROW(s->qual_blk, cr->len);
+    //BLOCK_GROW(s->qual_blk, cr->len);
     seq = cp = (char *)BLOCK_END(s->seqs_blk);
 
     // Convert seq 2 bases at a time for speed.

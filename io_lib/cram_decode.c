@@ -361,188 +361,188 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	 */
 
 	if (key[0] == 'B' && key[1] == 'F') {
-	    if (!(hdr->codecs[DS_BF] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_BF] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'C' && key[1] == 'F') {
-	    if (!(hdr->codecs[DS_CF] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_CF] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'I') {
-	    if (!(hdr->codecs[DS_RI] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_RI] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'L') {
-	    if (!(hdr->codecs[DS_RL] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_RL] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'A' && key[1] == 'P') {
-	    if (!(hdr->codecs[DS_AP] = cram_decoder_init(encoding, cp, size,
+	    if (!(hdr->codecs[DS_AP] = cram_decoder_init(hdr, encoding, cp, size,
 							 is_v4 ? E_LONG : E_INT,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'G') {
-	    if (!(hdr->codecs[DS_RG] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_RG] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'M' && key[1] == 'F') {
-	    if (!(hdr->codecs[DS_MF] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_MF] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'N' && key[1] == 'S') {
-	    if (!(hdr->codecs[DS_NS] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_NS] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'N' && key[1] == 'P') {
-	    if (!(hdr->codecs[DS_NP] = cram_decoder_init(encoding, cp, size,
+	    if (!(hdr->codecs[DS_NP] = cram_decoder_init(hdr, encoding, cp, size,
 							 is_v4 ? E_LONG : E_INT,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'T' && key[1] == 'S') {
-	    if (!(hdr->codecs[DS_TS] = cram_decoder_init(encoding, cp, size,
+	    if (!(hdr->codecs[DS_TS] = cram_decoder_init(hdr, encoding, cp, size,
 							 is_v4 ? E_LONG : E_INT,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'N' && key[1] == 'F') {
-	    if (!(hdr->codecs[DS_NF] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_NF] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'T' && key[1] == 'C') {
-	    if (!(hdr->codecs[DS_TC] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_TC] = cram_decoder_init(hdr, encoding, cp, size, E_BYTE,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'T' && key[1] == 'N') {
-	    if (!(hdr->codecs[DS_TN] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_TN] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'F' && key[1] == 'N') {
-	    if (!(hdr->codecs[DS_FN] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_FN] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'F' && key[1] == 'C') {
-	    if (!(hdr->codecs[DS_FC] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_FC] = cram_decoder_init(hdr, encoding, cp, size, E_BYTE,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'F' && key[1] == 'P') {
-	    if (!(hdr->codecs[DS_FP] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_FP] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'B' && key[1] == 'S') {
-	    if (!(hdr->codecs[DS_BS] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_BS] = cram_decoder_init(hdr, encoding, cp, size, E_BYTE,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'I' && key[1] == 'N') {
-	    if (!(hdr->codecs[DS_IN] = cram_decoder_init(encoding, cp, size,
-						    E_BYTE_ARRAY,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_IN] = cram_decoder_init(hdr, encoding, cp, size,
+							 E_BYTE_ARRAY,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'S' && key[1] == 'C') {
-	    if (!(hdr->codecs[DS_SC] = cram_decoder_init(encoding, cp, size,
-						    E_BYTE_ARRAY,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_SC] = cram_decoder_init(hdr, encoding, cp, size,
+							 E_BYTE_ARRAY,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'D' && key[1] == 'L') {
-	    if (!(hdr->codecs[DS_DL] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_DL] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'B' && key[1] == 'A') {
-	    if (!(hdr->codecs[DS_BA] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_BA] = cram_decoder_init(hdr, encoding, cp, size, E_BYTE,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'B' && key[1] == 'B') {
-	    if (!(hdr->codecs[DS_BB] = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_BB] = cram_decoder_init(hdr, encoding, cp, size, E_BYTE_ARRAY,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'S') {
-	    if (!(hdr->codecs[DS_RS] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_RS] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'P' && key[1] == 'D') {
-	    if (!(hdr->codecs[DS_PD] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_PD] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'H' && key[1] == 'C') {
-	    if (!(hdr->codecs[DS_HC] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_HC] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'M' && key[1] == 'Q') {
-	    if (!(hdr->codecs[DS_MQ] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_MQ] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'N') {
-	    if (!(hdr->codecs[DS_RN] = cram_decoder_init(encoding, cp, size,
+	    if (!(hdr->codecs[DS_RN] = cram_decoder_init(hdr, encoding, cp, size,
 							 E_BYTE_ARRAY_BLOCK,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'Q' && key[1] == 'S') {
-	    if (!(hdr->codecs[DS_QS] = cram_decoder_init(encoding, cp, size, E_BYTE,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_QS] = cram_decoder_init(hdr, encoding, cp, size, E_BYTE,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'Q' && key[1] == 'Q') {
-	    if (!(hdr->codecs[DS_QQ] = cram_decoder_init(encoding, cp, size, E_BYTE_ARRAY,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_QQ] = cram_decoder_init(hdr, encoding, cp, size, E_BYTE_ARRAY,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'T' && key[1] == 'L') {
-	    if (!(hdr->codecs[DS_TL] = cram_decoder_init(encoding, cp, size, E_INT,
-						    fd->version, &fd->vv))) {
+	    if (!(hdr->codecs[DS_TL] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
@@ -587,7 +587,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	m->size     = size;
 	m->offset   = cp - (char *)b->data;
 	if (size < 0 || endp - cp < size ||
-	    !(m->codec = cram_decoder_init(encoding, cp, size,
+	    !(m->codec = cram_decoder_init(hdr, encoding, cp, size,
 					   E_BYTE_ARRAY_BLOCK, fd->version,
 					   &fd->vv))) {
 	    cram_free_compression_header(hdr);

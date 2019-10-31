@@ -98,7 +98,11 @@ enum cram_encoding {
     E_SUBEXP             = 7,
     E_GOLOMB_RICE        = 8,
     E_GAMMA              = 9,
-    E_NUM_CODECS         = 10, /* Number of codecs, not a real one. */
+    E_XHUFFMAN           = 10, // To external block
+    E_XBETA              = 11, // Transform to sub-codec
+    E_XRLE               = 12, // Transform to sub-codec
+    E_XMAP               = 13, // Transform to sub-codec
+    E_NUM_CODECS, /* Total number of codecs, not a real one. */
 };
 
 enum cram_external_type {
@@ -336,6 +340,9 @@ typedef struct {
 
     char *uncomp; // A single block of uncompressed data
     size_t uncomp_size, uncomp_alloc;
+
+    // Total codec count, used for index to block_by_id for transforms
+    int ncodecs;
 } cram_block_compression_hdr;
 
 typedef struct cram_map {
