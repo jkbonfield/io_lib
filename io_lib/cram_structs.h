@@ -162,6 +162,7 @@ enum cram_DS_ID {
     DS_SC_len,
     DS_BB_len,
     DS_QQ_len,
+    DS_QS_len,
 
     DS_TC, // CRAM v1.0 tags
     DS_TM, // test

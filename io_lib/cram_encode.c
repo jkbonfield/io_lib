@@ -928,7 +928,7 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	return -1;
 
     // NS shows strong local correlation as rearrangements are localised
-    if (s->block[DS_NS] != s->block[0])
+    if (s->block[DS_NS] && s->block[DS_NS] != s->block[0])
 	if (cram_compress_block(fd, s, s->block[DS_NS], fd->m[DS_NS],
 				method, level))
 	    return -1;
@@ -1010,7 +1010,7 @@ static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
 	codec->out = s->block[ds_id];
 	break;
 
-    case E_BYTE_ARRAY_STOP:
+    case E_BYTE_ARRAY_STOP: // Why no sub-codec?
 	if (!(s->block[ds_id] = cram_new_block(EXTERNAL, ds_id)))
 	    return -1;
 	codec->byte_array_stop.content_id = ds_id;
@@ -1018,12 +1018,20 @@ static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
 	break;
 	
 
-    // Codecs that contain sub-codecs which may in turn
-    // emit to external blocks.
+    // Codecs that contain sub-codecs which may in turn emit to external blocks
     case E_BYTE_ARRAY_LEN:
 	if (cram_allocate_block(codec->e_byte_array_len.len_codec, s, ds_id))
 	    return -1;
 	if (cram_allocate_block(codec->e_byte_array_len.val_codec, s, ds_id))
+	    return -1;
+
+	break;
+
+    case E_XRLE:
+	if (cram_allocate_block(codec->e_xrle.len_codec, s,
+				ds_id == DS_QS ? DS_QS_len : ds_id))
+	    return -1;
+	if (cram_allocate_block(codec->e_xrle.lit_codec, s, ds_id))
 	    return -1;
 
 	break;
@@ -1044,6 +1052,9 @@ static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
 	if (!codec->out)
 	    return -1;
 
+	break;
+
+    default:
 	break;
     }
 
@@ -1961,12 +1972,80 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     }
 
     // XMAP to XBETA to EXTERNAL block
-    if (1) {
+    if (0) {
 	cram_xbeta_encoder xb;
 	xb.sub_encoding = E_EXTERNAL;
 	xb.sub_codec_dat = (void *)DS_QS;
 	xb.offset = 0;
+	xb.nbits = 4;
+
+	cram_xmap_encoder xm;
+	xm.sub_encoding = E_XBETA;
+	xm.sub_codec_dat = (void *)&xb;
+
+	// FIXME: detect this
+	//xm.nval = 4;
+	//xm.val[0] = '#'-33;
+	//xm.val[1] = '-'-33;
+	//xm.val[2] = '3'-33;
+	//xm.val[3] = 'E'-33;
+
+	xm.nval = 6;
+	xm.val[0] = '!'-33;
+	xm.val[1] = '/'-33;
+	xm.val[2] = '6'-33;
+	xm.val[3] = '<'-33;
+	xm.val[4] = 'A'-33;
+	xm.val[5] = 'E'-33;
+
+	// 1st block = 375294 bytes (1501176 quals)
+	
+	h->codecs[DS_QS] = cram_encoder_init(E_XMAP, NULL,
+					     E_BYTE_ARRAY,
+					     (void *)&xm,
+					     fd->version, &fd->vv);
+    }
+
+    // XRLE to EXTERNAL blocks
+    if (0) {
+	cram_xrle_encoder xl;
+	xl.len_encoding = E_EXTERNAL;
+	xl.len_dat = (void *)DS_QS_len;
+	xl.lit_encoding = E_EXTERNAL;
+	xl.lit_dat = (void *)DS_QS;
+
+	h->codecs[DS_QS] = cram_encoder_init(E_XRLE, NULL,
+					     E_BYTE_ARRAY,
+					     (void *)&xl,
+					     fd->version, &fd->vv);
+    }
+
+    // XMAP to XBETA to XRLE to EXTERNAL block
+    if (0) {
+	int nval=999, val[256];
+	int nrle=999, rle[256];
+	cram_stats_qual(c, &nval,val, &nrle,rle);
+
+	cram_xrle_encoder xl;
+	xl.len_encoding = E_EXTERNAL;
+	xl.len_dat = (void *)DS_QS_len;
+	xl.lit_encoding = E_EXTERNAL;
+	xl.lit_dat = (void *)DS_QS;
+	for (i=0;i<256;i++) {
+	    if (rle[i]>0)
+		fprintf(stderr, "rle[%d]=%d\n", i,rle[i]);
+	}
+	memcpy(xl.rep_score, rle, 256*sizeof(*rle));
+
+	cram_xbeta_encoder xb;
+	xb.sub_encoding = E_XRLE;
+	xb.sub_codec_dat = &xl;
+	xb.offset = 0;
 	xb.nbits = 2;
+//	if (nval <= 4)
+//	    xb.nbits = 2;
+//	else if (nval <= 16)
+//	    xb.nbits = 4;
 
 	cram_xmap_encoder xm;
 	xm.sub_encoding = E_XBETA;
@@ -1979,12 +2058,98 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	xm.val[2] = '3'-33;
 	xm.val[3] = 'E'-33;
 
+	xm.nval = 3;
+	xm.val[0] = '-'-33;
+	xm.val[1] = '3'-33;
+	xm.val[2] = 'E'-33;
+
+//	xm.nval = nval;
+//	for (i = nval = 0; i < 256; i++)
+//	    if (val[i] > 0)
+//		xm.val[nval++] = i;
+//	assert(nval == xm.nval);
+
 	// 1st block = 375294 bytes (1501176 quals)
 	
 	h->codecs[DS_QS] = cram_encoder_init(E_XMAP, NULL,
 					     E_BYTE_ARRAY,
 					     (void *)&xm,
 					     fd->version, &fd->vv);
+    }
+
+    // Auto select one of:
+    // EXTERNAL
+    // XMAP to XBETA to EXTERNAL
+    // XRLE to EXTERNAL
+    // XMAP to XBETA to XRLE to EXTERNAL
+    if (1) {
+	cram_xrle_encoder xl;
+	cram_xbeta_encoder xb;
+	cram_xmap_encoder xm;
+
+	int nval=999, val[256], i;
+	int nrle=999;
+	cram_stats_qual(c, &nval,val, &nrle, xl.rep_score);
+
+	if (nval <= 16) {
+	    // XMAP/XBETA to pack bytes to bits.
+	    xb.offset = 0;
+	    //xb.nbits = 2;
+	    //xb.nbits = 4;
+	    if (nval <= 4)
+		xb.nbits = 2;
+	    else if (nval <= 16)
+		xb.nbits = 4;
+
+	    if (nrle > 0) {
+		// XMAP+XBETA + XRLE+EXTERNAL
+		fprintf(stderr, "QS: MAP+BETA+RLE+EXTERNAL\n");
+		xl.len_encoding = E_EXTERNAL;
+		xl.len_dat = (void *)DS_QS_len;
+		xl.lit_encoding = E_EXTERNAL;
+		xl.lit_dat = (void *)DS_QS;
+
+		xb.sub_encoding = E_XRLE;
+		xb.sub_codec_dat = &xl;
+	    } else {
+		// XMAP+XBETA + EXTERNAL
+		fprintf(stderr, "QS: MAP+BETA+EXTERNAL\n");
+		xb.sub_encoding = E_EXTERNAL;
+		xb.sub_codec_dat = (void *)DS_QS;
+	    }
+
+	    xm.sub_encoding = E_XBETA;
+	    xm.sub_codec_dat = (void *)&xb;
+	    xm.nval = nval;
+	    for (i = nval = 0; i < 256; i++)
+		if (val[i] > 0)
+		    xm.val[nval++] = i;
+	    assert(nval == xm.nval);
+
+	    h->codecs[DS_QS] = cram_encoder_init(E_XMAP, NULL,
+						 E_BYTE_ARRAY,
+						 (void *)&xm,
+						 fd->version, &fd->vv);
+	} else if (nrle > 0) {
+	    // XRLE + EXTERNAL
+	    fprintf(stderr, "QS: RLE+EXTERNAL\n");
+	    xl.len_encoding = E_EXTERNAL;
+	    xl.len_dat = (void *)DS_QS_len;
+	    xl.lit_encoding = E_EXTERNAL;
+	    xl.lit_dat = (void *)DS_QS;
+
+	    h->codecs[DS_QS] = cram_encoder_init(E_XRLE, NULL,
+						 E_BYTE_ARRAY,
+						 (void *)&xl,
+						 fd->version, &fd->vv);
+	} else {
+	    // EXTERNAL only
+	    fprintf(stderr, "QS: EXTERNAL\n");
+	    h->codecs[DS_QS] = cram_encoder_init(E_EXTERNAL, NULL,
+						 E_BYTE_ARRAY,
+						 (void *)DS_QS,
+						 fd->version, &fd->vv);
+	}
     }
 
     {

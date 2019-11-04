@@ -61,6 +61,10 @@ void cram_stats_free(cram_stats *st);
  */
 enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st);
 
+void cram_stats_qual(cram_container *c,
+		     int *nval, int val[256],
+		     int *nrle, int rle[256]);
+
 #ifdef __cplusplus
 }
 #endif

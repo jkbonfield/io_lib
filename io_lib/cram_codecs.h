@@ -101,6 +101,19 @@ typedef struct {
 } cram_xmap_decoder;
 typedef cram_xmap_decoder cram_xmap_encoder;
 
+// Transforms symbols X,Y,Z to bytes 0,1,2.
+typedef struct {
+    enum cram_encoding len_encoding;
+    enum cram_encoding lit_encoding;
+    void *len_dat;
+    void *lit_dat;
+    struct cram_codec *len_codec;
+    struct cram_codec *lit_codec;
+    int cur_len;
+    int cur_lit;
+    int rep_score[256];
+} cram_xrle_decoder;
+typedef cram_xrle_decoder cram_xrle_encoder;
 
 typedef struct {
     int64_t offset;
@@ -162,6 +175,7 @@ typedef struct cram_codec {
 	cram_byte_array_len_decoder  byte_array_len;
 	cram_byte_array_stop_decoder byte_array_stop;
 	cram_xbeta_decoder           xbeta;
+	cram_xrle_decoder            xrle;
 	cram_xmap_decoder            xmap;
 
 	cram_huffman_encoder         e_huffman;
@@ -170,6 +184,7 @@ typedef struct cram_codec {
 	cram_byte_array_len_encoder  e_byte_array_len;
 	cram_beta_decoder            e_beta;
 	cram_xbeta_decoder           e_xbeta;
+	cram_xrle_decoder            e_xrle;
 	cram_xmap_decoder            e_xmap;
     };
 } cram_codec;

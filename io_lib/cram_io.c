@@ -2225,6 +2225,8 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 int cram_compress_block(cram_fd *fd, cram_slice *s,
 			cram_block *b, cram_metrics *metrics,
 			int method, int level) {
+    if (!b)
+	return 0;
 
     char *comp = NULL;
     size_t comp_size = 0;
@@ -4321,6 +4323,16 @@ void cram_free_slice(cram_slice *s) {
 	    }
 	}
 	free(s->block);
+    }
+
+    if (s->block_by_id) {
+	int i;
+	for (i = 512; i < 768; i++) {
+	    if (s->block_by_id[i]) {
+		cram_free_block(s->block_by_id[i]);
+		s->block_by_id[i] = NULL;
+	    }
+	}
     }
 
     if (s->block_by_id)
