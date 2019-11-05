@@ -790,47 +790,47 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
 
 /*
  * ---------------------------------------------------------------------------
- * XBETA: BETA as a transform instead of writing to CORE block.
+ * XPACK: BETA as a transform instead of writing to CORE block.
  *
  * This also has the additional requirement that the data series is not
  * interleaved with another, permitting efficient encoding and decoding
  * of all elements enmasse instead of needing to only extract the bits
  * necessary per item.
  */
-int cram_xbeta_decode_long(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+int cram_xpack_decode_long(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
     int64_t *out_i = (int64_t *)out;
     int i, n = *out_size;
 
-    if (c->xbeta.nbits) {
+    if (c->xpack.nbits) {
 	for (i = 0; i < n; i++)
-	    out_i[i] = get_bits_MSB(in, c->xbeta.nbits) - c->xbeta.offset;
+	    out_i[i] = get_bits_MSB(in, c->xpack.nbits) - c->xpack.offset;
     } else {
 	for (i = 0; i < n; i++)
-	    out_i[i] = -c->xbeta.offset;
+	    out_i[i] = -c->xpack.offset;
     }
 
     return 0;
 }
 
-int cram_xbeta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+int cram_xpack_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
     int32_t *out_i = (int32_t *)out;
     int i, n = *out_size;
 
-    if (c->xbeta.nbits) {
-        if (cram_not_enough_bits(in, c->xbeta.nbits * n))
+    if (c->xpack.nbits) {
+        if (cram_not_enough_bits(in, c->xpack.nbits * n))
 	    return -1;
 
 	for (i = 0; i < n; i++)
-	    out_i[i] = get_bits_MSB(in, c->xbeta.nbits) - c->xbeta.offset;
+	    out_i[i] = get_bits_MSB(in, c->xpack.nbits) - c->xpack.offset;
     } else {
 	for (i = 0; i < n; i++)
-	    out_i[i] = -c->xbeta.offset;
+	    out_i[i] = -c->xpack.offset;
     }
 
     return 0;
 }
 
-int cram_xbeta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+int cram_xpack_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
     int i, n = *out_size;
 
     // FIXME: we need to ban data-series interleaving in the spec for this to work.
@@ -842,23 +842,23 @@ int cram_xbeta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, cha
     cram_block *b = slice->block_by_id[512 + c->codec_id];
     if (!b) {
 	b = slice->block_by_id[512 + c->codec_id] = cram_new_block(0, 0);
-	int sub_size = c->xbeta.sub_codec->size(slice, c->xbeta.sub_codec);
+	int sub_size = c->xpack.sub_codec->size(slice, c->xpack.sub_codec);
 	BLOCK_GROW(b, sub_size);
-	c->xbeta.sub_codec->decode(slice, c->xbeta.sub_codec,
+	c->xpack.sub_codec->decode(slice, c->xpack.sub_codec,
 				   in, (char *)BLOCK_DATA(b), &sub_size);
 	b->uncomp_size = sub_size;
     }
 
-    if (c->xbeta.nbits) {
-        if (cram_not_enough_bits(b, c->xbeta.nbits * n)) {
-	    fprintf(stderr, "Out of bits in xbeta block\n");
+    if (c->xpack.nbits) {
+        if (cram_not_enough_bits(b, c->xpack.nbits * n)) {
+	    fprintf(stderr, "Out of bits in xpack block\n");
             return -1;
 	}
 
 	// FIXME: use hts_pack and hts_unpack.
 	if (out) {
 	    // Assumption, we don't interleave and thus nbits is const
-	    switch(c->xbeta.nbits) {
+	    switch(c->xpack.nbits) {
 	    case 8:
 		assert(b->bit == 7);
 		for (i = 0; i < n; i++)
@@ -868,22 +868,22 @@ int cram_xbeta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, cha
 	    case 4:
 		assert(b->bit == 7 || b->bit == 3);
 		for (i = 0; i < n && b->bit != 7; i++)
-		    out[i] = get_bits_MSB(b, c->xbeta.nbits) - c->xbeta.offset;
+		    out[i] = get_bits_MSB(b, c->xpack.nbits) - c->xpack.offset;
 		for (; i < (n & ~1); i += 2) {
-		    out[i+0] = ((b->data[b->byte] >> 4)&15) - c->xbeta.offset;
-		    out[i+1] = ( b->data[b->byte]      &15) - c->xbeta.offset;
+		    out[i+0] = ((b->data[b->byte] >> 4)&15) - c->xpack.offset;
+		    out[i+1] = ( b->data[b->byte]      &15) - c->xpack.offset;
 		    b->byte++;
 		}
 		for (;i < n; i++)
-		    out[i] = get_bits_MSB(b, c->xbeta.nbits) - c->xbeta.offset;
+		    out[i] = get_bits_MSB(b, c->xpack.nbits) - c->xpack.offset;
 		break;
 
 	    case 2:
 		assert(b->bit == 7 || b->bit == 5 || b->bit == 3 || b->bit == 1);
 		for (i = 0; i < n && b->bit != 7; i++)
-		    out[i] = get_bits_MSB(b, c->xbeta.nbits) - c->xbeta.offset;
+		    out[i] = get_bits_MSB(b, c->xpack.nbits) - c->xpack.offset;
 		unsigned char *x = b->data + b->byte;
-		int off = c->xbeta.offset;
+		int off = c->xpack.offset;
 		int j;
 
 		union {
@@ -913,56 +913,56 @@ int cram_xbeta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, cha
 		b->byte += i;
 
 		for (;i < n; i++)
-		    out[i] = get_bits_MSB(b, c->xbeta.nbits) - c->xbeta.offset;
+		    out[i] = get_bits_MSB(b, c->xpack.nbits) - c->xpack.offset;
 		break;
 
 	    case 1:
 		for (i = 0; i < n && b->bit != 7; i++)
-		    out[i] = get_bits_MSB(b, c->xbeta.nbits) - c->xbeta.offset;
+		    out[i] = get_bits_MSB(b, c->xpack.nbits) - c->xpack.offset;
 		for (; i < (n & ~7); i += 8) {
-		    out[i+0] = ((b->data[b->byte] >> 7)&1) - c->xbeta.offset;
-		    out[i+1] = ((b->data[b->byte] >> 6)&1) - c->xbeta.offset;
-		    out[i+2] = ((b->data[b->byte] >> 5)&1) - c->xbeta.offset;
-		    out[i+3] = ((b->data[b->byte] >> 4)&1) - c->xbeta.offset;
-		    out[i+4] = ((b->data[b->byte] >> 3)&1) - c->xbeta.offset;
-		    out[i+5] = ((b->data[b->byte] >> 2)&1) - c->xbeta.offset;
-		    out[i+6] = ((b->data[b->byte] >> 1)&1) - c->xbeta.offset;
-		    out[i+7] = ( b->data[b->byte]      &1) - c->xbeta.offset;
+		    out[i+0] = ((b->data[b->byte] >> 7)&1) - c->xpack.offset;
+		    out[i+1] = ((b->data[b->byte] >> 6)&1) - c->xpack.offset;
+		    out[i+2] = ((b->data[b->byte] >> 5)&1) - c->xpack.offset;
+		    out[i+3] = ((b->data[b->byte] >> 4)&1) - c->xpack.offset;
+		    out[i+4] = ((b->data[b->byte] >> 3)&1) - c->xpack.offset;
+		    out[i+5] = ((b->data[b->byte] >> 2)&1) - c->xpack.offset;
+		    out[i+6] = ((b->data[b->byte] >> 1)&1) - c->xpack.offset;
+		    out[i+7] = ( b->data[b->byte]      &1) - c->xpack.offset;
 		    b->byte++;
 		}
 		for (;i < n; i++)
-		    out[i] = get_bits_MSB(b, c->xbeta.nbits) - c->xbeta.offset;
+		    out[i] = get_bits_MSB(b, c->xpack.nbits) - c->xpack.offset;
 		break;
 
 	    default:
 		for (i = 0; i < n; i++)
-		    out[i] = get_bits_MSB(b, c->xbeta.nbits) - c->xbeta.offset;
+		    out[i] = get_bits_MSB(b, c->xpack.nbits) - c->xpack.offset;
 	    }
 	} else {
 	    for (i = 0; i < n; i++)
-		get_bits_MSB(b, c->xbeta.nbits);
+		get_bits_MSB(b, c->xpack.nbits);
 	}
 
 //	if (out)
 //	    for (i = 0; i < n; i++)
-//		out[i] = get_bits_MSB(b, c->xbeta.nbits) - c->xbeta.offset;
+//		out[i] = get_bits_MSB(b, c->xpack.nbits) - c->xpack.offset;
 //	else
 //	    for (i = 0; i < n; i++)
-//		get_bits_MSB(b, c->xbeta.nbits);
+//		get_bits_MSB(b, c->xpack.nbits);
     } else {
 	if (out)
 	    for (i = 0; i < n; i++)
-		out[i] = -c->xbeta.offset;
+		out[i] = -c->xpack.offset;
     }
 
     return 0;
 }
 
-void cram_xbeta_decode_free(cram_codec *c) {
+void cram_xpack_decode_free(cram_codec *c) {
     if (!c) return;
 
-    if (c->xbeta.sub_codec)
-	c->xbeta.sub_codec->free(c->xbeta.sub_codec);
+    if (c->xpack.sub_codec)
+	c->xpack.sub_codec->free(c->xpack.sub_codec);
 
     //free(slice->block_by_id[512 + c->codec_id]);
     //slice->block_by_id[512 + c->codec_id] = 0;
@@ -970,12 +970,12 @@ void cram_xbeta_decode_free(cram_codec *c) {
     free(c);
 }
 
-int cram_xbeta_decode_size(cram_slice *slice, cram_codec *c) {
-    int sub_size = c->xbeta.sub_codec->size(slice, c->xbeta.sub_codec);
-    return sub_size * 8 / c->xbeta.nbits;
+int cram_xpack_decode_size(cram_slice *slice, cram_codec *c) {
+    int sub_size = c->xpack.sub_codec->size(slice, c->xpack.sub_codec);
+    return sub_size * 8 / c->xpack.nbits;
 }
 
-cram_codec *cram_xbeta_decode_init(cram_block_compression_hdr *hdr,
+cram_codec *cram_xpack_decode_init(cram_block_compression_hdr *hdr,
 				   char *data, int size,
 				   enum cram_external_type option,
 				   int version, varint_vec *vv) {
@@ -986,38 +986,38 @@ cram_codec *cram_xbeta_decode_init(cram_block_compression_hdr *hdr,
     if (!(c = malloc(sizeof(*c))))
 	return NULL;
 
-    c->codec  = E_XBETA;
+    c->codec  = E_XPACK;
     if (option == E_LONG)
-	c->decode = cram_xbeta_decode_long;
+	c->decode = cram_xpack_decode_long;
     else if (option == E_INT)
-	c->decode = cram_xbeta_decode_int;
+	c->decode = cram_xpack_decode_int;
     else if (option == E_BYTE_ARRAY || option == E_BYTE)
-	c->decode = cram_xbeta_decode_char;
+	c->decode = cram_xpack_decode_char;
     else {
 	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
 	return NULL;
     }
-    c->free = cram_xbeta_decode_free;
-    c->size = cram_xbeta_decode_size;
+    c->free = cram_xpack_decode_free;
+    c->size = cram_xpack_decode_size;
     
-    c->xbeta.nbits = -1;
-    c->xbeta.offset = vv->varint_get32(&cp, endp, NULL);
-    c->xbeta.nbits  = vv->varint_get32(&cp, endp, NULL);
+    c->xpack.nbits = -1;
+    c->xpack.offset = vv->varint_get32(&cp, endp, NULL);
+    c->xpack.nbits  = vv->varint_get32(&cp, endp, NULL);
 
     int encoding = vv->varint_get32(&cp, endp, NULL);
     int sub_size = vv->varint_get32(&cp, endp, NULL);
     if (sub_size < 0 || endp - cp < sub_size)
         goto malformed;
-    c->xbeta.sub_codec = cram_decoder_init(hdr, encoding, cp, sub_size,
+    c->xpack.sub_codec = cram_decoder_init(hdr, encoding, cp, sub_size,
 					   option, version, vv);
-    if (c->xbeta.sub_codec == NULL)
+    if (c->xpack.sub_codec == NULL)
         goto malformed;
     cp += sub_size;
 
     if (cp - data != size
-        || c->xbeta.nbits < 0 || c->xbeta.nbits > 8 * sizeof(int64_t)) {
+        || c->xpack.nbits < 0 || c->xpack.nbits > 8 * sizeof(int64_t)) {
     malformed:
-	fprintf(stderr, "Malformed xbeta header stream\n");
+	fprintf(stderr, "Malformed xpack header stream\n");
 	free(c);
 	return NULL;
     }
@@ -1025,24 +1025,24 @@ cram_codec *cram_xbeta_decode_init(cram_block_compression_hdr *hdr,
     return c;
 }
 
-int cram_xbeta_encode_flush(cram_codec *c) {
+int cram_xpack_encode_flush(cram_codec *c) {
     store_bits_MSB(c->out, 0, 7); // ensure whole byte flushed
 
-    // We've buffered up data to c->e_xbeta->out.
+    // We've buffered up data to c->e_xpack->out.
     // We now need to pass this through the next layer of transform first.
-    if (c->e_xbeta.sub_codec->encode(/*slice*/NULL,
-				     c->e_xbeta.sub_codec,
+    if (c->e_xpack.sub_codec->encode(/*slice*/NULL,
+				     c->e_xpack.sub_codec,
 				     (char *)BLOCK_DATA(c->out),
 				     BLOCK_SIZE(c->out)))
 	return -1;
 
-    if (c->e_xbeta.sub_codec->flush)
-	return c->e_xbeta.sub_codec->flush(c->e_xbeta.sub_codec);
+    if (c->e_xpack.sub_codec->flush)
+	return c->e_xpack.sub_codec->flush(c->e_xpack.sub_codec);
     
     return 0;
 }
 
-int cram_xbeta_encode_store(cram_codec *c, cram_block *b,
+int cram_xpack_encode_store(cram_codec *c, cram_block *b,
 			    char *prefix, int version) {
     int len = 0;
 
@@ -1053,17 +1053,17 @@ int cram_xbeta_encode_store(cram_codec *c, cram_block *b,
     }
 
     // Store sub-codec
-    cram_codec *tc = c->e_xbeta.sub_codec;
+    cram_codec *tc = c->e_xpack.sub_codec;
     cram_block *tb = cram_new_block(0, 0);
     int len2 = tc->store(tc, tb, NULL, version);
 
     len += c->vv->varint_put32_blk(b, c->codec);
     // codec length
-    len += c->vv->varint_put32_blk(b, c->vv->varint_size(c->e_xbeta.offset)
-				   +  c->vv->varint_size(c->e_xbeta.nbits)
+    len += c->vv->varint_put32_blk(b, c->vv->varint_size(c->e_xpack.offset)
+				   +  c->vv->varint_size(c->e_xpack.nbits)
 				   + len2);
-    len += c->vv->varint_put32_blk(b, c->e_xbeta.offset);
-    len += c->vv->varint_put32_blk(b, c->e_xbeta.nbits);
+    len += c->vv->varint_put32_blk(b, c->e_xpack.offset);
+    len += c->vv->varint_put32_blk(b, c->e_xpack.nbits);
     BLOCK_APPEND(b, BLOCK_DATA(tb), BLOCK_SIZE(tb));
 
     cram_free_block(tb);
@@ -1072,31 +1072,31 @@ int cram_xbeta_encode_store(cram_codec *c, cram_block *b,
 }
 
 // Same as cram_beta_encode_long
-int cram_xbeta_encode_long(cram_slice *slice, cram_codec *c,
+int cram_xpack_encode_long(cram_slice *slice, cram_codec *c,
 			   char *in, int in_size) {
     int64_t *syms = (int64_t *)in;
     int i, r = 0;
 
     for (i = 0; i < in_size; i++)
-	r |= store_bits_MSB(c->out, syms[i] + c->e_xbeta.offset,
-			    c->e_xbeta.nbits);
+	r |= store_bits_MSB(c->out, syms[i] + c->e_xpack.offset,
+			    c->e_xpack.nbits);
 
     return r;
 }
 
-int cram_xbeta_encode_int(cram_slice *slice, cram_codec *c,
+int cram_xpack_encode_int(cram_slice *slice, cram_codec *c,
 			  char *in, int in_size) {
     int *syms = (int *)in;
     int i, r = 0;
 
     for (i = 0; i < in_size; i++)
-	r |= store_bits_MSB(c->out, syms[i] + c->e_xbeta.offset,
-			    c->e_xbeta.nbits);
+	r |= store_bits_MSB(c->out, syms[i] + c->e_xpack.offset,
+			    c->e_xpack.nbits);
 
     return r;
 }
 
-int cram_xbeta_encode_char(cram_slice *slice, cram_codec *c,
+int cram_xpack_encode_char(cram_slice *slice, cram_codec *c,
 			   char *in, int in_size) {
     unsigned char *syms = (unsigned char *)in;
     int i, r = 0;
@@ -1107,19 +1107,19 @@ int cram_xbeta_encode_char(cram_slice *slice, cram_codec *c,
 //	else if (syms[i] == '3'-33) syms[i]=2;
 //	else /* 'E'-33 */           syms[i]=3;
 //	if (syms[i] > 3) abort();
-	if (syms[i] + c->xbeta.offset >= 1<<c->e_xbeta.nbits) abort();
-	r |= store_bits_MSB(c->out, syms[i] + c->e_xbeta.offset,
-			    c->e_xbeta.nbits);
+	if (syms[i] + c->xpack.offset >= 1<<c->e_xpack.nbits) abort();
+	r |= store_bits_MSB(c->out, syms[i] + c->e_xpack.offset,
+			    c->e_xpack.nbits);
     }
 
     return r;
 }
 
-void cram_xbeta_encode_free(cram_codec *c) {
+void cram_xpack_encode_free(cram_codec *c) {
     if (c) free(c);
 }
 
-cram_codec *cram_xbeta_encode_init(cram_stats *st,
+cram_codec *cram_xpack_encode_init(cram_stats *st,
 				   enum cram_external_type option,
 				   void *dat,
 				   int version, varint_vec *vv) {
@@ -1128,21 +1128,21 @@ cram_codec *cram_xbeta_encode_init(cram_stats *st,
     c = malloc(sizeof(*c));
     if (!c)
 	return NULL;
-    c->codec  = E_XBETA;
-    c->free   = cram_xbeta_encode_free;
+    c->codec  = E_XPACK;
+    c->free   = cram_xpack_encode_free;
     if (option == E_LONG)
-	c->encode = cram_xbeta_encode_long;
+	c->encode = cram_xpack_encode_long;
     else if (option == E_INT)
-	c->encode = cram_xbeta_encode_int;
+	c->encode = cram_xpack_encode_int;
     else
-	c->encode = cram_xbeta_encode_char;
-    c->store  = cram_xbeta_encode_store;
-    c->flush  = cram_xbeta_encode_flush;
+	c->encode = cram_xpack_encode_char;
+    c->store  = cram_xpack_encode_store;
+    c->flush  = cram_xpack_encode_flush;
 
-    cram_xbeta_encoder *e = (cram_xbeta_encoder *)dat;
-    c->e_xbeta.offset = e->offset;
-    c->e_xbeta.nbits = e->nbits;
-    c->e_xbeta.sub_codec = cram_encoder_init(e->sub_encoding, NULL,
+    cram_xpack_encoder *e = (cram_xpack_encoder *)dat;
+    c->e_xpack.offset = e->offset;
+    c->e_xpack.nbits = e->nbits;
+    c->e_xpack.sub_codec = cram_encoder_init(e->sub_encoding, NULL,
 					     E_BYTE_ARRAY, e->sub_codec_dat,
 					     version, vv);
 
@@ -3010,6 +3010,9 @@ const char *cram_encoding2str(enum cram_encoding t) {
     case E_SUBEXP:          return "SUBEXP";
     case E_GOLOMB_RICE:     return "GOLOMB_RICE";
     case E_GAMMA:           return "GAMMA";
+    case E_XMAP:            return "XMAP";
+    case E_XPACK:           return "XPACK";
+    case E_XRLE:            return "XRLE";
     case E_NUM_CODECS:
     default:                return "?";
     }
@@ -3031,7 +3034,7 @@ static cram_codec *(*decode_init[])(cram_block_compression_hdr *hdr,
     NULL,
     cram_gamma_decode_init,
     NULL,
-    cram_xbeta_decode_init,
+    cram_xpack_decode_init,
     cram_xrle_decode_init,
     cram_xmap_decode_init,
 };
@@ -3067,7 +3070,7 @@ static cram_codec *(*encode_init[])(cram_stats *stx,
     NULL,
     NULL, //cram_gamma_encode_init,
     NULL,
-    cram_xbeta_encode_init,
+    cram_xpack_encode_init,
     cram_xrle_encode_init,
     cram_xmap_encode_init,
 };
@@ -3118,8 +3121,8 @@ int cram_codec_to_id(cram_codec *c, int *id2) {
 	bnum1 = cram_codec_to_id(c->byte_array_len.len_codec, NULL);
 	bnum2 = cram_codec_to_id(c->byte_array_len.val_codec, NULL);
 	break;
-    case E_XBETA:
-	bnum1 = cram_codec_to_id(c->xbeta.sub_codec, NULL);
+    case E_XPACK:
+	bnum1 = cram_codec_to_id(c->xpack.sub_codec, NULL);
 	break;
     case E_XMAP:
 	bnum1 = cram_codec_to_id(c->xmap.sub_codec, NULL);
@@ -3226,21 +3229,21 @@ int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c) {
 	    return -1;
 	break;
 
-    case E_XBETA: {
+    case E_XPACK: {
 	// shares struct with decode
 	cram_codec t = *c;
-	t.free = cram_xbeta_encode_free;
-	t.store = cram_xbeta_encode_store;
-	if (t.decode == cram_xbeta_decode_long)
-	    t.encode = cram_xbeta_encode_long;
-	else if (t.decode == cram_xbeta_decode_int)
-	    t.encode = cram_xbeta_encode_int;
-	else if (t.decode == cram_xbeta_decode_char)
-	    t.encode = cram_xbeta_encode_char;
+	t.free = cram_xpack_encode_free;
+	t.store = cram_xpack_encode_store;
+	if (t.decode == cram_xpack_decode_long)
+	    t.encode = cram_xpack_encode_long;
+	else if (t.decode == cram_xpack_decode_int)
+	    t.encode = cram_xpack_encode_int;
+	else if (t.decode == cram_xpack_decode_char)
+	    t.encode = cram_xpack_encode_char;
 	else
 	    return -1;
-	t.e_xbeta.sub_codec = t.xbeta.sub_codec;
-	if (cram_codec_decoder2encoder(fd, t.e_xbeta.sub_codec) == -1)
+	t.e_xpack.sub_codec = t.xpack.sub_codec;
+	if (cram_codec_decoder2encoder(fd, t.e_xpack.sub_codec) == -1)
 	    return -1;
 	*c = t;
 	break;

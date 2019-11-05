@@ -232,7 +232,7 @@ void cram_stats_free(cram_stats *st) {
  * Does it benefit from RLE pre-packing?
  * Does it benefit from RLE post-packing?
  */
-static void hist(unsigned char *data, int dlen, unsigned int hist[256]) {
+static void hist(unsigned char *data, int dlen, int hist[256]) {
     // FIXME: speed up; see hist4 in rans
     int i;
     for (i = 0; i < dlen; i++)
@@ -242,7 +242,7 @@ static void hist(unsigned char *data, int dlen, unsigned int hist[256]) {
 void cram_stats_qual(cram_container *c,
 		     int *nval, int val[256],
 		     int *nrle, int rle[256]) {
-    int i, j, last = -1;
+    int i, last = -1;
 
     // Number of distinct symbols
     // We end up with val[256] being a lookup table to go from A,B,C to 0,1,2

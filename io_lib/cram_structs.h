@@ -99,7 +99,7 @@ enum cram_encoding {
     E_GOLOMB_RICE        = 8,
     E_GAMMA              = 9,
     E_XHUFFMAN           = 10, // To external block
-    E_XBETA              = 11, // Transform to sub-codec
+    E_XPACK              = 11, // Transform to sub-codec
     E_XRLE               = 12, // Transform to sub-codec
     E_XMAP               = 13, // Transform to sub-codec
     E_NUM_CODECS, /* Total number of codecs, not a real one. */
