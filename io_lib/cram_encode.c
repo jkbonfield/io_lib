@@ -1940,7 +1940,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     }
 
     // To EXTERNAL block
-    if (0) {
+    if (1) {
 	h->codecs[DS_QS] = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
 					     (void *)DS_QS,
 					     fd->version, &fd->vv);
@@ -2082,7 +2082,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     // XMAP to XPACK to EXTERNAL
     // XRLE to EXTERNAL
     // XMAP to XPACK to XRLE to EXTERNAL
-    if (1) {
+    if (0) {
 	cram_xrle_encoder xl;
 	cram_xpack_encoder xb;
 	cram_xmap_encoder xm;
@@ -2090,6 +2090,11 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	int nval=999, val[256], i;
 	int nrle=999;
 	cram_stats_qual(c, &nval,val, &nrle, xl.rep_score);
+
+//	fprintf(stderr, "nval=%d nrle=%d\n", nval, nrle);
+//	for (i = 0; i < 256; i++)
+//	    if (xl.rep_score[i] != -99)
+//		fprintf(stderr, "%d %d\n", i, xl.rep_score[i]);
 
 	if (nval <= 16) {
 	    // XMAP/XPACK to pack bytes to bits.

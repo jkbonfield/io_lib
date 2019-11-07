@@ -165,6 +165,7 @@ typedef struct cram_codec {
 		 int version);
     int (*size)(cram_slice *slice, struct cram_codec *codec);
     int (*flush)(struct cram_codec *codec);
+    cram_block *(*get_block)(cram_slice *slice, struct cram_codec *codec);
 
     union {
 	cram_huffman_decoder         huffman;
