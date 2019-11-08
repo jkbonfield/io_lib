@@ -82,11 +82,13 @@ typedef struct {
 
 // BETA as a transform; redirect I/O bytes through codec.
 typedef struct {
-    int64_t offset;
     int32_t nbits;
     enum cram_encoding sub_encoding;
     void *sub_codec_dat;
     struct cram_codec *sub_codec;
+    int nval;  // number of items in maps
+    uint32_t rmap[256]; // 0,1,2,3 -> P,A,C,K
+    int map[256];       // P,A,C,K -> 0,1,2,3 // NB: max input is uint8_tb? Or use hash?
 } cram_xpack_decoder;
 typedef cram_xpack_decoder cram_xpack_encoder;
 

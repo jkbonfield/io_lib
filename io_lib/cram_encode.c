@@ -1946,150 +1946,18 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 					     fd->version, &fd->vv);
     }
 
-    // BETA to CORE block
-    if (0) {
-	int64_t p[2] = {0, 255};
-	h->codecs[DS_QS] = cram_encoder_init(E_BETA, NULL,
-					     E_BYTE_ARRAY, p,
-					     fd->version, &fd->vv);
-    }
-
-    // XPACK to EXTERNAL block
-    if (0) {
-	cram_xpack_encoder e;
-	e.sub_encoding = E_EXTERNAL;
-	e.sub_codec_dat = (void *)DS_QS;
-	//e.offset = 0; // already shifted by 33
-	//e.nbits = 6;
-	e.offset = 0;
-      //e.nbits = 8; // 126394 comp / 1501179 uncomp
-      //e.nbits = 7; // 146598 comp / 1313531 uncomp
-	e.nbits = 6; // 127566 comp / 1125885 uncomp
-	h->codecs[DS_QS] = cram_encoder_init(E_XPACK, NULL,
-					     E_BYTE_ARRAY,
-					     (void *)&e,
-					     fd->version, &fd->vv);
-    }
-
-    // XMAP to XPACK to EXTERNAL block
-    if (0) {
-	cram_xpack_encoder xb;
-	xb.sub_encoding = E_EXTERNAL;
-	xb.sub_codec_dat = (void *)DS_QS;
-	xb.offset = 0;
-	xb.nbits = 4;
-
-	cram_xmap_encoder xm;
-	xm.sub_encoding = E_XPACK;
-	xm.sub_codec_dat = (void *)&xb;
-
-	// FIXME: detect this
-	//xm.nval = 4;
-	//xm.val[0] = '#'-33;
-	//xm.val[1] = '-'-33;
-	//xm.val[2] = '3'-33;
-	//xm.val[3] = 'E'-33;
-
-	xm.nval = 6;
-	xm.val[0] = '!'-33;
-	xm.val[1] = '/'-33;
-	xm.val[2] = '6'-33;
-	xm.val[3] = '<'-33;
-	xm.val[4] = 'A'-33;
-	xm.val[5] = 'E'-33;
-
-	// 1st block = 375294 bytes (1501176 quals)
-	
-	h->codecs[DS_QS] = cram_encoder_init(E_XMAP, NULL,
-					     E_BYTE_ARRAY,
-					     (void *)&xm,
-					     fd->version, &fd->vv);
-    }
-
-    // XRLE to EXTERNAL blocks
-    if (0) {
-	cram_xrle_encoder xl;
-	xl.len_encoding = E_EXTERNAL;
-	xl.len_dat = (void *)DS_QS_len;
-	xl.lit_encoding = E_EXTERNAL;
-	xl.lit_dat = (void *)DS_QS;
-
-	h->codecs[DS_QS] = cram_encoder_init(E_XRLE, NULL,
-					     E_BYTE_ARRAY,
-					     (void *)&xl,
-					     fd->version, &fd->vv);
-    }
-
-    // XMAP to XPACK to XRLE to EXTERNAL block
-    if (0) {
-	int nval=999, val[256];
-	int nrle=999, rle[256];
-	cram_stats_qual(c, &nval,val, &nrle,rle);
-
-	cram_xrle_encoder xl;
-	xl.len_encoding = E_EXTERNAL;
-	xl.len_dat = (void *)DS_QS_len;
-	xl.lit_encoding = E_EXTERNAL;
-	xl.lit_dat = (void *)DS_QS;
-	for (i=0;i<256;i++) {
-	    if (rle[i]>0)
-		fprintf(stderr, "rle[%d]=%d\n", i,rle[i]);
-	}
-	memcpy(xl.rep_score, rle, 256*sizeof(*rle));
-
-	cram_xpack_encoder xb;
-	xb.sub_encoding = E_XRLE;
-	xb.sub_codec_dat = &xl;
-	xb.offset = 0;
-	xb.nbits = 2;
-//	if (nval <= 4)
-//	    xb.nbits = 2;
-//	else if (nval <= 16)
-//	    xb.nbits = 4;
-
-	cram_xmap_encoder xm;
-	xm.sub_encoding = E_XPACK;
-	xm.sub_codec_dat = (void *)&xb;
-
-	// FIXME: detect this
-	xm.nval = 4;
-	xm.val[0] = '#'-33;
-	xm.val[1] = '-'-33;
-	xm.val[2] = '3'-33;
-	xm.val[3] = 'E'-33;
-
-	xm.nval = 3;
-	xm.val[0] = '-'-33;
-	xm.val[1] = '3'-33;
-	xm.val[2] = 'E'-33;
-
-//	xm.nval = nval;
-//	for (i = nval = 0; i < 256; i++)
-//	    if (val[i] > 0)
-//		xm.val[nval++] = i;
-//	assert(nval == xm.nval);
-
-	// 1st block = 375294 bytes (1501176 quals)
-	
-	h->codecs[DS_QS] = cram_encoder_init(E_XMAP, NULL,
-					     E_BYTE_ARRAY,
-					     (void *)&xm,
-					     fd->version, &fd->vv);
-    }
-
     // Auto select one of:
     // EXTERNAL
-    // XMAP to XPACK to EXTERNAL
+    // XPACK to EXTERNAL
     // XRLE to EXTERNAL
-    // XMAP to XPACK to XRLE to EXTERNAL
+    // XPACK to XRLE to EXTERNAL
+    // (XRLE to XPACK to EXTERNAL never seems to win on size nor speed)
     if (0) {
 	cram_xrle_encoder xl;
 	cram_xpack_encoder xb;
-	cram_xmap_encoder xm;
 
-	int nval=999, val[256], i;
-	int nrle=999;
-	cram_stats_qual(c, &nval,val, &nrle, xl.rep_score);
+	int nval=999, nrle=999, i, n, map[256];
+	cram_stats_qual(c, &nval, map, &nrle, xl.rep_score);
 
 //	fprintf(stderr, "nval=%d nrle=%d\n", nval, nrle);
 //	for (i = 0; i < 256; i++)
@@ -2097,44 +1965,49 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 //		fprintf(stderr, "%d %d\n", i, xl.rep_score[i]);
 
 	if (nval <= 16) {
-	    // XMAP/XPACK to pack bytes to bits.
-	    xb.offset = 0;
-	    //xb.nbits = 2;
-	    //xb.nbits = 4;
-	    if (nval <= 4)
+	    // XPACK to pack bytes to bits.
+	    if (nval <= 2)
+		xb.nbits = 1;
+	    else if (nval <= 4)
 		xb.nbits = 2;
 	    else if (nval <= 16)
 		xb.nbits = 4;
 
+	    // Map e.g. F,I,S,H to integers 0-3.
+	    for (i = n = 0; i < 256; i++)
+		xb.map[i] = map[i] ? n++ : -1;
+	    xb.nval = n;
+	    assert(n == nval);
+
 	    if (nrle > 0) {
-		// XMAP+XPACK + XRLE+EXTERNAL
-		fprintf(stderr, "QS: MAP+BETA+RLE+EXTERNAL\n");
+		// XPACK + XRLE+EXTERNAL
+		fprintf(stderr, "QS: PACK+RLE+EXTERNAL\n");
 		xl.len_encoding = E_EXTERNAL;
 		xl.len_dat = (void *)DS_QS_len;
 		xl.lit_encoding = E_EXTERNAL;
 		xl.lit_dat = (void *)DS_QS;
+		//xl.lit_encoding = E_XPACK;
+		//xl.lit_dat = &xb;
 
 		xb.sub_encoding = E_XRLE;
 		xb.sub_codec_dat = &xl;
+		//xb.sub_encoding = E_EXTERNAL;
+		//xb.sub_codec_dat = (void *)DS_QS;
 	    } else {
-		// XMAP+XPACK + EXTERNAL
-		fprintf(stderr, "QS: MAP+BETA+EXTERNAL\n");
+		// XPACK + EXTERNAL
+		fprintf(stderr, "QS: PACK+EXTERNAL\n");
 		xb.sub_encoding = E_EXTERNAL;
 		xb.sub_codec_dat = (void *)DS_QS;
 	    }
 
-	    xm.sub_encoding = E_XPACK;
-	    xm.sub_codec_dat = (void *)&xb;
-	    xm.nval = nval;
-	    for (i = nval = 0; i < 256; i++)
-		if (val[i] > 0)
-		    xm.val[nval++] = i;
-	    assert(nval == xm.nval);
-
-	    h->codecs[DS_QS] = cram_encoder_init(E_XMAP, NULL,
+	    h->codecs[DS_QS] = cram_encoder_init(E_XPACK, NULL,
 						 E_BYTE_ARRAY,
-						 (void *)&xm,
+						 (void *)&xb,
 						 fd->version, &fd->vv);
+//	    h->codecs[DS_QS] = cram_encoder_init(E_XRLE, NULL,
+//						 E_BYTE_ARRAY,
+//						 (void *)&xl,
+//						 fd->version, &fd->vv);
 	} else if (nrle > 0) {
 	    // XRLE + EXTERNAL
 	    fprintf(stderr, "QS: RLE+EXTERNAL\n");
