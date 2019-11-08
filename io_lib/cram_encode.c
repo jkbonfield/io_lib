@@ -1931,7 +1931,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     }
 
     // To EXTERNAL block
-    if (1) {
+    if (0) {
 	h->codecs[DS_QS] = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
 					     (void *)DS_QS,
 					     fd->version, &fd->vv);
@@ -1943,7 +1943,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     // XRLE to EXTERNAL
     // XPACK to XRLE to EXTERNAL
     // (XRLE to XPACK to EXTERNAL never seems to win on size nor speed)
-    if (0) {
+    else {
 	cram_xrle_encoder xl;
 	cram_xpack_encoder xb;
 
@@ -1966,7 +1966,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
 	    // Map e.g. F,I,S,H to integers 0-3.
 	    for (i = n = 0; i < 256; i++)
-		xb.map[i] = map[i] ? n++ : -1;
+		xb.map[i] = map[i] > 0 ? n++ : -1;
 	    xb.nval = n;
 	    assert(n == nval);
 

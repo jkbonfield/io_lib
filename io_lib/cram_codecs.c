@@ -51,6 +51,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <htscodecs/varint.h>
+#include <htscodecs/pack.h>
+#include <htscodecs/rle.h>
 
 #include "io_lib/cram.h"
 
@@ -846,100 +848,21 @@ static int cram_xpack_decode_expand_char(cram_slice *slice, cram_codec *c) {
 
     // Allocate local block to expand into
     b = slice->block_by_id[512 + c->codec_id] = cram_new_block(0, 0);
-    int sub_size = c->xpack.sub_codec->size(slice, c->xpack.sub_codec);
     int n = sub_b->uncomp_size * 8/c->xpack.nbits;
     BLOCK_GROW(b, n);
     b->uncomp_size = n;
 
-    // Expand; FIXME: use hts_unpack
-    unsigned char *dat = sub_b->data;
-    unsigned char *out = b->data;
-    int i, j = 0;
-
-    switch (c->xpack.nbits) {
-    case 8:
-#pragma GCC unroll 8
-	for (i = 0; i < n; i++)
-	    out[i] = c->xpack.rmap[dat[j++]];
-	break;
-
-    case 4: {
-	union {
-	    uint16_t w;
-	    uint8_t c[2];
-	} map[256];
-	int Y, Z, P=0;
-	for (Y = 0; Y < 16; Y++) {
-	    for (Z = 0; Z < 16; Z++, P++) {
-		map[P].c[0] = c->xpack.rmap[Y];
-		map[P].c[1] = c->xpack.rmap[Z];
-	    }
-	}
-
-	uint16_t *out16 = (uint16_t *)out;
-	for (j = 0; j < (n & ~1)/2; j++)
-	    out16[j] = map[dat[j]].w;
-	i = j*2;
-	sub_b->byte += i;
-
-	for (;i < n; i++)
-	    out[i] = c->xpack.rmap[get_bits_MSB(sub_b, c->xpack.nbits)];
-	break;
-    }
-
-    case 2: {
-	union {
-	    uint32_t w;
-	    uint8_t c[4];
-	} map[256];
-	int W, X, Y, Z, P=0;
-	for (W = 0; W < 4; W++)
-	    for (X = 0; X < 4; X++)
-		for (Y = 0; Y < 4; Y++)
-		    for (Z = 0; Z < 4; Z++, P++) {
-			map[P].c[0] = c->xpack.rmap[W];
-			map[P].c[1] = c->xpack.rmap[X];
-			map[P].c[2] = c->xpack.rmap[Y];
-			map[P].c[3] = c->xpack.rmap[Z];
-		    }
-
-	uint32_t *out32 = (uint32_t *)out;
-	for (j = 0; j < (n & ~3)/4; j++)
-	    out32[j] = map[dat[j]].w;
-	i = j*4;
-	sub_b->byte += i;
-
-	for (;i < n; i++)
-	    out[i] = c->xpack.rmap[get_bits_MSB(sub_b, c->xpack.nbits)];
-	break;
-    }
-
-    case 1:
-	for (i = 0; i < (n & ~7); i += 8) {
-	    out[i+0] = c->xpack.rmap[((sub_b->data[b->byte] >> 7)&1)];
-	    out[i+1] = c->xpack.rmap[((sub_b->data[b->byte] >> 6)&1)];
-	    out[i+2] = c->xpack.rmap[((sub_b->data[b->byte] >> 5)&1)];
-	    out[i+3] = c->xpack.rmap[((sub_b->data[b->byte] >> 4)&1)];
-	    out[i+4] = c->xpack.rmap[((sub_b->data[b->byte] >> 3)&1)];
-	    out[i+5] = c->xpack.rmap[((sub_b->data[b->byte] >> 2)&1)];
-	    out[i+6] = c->xpack.rmap[((sub_b->data[b->byte] >> 1)&1)];
-	    out[i+7] = c->xpack.rmap[( sub_b->data[b->byte]      &1)];
-	    sub_b->byte++;
-	}
-	for (;i < n; i++)
-	    out[i] = c->xpack.rmap[get_bits_MSB(sub_b, c->xpack.nbits)];
-	break;
-
-    default:
-	abort();
-    }
+    uint8_t p[256];
+    int z;
+    for (z = 0; z < 256; z++)
+	p[z] = c->xpack.rmap[z];
+    hts_unpack(sub_b->data, sub_b->uncomp_size, b->data, b->uncomp_size,
+	       8 / c->xpack.nbits, p);
 
     return 0;
 }
 
 int cram_xpack_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
-    int i, n = *out_size;
-
     // FIXME: we need to ban data-series interleaving in the spec for this to work.
 
     // Remember this may be called when threaded and multi-slice per container.
@@ -1036,20 +959,25 @@ cram_codec *cram_xpack_decode_init(cram_block_compression_hdr *hdr,
 }
 
 int cram_xpack_encode_flush(cram_codec *c) {
-    store_bits_MSB(c->out, 0, 7); // ensure whole byte flushed
-
-    // We've buffered up data to c->e_xpack->out.
-    // We now need to pass this through the next layer of transform first.
-    if (c->e_xpack.sub_codec->encode(/*slice*/NULL,
+    // Pack the buffered up data
+    int meta_len;
+    uint64_t out_len;
+    uint8_t out_meta[1024];
+    uint8_t *out = hts_pack(BLOCK_DATA(c->out), BLOCK_SIZE(c->out),
+			    out_meta, &meta_len, &out_len);
+    
+    // We now need to pass this through the next layer of transform
+    if (c->e_xpack.sub_codec->encode(NULL, // also indicates flush incoming
 				     c->e_xpack.sub_codec,
-				     (char *)BLOCK_DATA(c->out),
-				     BLOCK_SIZE(c->out)))
+				     (char *)out, out_len))
 	return -1;
 
+    int r = 0;
     if (c->e_xpack.sub_codec->flush)
-	return c->e_xpack.sub_codec->flush(c->e_xpack.sub_codec);
-    
-    return 0;
+	r = c->e_xpack.sub_codec->flush(c->e_xpack.sub_codec);
+
+    free(out);
+    return r;
 }
 
 int cram_xpack_encode_store(cram_codec *c, cram_block *b,
@@ -1070,7 +998,7 @@ int cram_xpack_encode_store(cram_codec *c, cram_block *b,
     len += c->vv->varint_put32_blk(b, c->codec);
 
     // codec length
-    int len1 = 0, i, n;
+    int len1 = 0, i;
     for (i = 0; i < c->e_xpack.nval; i++)
 	len1 += c->vv->varint_size(c->e_xpack.rmap[i]);
     len += c->vv->varint_put32_blk(b, c->vv->varint_size(c->e_xpack.nbits)
@@ -1080,7 +1008,7 @@ int cram_xpack_encode_store(cram_codec *c, cram_block *b,
     // The map and sub-codec
     len += c->vv->varint_put32_blk(b, c->e_xpack.nbits);
     len += c->vv->varint_put32_blk(b, c->e_xpack.nval);
-    for (n = i = 0; i < c->e_xpack.nval; i++)
+    for (i = 0; i < c->e_xpack.nval; i++)
 	len += c->vv->varint_put32_blk(b, c->e_xpack.rmap[i]);
 
     BLOCK_APPEND(b, BLOCK_DATA(tb), BLOCK_SIZE(tb));
@@ -1115,13 +1043,8 @@ int cram_xpack_encode_int(cram_slice *slice, cram_codec *c,
 
 int cram_xpack_encode_char(cram_slice *slice, cram_codec *c,
 			   char *in, int in_size) {
-    unsigned char *syms = (unsigned char *)in;
-    int i, r = 0;
-
-    for (i = 0; i < in_size; i++)
-	r |= store_bits_MSB(c->out, c->e_xpack.map[syms[i]], c->e_xpack.nbits);
-
-    return r;
+    BLOCK_APPEND(c->out, in, in_size);
+    return 0;
 }
 
 void cram_xpack_encode_free(cram_codec *c) {
@@ -1200,71 +1123,34 @@ static int cram_xrle_decode_expand_char(cram_slice *slice, cram_codec *c) {
 
     b = slice->block_by_id[512 + c->codec_id] = cram_new_block(0, 0);
     cram_block *lit_b = c->xrle.lit_codec->get_block(slice, c->xrle.lit_codec);
+    if (!lit_b)
+	return -1;
     unsigned char *lit_dat = lit_b->data;
     unsigned int lit_sz = lit_b->uncomp_size;
     unsigned int len_sz = c->xrle.len_codec->size(slice, c->xrle.len_codec);
 
     cram_block *len_b = c->xrle.len_codec->get_block(slice, c->xrle.len_codec);
-    char *len_start = (char *)BLOCK_DATA(len_b);
-    char *len_end   = len_start + len_b->uncomp_size;
+    if (!len_b)
+	return -1;
+    unsigned char *len_dat = len_b->data;
 
-    int guess; // guess expanded size
-    BLOCK_GROW(b, guess = len_sz*5 + lit_sz);
-    unsigned char *dat = b->data;
-    unsigned char *dat_end = dat + guess;
-
-    // Local faster copy of xrle.rep_score[]
+    uint8_t rle_syms[256];
+    int rle_nsyms = 0;
     int i;
-    uint8_t do_rle[256];
-    for (i = 0; i < 256; i++)
-	do_rle[i] = c->xrle.rep_score[i] > 0;
-
-    int lit_idx;
-    int cur_len = 0;
-    unsigned char cur_lit = 0;
-    
-    unsigned char *lit_start = lit_dat;
-    unsigned char *lit_end = lit_dat + lit_sz;
-    while (lit_dat < lit_end) {
-	// Get symbol and if needed length
-	cur_lit = *lit_dat++;
-	if (do_rle[cur_lit]) {
-	    // Direct approach; marginal speed gain
-	    int err = 0;
-	    cur_len = c->vv->varint_get32(&len_start, len_end, &err) + 1;
-	    if (err)
-		return -1;
-
-//	    int one;
-//	    if (c->xrle.len_codec->decode(slice, c->xrle.len_codec, NULL,
-//					  (char *)&cur_len, &one) < 0)
-//		return -1;
-//	    cur_len++;
-	} else {
-	    cur_len = 1;
-	}
-
-	// Expand memory guess if required
-	if (dat + cur_len > dat_end) {
-	    guess *= (lit_sz + 1.0) / (lit_dat - lit_start) * 1.05;
-	    guess += cur_len;
-	    ptrdiff_t off = dat - b->data;
-	    BLOCK_RESIZE(b, guess);
-	    dat = b->data + off;
-	    dat_end = dat + guess;
-	}
-
-	switch(cur_len) {
-	case 1: *dat++ = cur_lit;
-	    break;
-
-	default:
-	    // Repeat symbol
-	    memset(dat, cur_lit, cur_len);
-	    dat += cur_len;
-	}
+    for (i = 0; i < 256; i++) {
+	if (c->xrle.rep_score[i] > 0)
+	    rle_syms[rle_nsyms++] = i;
     }
-    b->uncomp_size = dat - b->data;
+
+    uint64_t out_sz;
+    int nb = var_get_u64(len_dat, len_dat+len_sz, &out_sz);
+    if (!(b->data = malloc(out_sz)))
+	return -1;
+    rle_decode(lit_dat, lit_sz,
+	       len_dat+nb, len_sz-nb,
+	       rle_syms, rle_nsyms,
+	       b->data, &out_sz);
+    b->uncomp_size = out_sz;
 
     return 0;
 }
@@ -1408,25 +1294,49 @@ cram_codec *cram_xrle_decode_init(cram_block_compression_hdr *hdr,
 }
 
 int cram_xrle_encode_flush(cram_codec *c) {
-    if (c->e_xrle.rep_score[c->e_xrle.cur_lit] > 0) {
-	// delayed last symbol
-	if (c->e_xrle.len_codec->encode(/*slice*/NULL,
-					c->e_xrle.len_codec,
-					(char *)&c->e_xrle.cur_len, 1))
-	    return -1;
-//	unsigned char lit = c->e_xrle.cur_lit;
-//	if (c->e_xrle.lit_codec->encode(/*slice*/NULL,
-//					c->e_xrle.lit_codec,
-//					(char *)&lit, 1))
-//	    return -1;
-//	fprintf(stderr, "Flush %d x %d\n", lit, c->e_xrle.cur_len);
+    uint8_t *out_lit, *out_len;
+    uint64_t out_lit_size, out_len_size;
+    uint8_t rle_syms[256];
+    int rle_nsyms = 0, i;
+
+    for (i = 0; i < 256; i++)
+	if (c->e_xrle.rep_score[i] > 0)
+	    rle_syms[rle_nsyms++] = i;
+
+    if (!c->e_xrle.to_flush) {
+	c->e_xrle.to_flush = (char *)BLOCK_DATA(c->out);
+	c->e_xrle.to_flush_size = BLOCK_SIZE(c->out);
     }
 
-    if (c->e_xrle.len_codec->flush)
-	return c->e_xrle.len_codec->flush(c->e_xrle.len_codec);
-    if (c->e_xrle.lit_codec->flush)
-	return c->e_xrle.lit_codec->flush(c->e_xrle.lit_codec);
+    out_len = malloc(c->e_xrle.to_flush_size+8);
+    int nb = var_put_u64(out_len, NULL, c->e_xrle.to_flush_size);
+
+    out_lit = rle_encode((uint8_t *)c->e_xrle.to_flush, c->e_xrle.to_flush_size,
+			 out_len+nb, &out_len_size,
+			 rle_syms, &rle_nsyms,
+			 NULL, &out_lit_size);
+    out_len_size += nb;
+
+
+    // FIXME: can maybe "gift" the sub codec the data block, to remove
+    // one level of memcpy.
+    //
+    // Note the correct encoding type for len is INT, but rle_encode
+    // above already does a var_put_u32 call so we've transformed into
+    // into a byte array by this stage.
+    if (c->e_xrle.len_codec->encode(NULL,
+				    c->e_xrle.len_codec,
+				    (char *)out_len, out_len_size))
+	return -1;
+
+    if (c->e_xrle.lit_codec->encode(NULL,
+				    c->e_xrle.lit_codec,
+				    (char *)out_lit, out_lit_size))
+	return -1;
     
+    free(out_len);
+    free(out_lit);
+
     return 0;
 }
 
@@ -1491,42 +1401,24 @@ int cram_xrle_encode_int(cram_slice *slice, cram_codec *c,
 
 int cram_xrle_encode_char(cram_slice *slice, cram_codec *c,
 			  char *in, int in_size) {
-    unsigned char *syms = (unsigned char *)in;
-    int i, r = 0;
-
-    for (i = 0; i < in_size; i++) {
-	unsigned char lit = syms[i];
-
-	//fprintf(stderr, "lit[%d]=%d\n", i, lit);
-
-	// cur_lit is basically last symbol
-	if (lit != c->xrle.cur_lit) {
-	    // Diffrent sym
-	    if (c->xrle.cur_lit >= 0 && c->e_xrle.rep_score[c->xrle.cur_lit] > 0) {
-		c->e_xrle.len_codec->encode(slice, c->e_xrle.len_codec,
-					    (char *)&c->xrle.cur_len, 1);
-		//fprintf(stderr, "last %d x %d\n", c->xrle.cur_lit, c->xrle.cur_len);
-	    }
-	    //fprintf(stderr, "(sym) %d\n", lit);
-	    c->e_xrle.lit_codec->encode(slice, c->e_xrle.lit_codec,
-					(char *)&lit, 1);
-	    c->e_xrle.cur_lit = syms[i];
-	    c->xrle.cur_len = 0;
-
-	} else if (c->xrle.cur_lit >= 0 && c->e_xrle.rep_score[c->xrle.cur_lit] <= 0) {
-	    // Same sym, but cost of run len is too high
-	    c->e_xrle.lit_codec->encode(slice, c->e_xrle.lit_codec,
-					(char *)&lit, 1);
-	    //fprintf(stderr, "sym %d\n", lit);
-	    c->e_xrle.cur_lit = syms[i];
-	    c->xrle.cur_len = 0;
-	} else {
-	    // Same sym and we're accumulating a run length
-	    c->xrle.cur_len++;
-	}
+    if (c->e_xrle.to_flush) {
+	if (!(c->out = cram_new_block(0, 0)))
+	    return -1;
+	BLOCK_APPEND(c->out, c->e_xrle.to_flush, c->e_xrle.to_flush_size);
+	c->e_xrle.to_flush = NULL;
+	c->e_xrle.to_flush_size = 0;
     }
 
-    return r;
+    if (c->out && BLOCK_SIZE(c->out) > 0) {
+	// Gathering data
+	BLOCK_APPEND(c->out, in, in_size);
+	return 0;
+    }
+
+    // else cache copy of the data we're about to send to flush instead.
+    c->e_xrle.to_flush = in;
+    c->e_xrle.to_flush_size = in_size;
+    return 0;
 }
 
 void cram_xrle_encode_free(cram_codec *c) {
@@ -1556,15 +1448,21 @@ cram_codec *cram_xrle_encode_init(cram_stats *st,
     cram_xrle_encoder *e = (cram_xrle_encoder *)dat;
 
     c->e_xrle.len_codec = cram_encoder_init(e->len_encoding, NULL,
-					    E_INT, e->len_dat,
+					    E_BYTE, e->len_dat,
 					    version, vv);
     c->e_xrle.lit_codec = cram_encoder_init(e->lit_encoding, NULL,
 					    E_BYTE, e->lit_dat,
 					    version, vv);
     c->e_xrle.cur_lit = -1;
     c->e_xrle.cur_len = -1;
+    c->e_xrle.to_flush = NULL;
+    c->e_xrle.to_flush_size = 0;
 
     memcpy(c->e_xrle.rep_score, e->rep_score, 256*sizeof(*c->e_xrle.rep_score));
+
+    // Temporary buffer
+    if (!(c->out = cram_new_block(0, 0)))
+	return NULL;
 
     return c;
 }

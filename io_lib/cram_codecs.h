@@ -103,6 +103,8 @@ typedef struct {
     int cur_len;
     int cur_lit;
     int rep_score[256];
+    char *to_flush;
+    size_t to_flush_size;
 } cram_xrle_decoder;
 typedef cram_xrle_decoder cram_xrle_encoder;
 
