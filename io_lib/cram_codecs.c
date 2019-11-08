@@ -1175,281 +1175,6 @@ cram_codec *cram_xpack_encode_init(cram_stats *st,
 
 /*
  * ---------------------------------------------------------------------------
- * XMAP: mapping arbitrary values X, Y, Z to byte values 0, 1, 2 and back.
- *
- * This also has the additional requirement that the data series is not
- * interleaved with another, permitting efficient encoding and decoding
- * of all elements enmasse instead of needing to only extract the bits
- * necessary per item.
- */
-int cram_xmap_decode_long(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
-    int64_t *out_i = (int64_t *)out;
-    int i, n = *out_size;
-
-    for (i = 0; i < n; i++)
-	out_i[i] = 0; // TODO
-
-    return 0;
-}
-
-int cram_xmap_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
-    int32_t *out_i = (int32_t *)out;
-    int i, n = *out_size;
-
-    for (i = 0; i < n; i++)
-	out_i[i] = 0; // TODO
-
-    return 0;
-}
-
-static int cram_xmap_decode_expand_char(cram_slice *slice, cram_codec *c) {
-    cram_block *b = slice->block_by_id[512 + c->codec_id];
-    if (b)
-	return 0;
-
-    // Allocate local block and fill with sub-block decode
-    b = slice->block_by_id[512 + c->codec_id] = cram_new_block(0, 0);
-    int sub_size = c->xmap.sub_codec->size(slice, c->xmap.sub_codec);
-    BLOCK_GROW(b, sub_size);
-    c->xmap.sub_codec->decode(slice, c->xmap.sub_codec,
-			      NULL, (char *)BLOCK_DATA(b), &sub_size);
-    b->uncomp_size = sub_size;
-
-    int i;
-    unsigned char *dat = b->data;
-#pragma GCC unroll 8
-    for (i = 0; i < b->uncomp_size; i++) {
-	dat[i] = c->e_xmap.val[dat[i]];
-    }
-
-    return 0;
-}
-
-int cram_xmap_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
-    int i, n = *out_size;
-
-    if (0) {
-	// Slower as it's a separate memcpy
-	cram_xmap_decode_expand_char(slice, c);
-	cram_block *b = slice->block_by_id[512 + c->codec_id];
-	memcpy(out, b->data + b->idx, n);
-	b->idx += n;
-	return 0;
-    }
-
-    // FIXME: we need to ban data-series interleaving in the spec for this to work.
-
-    // Remember this may be called when threaded and multi-slice per container.
-    // Hence one cram_codec instance, multiple slices, multiple blocks.
-    // We therefore have to cache appropriate block info in slice and not codec.
-    //    b = cram_get_block_by_id(slice, c->external.content_id);
-    cram_block *b = slice->block_by_id[512 + c->codec_id];
-    if (!b) {
-	b = slice->block_by_id[512 + c->codec_id] = cram_new_block(0, 0);
-	int sub_size = c->xmap.sub_codec->size(slice, c->xmap.sub_codec);
-	BLOCK_GROW(b, sub_size);
-	c->xmap.sub_codec->decode(slice, c->xmap.sub_codec,
-				  in, (char *)BLOCK_DATA(b), &sub_size);
-	b->uncomp_size = sub_size;
-    }
-
-    if (out) {
-	unsigned char *dat = b->data+b->idx;
-	uint32_t *map = c->e_xmap.val;
-
-#pragma GCC unroll 8 // hard to believe gcc won't do this automatically.
-	for (i = 0; i < n; i++)
-	    out[i] = map[dat[i]];
-    }
-    b->idx += n;
-
-    return 0;
-}
-
-void cram_xmap_decode_free(cram_codec *c) {
-    if (!c) return;
-
-    if (c->xmap.sub_codec)
-	c->xmap.sub_codec->free(c->xmap.sub_codec);
-
-    free(c);
-}
-
-cram_codec *cram_xmap_decode_init(cram_block_compression_hdr *hdr,
-				   char *data, int size,
-				   enum cram_external_type option,
-				   int version, varint_vec *vv) {
-    cram_codec *c;
-    char *cp = data;
-    char *endp = data+size;
-    int err = 0;
-
-    if (!(c = malloc(sizeof(*c))))
-	return NULL;
-
-    c->codec  = E_XMAP;
-    if (option == E_LONG)
-	c->decode = cram_xmap_decode_long;
-    else if (option == E_INT)
-	c->decode = cram_xmap_decode_int;
-    else if (option == E_BYTE_ARRAY || option == E_BYTE)
-	c->decode = cram_xmap_decode_char;
-    else {
-	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
-	return NULL;
-    }
-    c->free   = cram_xmap_decode_free;
-
-    // The map itself
-    c->xmap.nval = vv->varint_get32(&cp, endp, &err);
-    int i;
-    for (i = 0; i < c->xmap.nval; i++)
-	c->xmap.val[i] = vv->varint_get32(&cp, endp, &err);
-
-    // Sub encoding
-    int encoding = vv->varint_get32(&cp, endp, &err);
-    int sub_size = vv->varint_get32(&cp, endp, &err);
-    if (sub_size < 0 || endp - cp < sub_size)
-        goto malformed;
-    c->xmap.sub_codec = cram_decoder_init(hdr, encoding, cp, sub_size,
-					   option, version, vv);
-    if (c->xmap.sub_codec == NULL)
-        goto malformed;
-    cp += sub_size;
-
-    if (err)
-	goto malformed;
-
-    return c;
-
- malformed:
-    fprintf(stderr, "Malformed xmap header stream\n");
-    free(c);
-    return NULL;
-}
-
-int cram_xmap_encode_flush(cram_codec *c) {
-    // We've buffered up data to c->e_xmap->out.
-    // We now need to pass this through the next layer of transform first.
-    if (c->e_xmap.sub_codec->encode(/*slice*/NULL,
-				     c->e_xmap.sub_codec,
-				     (char *)BLOCK_DATA(c->out),
-				     BLOCK_SIZE(c->out)))
-	return -1;
-
-    if (c->e_xmap.sub_codec->flush)
-	return c->e_xmap.sub_codec->flush(c->e_xmap.sub_codec);
-    
-    return 0;
-}
-
-int cram_xmap_encode_store(cram_codec *c, cram_block *b,
-			    char *prefix, int version) {
-    int len = 0;
-
-    if (prefix) {
-	size_t l = strlen(prefix);
-	BLOCK_APPEND(b, prefix, l);
-	len += l;
-    }
-
-    // Store sub-codec to get encoded length
-    cram_codec *tc = c->e_xmap.sub_codec;
-    cram_block *tb = cram_new_block(0, 0);
-    int len3 = tc->store(tc, tb, NULL, version);
-
-    len += c->vv->varint_put32_blk(b, c->codec);
-    // codec length
-    int len2 = 0, i;
-    for (i = 0; i < c->e_xmap.nval; i++)
-	len2 += c->vv->varint_size(c->e_xmap.val[i]);
-    len += c->vv->varint_put32_blk(b, c->vv->varint_size(c->e_xmap.nval)
-				   + len2 + len3);
-
-    // The map and sub-codec
-    len += c->vv->varint_put32_blk(b, c->e_xmap.nval);
-    for (i = 0; i < c->e_xmap.nval; i++)
-	len += c->vv->varint_put32_blk(b, c->e_xmap.val[i]);
-    BLOCK_APPEND(b, BLOCK_DATA(tb), BLOCK_SIZE(tb));
-
-    cram_free_block(tb);
-
-    return len + len3;
-}
-
-int cram_xmap_encode_long(cram_slice *slice, cram_codec *c,
-			   char *in, int in_size) {
-    // FIXME
-    return 0;
-}
-
-int cram_xmap_encode_int(cram_slice *slice, cram_codec *c,
-			  char *in, int in_size) {
-    // FIXME
-    return 0;
-}
-
-int cram_xmap_encode_char(cram_slice *slice, cram_codec *c,
-			   char *in, int in_size) {
-    unsigned char *syms = (unsigned char *)in;
-    int i, r = 0;
-
-    BLOCK_GROW(c->out, in_size);
-    for (i = 0; i < in_size; i++)
-	c->out->data[c->out->byte++] = c->e_xmap.rval[syms[i]];
-
-    return r;
-}
-
-void cram_xmap_encode_free(cram_codec *c) {
-    if (c) free(c);
-}
-
-cram_codec *cram_xmap_encode_init(cram_stats *st,
-				   enum cram_external_type option,
-				   void *dat,
-				   int version, varint_vec *vv) {
-    cram_codec *c;
-    cram_xmap_encoder *v = (cram_xmap_encoder *)dat;
-
-    c = malloc(sizeof(*c));
-    if (!c)
-	return NULL;
-    c->codec  = E_XMAP;
-    c->free   = cram_xmap_encode_free;
-    if (option == E_LONG)
-	c->encode = cram_xmap_encode_long;
-    else if (option == E_INT)
-	c->encode = cram_xmap_encode_int;
-    else
-	c->encode = cram_xmap_encode_char;
-    c->store  = cram_xmap_encode_store;
-    c->flush  = cram_xmap_encode_flush;
-
-    cram_xmap_encoder *e = (cram_xmap_encoder *)dat;
-    c->e_xmap.nval = v->nval;
-    memcpy(c->e_xmap.val, v->val, 256*sizeof(*v->val));
-    memset(c->e_xmap.rval, 0, 256*sizeof(*c->e_xmap.rval));
-    int i;
-    // For now out map is direct lookup, for speed, but limits max size
-    for (i = 0; i < v->nval; i++) {
-	if (v->val[i] >= 256)
-	    return NULL;
-	c->e_xmap.rval[v->val[i]] = i;
-    }
-    c->e_xmap.sub_codec = cram_encoder_init(e->sub_encoding, NULL,
-					    E_BYTE_ARRAY, e->sub_codec_dat,
-					    version, vv);
-
-    // Temporary buffer
-    if (!(c->out = cram_new_block(0, 0)))
-	return NULL;
-
-    return c;
-}
-
-/*
- * ---------------------------------------------------------------------------
  * XRLE
  *
  * This also has the additional requirement that the data series is not
@@ -3056,7 +2781,6 @@ const char *cram_encoding2str(enum cram_encoding t) {
     case E_SUBEXP:          return "SUBEXP";
     case E_GOLOMB_RICE:     return "GOLOMB_RICE";
     case E_GAMMA:           return "GAMMA";
-    case E_XMAP:            return "XMAP";
     case E_XPACK:           return "XPACK";
     case E_XRLE:            return "XRLE";
     case E_NUM_CODECS:
@@ -3082,7 +2806,6 @@ static cram_codec *(*decode_init[])(cram_block_compression_hdr *hdr,
     NULL,
     cram_xpack_decode_init,
     cram_xrle_decode_init,
-    cram_xmap_decode_init,
 };
 
 cram_codec *cram_decoder_init(cram_block_compression_hdr *hdr,
@@ -3120,7 +2843,6 @@ static cram_codec *(*encode_init[])(cram_stats *stx,
     NULL,
     cram_xpack_encode_init,
     cram_xrle_encode_init,
-    cram_xmap_encode_init,
 };
 
 cram_codec *cram_encoder_init(enum cram_encoding codec,
@@ -3171,9 +2893,6 @@ int cram_codec_to_id(cram_codec *c, int *id2) {
 	break;
     case E_XPACK:
 	bnum1 = cram_codec_to_id(c->xpack.sub_codec, NULL);
-	break;
-    case E_XMAP:
-	bnum1 = cram_codec_to_id(c->xmap.sub_codec, NULL);
 	break;
     case E_XRLE:
 	bnum1 = cram_codec_to_id(c->xrle.len_codec, NULL);
@@ -3292,26 +3011,6 @@ int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c) {
 	    return -1;
 	t.e_xpack.sub_codec = t.xpack.sub_codec;
 	if (cram_codec_decoder2encoder(fd, t.e_xpack.sub_codec) == -1)
-	    return -1;
-	*c = t;
-	break;
-    }
-
-    case E_XMAP: {
-	// shares struct with decode
-	cram_codec t = *c;
-	t.free = cram_xmap_encode_free;
-	t.store = cram_xmap_encode_store;
-	if (t.decode == cram_xmap_decode_long)
-	    t.encode = cram_xmap_encode_long;
-	else if (t.decode == cram_xmap_decode_int)
-	    t.encode = cram_xmap_encode_int;
-	else if (t.decode == cram_xmap_decode_char)
-	    t.encode = cram_xmap_encode_char;
-	else
-	    return -1;
-	t.e_xmap.sub_codec = t.xmap.sub_codec;
-	if (cram_codec_decoder2encoder(fd, t.e_xmap.sub_codec) == -1)
 	    return -1;
 	*c = t;
 	break;

@@ -94,17 +94,6 @@ typedef cram_xpack_decoder cram_xpack_encoder;
 
 // Transforms symbols X,Y,Z to bytes 0,1,2.
 typedef struct {
-    uint32_t nval;
-    uint32_t val[256];
-    uint8_t rval[256];
-    enum cram_encoding sub_encoding;
-    void *sub_codec_dat;
-    struct cram_codec *sub_codec;
-} cram_xmap_decoder;
-typedef cram_xmap_decoder cram_xmap_encoder;
-
-// Transforms symbols X,Y,Z to bytes 0,1,2.
-typedef struct {
     enum cram_encoding len_encoding;
     enum cram_encoding lit_encoding;
     void *len_dat;
@@ -179,7 +168,6 @@ typedef struct cram_codec {
 	cram_byte_array_stop_decoder byte_array_stop;
 	cram_xpack_decoder           xpack;
 	cram_xrle_decoder            xrle;
-	cram_xmap_decoder            xmap;
 
 	cram_huffman_encoder         e_huffman;
 	cram_external_decoder        e_external;
@@ -188,7 +176,6 @@ typedef struct cram_codec {
 	cram_beta_decoder            e_beta;
 	cram_xpack_decoder           e_xpack;
 	cram_xrle_decoder            e_xrle;
-	cram_xmap_decoder            e_xmap;
     };
 } cram_codec;
 

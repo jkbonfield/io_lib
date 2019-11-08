@@ -1045,15 +1045,6 @@ static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
 
 	break;
 
-    case E_XMAP:
-	if (cram_allocate_block(codec->e_xmap.sub_codec, s, ds_id))
-	    return -1;
-	codec->out = cram_new_block(0, 0); // ephemeral
-	if (!codec->out)
-	    return -1;
-
-	break;
-
     default:
 	break;
     }
