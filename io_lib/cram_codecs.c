@@ -1324,14 +1324,30 @@ int cram_xrle_encode_flush(cram_codec *c) {
     // Note the correct encoding type for len is INT, but rle_encode
     // above already does a var_put_u32 call so we've transformed into
     // into a byte array by this stage.
-    if (c->e_xrle.len_codec->encode(NULL,
-				    c->e_xrle.len_codec,
-				    (char *)out_len, out_len_size))
+//    if (c->e_xrle.len_codec->codec == E_EXTERNAL &&
+//	c->e_xrle.len_codec->out &&
+//	c->e_xrle.len_codec->out->data == NULL) {
+//	c->e_xrle.len_codec->out->data = out_len;
+//	c->e_xrle.len_codec->out->alloc = out_len_size;
+//	c->e_xrle.len_codec->out->byte = out_len_size;
+//	out_len = NULL;
+//    } else
+	if (c->e_xrle.len_codec->encode(NULL,
+					c->e_xrle.len_codec,
+					(char *)out_len, out_len_size))
 	return -1;
 
-    if (c->e_xrle.lit_codec->encode(NULL,
-				    c->e_xrle.lit_codec,
-				    (char *)out_lit, out_lit_size))
+//    if (c->e_xrle.lit_codec->codec == E_EXTERNAL &&
+//	c->e_xrle.lit_codec->out &&
+//	c->e_xrle.lit_codec->out->data == NULL) {
+//	c->e_xrle.lit_codec->out->data = out_lit;
+//	c->e_xrle.lit_codec->out->alloc = out_lit_size;
+//	c->e_xrle.lit_codec->out->byte = out_lit_size;
+//	out_lit = NULL;
+//    } else
+	if (c->e_xrle.lit_codec->encode(NULL,
+					c->e_xrle.lit_codec,
+					(char *)out_lit, out_lit_size))
 	return -1;
     
     free(out_len);

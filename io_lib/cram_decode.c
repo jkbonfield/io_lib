@@ -980,9 +980,6 @@ void cram_decode_estimate_sizes(cram_block_compression_hdr *hdr, cram_slice *s,
     int bnum1, bnum2;
     cram_codec *cd;
 
-    *qual_size = 0;
-    *name_size = 0;
-
     /* Qual */
     if (!(cd = hdr->codecs[DS_QS]))
 	return;
@@ -991,7 +988,7 @@ void cram_decode_estimate_sizes(cram_block_compression_hdr *hdr, cram_slice *s,
     if (bnum1 < 0 && bnum2 >= 0) bnum1 = bnum2;
     if (cram_ds_unique(hdr, cd, bnum1)) {
 	cram_block *b = cram_get_block_by_id(s, bnum1);
-	if (b) *qual_size = b->uncomp_size;
+	if (b && *qual_size < b->uncomp_size) *qual_size = b->uncomp_size;
 	if (q_id && cd->codec == E_EXTERNAL)
 	    *q_id = bnum1;
     }
@@ -1002,7 +999,7 @@ void cram_decode_estimate_sizes(cram_block_compression_hdr *hdr, cram_slice *s,
     if (bnum1 < 0 && bnum2 >= 0) bnum1 = bnum2;
     if (cram_ds_unique(hdr, cd, bnum1)) {
 	cram_block *b = cram_get_block_by_id(s, bnum1);
-	if (b) *name_size = b->uncomp_size;
+	if (b && *name_size < b->uncomp_size) *name_size = b->uncomp_size;
     }
 }
 
@@ -2434,8 +2431,9 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
     // factor (*=1.5) is never applied.
     {
 	int qsize, nsize, q_id;
+	qsize = c->num_bases / c->max_slice;
+	nsize = c->num_records / c->max_slice * 50;
 	cram_decode_estimate_sizes(c->comp_hdr, s, &qsize, &nsize, &q_id);
-	//fprintf(stderr, "qsize=%d nsize=%d\n", qsize, nsize);
 
 	if (qsize && (ds & CRAM_RL)) BLOCK_RESIZE_EXACT(s->seqs_blk, qsize+1);
 	if (qsize && (ds & CRAM_RL)) BLOCK_RESIZE_EXACT(s->qual_blk, qsize+1);
