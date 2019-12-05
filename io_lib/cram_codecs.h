@@ -108,6 +108,18 @@ typedef struct {
 } cram_xrle_decoder;
 typedef cram_xrle_decoder cram_xrle_encoder;
 
+// DELTA + zigzag + varint encoding
+typedef struct {
+    // FIXME: define endian here too.  Require little endian?
+    int64_t last;
+    uint8_t word_size; // 1, 2, 4, 8
+    //uint8_t sign;      // true if input data is already signed
+    enum cram_encoding sub_encoding;
+    void *sub_codec_dat;
+    struct cram_codec *sub_codec;
+} cram_xdelta_decoder;
+typedef cram_xdelta_decoder cram_xdelta_encoder;
+
 typedef struct {
     int64_t offset;
 } cram_gamma_decoder;
@@ -170,6 +182,7 @@ typedef struct cram_codec {
 	cram_byte_array_stop_decoder byte_array_stop;
 	cram_xpack_decoder           xpack;
 	cram_xrle_decoder            xrle;
+	cram_xdelta_decoder          xdelta;
 
 	cram_huffman_encoder         e_huffman;
 	cram_external_decoder        e_external;
@@ -178,6 +191,7 @@ typedef struct cram_codec {
 	cram_beta_decoder            e_beta;
 	cram_xpack_decoder           e_xpack;
 	cram_xrle_decoder            e_xrle;
+	cram_xdelta_decoder          e_xdelta;
     };
 } cram_codec;
 

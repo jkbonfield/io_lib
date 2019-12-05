@@ -1658,6 +1658,7 @@ cram_block *cram_new_block(enum cram_content_type content_type,
     b->bit = 7; // MSB
     b->crc32 = 0;
     b->idx = 0;
+    b->m = NULL;
 
     return b;
 }

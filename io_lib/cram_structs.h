@@ -101,6 +101,7 @@ enum cram_encoding {
     E_XHUFFMAN           = 10, // To external block
     E_XPACK              = 11, // Transform to sub-codec
     E_XRLE               = 12, // Transform to sub-codec
+    E_XDELTA             = 13, // Transform to sub-codec
     E_NUM_CODECS, /* Total number of codecs, not a real one. */
 };
 
@@ -357,6 +358,7 @@ typedef struct cram_map {
 typedef struct {
     struct cram_codec *codec;
     cram_block *blk;
+    cram_block *blk2;
     cram_metrics *m;
 } cram_tag_map;
 

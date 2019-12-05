@@ -654,10 +654,8 @@ cram_codec *cram_beta_decode_init(cram_block_compression_hdr *hdr,
 	c->decode = cram_beta_decode_int;
     else if (option == E_BYTE_ARRAY || option == E_BYTE)
 	c->decode = cram_beta_decode_char;
-    else {
-	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
+    else
 	return NULL;
-    }
     c->free   = cram_beta_decode_free;
     
     c->beta.nbits = -1;
@@ -1048,7 +1046,14 @@ int cram_xpack_encode_char(cram_slice *slice, cram_codec *c,
 }
 
 void cram_xpack_encode_free(cram_codec *c) {
-    if (c) free(c);
+    if (!c) return;
+
+    if (c->e_xpack.sub_codec)
+	c->e_xpack.sub_codec->free(c->e_xpack.sub_codec);
+
+    cram_free_block(c->out);
+
+    free(c);
 }
 
 cram_codec *cram_xpack_encode_init(cram_stats *st,
@@ -1089,9 +1094,375 @@ cram_codec *cram_xpack_encode_init(cram_stats *st,
 	return NULL;
     }
 
-    // Temporary buffer
-    if (!(c->out = cram_new_block(0, 0)))
+    return c;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * XDELTA: subtract successive values, zig-zag to turn +/- to + only,
+ * and then var-int encode the result.
+ *
+ * This also has the additional requirement that the data series is not
+ * interleaved with another, permitting efficient encoding and decoding
+ * of all elements enmasse instead of needing to only extract the bits
+ * necessary per item.
+ */
+
+static uint8_t  zigzag8 (int8_t  x) { return (x << 1) ^ (x >>  7); }
+static uint16_t zigzag16(int16_t x) { return (x << 1) ^ (x >> 15); }
+static uint32_t zigzag32(int32_t x) { return (x << 1) ^ (x >> 31); }
+
+static int8_t  unzigzag8 (uint8_t  x) { return (x >> 1) ^ -(x & 1); }
+static int16_t unzigzag16(uint16_t x) { return (x >> 1) ^ -(x & 1); }
+static int32_t unzigzag32(uint32_t x) { return (x >> 1) ^ -(x & 1); }
+
+int cram_xdelta_decode_long(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+    return -1;
+}
+
+int cram_xdelta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+    // Slow value-by-value method for now
+    uint32_t *out32 = (uint32_t *)out;
+    int i;
+    for (i = 0; i < *out_size; i++) {
+	uint32_t v, one = 1;
+	if (c->e_xdelta.sub_codec->decode(slice, c->e_xdelta.sub_codec, in,
+					  (char *)&v, &one) < 0)
+	    return -1;
+	uint32_t d = unzigzag32(v);
+	c->xdelta.last = out32[i] = d + c->xdelta.last;
+    }
+
+    return 0;
+}
+
+static int cram_xdelta_decode_expand_char(cram_slice *slice, cram_codec *c) {
+    return -1;
+}
+
+int cram_xdelta_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, char *out, int *out_size) {
+    return -1;
+}
+
+int cram_xdelta_decode_block(cram_slice *slice, cram_codec *c, cram_block *in,
+			     char *out_, int *out_size) {
+    cram_block *out = (cram_block *)out_;
+    cram_block *b = c->e_xdelta.sub_codec->get_block(slice, c->e_xdelta.sub_codec);
+    int i = 0;
+
+    const int w = c->xdelta.word_size;
+    uint32_t npad = (w - *out_size%w)%w;
+    uint32_t out_sz = *out_size + npad;
+    c->xdelta.last = 0;  // reset for each new array
+
+    for (i = 0; i < out_sz; i += w) {
+	uint16_t v;
+	// Need better interface
+	char *cp = b->data + b->byte;
+	char *cp_end = b->data + b->uncomp_size;
+	int err = 0;
+	v = c->vv->varint_get32(&cp, cp_end, &err);
+	if (err)
+	    return -1;
+	b->byte = cp - (char *)b->data;
+
+	switch(w) {
+	case 2: {
+	    int16_t d = unzigzag16(v), z;
+	    z = c->xdelta.last = d + c->xdelta.last;
+	    // FIXME: endian check
+	    BLOCK_APPEND(out, &z, 2-npad);
+	    npad = 0;
+	    break;
+	}
+	default:
+	    fprintf(stderr, "Unsupported word size by XDELTA\n");
+	    return -1;
+	}
+    }
+
+    return 0;
+}
+
+void cram_xdelta_decode_free(cram_codec *c) {
+    if (!c) return;
+
+    if (c->xdelta.sub_codec)
+	c->xdelta.sub_codec->free(c->xdelta.sub_codec);
+
+    free(c);
+}
+
+int cram_xdelta_decode_size(cram_slice *slice, cram_codec *c) {
+    cram_xdelta_decode_expand_char(slice, c);
+    return slice->block_by_id[512 + c->codec_id]->uncomp_size;
+}
+
+cram_block *cram_xdelta_get_block(cram_slice *slice, cram_codec *c) {
+    cram_xdelta_decode_expand_char(slice, c);
+    return slice->block_by_id[512 + c->codec_id];
+}
+
+cram_codec *cram_xdelta_decode_init(cram_block_compression_hdr *hdr,
+				   char *data, int size,
+				   enum cram_external_type option,
+				   int version, varint_vec *vv) {
+    cram_codec *c;
+    char *cp = data;
+    char *endp = data+size;
+
+    if (!(c = malloc(sizeof(*c))))
 	return NULL;
+
+    c->codec  = E_XDELTA;
+    if (option == E_LONG)
+	c->decode = cram_xdelta_decode_long;
+    else if (option == E_INT)
+	c->decode = cram_xdelta_decode_int;
+    else if (option == E_BYTE_ARRAY || option == E_BYTE)
+	c->decode = cram_xdelta_decode_char;
+    else if (option == E_BYTE_ARRAY_BLOCK) {
+	option = E_BYTE_ARRAY;
+	c->decode = cram_xdelta_decode_block;
+    } else
+	return NULL;
+    c->free = cram_xdelta_decode_free;
+    c->size = cram_xdelta_decode_size;
+    c->get_block = cram_xdelta_get_block;
+
+    c->xdelta.word_size = vv->varint_get32(&cp, endp, NULL);
+    c->xdelta.last = 0;
+
+    int encoding = vv->varint_get32(&cp, endp, NULL);
+    int sub_size = vv->varint_get32(&cp, endp, NULL);
+    if (sub_size < 0 || endp - cp < sub_size)
+        goto malformed;
+    c->xdelta.sub_codec = cram_decoder_init(hdr, encoding, cp, sub_size,
+					   option, version, vv);
+    if (c->xdelta.sub_codec == NULL)
+        goto malformed;
+    cp += sub_size;
+
+    if (cp - data != size) {
+    malformed:
+	fprintf(stderr, "Malformed xdelta header stream\n");
+	free(c);
+	return NULL;
+    }
+
+    return c;
+}
+
+// FIXME: unused?
+int cram_xdelta_encode_flush(cram_codec *c) {
+    int r = -1;
+    cram_block *b = cram_new_block(0, 0);
+
+    switch (c->e_xdelta.word_size) {
+    case 2: {
+	// Delta + zigzag transform.
+	// Subtracting two 8-bit values has a 9-bit result (-255 to 255).
+	// However think of it as turning a wheel clockwise or anti-clockwise.
+	// If it has 256 gradations then a -ve rotation followed by a +ve
+	// rotation of the same amount reverses it regardless.
+	//
+	// Similarly the zig-zag transformation doesn't invent any extra bits,
+	// so the entire thing can be done in-situ.  This may permit faster
+	// SIMD loops if we break apart the steps.
+
+	// uint16_t last = 0, d;
+	// for (i = 0; i < n; i++) {
+	//     d = io[i] - last;
+        //     last = io[i];
+        //     io[i] = zigzag16(vd);
+	// }
+	
+	// --- vs ---
+
+	// for (i = n-1; i >= 1; i--)
+	//     io[i] -= io[i-1];
+	// for (i = 0; i < n; i++)
+	//     io[i] = zigzag16(io[i]);
+
+	// varint: need array variant for speed here.
+	// With zig-zag
+	int i, n = BLOCK_SIZE(c->out)/2;;
+	uint16_t *dat = (uint16_t *)BLOCK_DATA(c->out), last = 0;
+
+	if (n*2 < BLOCK_SIZE(c->out)) {
+	    // half word
+	    last = *(uint8_t *)dat;
+	    c->vv->varint_put32_blk(b, zigzag16(last));
+	    dat = (uint16_t *)(((uint8_t *)dat)+1);
+	}
+
+	for (i = 0; i < n; i++) {
+	    uint16_t d = dat[i] - last; // possibly unaligned
+	    last = dat[i];
+	    c->vv->varint_put32_blk(b, zigzag16(d));
+	}
+
+	break;
+    }
+
+    case 4: {
+	int i, n = BLOCK_SIZE(c->out)/4;;
+	uint32_t *dat = (uint32_t *)BLOCK_DATA(c->out), last = 0;
+
+	for (i = 0; i < n; i++) {
+	    uint32_t d = dat[i] - last;
+	    last = dat[i];
+	    c->vv->varint_put32_blk(b, zigzag32(d));
+	}
+
+	break;
+    }
+
+    case 1: {
+	int i, n = BLOCK_SIZE(c->out);;
+	uint8_t *dat = (uint8_t *)BLOCK_DATA(c->out), last = 0;
+
+	for (i = 0; i < n; i++) {
+	    uint32_t d = dat[i] - last;
+	    last = dat[i];
+	    c->vv->varint_put32_blk(b, zigzag8(d));
+	}
+
+	break;
+    }
+
+    default:
+	goto err;
+    }
+
+    if (c->e_xdelta.sub_codec->encode(NULL, c->e_xdelta.sub_codec,
+				      (char *)b->data, b->byte))
+	goto err;
+
+    r = 0;
+ err:
+    cram_free_block(b);
+    return r;
+
+}
+
+int cram_xdelta_encode_store(cram_codec *c, cram_block *b,
+			    char *prefix, int version) {
+    int len = 0;
+
+    if (prefix) {
+	size_t l = strlen(prefix);
+	BLOCK_APPEND(b, prefix, l);
+	len += l;
+    }
+
+    // Store sub-codec
+    cram_codec *tc = c->e_xdelta.sub_codec;
+    cram_block *tb = cram_new_block(0, 0);
+    int len2 = tc->store(tc, tb, NULL, version);
+
+    len += c->vv->varint_put32_blk(b, c->codec);
+
+    // codec length
+    len += c->vv->varint_put32_blk(b, c->vv->varint_size(c->e_xdelta.word_size) + len2);
+
+    // This and sub-codec
+    len += c->vv->varint_put32_blk(b, c->e_xdelta.word_size);
+    BLOCK_APPEND(b, BLOCK_DATA(tb), BLOCK_SIZE(tb));
+
+    cram_free_block(tb);
+
+    return len + len2;
+}
+
+// Same as cram_beta_encode_long
+int cram_xdelta_encode_long(cram_slice *slice, cram_codec *c,
+			   char *in, int in_size) {
+    return -1;
+}
+
+int cram_xdelta_encode_int(cram_slice *slice, cram_codec *c,
+			  char *in, int in_size) {
+    BLOCK_APPEND(c->out, in, in_size*4);
+    return 0;
+}
+
+int cram_xdelta_encode_char(cram_slice *slice, cram_codec *c,
+			   char *in, int in_size) {
+    char *dat = malloc(in_size*5), *cp = dat;
+    c->e_xdelta.last = 0; // reset for each new array
+    switch(c->e_xdelta.word_size) {
+    case 2: {
+	int i, part;
+	uint16_t last = 0;
+	
+	part = in_size%2;
+	if (part) {
+	    uint8_t p[8] = {0};
+	    memcpy(p, in, part);
+	    c->e_xdelta.last = *(uint16_t *)p; // -last, but == 0
+	    cp += c->vv->varint_put32(cp, NULL, zigzag16(c->e_xdelta.last));
+	}
+
+	uint16_t *in16 = (uint16_t *)(in+part);
+	for (i = 0; i < in_size/2; i++) {
+	    uint16_t d = in16[i] - c->e_xdelta.last;
+	    c->e_xdelta.last = in16[i];
+	    cp += c->vv->varint_put32(cp, NULL, zigzag16(d));
+	    //*(uint16_t *)cp = in16[i]; cp += 2; // verbatim copy; ie EXTERNAL
+	}
+
+	break;
+    }
+    }
+    if (c->e_xdelta.sub_codec->encode(slice, c->e_xdelta.sub_codec,
+				      (char *)dat, cp-dat)) {
+	free(dat);
+	return -1;
+    }
+
+    free(dat);
+    return 0;
+}
+
+void cram_xdelta_encode_free(cram_codec *c) {
+    if (!c) return;
+
+    if (c->e_xdelta.sub_codec)
+	c->e_xdelta.sub_codec->free(c->e_xdelta.sub_codec);
+
+    cram_free_block(c->out);
+
+    free(c);
+}
+
+cram_codec *cram_xdelta_encode_init(cram_stats *st,
+				   enum cram_external_type option,
+				   void *dat,
+				   int version, varint_vec *vv) {
+    cram_codec *c;
+
+    c = malloc(sizeof(*c));
+    if (!c)
+	return NULL;
+    c->codec  = E_XDELTA;
+    c->free   = cram_xdelta_encode_free;
+    if (option == E_LONG)
+	c->encode = cram_xdelta_encode_long;
+    else if (option == E_INT)
+	c->encode = cram_xdelta_encode_int;
+    else
+	c->encode = cram_xdelta_encode_char;
+    c->store  = cram_xdelta_encode_store;
+    c->flush  = cram_xdelta_encode_flush;
+
+    cram_xdelta_encoder *e = (cram_xdelta_encoder *)dat;
+    c->e_xdelta.word_size = e->word_size;
+    c->e_xdelta.last = 0;
+    c->e_xdelta.sub_codec = cram_encoder_init(e->sub_encoding, NULL,
+					      E_BYTE_ARRAY,
+					      e->sub_codec_dat,
+					      version, vv);
 
     return c;
 }
@@ -1418,7 +1789,7 @@ int cram_xrle_encode_int(cram_slice *slice, cram_codec *c,
 int cram_xrle_encode_char(cram_slice *slice, cram_codec *c,
 			  char *in, int in_size) {
     if (c->e_xrle.to_flush) {
-	if (!(c->out = cram_new_block(0, 0)))
+	if (!c->out && !(c->out = cram_new_block(0, 0)))
 	    return -1;
 	BLOCK_APPEND(c->out, c->e_xrle.to_flush, c->e_xrle.to_flush_size);
 	c->e_xrle.to_flush = NULL;
@@ -1438,7 +1809,16 @@ int cram_xrle_encode_char(cram_slice *slice, cram_codec *c,
 }
 
 void cram_xrle_encode_free(cram_codec *c) {
-    if (c) free(c);
+    if (!c) return;
+
+    if (c->e_xrle.len_codec)
+	c->e_xrle.len_codec->free(c->e_xrle.len_codec);
+    if (c->e_xrle.lit_codec)
+	c->e_xrle.lit_codec->free(c->e_xrle.lit_codec);
+
+    cram_free_block(c->out);
+
+    free(c);
 }
 
 cram_codec *cram_xrle_encode_init(cram_stats *st,
@@ -1475,10 +1855,6 @@ cram_codec *cram_xrle_encode_init(cram_stats *st,
     c->e_xrle.to_flush_size = 0;
 
     memcpy(c->e_xrle.rep_score, e->rep_score, 256*sizeof(*c->e_xrle.rep_score));
-
-    // Temporary buffer
-    if (!(c->out = cram_new_block(0, 0)))
-	return NULL;
 
     return c;
 }
@@ -1544,7 +1920,7 @@ cram_codec *cram_subexp_decode_init(cram_block_compression_hdr *hdr,
     char *cp = data;
 
     if (option == E_BYTE_ARRAY_BLOCK) {
-	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
+	fprintf(stderr, "BYTE_ARRAY_BLOCK not supported by this codec\n");
 	return NULL;
     }
 
@@ -1609,7 +1985,7 @@ cram_codec *cram_gamma_decode_init(cram_block_compression_hdr *hdr,
     char *cp = data;
 
     if (option == E_BYTE_ARRAY_BLOCK) {
-	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
+	fprintf(stderr, "BYTE_ARRAY_BLOCK not supported by this codec\n");
 	return NULL;
     }
 
@@ -1825,7 +2201,7 @@ cram_codec *cram_huffman_decode_init(cram_block_compression_hdr *hdr,
     int err = 0;
     
     if (option == E_BYTE_ARRAY_BLOCK) {
-	fprintf(stderr, "BYTE_ARRAYs not supported by this codec\n");
+	fprintf(stderr, "BYTE_ARRAY_BLOCK not supported by this codec\n");
 	return NULL;
     }
 
@@ -2697,6 +3073,7 @@ const char *cram_encoding2str(enum cram_encoding t) {
     case E_GAMMA:           return "GAMMA";
     case E_XPACK:           return "XPACK";
     case E_XRLE:            return "XRLE";
+    case E_XDELTA:          return "XDELTA";
     case E_NUM_CODECS:
     default:                return "?";
     }
@@ -2720,6 +3097,7 @@ static cram_codec *(*decode_init[])(cram_block_compression_hdr *hdr,
     NULL,
     cram_xpack_decode_init,
     cram_xrle_decode_init,
+    cram_xdelta_decode_init,
 };
 
 cram_codec *cram_decoder_init(cram_block_compression_hdr *hdr,
@@ -2757,6 +3135,7 @@ static cram_codec *(*encode_init[])(cram_stats *stx,
     NULL,
     cram_xpack_encode_init,
     cram_xrle_encode_init,
+    cram_xdelta_encode_init,
 };
 
 cram_codec *cram_encoder_init(enum cram_encoding codec,
@@ -2811,6 +3190,9 @@ int cram_codec_to_id(cram_codec *c, int *id2) {
     case E_XRLE:
 	bnum1 = cram_codec_to_id(c->xrle.len_codec, NULL);
 	bnum2 = cram_codec_to_id(c->xrle.lit_codec, NULL);
+	break;
+    case E_XDELTA:
+	bnum1 = cram_codec_to_id(c->xdelta.sub_codec, NULL);
 	break;
     case E_BYTE_ARRAY_STOP:
 	bnum1 = c->byte_array_stop.content_id;
