@@ -1125,7 +1125,8 @@ int cram_xdelta_decode_int(cram_slice *slice, cram_codec *c, cram_block *in, cha
     uint32_t *out32 = (uint32_t *)out;
     int i;
     for (i = 0; i < *out_size; i++) {
-	uint32_t v, one = 1;
+	uint32_t v;
+	int one = 1;
 	if (c->e_xdelta.sub_codec->decode(slice, c->e_xdelta.sub_codec, in,
 					  (char *)&v, &one) < 0)
 	    return -1;
@@ -1158,8 +1159,8 @@ int cram_xdelta_decode_block(cram_slice *slice, cram_codec *c, cram_block *in,
     for (i = 0; i < out_sz; i += w) {
 	uint16_t v;
 	// Need better interface
-	char *cp = b->data + b->byte;
-	char *cp_end = b->data + b->uncomp_size;
+	char *cp = (char *)b->data + b->byte;
+	char *cp_end = (char *)b->data + b->uncomp_size;
 	int err = 0;
 	v = c->vv->varint_get32(&cp, cp_end, &err);
 	if (err)
@@ -1394,13 +1395,17 @@ int cram_xdelta_encode_char(cram_slice *slice, cram_codec *c,
     switch(c->e_xdelta.word_size) {
     case 2: {
 	int i, part;
-	uint16_t last = 0;
 	
 	part = in_size%2;
 	if (part) {
-	    uint8_t p[8] = {0};
-	    memcpy(p, in, part);
-	    c->e_xdelta.last = *(uint16_t *)p; // -last, but == 0
+	    union {
+		uint8_t c[8];
+		uint16_t s[4];
+		uint32_t w[2];
+		uint64_t l;
+	    } p = {{0}};
+	    memcpy(p.c, in, part);
+	    c->e_xdelta.last = *p.s; // -last, but == 0
 	    cp += c->vv->varint_put32(cp, NULL, zigzag16(c->e_xdelta.last));
 	}
 
