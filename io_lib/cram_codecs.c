@@ -547,9 +547,9 @@ cram_codec *cram_external_encode_init(cram_stats *st,
 				      int version, varint_vec *vv) {
     cram_codec *c;
 
-    c = malloc(sizeof(*c));
-    if (!c)
+    if (!(c = malloc(sizeof(*c))))
 	return NULL;
+
     c->codec = E_EXTERNAL;
     c->free = cram_external_encode_free;
     if (option == E_INT)
@@ -740,9 +740,9 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
     int64_t min_val, max_val, len = 0;
     int64_t range;
 
-    c = malloc(sizeof(*c));
-    if (!c)
+    if (!(c = malloc(sizeof(*c))))
 	return NULL;
+
     c->codec  = E_BETA;
     c->free   = cram_beta_encode_free;
     if (option == E_LONG)
@@ -846,6 +846,8 @@ static int cram_xpack_decode_expand_char(cram_slice *slice, cram_codec *c) {
 
     // Allocate local block to expand into
     b = slice->block_by_id[512 + c->codec_id] = cram_new_block(0, 0);
+    if (!b)
+	return -1;
     int n = sub_b->uncomp_size * 8/c->xpack.nbits;
     BLOCK_GROW(b, n);
     b->uncomp_size = n;
@@ -925,7 +927,6 @@ cram_codec *cram_xpack_decode_init(cram_block_compression_hdr *hdr,
     c->size = cram_xpack_decode_size;
     c->get_block = cram_xpack_get_block;
     
-    c->xpack.nbits = -1;
     c->xpack.nbits = vv->varint_get32(&cp, endp, NULL);
     c->xpack.nval  = vv->varint_get32(&cp, endp, NULL);
     int i;
@@ -991,6 +992,8 @@ int cram_xpack_encode_store(cram_codec *c, cram_block *b,
     // Store sub-codec
     cram_codec *tc = c->e_xpack.sub_codec;
     cram_block *tb = cram_new_block(0, 0);
+    if (!tb)
+	return -1;
     int len2 = tc->store(tc, tb, NULL, version);
 
     len += c->vv->varint_put32_blk(b, c->codec);
@@ -1062,9 +1065,9 @@ cram_codec *cram_xpack_encode_init(cram_stats *st,
 				   int version, varint_vec *vv) {
     cram_codec *c;
 
-    c = malloc(sizeof(*c));
-    if (!c)
+    if (!(c = malloc(sizeof(*c))))
 	return NULL;
+
     c->codec  = E_XPACK;
     c->free   = cram_xpack_encode_free;
     if (option == E_LONG)
@@ -1170,8 +1173,8 @@ int cram_xdelta_decode_block(cram_slice *slice, cram_codec *c, cram_block *in,
 	switch(w) {
 	case 2: {
 	    int16_t d = unzigzag16(v), z;
-	    z = c->xdelta.last = d + c->xdelta.last;
-	    // FIXME: endian check
+	    c->xdelta.last = d + c->xdelta.last;
+	    z = le_int2(c->xdelta.last);
 	    BLOCK_APPEND(out, &z, 2-npad);
 	    npad = 0;
 	    break;
@@ -1258,6 +1261,10 @@ cram_codec *cram_xdelta_decode_init(cram_block_compression_hdr *hdr,
 int cram_xdelta_encode_flush(cram_codec *c) {
     int r = -1;
     cram_block *b = cram_new_block(0, 0);
+    if (!b)
+	return -1;
+
+    fprintf(stderr, "xdelta_flush\n");
 
     switch (c->e_xdelta.word_size) {
     case 2: {
@@ -1360,6 +1367,8 @@ int cram_xdelta_encode_store(cram_codec *c, cram_block *b,
     // Store sub-codec
     cram_codec *tc = c->e_xdelta.sub_codec;
     cram_block *tb = cram_new_block(0, 0);
+    if (!tb)
+	return -1;
     int len2 = tc->store(tc, tb, NULL, version);
 
     len += c->vv->varint_put32_blk(b, c->codec);
@@ -1384,37 +1393,32 @@ int cram_xdelta_encode_long(cram_slice *slice, cram_codec *c,
 
 int cram_xdelta_encode_int(cram_slice *slice, cram_codec *c,
 			  char *in, int in_size) {
-    BLOCK_APPEND(c->out, in, in_size*4);
-    return 0;
+    return -1;
 }
 
 int cram_xdelta_encode_char(cram_slice *slice, cram_codec *c,
 			   char *in, int in_size) {
     char *dat = malloc(in_size*5), *cp = dat;
+    if (!dat)
+	return -1;
+
     c->e_xdelta.last = 0; // reset for each new array
     switch(c->e_xdelta.word_size) {
     case 2: {
 	int i, part;
-	
+
 	part = in_size%2;
 	if (part) {
-	    union {
-		uint8_t c[8];
-		uint16_t s[4];
-		uint32_t w[2];
-		uint64_t l;
-	    } p = {{0}};
-	    memcpy(p.c, in, part);
-	    c->e_xdelta.last = *p.s; // -last, but == 0
+	    uint16_t z = in[0];
+	    c->e_xdelta.last = le_int2(z);
 	    cp += c->vv->varint_put32(cp, NULL, zigzag16(c->e_xdelta.last));
 	}
 
 	uint16_t *in16 = (uint16_t *)(in+part);
 	for (i = 0; i < in_size/2; i++) {
-	    uint16_t d = in16[i] - c->e_xdelta.last;
-	    c->e_xdelta.last = in16[i];
+	    uint16_t d = le_int2(in16[i]) - c->e_xdelta.last;
+	    c->e_xdelta.last = le_int2(in16[i]);
 	    cp += c->vv->varint_put32(cp, NULL, zigzag16(d));
-	    //*(uint16_t *)cp = in16[i]; cp += 2; // verbatim copy; ie EXTERNAL
 	}
 
 	break;
@@ -1447,9 +1451,9 @@ cram_codec *cram_xdelta_encode_init(cram_stats *st,
 				   int version, varint_vec *vv) {
     cram_codec *c;
 
-    c = malloc(sizeof(*c));
-    if (!c)
+    if (!(c = malloc(sizeof(*c))))
 	return NULL;
+
     c->codec  = E_XDELTA;
     c->free   = cram_xdelta_encode_free;
     if (option == E_LONG)
@@ -1498,6 +1502,8 @@ static int cram_xrle_decode_expand_char(cram_slice *slice, cram_codec *c) {
 	return 0;
 
     b = slice->block_by_id[512 + c->codec_id] = cram_new_block(0, 0);
+    if (!b)
+	return -1;
     cram_block *lit_b = c->xrle.lit_codec->get_block(slice, c->xrle.lit_codec);
     if (!lit_b)
 	return -1;
@@ -1685,6 +1691,9 @@ int cram_xrle_encode_flush(cram_codec *c) {
     }
 
     out_len = malloc(c->e_xrle.to_flush_size+8);
+    if (!out_len)
+	return -1;
+
     int nb = var_put_u64(out_len, NULL, c->e_xrle.to_flush_size);
 
     out_lit = rle_encode((uint8_t *)c->e_xrle.to_flush, c->e_xrle.to_flush_size,
@@ -1695,6 +1704,7 @@ int cram_xrle_encode_flush(cram_codec *c) {
 
 
     // FIXME: can maybe "gift" the sub codec the data block, to remove
+
     // one level of memcpy.
     //
     // Note the correct encoding type for len is INT, but rle_encode
@@ -1746,6 +1756,8 @@ int cram_xrle_encode_store(cram_codec *c, cram_block *b,
 
     // List of symbols to RLE
     b_rle = cram_new_block(0, 0);
+    if (!b_rle)
+	return -1;
     int i, nrle = 0, len1 = 0;
     for (i = 0; i < 256; i++) {
 	if (c->e_xrle.rep_score[i] > 0) {
@@ -1757,10 +1769,14 @@ int cram_xrle_encode_store(cram_codec *c, cram_block *b,
     // Store length and literal sub-codecs to get encoded length
     tc = c->e_xrle.len_codec;
     b_len = cram_new_block(0, 0);
+    if (!b_len)
+	return -1;
     int len2 = tc->store(tc, b_len, NULL, version);
 
     tc = c->e_xrle.lit_codec;
     b_lit = cram_new_block(0, 0);
+    if (!b_lit)
+	return -1;
     int len3 = tc->store(tc, b_lit, NULL, version);
 
     len += c->vv->varint_put32_blk(b, c->codec);
@@ -1832,9 +1848,9 @@ cram_codec *cram_xrle_encode_init(cram_stats *st,
 				   int version, varint_vec *vv) {
     cram_codec *c;
 
-    c = malloc(sizeof(*c));
-    if (!c)
+    if (!(c = malloc(sizeof(*c))))
 	return NULL;
+
     c->codec  = E_XRLE;
     c->free   = cram_xrle_encode_free;
     if (option == E_LONG)
@@ -2821,10 +2837,14 @@ int cram_byte_array_len_encode_store(cram_codec *c, cram_block *b,
 
     tc = c->e_byte_array_len.len_codec; 
     b_len = cram_new_block(0, 0);
+    if (!b_len)
+	return -1;
     len2 = tc->store(tc, b_len, NULL, version);
 
     tc = c->e_byte_array_len.val_codec;
     b_val = cram_new_block(0, 0);
+    if (!b_val)
+	return -1;
     len3 = tc->store(tc, b_val, NULL, version);
 
     len += c->vv->varint_put32_blk(b, c->codec);
@@ -3251,6 +3271,8 @@ int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c) {
 	// FIXME: we huffman and e_huffman structs amended, we could
 	// unify this.
 	cram_codec *t = malloc(sizeof(*t));
+	if (!t)
+	    return -1;
 	t->codec = E_HUFFMAN;
 	t->free = cram_huffman_encode_free;
 	t->store = cram_huffman_encode_store;
@@ -3319,6 +3341,8 @@ int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c) {
 
     case E_BYTE_ARRAY_LEN: {
 	cram_codec *t = malloc(sizeof(*t));
+	if (!t)
+	    return -1;
 	t->codec = E_BYTE_ARRAY_LEN;
 	t->free   = cram_byte_array_len_encode_free;
 	t->store  = cram_byte_array_len_encode_store;

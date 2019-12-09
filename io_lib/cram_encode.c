@@ -701,7 +701,7 @@ static int cram_encode_slice_read(cram_fd *fd,
 		break;
 
 	    case 'Q':
-		uc  = f->B.qual;
+		uc  = f->Q.qual;
 		r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS],
 					      (char *)&uc, 1);
 		break;
