@@ -5690,62 +5690,75 @@ int cram_flush(cram_fd *fd) {
  *        -1 on failure
  */
 int cram_write_eof_block(cram_fd *fd) {
-    // 7-bit encoding version:
-    //    CRAM_IO_WRITE(
-    //		  "\x0f\x00\x00\x00\x8f\xff\xff\xff" // Cont HDR
-    //		  "\x7f\x82\x95\x9e\x46\x00\x00\x00" // Cont HDR
-    //		  "\x00\x01\x00"                     // Cont HDR
-    //		  "\xac\xd6\x05\xbc"                 // CRC32
-    //		  "\x00\x01\x00\x06\x06"             // Comp.HDR blk
-    //		  "\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
-    //		  "\xee\x63\x01\x4b",                // CRC32
-    //		  38, 1, fd);
-    //    return cram_io_flush_output_buffer(fd);
+    // EOF block is a container with special values to aid detection
+    if (CRAM_MAJOR_VERS(fd->version) >= 2) {
+	// Empty container with
+	//   ref_seq_id -1
+	//   start pos 0x454f46 ("EOF")
+	//   span 0
+	//   nrec 0
+	//   counter 0
+	//   nbases 0
+	//   1 block (landmark 0)
+	//   (CRC32)
+	cram_container c;
+	memset(&c, 0, sizeof(c));
+	c.ref_seq_id = -1;
+	c.ref_seq_start = 0x454f46; // "EOF"
+	c.ref_seq_span = 0;
+	c.record_counter = 0;
+	c.num_bases = 0;
+	c.num_blocks = 1;
+	int32_t land[1] = {0};
+	c.landmark = land;
 
-    // EOF block is a container with
-    //   ref_seq_id -1
-    //   start pos 0x454f46 ("EOF")
-    //   span 0
-    //   nrec 0
-    //   counter 0
-    //   nbases 0
-    //   1 block (landmark 0)
-    //   (CRC32)
-    // followed by an empty compression header block
-    //   method raw (0)
-    //   type comp header (1)
-    //   content id 0
-    //   block contents size 6
-    //   raw size 6
-    //     empty preservation map (01 00)
-    //     empty data series map (01 00)
-    //     empty tag map (01 00)
-    //   block CRC
-    if (IS_CRAM_4_VERS(fd)) {
-	// do nothing
-    } else if (IS_CRAM_3_VERS(fd)) {
-	if (1 != CRAM_IO_WRITE(
-		"\x0f\x00\x00\x00\xff\xff\xff\xff" // Cont HDR
-		"\x0f\xe0\x45\x4f\x46\x00\x00\x00" // Cont HDR
-		"\x00\x01\x00"                     // Cont HDR
-		"\x05\xbd\xd9\x4f"                 // CRC32
-		//"\xa8\x2a\x1b\xb9"		   // CRC32C
-		"\x00\x01\x00\x06\x06"             // Comp.HDR blk
-		"\x01\x00\x01\x00\x01\x00"         // Comp.HDR blk
-		"\xee\x63\x01\x4b",                // CRC32
-		//"\xe9\x70\xd3\x86",              // CRC32C
-		38, 1, fd)) {
-	    fd = cram_io_close(fd,0);
+	// An empty compression header block with
+	//   method raw (0)
+	//   type comp header (1)
+	//   content id 0
+	//   block contents size 6
+	//   raw size 6
+	//     empty preservation map (01 00)
+	//     empty data series map (01 00)
+	//     empty tag map (01 00)
+	//   block CRC
+	cram_block_compression_hdr ch;
+	memset(&ch, 0, sizeof(ch));
+	c.comp_hdr_block = cram_encode_compression_header(fd, &c, &ch);
+
+	c.length = c.comp_hdr_block->byte            // Landmark[0]
+	    + 5                                      // block struct
+	    + 4*(CRAM_MAJOR_VERS(fd->version) >= 3); // CRC
+	if (cram_write_container(fd, &c) < 0 ||
+	    cram_write_block(fd, c.comp_hdr_block) < 0) {
+	    fd = cram_io_close(fd, 0);
 	    return -1;
 	}
-    } else { 
-	if (1 != CRAM_IO_WRITE("\x0b\x00\x00\x00\xff\xff\xff\xff"
-			       "\x0f\xe0\x45\x4f\x46\x00\x00\x00"
-			       "\x00\x01\x00\x00\x01\x00\x06\x06"
-			       "\x01\x00\x01\x00\x01\x00", 30, 1, fd)) {
-	    fd = cram_io_close(fd,0);
-	    return -1;
-	}
+
+	// V2.1 bytes
+	// 0b 00 00 00 ff ff ff ff 0f // Cont HDR: size, ref seq id
+	// e0 45 4f 46 00 00 00       // Cont HDR: pos, span, nrec, counter
+	// 00 01 00                   // Cont HDR: nbase, nblk, landmark
+	// 00 01 00 06 06             // Comp.HDR blk
+	// 01 00 01 00 01 00          // Comp.HDR blk
+
+	// V3.0 bytes:
+	// 0f 00 00 00 ff ff ff ff 0f // Cont HDR: size, ref seq id
+	// e0 45 4f 46 00 00 00       // Cont HDR: pos, span, nrec, counter
+	// 00 01 00                   // Cont HDR: nbase, nblk, landmark
+	// 05 bd d9 4f                // CRC32
+	// 00 01 00 06 06             // Comp.HDR blk
+	// 01 00 01 00 01 00          // Comp.HDR blk
+	// ee 63 01 4b                // CRC32
+
+	// V4.0 bytes:
+	// 0f 00 00 00 8f ff ff ff    // Cont HDR: size, ref seq id
+	// 82 95 9e 46 00 00 00       // Cont HDR: pos, span, nrec, counter
+	// 00 01 00                   // Cont HDR: nbase, nblk, landmark
+	// ac d6 05 bc                // CRC32
+	// 00 01 00 06 06             // Comp.HDR blk
+	// 01 00 01 00 01 00          // Comp.HDR blk
+	// ee 63 01 4b                // CRC32
     }		
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)

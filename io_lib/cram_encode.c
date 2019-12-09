@@ -115,7 +115,7 @@ cram_block *cram_encode_compression_header(cram_fd *fd, cram_container *c,
      */
 
     /* FIXME: should create this when we create the container */
-    {
+    if (h->num_records > 0) {
 	HashData hd;
 
 	if (h->preservation_map)
