@@ -1096,7 +1096,7 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
     c->num_records += s->hdr->num_records;
 
     int ntags = c->tags_used ? c->tags_used->nused : 0;
-    s->block = calloc(DS_END + ntags, sizeof(s->block[0]));
+    s->block = calloc(DS_END + ntags*2, sizeof(s->block[0]));
     s->hdr->block_content_ids = malloc(DS_END * sizeof(int32_t));
     if (!s->block || !s->hdr->block_content_ids)
 	return -1;
@@ -2764,6 +2764,10 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		// BYTE_ARRAY_LEN with the length codec being external
 		// too.
 		cram_byte_array_len_encoder e;
+
+
+		// FIXME: Check size, data entropy, etc.  We need to learn
+		// what method compresses best here.
 
 		if (fd->version <= 0x300) {
 		    // 3.0; BYTE_ARRAY_LEN(EXTERNAL, EXTERNAL)
