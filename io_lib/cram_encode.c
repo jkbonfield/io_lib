@@ -2764,7 +2764,7 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		// BYTE_ARRAY_LEN with the length codec being external
 		// too.
 		cram_byte_array_len_encoder e;
-
+		cram_xdelta_encoder d;
 
 		// FIXME: Check size, data entropy, etc.  We need to learn
 		// what method compresses best here.
@@ -2782,7 +2782,6 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		    e.len_encoding = E_EXTERNAL;
 		    e.len_dat = (void *)sk+128; // or key+128 for len?
 
-		    cram_xdelta_encoder d;
 		    d.word_size = 2;
 		    d.sub_encoding = E_EXTERNAL;
 		    d.sub_codec_dat = (void *)sk;
