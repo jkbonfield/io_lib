@@ -843,6 +843,8 @@ static int cram_xpack_decode_expand_char(cram_slice *slice, cram_codec *c) {
 
     // get sub-codec data.
     cram_block *sub_b = c->xpack.sub_codec->get_block(slice, c->xpack.sub_codec);
+    if (!sub_b)
+	return -1;
 
     // Allocate local block to expand into
     b = slice->block_by_id[512 + c->codec_id] = cram_new_block(0, 0);
@@ -869,12 +871,18 @@ int cram_xpack_decode_char(cram_slice *slice, cram_codec *c, cram_block *in, cha
     // Hence one cram_codec instance, multiple slices, multiple blocks.
     // We therefore have to cache appropriate block info in slice and not codec.
     //    b = cram_get_block_by_id(slice, c->external.content_id);
-    cram_xpack_decode_expand_char(slice, c);
-    cram_block *b = slice->block_by_id[512 + c->codec_id];
+    if (c->xpack.nval > 1) {
+	cram_xpack_decode_expand_char(slice, c);
+	cram_block *b = slice->block_by_id[512 + c->codec_id];
+	if (!b)
+	    return -1;
 
-    if (out)
-	memcpy(out, b->data + b->byte, *out_size);
-    b->byte += *out_size;
+	if (out)
+	    memcpy(out, b->data + b->byte, *out_size);
+	b->byte += *out_size;
+    } else {
+	memset(out, c->xpack.rmap[0], *out_size);
+    }
 
     return 0;
 }
