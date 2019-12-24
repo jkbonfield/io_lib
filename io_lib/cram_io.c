@@ -3024,7 +3024,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
     mFILE *mf;
 
     if (fd->verbose)
-	fprintf(stderr, "cram_populate_ref on fd %p, id %d\n", fd, id);
+	fprintf(stderr, "cram_populate_ref on fd %p, id %d\n", (void *)fd, id);
 
     if (!ref_path)
 	ref_path = ".";
