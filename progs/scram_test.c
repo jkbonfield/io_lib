@@ -83,10 +83,10 @@ static char *detect_format(char *fn) {
 }
 
 static void usage(FILE *fp) {
-    fprintf(fp, "  -=- scram_flagstat -=-     version %s\n", PACKAGE_VERSION);
+    fprintf(fp, "  -=- scram_test -=-     version %s\n", PACKAGE_VERSION);
     fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013\n\n");
 
-    fprintf(fp, "Usage:    scram_flagstat [options] [input_file]\n");
+    fprintf(fp, "Usage:    scram_test [options] [input_file]\n");
 
     fprintf(fp, "Options:\n");
     fprintf(fp, "    -I format      Set input format:  \"bam\", \"sam\" or \"cram\".\n");
