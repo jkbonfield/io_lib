@@ -113,7 +113,7 @@ void ztr2fastq(ztr_t *z, char *name, int calibrated) {
 
 /* ------------------------------------------------------------------------ */
 void usage(void) {
-    fprintf(stderr, "Usage: srf_extract [-fastq] [-c] archive_name trace_name ...\n");
+    fprintf(stderr, "Usage: srf_extract_hash [-fastq] [-c] archive_name trace_name ...\n");
     exit(1);
 }
 
