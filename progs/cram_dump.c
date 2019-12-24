@@ -157,7 +157,8 @@ void dump_name_block(cram_block *b, int verbose) {
 }
 
 void dump_tag_block(cram_block *b, int verbose) {
-    return dump_core_block(b, verbose);
+    dump_core_block(b, verbose);
+    return;
 }
 
 int main(int argc, char **argv) {
