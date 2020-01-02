@@ -1854,7 +1854,7 @@ cram_codec *cram_byte_array_stop_decode_init(char *data, int size,
 	    + (cp[3]<<24);
 	cp += 4;
     } else {
-	cp += itf8_get(cp, &c->byte_array_stop.content_id);
+	cp += itf8_get((char *)cp, &c->byte_array_stop.content_id);
     }
 
     if ((char *)cp - data != size) {
