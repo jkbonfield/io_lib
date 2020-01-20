@@ -1960,7 +1960,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     }
 
     // To EXTERNAL block
-    if (CRAM_MAJOR_VERS(fd->version) == 3 || fd->use_fqz) {
+    if (1 /* CRAM_MAJOR_VERS(fd->version) == 3 || fd->use_fqz */) {
 	h->codecs[DS_QS] = cram_encoder_init(E_EXTERNAL, NULL, E_BYTE,
 					     (void *)DS_QS,
 					     fd->version, &fd->vv);
