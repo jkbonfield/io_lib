@@ -386,13 +386,15 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    }
 	} else if (key[0] == 'A' && key[1] == 'P') {
 	    if (!(hdr->codecs[DS_AP] = cram_decoder_init(hdr, encoding, cp, size,
-							 is_v4 ? E_LONG : E_INT,
+							 is_v4 ? E_SLONG : E_INT,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'G') {
-	    if (!(hdr->codecs[DS_RG] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+	    if (!(hdr->codecs[DS_RG] = cram_decoder_init(hdr, encoding, cp, size,
+							 //E_INT,
+							 is_v4 ? E_SINT : E_INT,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
@@ -418,7 +420,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 	    }
 	} else if (key[0] == 'T' && key[1] == 'S') {
 	    if (!(hdr->codecs[DS_TS] = cram_decoder_init(hdr, encoding, cp, size,
-							 is_v4 ? E_LONG : E_INT,
+							 is_v4 ? E_SLONG : E_INT,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;

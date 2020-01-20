@@ -377,6 +377,26 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
     return err ? -1 : 0;
 }
 
+int cram_external_decode_sint(cram_slice *slice, cram_codec *c,
+			      cram_block *in, char *out, int *out_size) {
+    char *cp;
+    cram_block *b;
+
+    /* Find the external block */
+    b = cram_get_block_by_id(slice, c->external.content_id);
+    if (!b)
+        return *out_size?-1:0;
+
+    cp = (char *)b->data + b->idx;
+    // E_INT and E_LONG are guaranteed single item queries
+    int err = 0;
+    *(int32_t *)out = c->vv->varint_get32s(&cp, (char *)b->data + b->uncomp_size, &err);
+    b->idx = cp - (char *)b->data;
+    *out_size = 1;
+
+    return err ? -1 : 0;
+}
+
 int cram_external_decode_long(cram_slice *slice, cram_codec *c,
 			      cram_block *in, char *out, int *out_size) {
     char *cp;
@@ -391,6 +411,26 @@ int cram_external_decode_long(cram_slice *slice, cram_codec *c,
     // E_INT and E_LONG are guaranteed single item queries
     int err = 0;
     *(int64_t *)out = c->vv->varint_get64(&cp, (char *)b->data + b->uncomp_size, &err);
+    b->idx = cp - (char *)b->data;
+    *out_size = 1;
+
+    return err ? -1 : 0;
+}
+
+int cram_external_decode_slong(cram_slice *slice, cram_codec *c,
+			       cram_block *in, char *out, int *out_size) {
+    char *cp;
+    cram_block *b;
+
+    /* Find the external block */
+    b = cram_get_block_by_id(slice, c->external.content_id);
+    if (!b)
+        return *out_size?-1:0;
+
+    cp = (char *)b->data + b->idx;
+    // E_INT and E_LONG are guaranteed single item queries
+    int err = 0;
+    *(int64_t *)out = c->vv->varint_get64s(&cp, (char *)b->data + b->uncomp_size, &err);
     b->idx = cp - (char *)b->data;
     *out_size = 1;
 
@@ -470,8 +510,12 @@ cram_codec *cram_external_decode_init(cram_block_compression_hdr *hdr,
     c->codec  = E_EXTERNAL;
     if (option == E_INT)
 	c->decode = cram_external_decode_int;
+    else if (option == E_SINT)
+	c->decode = cram_external_decode_sint;
     else if (option == E_LONG)
 	c->decode = cram_external_decode_long;
+    else if (option == E_SLONG)
+	c->decode = cram_external_decode_slong;
     else if (option == E_BYTE_ARRAY || option == E_BYTE)
 	c->decode = cram_external_decode_char;
     else
@@ -501,11 +545,27 @@ int cram_external_encode_int(cram_slice *slice, cram_codec *c,
     return 0;
 }
 
+int cram_external_encode_sint(cram_slice *slice, cram_codec *c,
+			     char *in, int in_size) {
+    int32_t *i32 = (int32_t *)in;
+
+    c->vv->varint_put32s_blk(c->out, *i32);
+    return 0;
+}
+
 int cram_external_encode_long(cram_slice *slice, cram_codec *c,
 			     char *in, int in_size) {
     uint64_t *i64 = (uint64_t *)in;
 
     c->vv->varint_put64_blk(c->out, *i64);
+    return 0;
+}
+
+int cram_external_encode_slong(cram_slice *slice, cram_codec *c,
+			       char *in, int in_size) {
+    int64_t *i64 = (int64_t *)in;
+
+    c->vv->varint_put64s_blk(c->out, *i64);
     return 0;
 }
 
@@ -554,8 +614,12 @@ cram_codec *cram_external_encode_init(cram_stats *st,
     c->free = cram_external_encode_free;
     if (option == E_INT)
 	c->encode = cram_external_encode_int;
+    else if (option == E_SINT)
+	c->encode = cram_external_encode_sint;
     else if (option == E_LONG)
 	c->encode = cram_external_encode_long;
+    else if (option == E_SLONG)
+	c->encode = cram_external_encode_slong;
     else if (option == E_BYTE_ARRAY || option == E_BYTE)
 	c->encode = cram_external_encode_char;
     else
@@ -648,9 +712,9 @@ cram_codec *cram_beta_decode_init(cram_block_compression_hdr *hdr,
 	return NULL;
 
     c->codec  = E_BETA;
-    if (option == E_LONG)
+    if (option == E_LONG || option == E_SLONG)
 	c->decode = cram_beta_decode_long;
-    else if (option == E_INT)
+    else if (option == E_INT || option == E_SINT)
 	c->decode = cram_beta_decode_int;
     else if (option == E_BYTE_ARRAY || option == E_BYTE)
 	c->decode = cram_beta_decode_char;
@@ -745,9 +809,9 @@ cram_codec *cram_beta_encode_init(cram_stats *st,
 
     c->codec  = E_BETA;
     c->free   = cram_beta_encode_free;
-    if (option == E_LONG)
+    if (option == E_LONG || option == E_SLONG)
 	c->encode = cram_beta_encode_long;
-    else if (option == E_INT)
+    else if (option == E_INT || option == E_SINT)
 	c->encode = cram_beta_encode_int;
     else
 	c->encode = cram_beta_encode_char;
@@ -2253,9 +2317,18 @@ cram_codec *cram_huffman_decode_init(cram_block_compression_hdr *hdr,
     if (option == E_LONG) {
 	for (i = 0; i < ncodes; i++)
 	    codes[i].symbol = vv->varint_get64(&cp, data_end, &err);
-    } else {
+    } else if (option == E_SLONG) {
+	for (i = 0; i < ncodes; i++)
+	    codes[i].symbol = vv->varint_get64s(&cp, data_end, &err);
+    } else if (option == E_INT || option == E_BYTE) {
 	for (i = 0; i < ncodes; i++)
 	    codes[i].symbol = vv->varint_get32(&cp, data_end, &err);
+    } else if (option == E_SINT) {
+	for (i = 0; i < ncodes; i++)
+	    codes[i].symbol = vv->varint_get32s(&cp, data_end, &err);
+    } else {
+	free(h);
+	return NULL;
     }
 
     if (err) {
@@ -2338,12 +2411,12 @@ cram_codec *cram_huffman_decode_init(cram_block_compression_hdr *hdr,
 	    h->decode = cram_huffman_decode_char0;
 	else
 	    h->decode = cram_huffman_decode_char;
-    } else if (option == E_LONG) {
+    } else if (option == E_LONG || option == E_SLONG) {
 	if (h->huffman.codes[0].len == 0)
 	    h->decode = cram_huffman_decode_long0;
 	else
 	    h->decode = cram_huffman_decode_long;
-    } else if (option == E_INT) {
+    } else if (option == E_INT || option == E_SINT || option == E_BYTE) {
 	if (h->huffman.codes[0].len == 0)
 	    h->decode = cram_huffman_decode_int0;
 	else
@@ -2509,10 +2582,20 @@ int cram_huffman_encode_store(cram_codec *c, cram_block *b, char *prefix,
 	for (i = 0; i < c->e_huffman.nvals; i++) {
 	    tp += c->vv->varint_put64(tp, NULL, codes[i].symbol);
 	}
-    } else {
+    } else if (c->e_huffman.option == E_SLONG) {
+	for (i = 0; i < c->e_huffman.nvals; i++) {
+	    tp += c->vv->varint_put64s(tp, NULL, codes[i].symbol);
+	}
+    } else if (c->e_huffman.option == E_INT || c->e_huffman.option == E_BYTE) {
 	for (i = 0; i < c->e_huffman.nvals; i++) {
 	    tp += c->vv->varint_put32(tp, NULL, codes[i].symbol);
 	}
+    } else if (c->e_huffman.option == E_SINT) {
+	for (i = 0; i < c->e_huffman.nvals; i++) {
+	    tp += c->vv->varint_put32s(tp, NULL, codes[i].symbol);
+	}
+    } else {
+	return -1;
     }
 
     tp += c->vv->varint_put32(tp, NULL, c->e_huffman.nvals);
@@ -2693,12 +2776,12 @@ cram_codec *cram_huffman_encode_init(cram_stats *st,
 	    c->encode = cram_huffman_encode_char0;
 	else
 	    c->encode = cram_huffman_encode_char;
-    } else if (option == E_INT) {
+    } else if (option == E_INT || option == E_SINT || option == E_BYTE) {
 	if (c->e_huffman.codes[0].len == 0)
 	    c->encode = cram_huffman_encode_int0;
 	else
 	    c->encode = cram_huffman_encode_int;
-    } else if (option == E_LONG) {
+    } else if (option == E_LONG || option == E_SLONG) {
 	if (c->e_huffman.codes[0].len == 0)
 	    c->encode = cram_huffman_encode_long0;
 	else
@@ -3183,6 +3266,11 @@ cram_codec *cram_encoder_init(enum cram_encoding codec,
 	cram_codec *r;
 	if ((r = encode_init[codec](st, option, dat, version, vv)))
 	    r->out = NULL;
+	if (!r) {
+	    fprintf(stderr, "Unable to initialise codec of type %s\n",
+		    cram_encoding2str(codec));
+	    return NULL;
+	}
 	r->vv = vv;
 	return r;
     } else {

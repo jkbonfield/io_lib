@@ -1261,9 +1261,25 @@ static int64_t uint7_get_32(char **cp, const char *endp, int *err) {
     return val;
 }
 
+static int64_t sint7_get_32(char **cp, const char *endp, int *err) {
+    int32_t val;
+    int nb = var_get_s32((uint8_t *)(*cp), (const uint8_t *)endp, &val);
+    (*cp) += nb;
+    if (!nb && err) *err = 1;
+    return val;
+}
+
 static int64_t uint7_get_64(char **cp, const char *endp, int *err) {
     uint64_t val;
     int nb = var_get_u64((uint8_t *)(*cp), (const uint8_t *)endp, &val);
+    (*cp) += nb;
+    if (!nb && err) *err = 1;
+    return val;
+}
+
+static int64_t sint7_get_64(char **cp, const char *endp, int *err) {
+    int64_t val;
+    int nb = var_get_s64((uint8_t *)(*cp), (const uint8_t *)endp, &val);
     (*cp) += nb;
     if (!nb && err) *err = 1;
     return val;
@@ -1273,8 +1289,16 @@ static int uint7_put_32(char *cp, const char *endp, int32_t val) {
     return var_put_u32((uint8_t *)cp, (const uint8_t *)endp, val);
 }
 
+static int sint7_put_32(char *cp, const char *endp, int32_t val) {
+    return var_put_s32((uint8_t *)cp, (const uint8_t *)endp, val);
+}
+
 static int uint7_put_64(char *cp, const char *endp, int64_t val) {
     return var_put_u64((uint8_t *)cp, (const uint8_t *)endp, val);
+}
+
+static int sint7_put_64(char *cp, const char *endp, int64_t val) {
+    return var_put_s64((uint8_t *)cp, (const uint8_t *)endp, val);
 }
 
 // Put direct to to cram_block
@@ -1285,9 +1309,23 @@ static int uint7_put_blk_32(cram_block *blk, int32_t v) {
     return sz;
 }
 
+static int sint7_put_blk_32(cram_block *blk, int32_t v) {
+    uint8_t buf[10];
+    int sz = var_put_s32(buf, buf+10, v);
+    BLOCK_APPEND(blk, buf, sz);
+    return sz;
+}
+
 static int uint7_put_blk_64(cram_block *blk, int64_t v) {
     uint8_t buf[10];
     int sz = var_put_u64(buf, buf+10, v);
+    BLOCK_APPEND(blk, buf, sz);
+    return sz;
+}
+
+static int sint7_put_blk_64(cram_block *blk, int64_t v) {
+    uint8_t buf[10];
+    int sz = var_put_s64(buf, buf+10, v);
     BLOCK_APPEND(blk, buf, sz);
     return sz;
 }
@@ -1314,6 +1352,17 @@ static int uint7_decode_crc32(cram_fd *fd, int32_t *val_p, uint32_t *crc) {
     }
     i = var_get_u32(b, NULL, &v);
 #else
+//    // Little endian
+//    int s = 0;
+//    do {
+//        b[i++] = c = CRAM_IO_GETC(fd);
+//        if (c < 0)
+//            return -1;
+//        v |= (c & 0x7f) << s;
+//	s += 7;
+//    } while (i < 5 && (c & 0x80));
+
+    // Big endian, see also htscodecs/varint.h
     do {
         b[i++] = c = CRAM_IO_GETC(fd);
         if (c < 0)
@@ -1349,12 +1398,22 @@ static int uint7_decode_crc64(cram_fd *fd, int64_t *val_p, uint32_t *crc) {
     }
     i = var_get_u64(b, NULL, &v);
 #else
+//    // Little endian    int s = 0;
+//    do {
+//        b[i++] = c = CRAM_IO_GETC(fd);
+//        if (c < 0)
+//            return -1;
+//        v |= (c & 0x7f) << s;
+//	s += 7;
+//    } while (i < 10 && (c & 0x80));
+
+    // Big endian, see also htscodecs/varint.h
     do {
         b[i++] = c = CRAM_IO_GETC(fd);
         if (c < 0)
             return -1;
         v = (v<<7) | (c & 0x7f);
-    } while (i < 10 && (c & 0x80));
+    } while (i < 5 && (c & 0x80));
 #endif
     *crc = iolib_crc32(*crc, b, i);
 
@@ -1810,7 +1869,8 @@ int cram_uncompress_block(cram_block *b) {
 	uint32_t crc = iolib_crc32(b->crc_part, b->data ? b->data : (uc *)"", b->alloc);
 	b->crc32_checked = 1;
 	if (crc != b->crc32) {
-	    fprintf(stderr, "Block CRC32 failure\n");
+	    fprintf(stderr, "Block CRC32 failure: got %08x, expected %08x, part %08x\n",
+		    crc, b->crc32, b->crc_part);
 	    return -1;
 	}
     }
@@ -4947,21 +5007,33 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 void cram_init_varint(varint_vec *vv, int version) {
     if (version >= 4) {
 	vv->varint_get32 = uint7_get_32; // FIXME: varint.h API should be size agnostic
+	vv->varint_get32s = sint7_get_32;
 	vv->varint_get64 = uint7_get_64;
+	vv->varint_get64s = sint7_get_64;
 	vv->varint_put32 = uint7_put_32;
+	vv->varint_put32s = sint7_put_32;
 	vv->varint_put64 = uint7_put_64;
+	vv->varint_put64s = sint7_put_64;
 	vv->varint_put32_blk = uint7_put_blk_32;
+	vv->varint_put32s_blk = sint7_put_blk_32;
 	vv->varint_put64_blk = uint7_put_blk_64;
+	vv->varint_put64s_blk = sint7_put_blk_64;
 	vv->varint_size = uint7_size;
 	vv->varint_decode32_crc = uint7_decode_crc32;
 	vv->varint_decode64_crc = uint7_decode_crc64;
     } else {
 	vv->varint_get32 = safe_itf8_get;
+	vv->varint_get32s = safe_itf8_get;
 	vv->varint_get64 = safe_ltf8_get;
+	vv->varint_get64s = safe_ltf8_get;
 	vv->varint_put32 = safe_itf8_put;
+	vv->varint_put32s = safe_itf8_put;
 	vv->varint_put64 = safe_ltf8_put;
+	vv->varint_put64s = safe_ltf8_put;
 	vv->varint_put32_blk = itf8_put_blk;
+	vv->varint_put32s_blk = itf8_put_blk;
 	vv->varint_put64_blk = ltf8_put_blk;
+	vv->varint_put64s_blk = ltf8_put_blk;
 	vv->varint_size = itf8_size;
 	vv->varint_decode32_crc = itf8_decode_crc;
 	vv->varint_decode64_crc = ltf8_decode_crc;

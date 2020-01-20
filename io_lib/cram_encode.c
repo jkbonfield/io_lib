@@ -1791,12 +1791,12 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     if (c->pos_sorted) {
 	h->codecs[DS_AP] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_AP]),
 					     c->stats[DS_AP],
-					     is_v4 ? E_LONG : E_INT,
+					     is_v4 ? E_SLONG : E_INT,
 					     NULL, fd->version, &fd->vv);
     } else {
 	int64_t p[2] = {0, c->max_apos};
 	h->codecs[DS_AP] = cram_encoder_init(E_BETA, NULL,
-					     is_v4 ? E_LONG : E_INT,
+					     is_v4 ? E_SLONG : E_INT,
 					     p, fd->version, &fd->vv);
 //	cram_xdelta_encoder e;
 //	e.word_size = is_v4 ? 8 : 4;
@@ -1810,7 +1810,10 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     if (fd->verbose > 1) fprintf(stderr, "RG_stats: ");
     h->codecs[DS_RG] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_RG]),
-					 c->stats[DS_RG], E_INT, NULL,
+					 c->stats[DS_RG],
+					 //E_INT,
+					 is_v4 ? E_SINT : E_INT,
+					 NULL,
 					 fd->version, &fd->vv);
 
     if (fd->verbose > 1) fprintf(stderr, "MQ_stats: ");
@@ -1831,7 +1834,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     h->codecs[DS_TS] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_TS]),
 					 c->stats[DS_TS],
-					 is_v4 ? E_LONG : E_INT,
+					 is_v4 ? E_SLONG : E_INT,
 					 NULL, fd->version, &fd->vv);
 
     h->codecs[DS_NP] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_NP]),

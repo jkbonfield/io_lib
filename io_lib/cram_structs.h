@@ -111,6 +111,8 @@ enum cram_external_type {
     E_BYTE               = 3,
     E_BYTE_ARRAY         = 4,
     E_BYTE_ARRAY_BLOCK   = 5,
+    E_SINT               = 6, // signed INT
+    E_SLONG              = 7, // signed LONG
 };
 
 /* External IDs used by this implementation (only assumed during writing) */
@@ -797,16 +799,22 @@ typedef struct varint_vec {
 
     // Returns the value and increments *cp.  Sets err to 1 iff an error occurs.
     // NOTE: Does not set err to 0 on success.
-    int64_t (*varint_get32)(char **cp, const char *endp, int *err);
-    int64_t (*varint_get64)(char **cp, const char *endp, int *err);
+    int64_t (*varint_get32) (char **cp, const char *endp, int *err);
+    int64_t (*varint_get32s)(char **cp, const char *endp, int *err);
+    int64_t (*varint_get64) (char **cp, const char *endp, int *err);
+    int64_t (*varint_get64s)(char **cp, const char *endp, int *err);
 
     // Returns the number of bytes written, <= 0 on error.
-    int (*varint_put32)(char *cp, const char *endp, int32_t val_p);
-    int (*varint_put64)(char *cp, const char *endp, int64_t val_p);
+    int (*varint_put32) (char *cp, const char *endp, int32_t val_p);
+    int (*varint_put32s)(char *cp, const char *endp, int32_t val_p);
+    int (*varint_put64) (char *cp, const char *endp, int64_t val_p);
+    int (*varint_put64s)(char *cp, const char *endp, int64_t val_p);
 
     // Returns the number of bytes written, <= 0 on error.
-    int (*varint_put32_blk)(cram_block *blk, int32_t val_p);
-    int (*varint_put64_blk)(cram_block *blk, int64_t val_p);
+    int (*varint_put32_blk) (cram_block *blk, int32_t val_p);
+    int (*varint_put32s_blk)(cram_block *blk, int32_t val_p);
+    int (*varint_put64_blk) (cram_block *blk, int64_t val_p);
+    int (*varint_put64s_blk)(cram_block *blk, int64_t val_p);
 
     // Returns number of bytes needed to encode 'val'
     int (*varint_size)(int64_t val);
