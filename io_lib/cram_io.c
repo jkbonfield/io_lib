@@ -1399,6 +1399,7 @@ static int uint7_decode_crc64(cram_fd *fd, int64_t *val_p, uint32_t *crc) {
     i = var_get_u64(b, NULL, &v);
 #else
 //    // Little endian    int s = 0;
+//    int s = 0;
 //    do {
 //        b[i++] = c = CRAM_IO_GETC(fd);
 //        if (c < 0)
