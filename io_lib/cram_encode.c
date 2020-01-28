@@ -3107,7 +3107,11 @@ static cram_container *cram_next_container(cram_fd *fd, bam_seq_t *b) {
 
     c->curr_rec = 0;
     c->s_num_bases = 0;
-    c->qs_seq_orient = IS_CRAM_4_VERS(fd) && fd->use_fqz ? 0 : 1;
+    // QO field: 0 implies original orientation, 1 implies sequence orientation
+    // 1 is often preferable for NovaSeq, but impact is slight. ~0.5% diff.
+    // Conversely other data sets it's often better than 1% saving for 0.
+    // Short of trying both and learning, for now we use use 0 for V4, 1 for V3.
+    c->qs_seq_orient = IS_CRAM_4_VERS(fd) ? 0 : 1;
     c->n_mapped = 0;
 
     return c;
