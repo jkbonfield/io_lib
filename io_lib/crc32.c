@@ -19,6 +19,7 @@
 #include "io_lib/os.h"
 
 #ifdef HAVE_LIBDEFLATE
+#include <libdeflate.h>
 uint32_t iolib_crc32(uint32_t previousCrc32, unsigned char *buf, unsigned int len) {
     return libdeflate_crc32(previousCrc32, buf, len);
 }

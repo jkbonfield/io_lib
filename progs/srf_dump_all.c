@@ -846,7 +846,7 @@ void dump_destination_mode(char mode) {
  * Returns the successfully opened file or NULL.
  */
 FILE *fopen_slx(char *dir, char *type, int lane, int tile) {
-    char fn[1024];
+    char fn[2048];
     FILE *fp;
 
     sprintf(fn, "%s/s_%d_%04d_%s.txt", dir, lane, tile, type);
@@ -948,7 +948,7 @@ int process_srf_to_solexa_files(char *ar_name, char chunk_mode, int num_reads_on
  * Returns the successfully opened file or NULL.
  */
 FILE *fopen_text(char *dir, int lane, int tile) {
-    char fn[1024];
+    char fn[2048];
     FILE *fp;
 
     sprintf(fn, "%s/s_%d_%04d_dump.txt", dir, lane, tile);

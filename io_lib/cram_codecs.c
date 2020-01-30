@@ -1187,7 +1187,7 @@ static uint8_t  zigzag8 (int8_t  x) { return (x << 1) ^ (x >>  7); }
 static uint16_t zigzag16(int16_t x) { return (x << 1) ^ (x >> 15); }
 static uint32_t zigzag32(int32_t x) { return (x << 1) ^ (x >> 31); }
 
-static int8_t  unzigzag8 (uint8_t  x) { return (x >> 1) ^ -(x & 1); }
+//static int8_t  unzigzag8 (uint8_t  x) { return (x >> 1) ^ -(x & 1); }
 static int16_t unzigzag16(uint16_t x) { return (x >> 1) ^ -(x & 1); }
 static int32_t unzigzag32(uint32_t x) { return (x >> 1) ^ -(x & 1); }
 

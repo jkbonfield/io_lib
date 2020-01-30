@@ -491,7 +491,7 @@ mFILE *find_file_url(char *file, char *url) {
     int pid;
     int maxlen = 8190 - strlen(file);
     char *fname = tempnam(NULL, NULL);
-    int status;
+    int status = 0;
 
     /* Expand %s for the trace name */
     for (cp = buf; *url && cp - buf < maxlen; url++) {

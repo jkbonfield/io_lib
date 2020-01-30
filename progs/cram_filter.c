@@ -745,9 +745,14 @@ int index_start(cram_fd *fd, char *fn, int container) {
 	return -1;
     }
 
-    strtol(cp, &cp, 10);
-    strtol(cp, &cp, 10);
-    strtol(cp, &cp, 10);
+    long dummy = 0;
+    dummy |= strtol(cp, &cp, 10);
+    dummy |= strtol(cp, &cp, 10);
+    dummy |= strtol(cp, &cp, 10);
+    if (dummy == LONG_MIN || dummy == LONG_MAX) {
+	free(buf);
+	return -1;
+    }
     if (cram_seek(fd, strtoll(cp, &cp, 10), SEEK_SET) != 0) {
 	free(buf);
 	return -1;
