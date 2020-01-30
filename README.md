@@ -1,4 +1,4 @@
-Io_lib:  Version 1.14.11
+Io_lib:  Version 1.14.12
 ========================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -33,19 +33,35 @@ See the CHANGES for a summary of older updates or git logs for the
 full details.
 
 
-This branch (as of 13th May 2019)
------------
+Version 1.14.12 (30th January 2020)
+---------------
 
-* CRAM: Added compression profiles to scramble.  Specify with -X
-  profile where "profile" is one of fast, normal (default), small or
-  archive.
+This is primarily a change to CRAM, focusing mainly on the unofficial
+CRAM 3.1 and 4.0 file formats.  Note these newer experimental formats
+are INCOMPATIBLE with the 1.14.11 output!
 
-* Improved CRAM v3.1/4.0 codec compression ratios and speed.  See below
-  for a small benchmark.
+Some changes also affect CRAM 3.0 (current) though.  Main updates are:
 
-* CRAM (EXPERIMENTAL): scramble -E permits use of a consensus as the
-  embedded reference instead of real reference.  Note this breaks some
-  CRAM decoders, so will probably be reserved for CRAM v4.0.
+* Added compression profiles to scramble: fast, normal (default),
+  small and archive.  Specify using scramble -X profile-name.  These
+  change compression codecs permitted as well as the granularity of
+  random access ("fast" profile is 1/10th the size per block than
+  normal).
+
+* NM and MD tags are now checked during encode to validate
+  auto-generation during decode.  If they differ they are stored
+  verbatim.
+
+* CRAM behaves better when many small chromosomes occur in the middle
+  of larger ones (as it can switch out of multi-ref mode again).
+
+* Numerous improvements to CRAM 4.0 compression ratios.
+
+* Some speed improvements to CRAM 3.1 and 4.0 decoding.
+
+* Fixes to github issues/bugs #12, #14-15, #17-22.
+
+See CHANGES for more details.
 
 
 Version 1.14.11 (16th October 2018)
@@ -76,7 +92,9 @@ The current official GA4GH CRAM version is 3.0.
 For purposes of *EVALUATION ONLY* this release of io_lib includes CRAM
 version 3.1, with new compression codecs (but is otherwise identical
 file layout to 3.0), and 4.0 with a few additional format
-modifications, such as 64-bit sizes.
+modifications, such as 64-bit sizes, deduplication of read names,
+orientation changes of quality strings and a revised variable sized
+integer encoding.
 
 They can be turned on using e.g. scramble -V3.1 or scramble -V4.0.
 It is likely CRAM v4.0 will be official significantly later, but we
@@ -98,22 +116,71 @@ on an Intel i5-4570 processor at 3.2GHz.
 |Scramble opts.      |Size(MB) |Enc(s)|Dec(s)|Codecs used                |
 |--------------------|--------:|-----:|-----:|---------------------------|
 |-O bam              |    531.9|  92.3|   7.5|bgzf(zlib)                 |
-|-O bam              |    539.5|  48.5|   3.7|bgzf(libdeflate)           |
+|-O bam -1           |    611.4|  26.4|   5.4|bgzf(libdeflate)           |
+|-O bam (default)    |    539.5|  45.0|   4.9|bgzf(libdeflate)           |
+|-O bam -9           |    499.5| 920.2|   4.9|bgzf(libdeflate)           |
 ||||||
-|-V2.0               |    257.0|  43.5|  10.9|(default)                  |
-|-V2.0 -X fast       |    302.6|  37.0|  12.1|(default, level 1)         |
-|-V2.0 -X small      |    216.3| 126.9|  31.2|bzip2                      |
+|-V2.0 -X fast       |    302.6|  33.5|  12.7|(default, level 1)         |
+|-V2.0 (default)     |    257.0|  39.7|  11.5|(default)                  |
+|-V2.0 -X small      |    216.3| 123.8|  32.0|bzip2                      |
 ||||||
-|-V3.0               |    223.7|  39.9|   9.8|(default)                  |
-|-V3.0 -X fast       |    274.0|  35.6|  10.6|(default, level 1)         |
-|-V3.0 -X small      |    212.2|  94.3|  18.0|bzip2                      |
-|-V3.0 -X archive    |    209.3| 106.6|  17.6|bzip2, lzma                |
+|-V3.0 -X fast       |    274.0|  30.8|  11.0|(default, level 1)         |
+|-V3.0 (default)     |    223.7|  36.7|  10.4|(default)                  |
+|-V3.0 -X small      |    212.2|  90.3|  18.2|bzip2                      |
+|-V3.0 -X archive    |    209.3| 103.5|  18.2|bzip2, lzma                |
 ||||||
-|-V3.1               |    186.5|  38.3|   8.9|rANS++,tok3                |
-|-V3.1 -X fast       |    282.7|  29.5|   9.2|rANS++                     |
-|-V3.1 -X small      |    177.0|  78.7|  33.3|rANS++,tok3,fqz            |
-|-V3.1 -X archive    |    172.1| 137.2|  34.9|rANS++,tok3,fqz,bzip2,arith|
+|-V3.1 -X fast       |    275.1|  28.6|  11.3|rANS++                     |
+|-V3.1 (default)     |    186.2|  36.4|   8.5|rANS++,tok3                |
+|-V3.1 -X small      |    176.8|  77.9|  34.9|rANS++,tok3,fqz            |
+|-V3.1 -X archive    |    172.0| 134.7|  34.0|rANS++,tok3,fqz,bzip2,arith|
+||||||
+|-V4.0 -X fast       |    258.4|  29.9|  11.2|rANS++                     |
+|-V4.0 (default)     |    181.9|  34.3|   8.3|rANS++,tok3                |
+|-V4.0 -X small      |    170.8|  74.7|  34.4|rANS++,tok3,fqz            |
+|-V4.0 -X archive    |    166.8| 122.0|  33.7|rANS++,tok3,fqz,bzip2,arith|
 
+We also tested on a small human aligned HiSeq run (ERR317482)
+representing older Illumina data with pre-binning era quality values.
+This dataset shows less impressive gains with 4.0 over 3.0 in the
+default profile, but major gains in small profile once fqzcomp quality
+encoding is enabled.
+
+Note for this file, the file sizes are larger meaning less disk
+caching is possible (the test machine wasn't a memory stressed
+desktop).  Threading was also enabled, albeit with just 4 threads,
+which further exacerbates I/O bottlenecks.  The previous test
+demonstrated BAM being faster to read than CRAM, but with large files
+in a more I/O stressed situation this test demonstrates the default
+profile of CRAM is faster to read than BAM, due to the smaller I/O
+footprint.
+
+|Scramble opts.         |Size(MB) |Enc(s)|Dec(s)|Codecs used                     |
+|--------------------   |--------:|-----:|-----:|--------------------------------|
+|-t4 -O bam (default)   |    6526 | 115.4|  44.7|bgzf(libdeflate)                |
+||||||
+|-t4 -V2.0 -X fast      |    3674 |  87.4|  31.4|(default, level 1)              |
+|-t4 -V2.0 (default)    |    3435 |  91.4|  30.7|(default)                       |
+|-t4 -V2.0 -X small     |    3373 | 145.5|  47.8|bzip2                           |
+|-t4 -V2.0 -X archive   |    3377 | 166.3|  49.7|bzip2                           |
+|-t4 -V2.0 -X archive -9|    3125 |1900.6|  76.9|bzip2                           |
+||||||
+|-t4 -V3.0 -X fast      |    3620 |  88.3|  29.3|(default, level 1)              |
+|-t4 -V3.0 (default)    |    3287 |  90.5|  29.5|(default)                       |
+|-t4 -V3.0 -X small     |    3238 | 128.5|  40.3|bzip2                           |
+|-t4 -V3.0 -X archive   |    3220 | 164.9|  50.0|bzip2, lzma                     |
+|-t4 -V3.0 -X archive -9|    3115 |1866.6|  75.2|bzip2, lzma                     |
+||||||
+|-t4 -V3.1 -X fast      |    3611 |  87.9|  29.2|rANS++                          |
+|-t4 -V3.1 (default)    |    3161 |  88.8|  29.7|rANS++,tok3                     |
+|-t4 -V3.1 -X small     |    2249 | 192.2| 146.1|rANS++,tok3,fqz                 |
+|-t4 -V3.1 -X archive   |    2157 | 235.2| 127.5|rANS++,tok3,fqz,bzip2,arith     |
+|-t4 -V3.1 -X archive   |    2145 | 480.3| 128.9|rANS++,tok3,fqz,bzip2,arith,lzma|
+||||||
+|-t4 -V4.0 -X fast      |    3551 |  87.8|  29.5|rANS++                          |
+|-t4 -V4.0 (default)    |    3148 |  88.9|  30.0|rANS++,tok3                     |
+|-t4 -V4.0 -X small     |    2236 | 189.7| 142.6|rANS++,tok3,fqz                 |
+|-t4 -V4.0 -X archive   |    2139 | 226.7| 127.5|rANS++,tok3,fqz,bzip2,arith     |
+|-t4 -V4.0 -X archive -9|    2132 | 453.5| 128.2|rANS++,tok3,fqz,bzip2,arith,lzma|
 
 
 Building

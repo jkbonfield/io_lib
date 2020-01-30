@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(io_lib, 1.14.11)
+AC_INIT(io_lib, 1.14.12)
 AC_CONFIG_HEADERS([io_lib_config.h])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([serial-tests])
@@ -63,8 +63,8 @@ AX_SUBDIRS_CONFIGURE([htscodecs],[[--disable-shared],[--with-pic]])
 #       libstaden-read.so.1 -> libstaden-read.so.1.1.0
 #       libstaden-read.so.1.1.0
 
-VERS_CURRENT=13
-VERS_REVISION=1
+VERS_CURRENT=14
+VERS_REVISION=0
 VERS_AGE=0
 AC_SUBST(VERS_CURRENT)
 AC_SUBST(VERS_REVISION)

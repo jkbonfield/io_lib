@@ -1,5 +1,9 @@
-Version ??? (ongoing)
----------------------
+Version 1.14.12 (30th January 2020)
+---------------
+
+This primarily has updates for CRAM 3.1 / 4.0.  Note these are
+*incompatible* with the files produced by 1.14.11. (That warning was
+for a reason, and there is still potential for more to change.)
 
 Updates:
 
@@ -10,6 +14,15 @@ Updates:
   example "-X fast" alters compression level, disables some slower
   codecs and uses only 1000 sequences per slice.  Here fast implies
   fast random access as well as fast(er) cpu time.
+
+* NM and MD tags are now checked during encode to validate that they
+  match the decode algorithm.  If not they are automatically stored
+  verbatim.
+
+* CRAM can now auto-disable the multi-ref mode if it realises we're no
+  longer flip-flopping between many small references.  This can
+  improve compression in some situations as it also reenables the
+  AP_delta flag.
 
 * INCOMPATIBILITY: The CRAM fqzcomp quality codec has been updated for
   the experimental cram versions (3.1 & 4.0).  This cannot read older
@@ -22,6 +35,9 @@ Updates:
   CRAMv4 at compression level -7 and above has the maximal form
   fqzcomp encoding.
 
+* INCOMPATIBILITY: Renumbered the CRAM 3.1/4.0 codecs to sequentially
+  follow the 3.0 ones.
+
 * EXPERIMENTAL: Scramble -E can embed a consensus instead of reference
   and delta against that.  It is not recommended that you use this yet
   though until the implications are sorted out.  (Likely this will need
@@ -30,11 +46,43 @@ Updates:
   does not match the md5sum for the reference listed in the @SQ
   headers.
 
-* Lots more minor updates to CRAM 3.1 compression codecs.
+* Lots more minor updates to CRAM 3.1 / 4.0 compression codecs.
+  These have now also been moved to the new htscodecs submodule.
+  See that logs in that git repository for full details of codec
+  changes.
 
-* NM and MD tags are now checked during encode to validate that they
-  match the decode algorithm.  If not they are automatically stored
-  verbatim.
+* CRAM 4.0 format improvements:
+  - New variable sized integer encoding.
+
+  - New "QO" quality orientation header field to optionally permit
+    compression of quality strings in their as-sequenced orientation
+    instead of as-aligned.
+
+  - Read names can now be deduped for read-pairs, just as we do for
+    RNEXT, PNEXT and TLEN.
+
+  - CF has a new flag EXPLICIT_TLEN which permits encoding of TLEN
+    only, but not RNEXT/PNEXT.  Useful for preserving off-by-one TLEN
+    sizes. (Usually insignificant, but on some "wrong" data sets it's
+    up to 5% space saving.)
+
+  - MD, NM and RG can be stored in the TD map as placeholders.
+    They're auto-computed still, but we now know if they existed and
+    if so where in the tag list.
+
+  - Improved 64-bit position support.
+
+  - Added data tranforms for RLE, bit-PACKing and mapping and DELTA.
+    These are analogous to the rANS4x16 codec, but may be used in
+    conjunction with other codecs.  (Currently sparsely utilised by
+    the encoder.)
+
+  - Native upport for signed data types, instead of assuming
+    0xffffffff is -1 (for example).  Used for AP, TS and RG.
+
+* Improved build instructions: fixes github #19
+
+* Tidied up EOF writing code to be more CRAM version agnostic.
 
 Bug fixes:
 
@@ -58,6 +106,25 @@ Bug fixes:
 
 * Fixed compilation error on x32 architecture.
 
+* Fixed LDFLAGS typo causing --with-zlib to overrule the users
+  definition of LDFLAGS.
+
+* Fixed memory leaks in the test harness.
+
+* Fixed cram_filter when used in conjunction with "scramble -n" (no
+  names).
+
+* Fixed some rare thread race conditions in CRAM encoding.
+
+* Fixed an optimisation buglet in gcc 5.0 to 5.4.  Fixes github #17
+
+* Various compiler warnings silenced (some of which were minor bug
+  fixes too).
+
+* Fixed program name in help message from scram_test and
+  srf_extract_hash.
+
+* Fixed type overflow problems with itf8 macros. Fixes githjub #22.
 
 Version 1.14.11 (16th October 2018)
 ---------------
