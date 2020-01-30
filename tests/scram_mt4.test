@@ -1,4 +1,0 @@
-#!/bin/sh
-
-SCRAMBLE_ENC_ARGS="-V4.0 -7" $srcdir/scram.test
-SCRAMBLE_ARGS="-t4" $srcdir/scram.test

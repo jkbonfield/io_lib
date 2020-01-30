@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 Genome Research Ltd.
+ * Copyright (c) 2016, 2019 Genome Research Ltd.
  * Author(s): James Bonfield
  * 
  * Redistribution and use in source and binary forms, with or without 
@@ -47,6 +47,9 @@
 #include <getopt.h>
 
 #include <io_lib/cram.h>
+
+// Variable sized integer function pointers.
+varint_vec vv;
 
 // Lifted out of cram_io.c.
 // Maybe make it public as cram_write_full_container.
@@ -142,7 +145,8 @@ cram_block_compression_hdr_decoder2encoder(cram_fd *fd_in, cram_fd *fd_out, cram
 //
 // Also updates the content ID hash, ci_h, indicating which
 // content IDs we to keep and to remove.
-int ds_to_id(cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
+int ds_to_id(cram_block_compression_hdr *hdr,
+	     cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
     int i;
     uintptr_t k;
 
@@ -166,9 +170,9 @@ int ds_to_id(cram_map **ma, char *data, HashTable *ds_h, HashTable *ci_h) {
 		if (k>>16)
 		    k &= ~0xff;
 
-		cram_codec *c = cram_decoder_init(m->encoding,
+		cram_codec *c = cram_decoder_init(hdr, m->encoding,
 						  data + m->offset,
-						  m->size, E_BYTE_ARRAY, 0);
+						  m->size, E_BYTE_ARRAY, 0, &vv);
 		int id1 = 0, id2;
 		if (c) {
 		    id1 = cram_codec_to_id(c, &id2);
@@ -270,10 +274,10 @@ static int find_tags_to_del(cram_fd *fd_in,
     HashItem *hi;
     HashIter *iter;
 
-    if (ds_to_id(c->comp_hdr->rec_encoding_map,
+    if (ds_to_id(c->comp_hdr, c->comp_hdr->rec_encoding_map,
 		 (char *)c->comp_hdr_block->data, ds_h, ci_h))
 	return -1;
-    if (ds_to_id(c->comp_hdr->tag_encoding_map,
+    if (ds_to_id(c->comp_hdr, c->comp_hdr->tag_encoding_map,
 		 (char *)c->comp_hdr_block->data, ds_h, ci_h))
 	return -1;
 
@@ -392,7 +396,8 @@ static int filter_container(cram_fd *fd_in, cram_fd *fd_out,
 		
 		cram_uncompress_block(dup);
 		int32_t rid;
-		itf8_get((char *)BLOCK_DATA(dup), &rid);
+		char *cp = (char *)BLOCK_DATA(dup);
+		rid = fd_in->vv.varint_get32(&cp, NULL, NULL);
 		cram_free_block(dup);
 		if (rid > fd_in->range.refid) {
 		    *eor = 1;
@@ -446,7 +451,7 @@ void correct_compression_header(cram_fd *fd_out,
 	    c->comp_hdr->codecs[DS_QS]->free(c->comp_hdr->codecs[DS_QS]);
 	c->comp_hdr->codecs[DS_QS] = cram_encoder_init(E_HUFFMAN, stats,
 						       E_BYTE, NULL,
-						       fd_out->version);
+						       fd_out->version, &vv);
 	cram_stats_free(stats);
     }
 
@@ -469,9 +474,9 @@ void update_slice_offsets(cram_fd *fd_out, cram_container *c) {
 	? c_hdr->uncomp_size
 	: c_hdr->comp_size;
     slice_offset += 2 + 4*IS_CRAM_3_VERS(fd_out) +
-	itf8_size(c_hdr->content_id) +
-	itf8_size(c_hdr->comp_size) +
-	itf8_size(c_hdr->uncomp_size);
+	fd_out->vv.varint_size(c_hdr->content_id) +
+	fd_out->vv.varint_size(c_hdr->comp_size) +
+	fd_out->vv.varint_size(c_hdr->uncomp_size);
     
     c->num_blocks = 1; // compression header
     c->length = 0;
@@ -493,15 +498,15 @@ void update_slice_offsets(cram_fd *fd_out, cram_container *c) {
 	    : s->hdr_block->comp_size;
 
 	slice_offset += 2 + 4*IS_CRAM_3_VERS(fd_out) + 
-	    itf8_size(s->hdr_block->content_id) +
-	    itf8_size(s->hdr_block->comp_size) +
-	    itf8_size(s->hdr_block->uncomp_size);
+	    fd_out->vv.varint_size(s->hdr_block->content_id) +
+	    fd_out->vv.varint_size(s->hdr_block->comp_size) +
+	    fd_out->vv.varint_size(s->hdr_block->uncomp_size);
 
 	for (j = 0; j < s->hdr->num_blocks; j++) {
 	    slice_offset += 2 + 4*IS_CRAM_3_VERS(fd_out) + 
-		itf8_size(s->block[j]->content_id) +
-		itf8_size(s->block[j]->comp_size) +
-		itf8_size(s->block[j]->uncomp_size);
+		fd_out->vv.varint_size(s->block[j]->content_id) +
+		fd_out->vv.varint_size(s->block[j]->comp_size) +
+		fd_out->vv.varint_size(s->block[j]->uncomp_size);
 
 	    slice_offset += s->block[j]->method == RAW
 		? s->block[j]->uncomp_size
@@ -832,6 +837,8 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
+    cram_init_varint(&vv, fd_in->file_def->major_version);
+    
     // Parse index if required by -n and -r options.
     if (require_index == 1) {
 	// For -n we parse the index manually as we need to track

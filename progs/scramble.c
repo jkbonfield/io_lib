@@ -39,9 +39,6 @@
 #include "io_lib_config.h"
 #endif
 
-// Enable if we want V3.1 support.  TODO: add a configure param for this
-#define HAVE_FQZ
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -345,12 +342,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'f':
-#ifdef HAVE_FQZ
 	    use_fqz = 1;
-#else
-	    fprintf(stderr, "Warning: FQZ support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
 	    break;
 
 	case 'T':

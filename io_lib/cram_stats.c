@@ -224,3 +224,98 @@ void cram_stats_free(cram_stats *st) {
 	HashTableDestroy(st->h, 0);
     free(st);
 }
+
+/*
+ * Analyse c->slice[?]->qual_blk to identify appropriate
+ * quality encoding method.
+ * Does it benefit from bit packing?
+ * Does it benefit from RLE pre-packing?
+ * Does it benefit from RLE post-packing?
+ */
+static void hist(unsigned char *data, int dlen, int hist[256]) {
+    // FIXME: speed up; see hist4 in rans
+    int i;
+    for (i = 0; i < dlen; i++)
+	hist[data[i]]++;
+}
+
+void cram_stats_qual(cram_container *c,
+		     int *nval, int val[256],
+		     int *nrle, int rle[256]) {
+    int i, last = -1;
+
+    // Number of distinct symbols
+    // We end up with val[256] being a lookup table to go from A,B,C to 0,1,2
+    memset(val, 0, 256*sizeof(*val));
+    for (i = 0; i < c->curr_slice; i++)
+	hist(c->slice[i].qual_blk->data, c->slice[i].qual_blk->byte, val);
+
+    *nval = 0;
+    unsigned char map[256];
+    for (i = 0; i < 256; i++)
+	if (val[i])
+	    map[i] = (*nval)++;
+
+    // Their RLE costs (packed or unpacked).
+    // We end up with rle[256] being a lookup table of symbols to RLE
+    for (i = 0; i < 256; i++) rle[i] = -99;
+    if (*nval <= 1) {
+	// NOP: it's a constant.
+    } else if (*nval <= 2) {
+	// 8 per byte
+	unsigned char *d = c->slice[0].qual_blk->data;
+	int len = c->slice[0].qual_blk->byte;
+	for (i = 0; i < len-7; i += 8) {
+	    unsigned char p =
+		(map[d[i+0]]<<7) +
+		(map[d[i+1]]<<6) +
+		(map[d[i+2]]<<5) +
+		(map[d[i+3]]<<4) +
+		(map[d[i+4]]<<3) +
+		(map[d[i+5]]<<2) +
+		(map[d[i+6]]<<1) +
+		(map[d[i+7]]);
+	    rle[p] += (p == last) ? 1 : -2;
+	    last = p;
+	}
+    } else if (*nval <= 4) {
+	// 4 per byte
+	unsigned char *d = c->slice[0].qual_blk->data;
+	int len = c->slice[0].qual_blk->byte;
+	for (i = 0; i < len-3; i += 4) {
+	    unsigned char p =
+		(map[d[i+0]]<<6) +
+		(map[d[i+1]]<<4) +
+		(map[d[i+2]]<<2) +
+		(map[d[i+3]]);
+	    rle[p] += (p == last) ? 1 : -2;
+	    last = p;
+	}
+    } else if (*nval <= 16) {
+	// 2 per byte
+	unsigned char *d = c->slice[0].qual_blk->data;
+	int len = c->slice[0].qual_blk->byte;
+	for (i = 0; i < len-1; i += 2) {
+	    unsigned char p = (map[d[i+0]]<<4) + map[d[i+1]];
+	    rle[p] += (p == last) ? 1 : -2;
+	    last = p;
+	}
+    } else {
+	// unpacked
+	unsigned char *d = c->slice[0].qual_blk->data;
+	int len = c->slice[0].qual_blk->byte;
+	for (i = 0; i < len; i++) {
+	    rle[d[i]] += (d[i] == last) ? 1 : -2;
+	    last = d[i];
+	}
+    }
+//    for (i = 0; i < 256; i++)
+//	if (rle[i] > 0)
+//	    fprintf(stderr, "rle[%d]=%d\n", i, rle[i]);
+
+    *nrle = 0;
+    for (i = 0; i < 256; i++) {
+	if (rle[i] > 0)
+	    (*nrle)++;
+    }
+}

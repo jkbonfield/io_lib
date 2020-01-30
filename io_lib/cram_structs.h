@@ -98,7 +98,11 @@ enum cram_encoding {
     E_SUBEXP             = 7,
     E_GOLOMB_RICE        = 8,
     E_GAMMA              = 9,
-    E_NUM_CODECS         = 10, /* Number of codecs, not a real one. */
+    E_XHUFFMAN           = 10, // To external block
+    E_XPACK              = 11, // Transform to sub-codec
+    E_XRLE               = 12, // Transform to sub-codec
+    E_XDELTA             = 13, // Transform to sub-codec
+    E_NUM_CODECS, /* Total number of codecs, not a real one. */
 };
 
 enum cram_external_type {
@@ -107,6 +111,8 @@ enum cram_external_type {
     E_BYTE               = 3,
     E_BYTE_ARRAY         = 4,
     E_BYTE_ARRAY_BLOCK   = 5,
+    E_SINT               = 6, // signed INT
+    E_SLONG              = 7, // signed LONG
 };
 
 /* External IDs used by this implementation (only assumed during writing) */
@@ -158,6 +164,7 @@ enum cram_DS_ID {
     DS_SC_len,
     DS_BB_len,
     DS_QQ_len,
+    DS_QS_len,
 
     DS_TC, // CRAM v1.0 tags
     DS_TM, // test
@@ -174,11 +181,16 @@ typedef struct {
     char    file_id[20];      // Filename or SHA1 checksum
 } cram_file_def;
 
+// NB, some of these are >= (eg >= 3).  This is so old code that checks
+// for Version 3 is also going to work on V4, V5 etc.
+// Therefore in if-elseif-else clauses, start with higher version
+// numbers first.
 #define CRAM_MAJOR_VERS(v) ((v) >> 8)
 #define CRAM_MINOR_VERS(v) ((v) & 0xff)
 #define IS_CRAM_1_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==1)
 #define IS_CRAM_2_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)==2)
 #define IS_CRAM_3_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)>=3)
+#define IS_CRAM_4_VERS(fd) (CRAM_MAJOR_VERS((fd)->version)>=4)
 
 struct cram_slice;
 
@@ -312,9 +324,10 @@ typedef struct {
     /* Flags from preservation map */
     int read_names_included;
     int AP_delta;
+    int no_ref;
+    int qs_seq_orient; // 1 => same as seq. 0 => original orientation
     // indexed by ref-base and subst. code
     char substitution_matrix[5][4];
-    int no_ref;
 
     // TD Dictionary as a concatenated block
     cram_block *TD_blk;  // Tag Dictionary
@@ -330,6 +343,9 @@ typedef struct {
 
     char *uncomp; // A single block of uncompressed data
     size_t uncomp_size, uncomp_alloc;
+
+    // Total codec count, used for index to block_by_id for transforms
+    int ncodecs;
 } cram_block_compression_hdr;
 
 typedef struct cram_map {
@@ -344,6 +360,7 @@ typedef struct cram_map {
 typedef struct {
     struct cram_codec *codec;
     cram_block *blk;
+    cram_block *blk2;
     cram_metrics *m;
 } cram_tag_map;
 
@@ -409,6 +426,7 @@ typedef struct {
     int last_slice;              // number of reads in last slice (0 for 1st)
     int multi_seq;               // true if packing multi seqs per cont/slice
     int unsorted;		 // true is AP_delta is 0.
+    int qs_seq_orient;           // 1 => same as seq. 0 => original orientation
 
     /* Copied from fd before encoding, to allow multi-threading */
     int64_t ref_start, first_base, last_base, ref_id, ref_end;
@@ -453,6 +471,7 @@ typedef struct {
     int32_t mate_ref_id;
     int64_t mate_pos;     // NP
     int64_t tlen;         // TS
+    int64_t explicit_tlen;// TS, but PNEXT/RNEXT still need auto-computing
 
     // Auxiliary data
     int32_t ntags;        // TC
@@ -769,7 +788,39 @@ typedef struct {
 } cram_fd_output_buffer;
 #endif
 
-typedef struct {
+struct cram_fd;
+typedef struct varint_vec {
+    // Returns number of bytes decoded from fd, 0 on error
+    int (*varint_decode32_crc)(struct cram_fd *fd, int32_t *val_p, uint32_t *crc);
+    int (*varint_decode64_crc)(struct cram_fd *fd, int64_t *val_p, uint32_t *crc);
+
+    //int (*varint_get32)(const char *cp, const char *endp, int32_t *val_p);
+    //int (*varint_get64)(const char *cp, const char *endp, int64_t *val_p);
+
+    // Returns the value and increments *cp.  Sets err to 1 iff an error occurs.
+    // NOTE: Does not set err to 0 on success.
+    int64_t (*varint_get32) (char **cp, const char *endp, int *err);
+    int64_t (*varint_get32s)(char **cp, const char *endp, int *err);
+    int64_t (*varint_get64) (char **cp, const char *endp, int *err);
+    int64_t (*varint_get64s)(char **cp, const char *endp, int *err);
+
+    // Returns the number of bytes written, <= 0 on error.
+    int (*varint_put32) (char *cp, const char *endp, int32_t val_p);
+    int (*varint_put32s)(char *cp, const char *endp, int32_t val_p);
+    int (*varint_put64) (char *cp, const char *endp, int64_t val_p);
+    int (*varint_put64s)(char *cp, const char *endp, int64_t val_p);
+
+    // Returns the number of bytes written, <= 0 on error.
+    int (*varint_put32_blk) (cram_block *blk, int32_t val_p);
+    int (*varint_put32s_blk)(cram_block *blk, int32_t val_p);
+    int (*varint_put64_blk) (cram_block *blk, int64_t val_p);
+    int (*varint_put64s_blk)(cram_block *blk, int64_t val_p);
+
+    // Returns number of bytes needed to encode 'val'
+    int (*varint_size)(int64_t val);
+} varint_vec;
+
+typedef struct cram_fd {
     FILE                 *fp_in;
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
     cram_fd_input_buffer            *fp_in_buffer;
@@ -874,6 +925,10 @@ typedef struct {
     int lossy_read_names;
     int preserve_aux_order;             // if set implies emitting RG, MD and NM
     int preserve_aux_size;              // does not replace 'i' with 'c' etc in aux.
+
+    // variable integer decoding callbacks.
+    // This changed in CRAM4.0 to a data-size agnostic encoding.
+    varint_vec vv;
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -1037,7 +1092,9 @@ enum cram_option {
 #define CRAM_FLAG_DETACHED             (1<<1)
 #define CRAM_FLAG_MATE_DOWNSTREAM      (1<<2)
 #define CRAM_FLAG_NO_SEQ               (1<<3)
-#define CRAM_FLAG_MASK                 ((1<<4)-1)
+#define CRAM_FLAG_EXPLICIT_TLEN        (1<<4)
+#define CRAM_FLAG_TLEN0                (1<<5)
+#define CRAM_FLAG_MASK                 ((1<<6)-1)
 
 /* Internal only */
 #define CRAM_FLAG_STATS_ADDED  (1<<30)

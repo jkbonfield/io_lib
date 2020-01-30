@@ -10,7 +10,7 @@ sub rr {
 
     $seed = int(($seed*1103515245+12345)&0xffffffff);
     if (defined($m)) {
-return $seed % $m;
+	return $seed % $m;
     } else {
         return ($seed & 0xffffff) / 0x1000000;
     }
@@ -79,7 +79,7 @@ foreach my $chr ((sort @names),"*") {
     my $len = $len{$chr};
     my $s = $seqs->{$chr};
     for (my $i=0; $i<$len-100; $i++) {
-	if (rr() < 0.5) { #50x coverage
+	if (rr() < 0.1) { #10x coverage
 	    my $dna = substr($s,$i,100);
 	    $dna = substr($s, int(rr($len{"*"}-100)), 100) if ($chr eq "*");
 	    for (my $j=0; $j<5; $j++) {
@@ -112,7 +112,7 @@ foreach (sort @names) {
 
 # Sequence lines
 $n = 1;
-for (my $i = 0; $i < 500000; $i++) {
+for (my $i = 0; $i < 100000; $i++) {
     my $chr = $names[$#names*rr()];
     my $pos = int(rr() * ($len{$chr}-100));
     my $dna = substr($seqs->{$chr},$pos,100);
