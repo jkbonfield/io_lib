@@ -78,6 +78,9 @@ func ptr v4.0		10614 (10540-10653)  all zigzag (w INT7 #define)
 #ifdef HAVE_LIBBSC
 #include <libbsc/libbsc.h>
 #endif
+#ifdef HAVE_ZSTD
+#include <zstd.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <math.h>
@@ -1923,6 +1926,29 @@ int cram_uncompress_block(cram_block *b) {
 	break;
 #endif
 
+#ifdef HAVE_ZSTD
+    case ZSTD: {
+	uncomp = malloc(b->uncomp_size);
+	if (!uncomp)
+	    return -1;
+
+	size_t usize = ZSTD_decompress(uncomp, b->uncomp_size, b->data, b->comp_size);
+
+	if ((int)usize != b->uncomp_size)
+	    return -1;
+	free(b->data);
+	b->data = (unsigned char *)uncomp;
+	b->alloc = uncomp_size;
+	b->method = RAW;
+	break;
+    }
+#else
+    case ZSTD:
+	fprintf(stderr, "ZSTD compression is not compiled into this "
+		"version.\nPlease rebuild and try again.\n");
+	return -1;
+#endif
+
     case RANS0: {
 	unsigned int usize = b->uncomp_size, usize2;
 	if (*b->data == 1) b->orig_method = RANS1; // useful in debugging
@@ -1944,8 +1970,19 @@ int cram_uncompress_block(cram_block *b) {
 	uncomp = (char *)rans_uncompress_4x16(b->data, b->comp_size, &usize2);
 	if (!uncomp || usize != usize2)
 	    return -1;
-	b->orig_method = RANS_PR0 + (b->data[0]&1)
-	    + 2*((b->data[0]&0x40)>0) + 4*((b->data[0]&0x80)>0);
+	switch (b->data[0] & 0xC1) {
+	case 0x00: b->orig_method = RANS_PR0;   break;
+	case 0x01: b->orig_method = RANS_PR1;   break;
+	case 0x40: b->orig_method = RANS_PR64;  break;
+	case 0x41: b->orig_method = RANS_PR65;  break;
+	case 0x80: b->orig_method = RANS_PR128; break;
+	case 0x81: b->orig_method = RANS_PR129; break;
+	case 0xC0: b->orig_method = RANS_PR192; break;
+	case 0xC1: b->orig_method = RANS_PR193; break;
+	}
+	if (b->data[0] & 0x20) b->orig_method = RANS_PR32; // cat
+	if (b->data[0] & 0x08) b->orig_method = (b->data[0]&1)?RANS_PR9:RANS_PR9;
+
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
@@ -1960,8 +1997,20 @@ int cram_uncompress_block(cram_block *b) {
 	uncomp = (char *)arith_uncompress_to(b->data, b->comp_size, NULL, &usize2);
 	if (!uncomp || usize != usize2)
 	    return -1;
-	b->orig_method = ARITH_PR0 + (b->data[0]&1)
-	    + 2*((b->data[0]&0x40)>0) + 4*((b->data[0]&0x80)>0);
+
+	switch (b->data[0] & 0xC1) {
+	case 0x00: b->orig_method = ARITH_PR0;   break;
+	case 0x01: b->orig_method = ARITH_PR1;   break;
+	case 0x40: b->orig_method = ARITH_PR64;  break;
+	case 0x41: b->orig_method = ARITH_PR65;  break;
+	case 0x80: b->orig_method = ARITH_PR128; break;
+	case 0x81: b->orig_method = ARITH_PR129; break;
+	case 0xC0: b->orig_method = ARITH_PR192; break;
+	case 0xC1: b->orig_method = ARITH_PR193; break;
+	}
+	if (b->data[0] & 0x20) b->orig_method = ARITH_PR32; // cat
+	if (b->data[0] & 0x08) b->orig_method = (b->data[0]&1)?ARITH_PR9:ARITH_PR9;
+
 	free(b->data);
 	b->data = (unsigned char *)uncomp;
 	b->alloc = usize2;
@@ -2132,6 +2181,31 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 	return NULL;
 #endif
 
+    case ZSTD_1:
+    case ZSTD: {
+#ifdef HAVE_ZSTD
+	size_t comp_size = ZSTD_compressBound(in_size);
+	char *comp = malloc(comp_size);
+	if (!comp)
+	    return NULL;
+
+	if (level < 0) level = 5; // level -1 is default comp.
+	if (level > 9) level = 9;
+	//int m[9] = {1,5,6,7,8,9,13,16,19};
+	int m[9] = {1,5,6,7,7,9,13,16,19};
+	level = m[level];
+	size_t csize = ZSTD_compress(comp, comp_size, in, in_size, level);
+	if (ZSTD_isError(csize)) {
+	    free(comp);
+	    return NULL;
+	}
+	*out_size = csize;
+	return comp;
+#else
+	return NULL;
+#endif
+    }
+
     case RANS0:
     case RANS1: {
 	unsigned int out_size_i;
@@ -2214,7 +2288,7 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
  */
 int cram_compress_block(cram_fd *fd, cram_slice *s,
 			cram_block *b, cram_metrics *metrics,
-			int method, int level) {
+			int64_t method, int level) {
     if (!b)
 	return 0;
 
@@ -2240,6 +2314,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 	RANSPR, RANSPR, RANSPR, RANSPR, RANSPR, RANSPR, RANSPR,
 	TOK3,
 	ARITH,  ARITH,  ARITH,  ARITH,  ARITH,  ARITH,  ARITH,
+	ZSTD
     };
 
     if (b->method != RAW) {
@@ -2268,7 +2343,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 	    int m;
 	    size_t sz_best = INT_MAX;
 	    size_t sz[CRAM_MAX_METHOD] = {0};
-	    int method_best = 0;
+	    int64_t method_best = 0;
 	    char *c_best = NULL, *c = NULL;
 
 	    if (metrics->revised_method)
@@ -2301,13 +2376,13 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		    method = (method|(1<<ARITH_PR1))&~(1<<ARITH_PR129);
 		if (method & (1<<ARITH_PR192))
 		    method = (method|(1<<ARITH_PR64))&~(1<<ARITH_PR192);
-		if (method & (1<<ARITH_PR193))
-		    method = (method|(1<<ARITH_PR64)|(1<<ARITH_PR1))&~(1<<ARITH_PR193);
+		if (method & (1LL<<ARITH_PR193))
+		    method = (method|(1<<ARITH_PR64)|(1<<ARITH_PR1))&~(1LL<<ARITH_PR193);
 	    }
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 
             for (m = 0; m < CRAM_MAX_METHOD; m++) {
-		if (method & (1<<m)) {
+		if (method & (1LL<<m)) {
 		    int lvl = level;
 		    switch (m) {
 		    case GZIP:     strat = Z_FILTERED; break;
@@ -2319,6 +2394,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		    case FQZ_d:    strat = CRAM_MAJOR_VERS(fd->version)+3*256; break;
 		    case NAME_TOK3:strat = 0; break;
 		    case NAME_TOKA:strat = 1; break;
+		    case ZSTD_1:   lvl = 1; break;
 		    default:       strat = 0;
 		    }
 
@@ -2365,7 +2441,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		int best_sz = INT_MAX;
 
 		// Relative costs of methods. See enum_cram_block_method and methmap.
-		double meth_cost[32] = {
+		double meth_cost[CRAM_MAX_METHOD] = {
                     // Externally defined methods
                     1,    // 0  raw
                     1.04, // 1  gzip (Z_FILTERED)
@@ -2376,7 +2452,8 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
                     1.03, // 6  arithpr (O0)
                     1.05, // 7  fqz
                     1.05, // 8  tok3 (rans)
-                    9, 9, // 9,10 reserved
+		    1.05, // 9  libbsc
+		    1.03, // 10 ZSTD
 
                     // Paramterised versions of above
                     1.05, 1.05, 1.05, // FQZ_b,c,d
@@ -2402,6 +2479,8 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
                     1.04, // arith_pr129
                     1.04, // arith_pr192
                     1.04, // arith_pr193
+
+		    1.01, // ZSTD -1
 		};
 
 		// Scale methods by cost based on compression level
@@ -2420,7 +2499,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 		} // else cost is ignored
 
                 for (m = 0; m < CRAM_MAX_METHOD; m++) {
-		    if ((!metrics->sz[m]) || (!(method & (1<<m))))
+		    if ((!metrics->sz[m]) || (!(method & (1LL<<m))))
 			continue;
 
 		    if (best_sz > metrics->sz[m])
@@ -2470,18 +2549,18 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 			int mul = 1+(fd->level>=7);
                         if (++metrics->cnt[m] >= MAXFAILS*mul && 
                             (metrics->extra[m] += r) >= MAXDELTA*mul)
-                            method &= ~(1<<m);
+                            method &= ~(1LL<<m);
 
 			// Special case for fqzcomp as it rarely changes
 			if (m == FQZ || m == FQZ_b || m == FQZ_c || m == FQZ_d) {
 			    if (metrics->sz[m] > best_sz)
-				method &= ~(1<<m);
+				method &= ~(1LL<<m);
 			}
                     }
                 }
 
 		if (fd->verbose > 1 && method != metrics->revised_method)
-		    fprintf(stderr, "%d: revising method from %x to %x\n",
+		    fprintf(stderr, "%d: revising method from %lx to %lx\n",
 			    b->content_id, metrics->revised_method, method);
 		metrics->revised_method = method;
 	    }
@@ -2493,7 +2572,7 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
 	    comp = cram_compress_by_method(s, (char *)b->data, b->uncomp_size,
 					   &comp_size, method,
-					   method == GZIP_1 ? 1 : level,
+					   (method == GZIP_1 || method == ZSTD_1) ? 1 : level,
 					   strat);
 	    if (!comp)
 		return -1;
@@ -2559,6 +2638,7 @@ char *cram_block_method2str(enum cram_block_method m) {
     case GZIP:	      return "GZIP";
     case BZIP2:	      return "BZIP2";
     case BSC:	      return "BSC";
+    case ZSTD:	      return "ZSTD";
     case FQZ:	      return "FQZ";
     case FQZ_b:	      return "FQZ_b";
     case FQZ_c:	      return "FQZ_c";
@@ -2571,7 +2651,10 @@ char *cram_block_method2str(enum cram_block_method m) {
     case RANS_PR0:    return "RANS_PR0";
     case RANS_PR1:    return "RANS_PR1";
     case RANS_PR64:   return "RANS_PR64";
-    case RANS_PR9:    return "RANS_PR9";
+    case RANS_PR65:   return "RANS_PR65";
+    case RANS_PR32:   return "RANS_PRcat";
+    case RANS_PR8:    return "RANS_PRstripe0";
+    case RANS_PR9:    return "RANS_PRstripe1";
     case RANS_PR128:  return "RANS_PR128";
     case RANS_PR129:  return "RANS_PR129";
     case RANS_PR192:  return "RANS_PR192";
@@ -2581,11 +2664,15 @@ char *cram_block_method2str(enum cram_block_method m) {
     case ARITH_PR0:   return "ARITH_PR0";
     case ARITH_PR1:   return "ARITH_PR1";
     case ARITH_PR64:  return "ARITH_PR64";
-    case ARITH_PR9:   return "ARITH_PR9";
+    case ARITH_PR65:  return "ARITH_PR65";
+    case ARITH_PR32:  return "ARITH_PRcat";
+    case ARITH_PR8:   return "ARITH_PRstripe0";
+    case ARITH_PR9:   return "ARITH_PRstripe1";
     case ARITH_PR128: return "ARITH_PR128";
     case ARITH_PR129: return "ARITH_PR129";
     case ARITH_PR192: return "ARITH_PR192";
     case ARITH_PR193: return "ARITH_PR193";
+    case ZSTD_1:      return "ZSTD-1";
     default:          break;
     }
     return "?";
@@ -4827,6 +4914,8 @@ int cram_write_SAM_hdr(cram_fd *fd, SAM_hdr *hdr) {
 	    method |= 1<<BZIP2;
 	if (fd->use_bsc)
 	    method |= 1<<BSC;
+	if (fd->use_zstd)
+	    method |= 1<<ZSTD;
 	if (fd->use_lzma)
 	    method |= 1<<LZMA;
 	cram_compress_block(fd, NULL, b, NULL, method, fd->level);
@@ -5386,6 +5475,7 @@ cram_fd *cram_open(const char *filename, const char *mode) {
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_bsc = 0;
+    fd->use_zstd = 0;
     fd->use_lzma = 0;
     fd->multi_seq = 0;
     fd->multi_seq_user = 0;
@@ -5496,6 +5586,7 @@ cram_fd *cram_open_by_callbacks(
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_bsc = 0;
+    fd->use_zstd = 0;
     fd->use_lzma = 0;
     fd->multi_seq = 0;
     fd->multi_seq_user = 0;
@@ -5622,6 +5713,7 @@ cram_fd *cram_openw_by_callbacks(
     fd->use_bz2 = 0;
     fd->use_rans = IS_CRAM_3_VERS(fd);
     fd->use_bsc = 0;
+    fd->use_zstd = 0;
     fd->use_lzma = 0;
     fd->multi_seq = 0;
     fd->multi_seq_user = 0;
@@ -5975,6 +6067,10 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 
     case CRAM_OPT_USE_BSC:
 	fd->use_bsc = va_arg(args, int);
+	break;
+
+    case CRAM_OPT_USE_ZSTD:
+	fd->use_zstd = va_arg(args, int);
 	break;
 
     case CRAM_OPT_USE_FQZ:

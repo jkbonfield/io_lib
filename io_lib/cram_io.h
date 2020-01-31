@@ -123,7 +123,7 @@ int cram_uncompress_block(cram_block *b);
  */
 int cram_compress_block(cram_fd *fd, cram_slice *slice,
 			cram_block *b, cram_metrics *metrics,
-			int method, int level);
+			int64_t method, int level);
 
 cram_metrics *cram_new_metrics(void);
 char *cram_block_method2str(enum cram_block_method m);

@@ -89,7 +89,7 @@ static char *detect_format(char *fn) {
 
 static void usage(FILE *fp) {
     fprintf(fp, "  -=- sCRAMble -=-     version %s\n", PACKAGE_VERSION);
-    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2018\n\n");
+    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2020\n\n");
 
     fprintf(fp, "Usage:    scramble [options] [input_file [output_file]]\n");
 
@@ -123,6 +123,9 @@ static void usage(FILE *fp) {
 #ifdef HAVE_LIBBSC
     fprintf(fp, "    -J             [Cram] Also compression using libbsc (V3.1+)\n");
 #endif
+#ifdef HAVE_ZSTD
+    fprintf(fp, "    -z             [Cram] Also compression using zstd (V3.1+)\n");
+#endif
     fprintf(fp, "    -f             [Cram] Also compression using fqzcomp (V3.1+)\n");
     fprintf(fp, "    -T             [Cram] Also compression using name tokeniser (V3.1+)\n");
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
@@ -147,7 +150,7 @@ int main(int argc, char **argv) {
     int s_opt = 0, S_opt = 0, embed_ref = 0, embed_cons = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
-    int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0, use_tok = 0, use_arith = 0;
+    int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0, use_tok = 0, use_arith = 0, use_zstd = 0;
     double vers = 3.0; // 3.0, 3.1, 4.0, etc
     char ref_name[1024] = {0};
     refs_t *refs;
@@ -168,7 +171,7 @@ int main(int argc, char **argv) {
     scram_init();
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xeEI:O:R:!MmajJZt:BN:F:Hb:nPpqg:G:fTX:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xeEI:O:R:!MmajJzZt:BN:F:Hb:nPpqg:G:fTX:")) != -1) {
 	switch (c) {
 	case 'X':
 	    if (strcmp(optarg, "default") == 0 || strcmp(optarg, "normal") == 0) {
@@ -332,6 +335,15 @@ int main(int argc, char **argv) {
 		    " version.\nPlease recompile.\n");
 #endif
 
+#ifdef HAVE_ZSTD
+	case 'z':
+	    use_zstd = 1;
+	    break;
+#else
+	    fprintf(stderr, "Warning: zstd support is not compiled into this"
+		    " version.\nPlease recompile.\n");
+#endif
+
 	case 'Z':
 #ifdef HAVE_LIBLZMA
 	    use_lzma = 1;
@@ -392,8 +404,8 @@ int main(int argc, char **argv) {
 	}
     }    
 
-    if (cram_default_version() <= 300 && (use_bsc || use_fqz)) {
-	fprintf(stderr, "Libbsc and/or fqzcomp codecs are only permitted in CRAM v3.1 and 4.0.\n"
+    if (cram_default_version() <= 300 && (use_bsc || use_fqz || use_zstd)) {
+	fprintf(stderr, "Libbsc, ZSTD and/or fqzcomp codecs are only permitted in CRAM v3.1 and 4.0.\n"
 		"Note these CRAM versions are a technology demonstration only.\n"
 		"Future versions of Scramble may not be able to read these files.\n");
 	return 1;
@@ -503,6 +515,10 @@ int main(int argc, char **argv) {
 
     if (use_bsc)
 	if (scram_set_option(out, CRAM_OPT_USE_BSC, use_bsc))
+	    return 1;
+
+    if (use_zstd)
+	if (scram_set_option(out, CRAM_OPT_USE_ZSTD, use_zstd))
 	    return 1;
 
     if (use_lzma)

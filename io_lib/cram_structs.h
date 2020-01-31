@@ -245,6 +245,12 @@ enum cram_block_method {
 
     // NB: must end on no more than 31 unless we change to a
     // 64-bit method type.
+
+    ZSTD_1,      // ZSTD level 1 is sometimes enough, and better!
+
+    // For purposes of returning a more precise orig_method field
+    RANS_PR65, RANS_PR32, RANS_PR8,
+    ARITH_PR65, ARITH_PR32, ARITH_PR8,
 };
 
 enum cram_content_type {
@@ -258,7 +264,7 @@ enum cram_content_type {
 };
 
 /* Maximum simultaneous codecs allowed, 1 per bit */
-#define CRAM_MAX_METHOD 32
+#define CRAM_MAX_METHOD 33
 
 /* Compression metrics */
 typedef struct {
@@ -271,12 +277,12 @@ typedef struct {
     int sz[CRAM_MAX_METHOD];
 
     // resultant method from trials
-    int method;
+    int64_t method;
     int strat;
 
     // Revisions of method, to allow culling of continually failing ones.
     int cnt[CRAM_MAX_METHOD];
-    int revised_method;
+    int64_t revised_method;
 
     double extra[CRAM_MAX_METHOD];
 
@@ -884,6 +890,7 @@ typedef struct cram_fd {
     int use_rans;
     int use_lzma;
     int use_bsc;
+    int use_zstd;
     int use_fqz;
     int use_tok;
     int use_arith;
@@ -1056,6 +1063,7 @@ enum cram_option {
     CRAM_OPT_WITH_BGZIP_INDEX,
     CRAM_OPT_OUTPUT_BGZIP_IDX,
     CRAM_OPT_USE_BSC,
+    CRAM_OPT_USE_ZSTD,
     CRAM_OPT_USE_FQZ,
     CRAM_OPT_EMBED_CONS,
     CRAM_OPT_USE_TOK,

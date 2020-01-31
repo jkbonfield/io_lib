@@ -783,18 +783,33 @@ static void squash_qual(cram_block *b) {
  */
 static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     int level = fd->level, i;
-    int method = 1<<GZIP | 1<<GZIP_RLE, methodF = method, qmethod, qmethodF;
+    int64_t method = 1<<GZIP | 1<<GZIP_RLE, methodF = method, qmethod, qmethodF;
+    int v31_or_above = (fd->version >= (3<<8)+1);
 
     /* Compress the CORE Block too, with minimal zlib level */
     if (level > 5 && s->block[0]->uncomp_size > 500)
+#ifdef HAVE_ZSTD
+	cram_compress_block(fd, s, s->block[0], NULL, 1<<ZSTD, 3);
+#else
 	cram_compress_block(fd, s, s->block[0], NULL, 1<<GZIP, 1);
+#endif
 
     if (fd->use_bz2)
 	method |= 1<<BZIP2;
 
 #ifdef HAVE_LIBBSC
-    if (fd->use_bsc)
+    if (fd->use_bsc && v31_or_above)
 	method |= 1<<BSC;
+#endif
+
+#ifdef HAVE_ZSTD
+    if (fd->use_zstd && v31_or_above) {
+	method  |= (1<<ZSTD);
+	methodF |= (1<<ZSTD);
+
+	method  &= ~((1<<GZIP) | (1<<GZIP_RLE) | (1<<GZIP_1));
+	methodF &= ~((1<<GZIP) | (1<<GZIP_RLE) | (1<<GZIP_1));
+    }
 #endif
 
     int method_rans   = (1<<RANS0) | (1<<RANS1);
@@ -809,20 +824,19 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	    method_ranspr |= (1<<RANS_PR129) | (1<<RANS_PR192);
     }
 
-    int v31_or_above = (fd->version >= (3<<8)+1);
     if (fd->use_rans) {
 	methodF |= v31_or_above ? method_ranspr : method_rans;
 	method  |= v31_or_above ? method_ranspr : method_rans;
     }
 
-    int method_arith   = 0;
+    int64_t method_arith   = 0;
     if (fd->use_arith) {
 	method_arith = (1<<ARITH_PR0)   | (1<<ARITH_PR1);
 	if (level > 1)
 	    method_arith |=
-		  (1<<ARITH_PR64)  | (1<<ARITH_PR9)
-		| (1<<ARITH_PR128) | (1<<ARITH_PR129)
-		| (1<<ARITH_PR192) | (1<<ARITH_PR193);
+		  (1LL<<ARITH_PR64)  | (1LL<<ARITH_PR9)
+		| (1LL<<ARITH_PR128) | (1LL<<ARITH_PR129)
+		| (1LL<<ARITH_PR192) | (1LL<<ARITH_PR193);
     }
     if (fd->use_arith && v31_or_above) {
 	methodF |= method_arith;
@@ -835,12 +849,23 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
     /* Faster method for data series we only need entropy encoding on */
     methodF = method & ~(1<<GZIP | 1<<BZIP2 | 1<<LZMA);
     if (level >= 5) {
-	method |= 1<<GZIP_1;
+#ifdef HAVE_ZSTD
+	if (fd->use_zstd && v31_or_above)
+	    method |= 1LL<<ZSTD_1;
+	else
+#else
+	    method |= 1<<GZIP_1;
+#endif
 	methodF = method;
     }
     if (level == 1) {
-	method &= ~(1<<GZIP);
-	method |=   1<<GZIP_1;
+#ifdef HAVE_ZSTD
+	if (fd->use_zstd && v31_or_above)
+	    method = (method & ~(1<<ZSTD)) | (1LL<<ZSTD_1);
+	else
+#else
+	    method = (method & ~(1<<GZIP)) | (1LL<<GZIP_1);
+#endif
 	methodF = method;
     }
 

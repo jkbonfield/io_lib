@@ -115,6 +115,7 @@ AC_CHECK_LIB([bsc], [bsc_compress], [
 	AC_DEFINE([HAVE_LIBBSC],1,[Define to 1 if you have the libbsc library.])])
 
 AX_LIBDEFLATE
+AX_ZSTD
 
 dnl Check host endian-ness
 AC_C_BIGENDIAN([SET_ENDIAN="#define SP_BIG_ENDIAN"],
