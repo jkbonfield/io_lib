@@ -5825,8 +5825,10 @@ int cram_write_eof_block(cram_fd *fd) {
 	if (cram_write_container(fd, &c) < 0 ||
 	    cram_write_block(fd, c.comp_hdr_block) < 0) {
 	    fd = cram_io_close(fd, 0);
+            cram_free_block(c.comp_hdr_block);
 	    return -1;
 	}
+	cram_free_block(c.comp_hdr_block);
 
 	// V2.1 bytes
 	// 0b 00 00 00 ff ff ff ff 0f // Cont HDR: size, ref seq id
@@ -6135,6 +6137,8 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
 	}
 	major_version = major;
 	minor_version = minor;
+        if (fd) cram_init_tables(fd);
+
 	break;
     }
 

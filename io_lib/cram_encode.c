@@ -602,10 +602,6 @@ static int cram_encode_slice_read(cram_fd *fd,
 	    if (CRAM_MAJOR_VERS(fd->version) >= 4) {
 		r |= h->codecs[DS_TS]->encode(s, h->codecs[DS_TS],
 					      (char *)&cr->tlen, 1);
-	    } else {
-		i32 = cr->tlen;
-		r |= h->codecs[DS_TS]->encode(s, h->codecs[DS_TS],
-					      (char *)&i32, 1);
 	    }
 	}
     }
