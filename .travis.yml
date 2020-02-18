@@ -1,9 +1,19 @@
 language: c
 compiler: gcc
 
-os:
-  - linux
-  - osx
+matrix:
+  include:
+    # A big endian platform
+    - os: linux
+      arch: s390x
+
+    # A little endian platform running linux plus address sanitizer
+    - os: linux
+      compiler: gcc
+
+    # A little endian platform running MacOS X
+    - os: osx
+      compiler: clang
 
 before_script:
   - git submodule update --init --recursive
