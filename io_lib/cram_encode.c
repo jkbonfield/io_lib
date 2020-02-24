@@ -2790,10 +2790,11 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		cram_byte_array_len_encoder e;
 		cram_xdelta_encoder d;
 
-		// FIXME: Check size, data entropy, etc.  We need to learn
-		// what method compresses best here.
+		// Delta encoding is disabled for now as we need to add code
+		// to spot where DELTA codec works and to detect appropriate
+		// word size.  The below code is for demonstration purposes.
 
-		if (fd->version <= 0x300) {
+		if (1 || fd->version <= 0x300) {
 		    // 3.0; BYTE_ARRAY_LEN(EXTERNAL, EXTERNAL)
 		    e.len_encoding = E_EXTERNAL;
 		    e.len_dat = (void *)sk; // or key+128 for len?
