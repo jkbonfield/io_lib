@@ -1474,7 +1474,7 @@ int cram_xdelta_encode_char(cram_slice *slice, cram_codec *c,
 	part = in_size%2;
 	if (part) {
 	    uint16_t z = in[0];
-	    c->e_xdelta.last = le_int2(z);
+	    c->e_xdelta.last = z;
 	    cp += c->vv->varint_put32(cp, NULL, zigzag16(c->e_xdelta.last));
 	}
 
