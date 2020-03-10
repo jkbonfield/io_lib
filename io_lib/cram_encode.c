@@ -470,7 +470,7 @@ cram_block *cram_encode_slice_header(cram_fd *fd, cram_slice *s) {
 	return NULL;
     }
 
-    cp += fd->vv.varint_put32(cp, NULL, s->hdr->ref_seq_id);
+    cp += fd->vv.varint_put32s(cp, NULL, s->hdr->ref_seq_id);
     if (CRAM_MAJOR_VERS(fd->version) >= 4) {
 	cp += fd->vv.varint_put64(cp, NULL, s->hdr->ref_seq_start);
 	cp += fd->vv.varint_put64(cp, NULL, s->hdr->ref_seq_span);
@@ -1112,7 +1112,9 @@ static int cram_encode_slice(cram_fd *fd, cram_container *c,
      */
 
     /* Create cram slice header */
-    s->hdr->ref_base_id = embed_ref && s->hdr->ref_seq_span > 0 ? DS_ref : -1;
+    s->hdr->ref_base_id = embed_ref && s->hdr->ref_seq_span > 0
+	? DS_ref
+	: (CRAM_MAJOR_VERS(fd->version) >= 4 ? 0 : -1);
     s->hdr->record_counter = c->num_records + c->record_counter;
     c->num_records += s->hdr->num_records;
 
@@ -1845,7 +1847,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     //fprintf(stderr, "=== NS ===\n");
     if (fd->verbose > 1) fprintf(stderr, "NS_stats: ");
     h->codecs[DS_NS] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_NS]),
-					 c->stats[DS_NS], E_INT, NULL,
+					 c->stats[DS_NS], E_SINT, NULL,
 					 fd->version, &fd->vv);
 
     if (fd->verbose > 1) fprintf(stderr, "MF_stats: ");
@@ -1931,7 +1933,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     if (fd->verbose > 1) fprintf(stderr, "RI_stats: ");
     h->codecs[DS_RI] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_RI]),
-					 c->stats[DS_RI], E_INT, NULL,
+					 c->stats[DS_RI], E_SINT, NULL,
 					 fd->version, &fd->vv);
 
     if (fd->verbose > 1) fprintf(stderr, "RS_stats: ");

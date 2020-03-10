@@ -373,7 +373,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 		return NULL;
 	    }
 	} else if (key[0] == 'R' && key[1] == 'I') {
-	    if (!(hdr->codecs[DS_RI] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+	    if (!(hdr->codecs[DS_RI] = cram_decoder_init(hdr, encoding, cp, size, E_SINT,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
@@ -406,7 +406,7 @@ cram_block_compression_hdr *cram_decode_compression_header(cram_fd *fd,
 		return NULL;
 	    }
 	} else if (key[0] == 'N' && key[1] == 'S') {
-	    if (!(hdr->codecs[DS_NS] = cram_decoder_init(hdr, encoding, cp, size, E_INT,
+	    if (!(hdr->codecs[DS_NS] = cram_decoder_init(hdr, encoding, cp, size, E_SINT,
 							 fd->version, &fd->vv))) {
 		cram_free_compression_header(hdr);
 		return NULL;
@@ -1041,7 +1041,7 @@ cram_block_slice_hdr *cram_decode_slice_header(cram_fd *fd, cram_block *b) {
     hdr->content_type = b->content_type;
 
     if (b->content_type == MAPPED_SLICE) {
-        hdr->ref_seq_id = fd->vv.varint_get32((char **)&cp, (char *)cp_end, &err);
+        hdr->ref_seq_id = fd->vv.varint_get32s((char **)&cp, (char *)cp_end, &err);
 	if (CRAM_MAJOR_VERS(fd->version) >= 4) {
 	    hdr->ref_seq_start = fd->vv.varint_get64((char **)&cp, (char *)cp_end, &err);
 	    hdr->ref_seq_span  = fd->vv.varint_get64((char **)&cp, (char *)cp_end, &err);
@@ -2463,7 +2463,10 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	return -1;
 
     ref_id = s->hdr->ref_seq_id;
-    embed_ref = s->hdr->ref_base_id >= 0 ? 1 : 0;
+    if (CRAM_MAJOR_VERS(fd->version) < 4)
+	embed_ref = s->hdr->ref_base_id >= 0 ? 1 : 0;
+    else
+	embed_ref = s->hdr->ref_base_id > 0 ? 1 : 0;
 
     // Embedded references, or more specifically embedded consensuses, mean
     // that we may be reading, modifying (filter, subsample, etc), writing

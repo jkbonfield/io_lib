@@ -1262,7 +1262,6 @@ static int sint7_put_blk_64(cram_block *blk, int64_t v) {
 }
 
 // Decode 32-bits with CRC update from cram_fd
-// FIXME: signed or unsigned?
 static int uint7_decode_crc32(cram_fd *fd, int32_t *val_p, uint32_t *crc) {
     uint8_t b[5], i = 0;
     int c;
@@ -1304,6 +1303,35 @@ static int uint7_decode_crc32(cram_fd *fd, int32_t *val_p, uint32_t *crc) {
     *crc = iolib_crc32(*crc, b, i);
 
     *val_p = v;
+    return i;
+}
+
+// Decode 32-bits with CRC update from cram_fd
+static int sint7_decode_crc32(cram_fd *fd, int32_t *val_p, uint32_t *crc) {
+    uint8_t b[5], i = 0;
+    int c;
+    uint32_t v = 0;
+
+//    // Little endian
+//    int s = 0;
+//    do {
+//        b[i++] = c = CRAM_IO_GETC(fd);
+//        if (c < 0)
+//            return -1;
+//        v |= (c & 0x7f) << s;
+//	s += 7;
+//    } while (i < 5 && (c & 0x80));
+
+    // Big endian, see also htscodecs/varint.h
+    do {
+        b[i++] = c = CRAM_IO_GETC(fd);
+        if (c < 0)
+            return -1;
+        v = (v<<7) | (c & 0x7f);
+    } while (i < 5 && (c & 0x80));
+    *crc = iolib_crc32(*crc, b, i);
+
+    *val_p = (v>>1) ^ -(v&1);
     return i;
 }
 
@@ -3926,7 +3954,8 @@ cram_container *cram_read_container(cram_fd *fd) {
 	len = le_int4(c2.length);
 	crc = iolib_crc32(0L, (unsigned char *)&len, 4);
     }
-    if ((s = fd->vv.varint_decode32_crc(fd, &c2.ref_seq_id, &crc))   == -1) return NULL; else rd+=s;
+    if ((s = fd->vv.varint_decode32s_crc(fd, &c2.ref_seq_id, &crc)) == -1)
+	return NULL; else rd+=s;
     if (CRAM_MAJOR_VERS(fd->version) >= 4) {
 	int64_t i64;
 	if ((s = fd->vv.varint_decode64_crc(fd, &i64, &crc))== -1) return NULL; else rd+=s;
@@ -4045,7 +4074,7 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
 	cp += fd->vv.varint_put32(cp, NULL, 0);
 	cp += fd->vv.varint_put32(cp, NULL, 0);
     } else {
-	cp += fd->vv.varint_put32(cp, NULL, c->ref_seq_id);
+	cp += fd->vv.varint_put32s(cp, NULL, c->ref_seq_id);
 	if (CRAM_MAJOR_VERS(fd->version) >= 4) {
 	    cp += fd->vv.varint_put64(cp, NULL, c->ref_seq_start);
 	    cp += fd->vv.varint_put64(cp, NULL, c->ref_seq_span);
@@ -5038,6 +5067,7 @@ void cram_init_varint(varint_vec *vv, int version) {
 	vv->varint_put64s_blk = sint7_put_blk_64;
 	vv->varint_size = uint7_size;
 	vv->varint_decode32_crc = uint7_decode_crc32;
+	vv->varint_decode32s_crc = sint7_decode_crc32;
 	vv->varint_decode64_crc = uint7_decode_crc64;
     } else {
 	vv->varint_get32 = safe_itf8_get;
@@ -5054,6 +5084,7 @@ void cram_init_varint(varint_vec *vv, int version) {
 	vv->varint_put64s_blk = ltf8_put_blk;
 	vv->varint_size = itf8_size;
 	vv->varint_decode32_crc = itf8_decode_crc;
+	vv->varint_decode32s_crc = itf8_decode_crc;
 	vv->varint_decode64_crc = ltf8_decode_crc;
     }
 }
