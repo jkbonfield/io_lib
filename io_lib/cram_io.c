@@ -3941,18 +3941,28 @@ cram_container *cram_read_container(cram_fd *fd) {
 	}
     } else {
 	uint32_t len;
-	if ((s = int32_decode(fd, &c2.length)) == -1) {
-	    if (CRAM_MAJOR_VERS(fd->version) == 2 &&
-		CRAM_MINOR_VERS(fd->version) == 0)
-		fd->eof = 1; // EOF blocks arrived in v2.1
-	    else
+	if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+	    if ((s = fd->vv.varint_decode32_crc(fd, &c2.length, &crc)) == -1) {
 		fd->eof = fd->empty_container ? 1 : 2;
-	    return NULL;
+		return NULL;
+	    } else {
+		rd+=s;
+	    }
+	    len = le_int4(c2.length);
 	} else {
-	    rd+=s;
+	    if ((s = int32_decode(fd, &c2.length)) == -1) {
+		if (CRAM_MAJOR_VERS(fd->version) == 2 &&
+		    CRAM_MINOR_VERS(fd->version) == 0)
+		    fd->eof = 1; // EOF blocks arrived in v2.1
+		else
+		    fd->eof = fd->empty_container ? 1 : 2;
+		return NULL;
+	    } else {
+		rd+=s;
+	    }
+	    len = le_int4(c2.length);
+	    crc = iolib_crc32(0L, (unsigned char *)&len, 4);
 	}
-	len = le_int4(c2.length);
-	crc = iolib_crc32(0L, (unsigned char *)&len, 4);
     }
     if ((s = fd->vv.varint_decode32s_crc(fd, &c2.ref_seq_id, &crc)) == -1)
 	return NULL; else rd+=s;
@@ -4062,12 +4072,16 @@ int cram_write_container(cram_fd *fd, cram_container *c) {
     int i;
 
     // worse case sizes given 32-bit & 64-bit quantities.
-    if (61 + c->num_landmarks * 10 >= 1024)
+    if (62 + c->num_landmarks * 10 >= 1024)
 	buf = malloc(61 + c->num_landmarks * 10);
     cp = buf;
 
-    *(int32_t *)cp = le_int4(c->length);
-    cp += 4;
+    if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+	cp += fd->vv.varint_put32(cp, NULL, c->length);
+    } else {
+	*(int32_t *)cp = le_int4(c->length);
+	cp += 4;
+    }
 
     if (c->multi_seq) {
 	cp += fd->vv.varint_put32(cp, NULL, (uint32_t)-2);
