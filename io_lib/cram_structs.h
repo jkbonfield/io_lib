@@ -90,29 +90,36 @@ typedef struct {
 enum cram_encoding {
     E_NULL               = 0,
     E_EXTERNAL           = 1,
-    E_GOLOMB             = 2,
+    E_GOLOMB             = 2, // Not in CRAM 4
     E_HUFFMAN            = 3,
     E_BYTE_ARRAY_LEN     = 4,
     E_BYTE_ARRAY_STOP    = 5,
-    E_BETA               = 6,
-    E_SUBEXP             = 7,
-    E_GOLOMB_RICE        = 8,
-    E_GAMMA              = 9,
+    E_BETA               = 6, // Not in CRAM 4?
+    E_SUBEXP             = 7, // Not in CRAM 4
+    E_GOLOMB_RICE        = 8, // Not in CRAM 4
+    E_GAMMA              = 9, // Not in CRAM 4
+
+    // Experimental CRAM 4 codecs
     E_XHUFFMAN           = 10, // To external block
     E_XPACK              = 11, // Transform to sub-codec
     E_XRLE               = 12, // Transform to sub-codec
     E_XDELTA             = 13, // Transform to sub-codec
-    E_NUM_CODECS, /* Total number of codecs, not a real one. */
+
+    E_HUFFMAN_SIGNED     = 14, // Signed version, for CRAM 4
+    E_EXTERNAL_SIGNED    = 15, // Signed version, for CRAM 4
+
+    // Total number of codecs, not a real one.
+    E_NUM_CODECS,
 };
 
 enum cram_external_type {
     E_INT                = 1,
-    E_LONG               = 2,
+    E_LONG               = 2, // Internal only for CRAM 4; decays to E_INT
     E_BYTE               = 3,
     E_BYTE_ARRAY         = 4,
-    E_BYTE_ARRAY_BLOCK   = 5,
-    E_SINT               = 6, // signed INT
-    E_SLONG              = 7, // signed LONG
+
+    // Internal only.
+    E_BYTE_ARRAY_BLOCK   = 5, // externally this decays to E_BYTE_ARRAY
 };
 
 /* External IDs used by this implementation (only assumed during writing) */

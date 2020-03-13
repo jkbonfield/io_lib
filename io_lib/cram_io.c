@@ -3774,8 +3774,12 @@ int cram_load_reference(cram_fd *fd, char *fn) {
     int ret = 0;
 
     if (fn) {
-	fd->refs = refs_load_fai(fd->refs, fn,
-				 !(fd->embed_ref && fd->mode == 'r'));
+	refs_t *r = refs_load_fai(fd->refs, fn,
+				  !(fd->embed_ref && fd->mode == 'r'));
+	if (!r && fd->refs)
+	    refs_free(fd->refs);
+
+	fd->refs = r;
 	fn = fd->refs ? fd->refs->fn : NULL;
         if (!fn)
             ret = -1;

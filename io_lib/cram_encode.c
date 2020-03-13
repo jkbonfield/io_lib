@@ -1016,6 +1016,7 @@ static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
     // Codecs which are hard-coded to use the CORE block
     case E_GOLOMB:
     case E_HUFFMAN:
+    case E_HUFFMAN_SIGNED:
     case E_BETA:
     case E_SUBEXP:
     case E_GOLOMB_RICE:
@@ -1025,6 +1026,7 @@ static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
 
     // Codecs that emit directly to external blocks
     case E_EXTERNAL:
+    case E_EXTERNAL_SIGNED:
 	if (!(s->block[ds_id] = cram_new_block(EXTERNAL, ds_id)))
 	    return -1;
 	codec->external.content_id = ds_id;
@@ -1811,15 +1813,23 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 //				    fd->version, &fd->vv);
 
     if (fd->verbose > 1) fprintf(stderr, "AP_stats: ");
-    if (c->pos_sorted) {
-	h->codecs[DS_AP] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_AP]),
-					     c->stats[DS_AP],
-					     is_v4 ? E_SLONG : E_INT,
-					     NULL, fd->version, &fd->vv);
+    if (c->pos_sorted || CRAM_MAJOR_VERS(fd->version) >= 4) {
+	if (c->pos_sorted)
+	    h->codecs[DS_AP] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_AP]),
+						 c->stats[DS_AP],
+						 is_v4 ? E_LONG : E_INT,
+						 NULL, fd->version, &fd->vv);
+	else
+	    // unsorted data has no stats, but hard-code SIGNED_EXTERNAL
+	    h->codecs[DS_AP] = cram_encoder_init(E_EXTERNAL_SIGNED,
+						 NULL,
+						 is_v4 ? E_LONG : E_INT,
+						 NULL, fd->version, &fd->vv);
     } else {
+	// Removed BETA in v4.0
 	int64_t p[2] = {0, c->max_apos};
 	h->codecs[DS_AP] = cram_encoder_init(E_BETA, NULL,
-					     is_v4 ? E_SLONG : E_INT,
+					     E_INT,
 					     p, fd->version, &fd->vv);
 //	cram_xdelta_encoder e;
 //	e.word_size = is_v4 ? 8 : 4;
@@ -1834,8 +1844,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     if (fd->verbose > 1) fprintf(stderr, "RG_stats: ");
     h->codecs[DS_RG] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_RG]),
 					 c->stats[DS_RG],
-					 //E_INT,
-					 is_v4 ? E_SINT : E_INT,
+					 E_INT,
 					 NULL,
 					 fd->version, &fd->vv);
 
@@ -1847,7 +1856,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     //fprintf(stderr, "=== NS ===\n");
     if (fd->verbose > 1) fprintf(stderr, "NS_stats: ");
     h->codecs[DS_NS] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_NS]),
-					 c->stats[DS_NS], E_SINT, NULL,
+					 c->stats[DS_NS], E_INT, NULL,
 					 fd->version, &fd->vv);
 
     if (fd->verbose > 1) fprintf(stderr, "MF_stats: ");
@@ -1857,7 +1866,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     h->codecs[DS_TS] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_TS]),
 					 c->stats[DS_TS],
-					 is_v4 ? E_SLONG : E_INT,
+					 is_v4 ? E_LONG : E_INT,
 					 NULL, fd->version, &fd->vv);
 
     h->codecs[DS_NP] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_NP]),
@@ -1933,7 +1942,7 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 
     if (fd->verbose > 1) fprintf(stderr, "RI_stats: ");
     h->codecs[DS_RI] = cram_encoder_init(cram_stats_encoding(fd, c->stats[DS_RI]),
-					 c->stats[DS_RI], E_SINT, NULL,
+					 c->stats[DS_RI], E_INT, NULL,
 					 fd->version, &fd->vv);
 
     if (fd->verbose > 1) fprintf(stderr, "RS_stats: ");

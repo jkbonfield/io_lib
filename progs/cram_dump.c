@@ -66,6 +66,7 @@ void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data,
 
 	    // Crude, only works with single byte ITF8 values
 	    if (m->encoding == E_EXTERNAL ||
+		m->encoding == E_EXTERNAL_SIGNED ||
 		m->encoding == E_BYTE_ARRAY_STOP ||
 		m->encoding == E_BYTE_ARRAY_LEN) {
 		HashData hd;
@@ -807,6 +808,7 @@ int main(int argc, char **argv) {
 			    unsigned char *data = c->comp_hdr_block->data;
 			    for (m = ma[t]; m; m = m->next) {
 				if (m->encoding != E_EXTERNAL &&
+				    m->encoding != E_EXTERNAL_SIGNED &&
 				    m->encoding != E_BYTE_ARRAY_STOP &&
 				    m->encoding != E_BYTE_ARRAY_LEN)
 				    continue;
