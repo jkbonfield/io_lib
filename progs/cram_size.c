@@ -60,11 +60,16 @@ void ParseMap(cram_block_compression_hdr *hdr,
 	for (m = ma[i]; m; m = m->next) {
 	    // Crude, only works with single byte ITF8 values
 	    if (m->encoding == E_EXTERNAL ||
-		m->encoding == E_EXTERNAL_SIGNED ||
+		m->encoding == E_VARINT_UNSIGNED ||
+		m->encoding == E_VARINT_SIGNED ||
 		m->encoding == E_BYTE_ARRAY_STOP ||
 		m->encoding == E_BYTE_ARRAY_LEN) {
 		HashData hd;
-		hd.i = (unsigned char)data[m->offset + m->size-1];
+		if (m->encoding == E_VARINT_UNSIGNED ||
+		    m->encoding == E_VARINT_SIGNED)
+		    hd.i = (unsigned char)data[m->offset];
+		else
+		    hd.i = (unsigned char)data[m->offset + m->size-1];
 
 		k = (m->key << 8) | hd.i;
 
@@ -291,7 +296,8 @@ int process_sizes(cram_fd *fd,
 			unsigned char *data = c->comp_hdr_block->data;
 			for (m = ma[t]; m; m = m->next) {
 			    if (m->encoding != E_EXTERNAL &&
-				m->encoding != E_EXTERNAL_SIGNED &&
+				m->encoding != E_VARINT_UNSIGNED &&
+				m->encoding != E_VARINT_SIGNED &&
 				m->encoding != E_BYTE_ARRAY_STOP &&
 				m->encoding != E_BYTE_ARRAY_LEN)
 				continue;

@@ -183,6 +183,8 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
     }
 
     st->nvals = nvals;
+    st->min_val = min_val;
+    st->max_val = max_val;
     assert(ntot == st->nsamp);
     free(vals);
     free(freqs);
@@ -192,10 +194,16 @@ enum cram_encoding cram_stats_encoding(cram_fd *fd, cram_stats *st) {
 		min_val, max_val, nvals, ntot);
 
     // Crude and simple alternative.
-    if (min_val < 0 && CRAM_MAJOR_VERS(fd->version) >= 4)
-	return nvals != 1 ? E_EXTERNAL_SIGNED : E_HUFFMAN_SIGNED;
-    else
+    if (CRAM_MAJOR_VERS(fd->version) >= 4) {
+	if (nvals == 1)
+	    return E_CONST_INT;
+	else if (nvals == 0 || min_val < 0)
+	    return E_VARINT_SIGNED;
+	else
+	    return E_VARINT_UNSIGNED;
+    } else {
 	return nvals != 1 ? E_EXTERNAL : E_HUFFMAN;
+    }
 
 
 #ifdef RANDOMISER

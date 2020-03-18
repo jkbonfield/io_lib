@@ -84,29 +84,33 @@ typedef struct {
     HashTable *h;
     int nsamp; // total number of values added
     int nvals; // total number of unique values added
+    int64_t min_val, max_val;
 } cram_stats;
 
 /* NB: matches java impl, not the spec */
 enum cram_encoding {
     E_NULL               = 0,
-    E_EXTERNAL           = 1,
+    E_EXTERNAL           = 1, // Only for BYTE type in CRAM 4
     E_GOLOMB             = 2, // Not in CRAM 4
-    E_HUFFMAN            = 3,
+    E_HUFFMAN            = 3, // Not in CRAM 4
     E_BYTE_ARRAY_LEN     = 4,
     E_BYTE_ARRAY_STOP    = 5,
-    E_BETA               = 6, // Not in CRAM 4?
+    E_BETA               = 6, // Not in CRAM 4
     E_SUBEXP             = 7, // Not in CRAM 4
     E_GOLOMB_RICE        = 8, // Not in CRAM 4
     E_GAMMA              = 9, // Not in CRAM 4
 
-    // Experimental CRAM 4 codecs
-    E_XHUFFMAN           = 10, // To external block
-    E_XPACK              = 11, // Transform to sub-codec
-    E_XRLE               = 12, // Transform to sub-codec
-    E_XDELTA             = 13, // Transform to sub-codec
+    // CRAM 4 specific codecs
+    E_VARINT_UNSIGNED    = 41, // Specialisation of EXTERNAL
+    E_VARINT_SIGNED      = 42, // Specialisation of EXTERNAL
+    E_CONST_BYTE         = 43, // Alternative to HUFFMAN with 1 symbol
+    E_CONST_INT          = 44, // Alternative to HUFFMAN with 1 symbol
 
-    E_HUFFMAN_SIGNED     = 14, // Signed version, for CRAM 4
-    E_EXTERNAL_SIGNED    = 15, // Signed version, for CRAM 4
+    // More experimental ideas, not documented in spec yet
+    E_XHUFFMAN           = 50, // To external block
+    E_XPACK              = 51, // Transform to sub-codec
+    E_XRLE               = 52, // Transform to sub-codec
+    E_XDELTA             = 53, // Transform to sub-codec
 
     // Total number of codecs, not a real one.
     E_NUM_CODECS,

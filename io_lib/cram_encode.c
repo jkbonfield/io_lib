@@ -1016,7 +1016,6 @@ static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
     // Codecs which are hard-coded to use the CORE block
     case E_GOLOMB:
     case E_HUFFMAN:
-    case E_HUFFMAN_SIGNED:
     case E_BETA:
     case E_SUBEXP:
     case E_GOLOMB_RICE:
@@ -1024,9 +1023,16 @@ static int cram_allocate_block(cram_codec *codec, cram_slice *s, int ds_id) {
 	codec->out = s->block[0];
 	break;
 
+    // Codecs which don't use external blocks
+    case E_CONST_BYTE:
+    case E_CONST_INT:
+	codec->out = NULL;
+	break;
+
     // Codecs that emit directly to external blocks
     case E_EXTERNAL:
-    case E_EXTERNAL_SIGNED:
+    case E_VARINT_UNSIGNED:
+    case E_VARINT_SIGNED:
 	if (!(s->block[ds_id] = cram_new_block(EXTERNAL, ds_id)))
 	    return -1;
 	codec->external.content_id = ds_id;
@@ -1820,8 +1826,8 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 						 is_v4 ? E_LONG : E_INT,
 						 NULL, fd->version, &fd->vv);
 	else
-	    // unsorted data has no stats, but hard-code SIGNED_EXTERNAL
-	    h->codecs[DS_AP] = cram_encoder_init(E_EXTERNAL_SIGNED,
+	    // unsorted data has no stats, but hard-code VARINT_SIGNED
+	    h->codecs[DS_AP] = cram_encoder_init(E_VARINT_SIGNED,
 						 NULL,
 						 is_v4 ? E_LONG : E_INT,
 						 NULL, fd->version, &fd->vv);
@@ -1912,7 +1918,9 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
     if (CRAM_MAJOR_VERS(fd->version) >= 3) {
 	cram_byte_array_len_encoder e;
 
-	e.len_encoding = E_EXTERNAL;
+	e.len_encoding = CRAM_MAJOR_VERS(fd->version) >= 4
+	    ? E_VARINT_UNSIGNED
+	    : E_EXTERNAL;
 	e.len_dat = (void *)DS_BB_len;
 	//e.len_dat = (void *)DS_BB;
 
@@ -1972,7 +1980,9 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	// elements into the same external block.
 	cram_byte_array_len_encoder e;
 
-	e.len_encoding = E_EXTERNAL;
+	e.len_encoding = CRAM_MAJOR_VERS(fd->version) >= 4
+	    ? E_VARINT_UNSIGNED
+	    : E_EXTERNAL;
 	e.len_dat = (void *)DS_SC_len;
 
 	e.val_encoding = E_EXTERNAL;
@@ -2503,13 +2513,20 @@ static int cram_add_aux_NMi(cram_fd *fd, cram_container *c, cram_slice *s,
 	cram_byte_array_len_encoder e;
 	cram_stats st;
 
-	e.len_encoding = E_HUFFMAN;
-	e.len_dat = NULL;
+	if (CRAM_MAJOR_VERS(fd->version) <= 3) {
+	    e.len_encoding = E_HUFFMAN;
+	    e.len_dat = NULL; // will get codes from st
+	} else {
+	    e.len_encoding = E_CONST_INT;
+	    e.len_dat = NULL; // will get codes from st
+	}
 	memset(&st, 0, sizeof(st));
 	cram_stats_add(&st, nm_len);
 	cram_stats_encoding(fd, &st);
 
-	e.val_encoding = E_EXTERNAL;
+	e.val_encoding = CRAM_MAJOR_VERS(fd->version) >= 4
+	    ? E_VARINT_UNSIGNED
+	    : E_EXTERNAL;
 	e.val_dat = (void *)sk;
 
 	cram_codec *c = cram_encoder_init(E_BYTE_ARRAY_LEN, &st,
@@ -2738,8 +2755,13 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		cram_byte_array_len_encoder e;
 		cram_stats st;
 
-		e.len_encoding = E_HUFFMAN;
-		e.len_dat = NULL;
+		if (CRAM_MAJOR_VERS(fd->version) <= 3) {
+		    e.len_encoding = E_HUFFMAN;
+		    e.len_dat = NULL; // will get codes from st
+		} else {
+		    e.len_encoding = E_CONST_INT;
+		    e.len_dat = NULL; // will get codes from st
+		}
 		memset(&st, 0, sizeof(st));
 		cram_stats_add(&st, 1);
 		cram_stats_encoding(fd, &st);
@@ -2758,8 +2780,13 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		cram_byte_array_len_encoder e;
 		cram_stats st;
 
-		e.len_encoding = E_HUFFMAN;
-		e.len_dat = NULL;
+		if (CRAM_MAJOR_VERS(fd->version) <= 3) {
+		    e.len_encoding = E_HUFFMAN;
+		    e.len_dat = NULL; // will get codes from st
+		} else {
+		    e.len_encoding = E_CONST_INT;
+		    e.len_dat = NULL; // will get codes from st
+		}
 		memset(&st, 0, sizeof(st));
 		cram_stats_add(&st, 2);
 		cram_stats_encoding(fd, &st);
@@ -2777,8 +2804,13 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		cram_byte_array_len_encoder e;
 		cram_stats st;
 
-		e.len_encoding = E_HUFFMAN;
-		e.len_dat = NULL;
+		if (CRAM_MAJOR_VERS(fd->version) <= 3) {
+		    e.len_encoding = E_HUFFMAN;
+		    e.len_dat = NULL; // will get codes from st
+		} else {
+		    e.len_encoding = E_CONST_INT;
+		    e.len_dat = NULL; // will get codes from st
+		}
 		memset(&st, 0, sizeof(st));
 		cram_stats_add(&st, 4);
 		cram_stats_encoding(fd, &st);
@@ -2805,9 +2837,11 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		// to spot where DELTA codec works and to detect appropriate
 		// word size.  The below code is for demonstration purposes.
 
-		if (1 || fd->version <= 0x300) {
+		if (1 || CRAM_MAJOR_VERS(fd->version) <= 3) {
 		    // 3.0; BYTE_ARRAY_LEN(EXTERNAL, EXTERNAL)
-		    e.len_encoding = E_EXTERNAL;
+		    e.len_encoding = CRAM_MAJOR_VERS(fd->version) >= 4
+			? E_VARINT_UNSIGNED
+			: E_EXTERNAL;
 		    e.len_dat = (void *)sk; // or key+128 for len?
 
 		    // EXTERNAL
@@ -2815,7 +2849,9 @@ static char *cram_encode_aux(cram_fd *fd, bam_seq_t *b, cram_container *c,
 		    e.val_dat = (void *)sk;
 		} else {
 		    // 3.1; BYTE_ARRAY_LEN(EXTERNAL, XDELTA(EXTERNAL))
-		    e.len_encoding = E_EXTERNAL;
+		    e.len_encoding = CRAM_MAJOR_VERS(fd->version) >= 4
+			? E_VARINT_UNSIGNED
+			: E_EXTERNAL;
 		    e.len_dat = (void *)sk+128; // or key+128 for len?
 
 		    d.word_size = 2;

@@ -66,11 +66,17 @@ void DumpMap2(cram_map **ma, FILE *fp, char *prefix, char *data,
 
 	    // Crude, only works with single byte ITF8 values
 	    if (m->encoding == E_EXTERNAL ||
-		m->encoding == E_EXTERNAL_SIGNED ||
 		m->encoding == E_BYTE_ARRAY_STOP ||
 		m->encoding == E_BYTE_ARRAY_LEN) {
 		HashData hd;
 		hd.i = (unsigned char)data[m->offset + m->size-1];
+
+		k = (m->key << 8) | hd.i;
+		HashTableAdd(ds_h, (char *)k, 4, hd, NULL);
+	    } else if (m->encoding == E_VARINT_SIGNED ||
+		       m->encoding == E_VARINT_UNSIGNED) {
+		HashData hd;
+		hd.i = (unsigned char)data[m->offset];
 
 		k = (m->key << 8) | hd.i;
 		HashTableAdd(ds_h, (char *)k, 4, hd, NULL);
@@ -808,7 +814,8 @@ int main(int argc, char **argv) {
 			    unsigned char *data = c->comp_hdr_block->data;
 			    for (m = ma[t]; m; m = m->next) {
 				if (m->encoding != E_EXTERNAL &&
-				    m->encoding != E_EXTERNAL_SIGNED &&
+				    m->encoding != E_VARINT_UNSIGNED &&
+				    m->encoding != E_VARINT_SIGNED &&
 				    m->encoding != E_BYTE_ARRAY_STOP &&
 				    m->encoding != E_BYTE_ARRAY_LEN)
 				    continue;
