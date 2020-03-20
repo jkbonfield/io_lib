@@ -948,6 +948,8 @@ typedef struct cram_fd {
     // variable integer decoding callbacks.
     // This changed in CRAM4.0 to a data-size agnostic encoding.
     varint_vec vv;
+
+    int level_fixed; // boolean flag to indicate if level is explicit.
 } cram_fd;
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
@@ -1079,6 +1081,7 @@ enum cram_option {
     CRAM_OPT_USE_FQZ,
     CRAM_OPT_EMBED_CONS,
     CRAM_OPT_USE_TOK,
+    CRAM_OPT_PROFILE
 };
 
 /* BF bitfields */

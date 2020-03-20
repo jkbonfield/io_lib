@@ -5448,8 +5448,11 @@ cram_fd *cram_open(const char *filename, const char *mode) {
 	return cram_io_close(fd,0);
 
     fd->level = 5;
-    if (strlen(mode) > 2 && mode[2] >= '0' && mode[2] <= '9')
+    fd->level_fixed = 0;
+    if (strlen(mode) > 2 && mode[2] >= '0' && mode[2] <= '9') {
 	fd->level = mode[2] - '0';
+	fd->level_fixed = 1;
+    }
 
     fd->mode = *mode;
     fd->first_container = 0;
@@ -5591,6 +5594,7 @@ cram_fd *cram_open_by_callbacks(
 	return cram_io_close(fd,0);
 
     fd->level = 5;
+    fd->level_fixed = 0;
 
     fd->mode = 'r';
     fd->first_container = 0;
@@ -5701,6 +5705,7 @@ cram_fd *cram_openw_by_callbacks(
 	return cram_io_close(fd,0);
 
     fd->level = 5;
+    fd->level_fixed = 0;
 
     fd->mode = 'w';
     fd->first_container = 0;
@@ -6250,6 +6255,41 @@ int cram_set_voption(cram_fd *fd, enum cram_option opt, va_list args) {
     case CRAM_OPT_PRESERVE_AUX_SIZE:
 	fd->preserve_aux_size = va_arg(args, int);
 	break;
+
+    case CRAM_OPT_PROFILE: {
+	char *str = va_arg(args, char *);
+	if (strcmp(str, "fast") == 0) {
+	    if (!fd->level_fixed)
+		fd->level = 1;
+	    fd->seqs_per_slice = 1000;
+	    fd->use_tok = 0;
+	} else if (strcmp(str, "normal") == 0 ||
+		   strcmp(str, "default") == 0) {
+	    if (major_version >= 4 ||
+		(major_version == 3 && minor_version >= 1))
+		fd->use_tok = 1;
+	} else if (strcmp(str, "small") == 0) {
+	    if (major_version >= 4 ||
+		(major_version == 3 && minor_version >= 1))
+		fd->use_fqz = fd->use_tok = 1;
+	    else
+		fd->use_bz2 = 1;
+	    fd->seqs_per_slice = 25000;
+	} else if (strcmp(str, "archive") == 0) {
+	    fd->use_bz2 = 1;
+	    if (major_version >= 4 ||
+		(major_version == 3 && minor_version >= 1))
+		fd->use_arith = fd->use_fqz = fd->use_tok = 1;
+	    if (fd->level >= 7)
+		fd->use_lzma = 1;
+	    fd->seqs_per_slice = 100000;
+	} else {
+	    fprintf(stderr, "Unknown CRAM profile: choose from fast, normal, small or archive\n");
+	    return -1;
+	}
+	fd->bases_per_slice = fd->seqs_per_slice * 500; // guesswork...
+	break;
+    }
 
     default:
 	fprintf(stderr, "Unknown CRAM option code %d\n", opt);
