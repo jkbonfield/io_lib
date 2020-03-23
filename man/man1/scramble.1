@@ -169,6 +169,30 @@ large slice size and will have poorer random access. At level 7
 onwards this also enables lzma compression if compiled in ("-Z").
 .RE
 
+.TP
+\fB-d\fR \fItag-list\fR
+Discard all auxiliary tags except those listed in \fItag-list\fR.
+The list is comma separated and contains the two letter tag codes
+specified as-is or with simplified regular expressions.  Character
+classes such as "[A-W]" are permitted, but not with the negation
+code "^". Also "." is a synonym for any legal tag character.  Hence
+"[A-Z][A-Z0-9]" represents all tag types belonging to the official
+namespace.
+
+The option may be specified more than once, but it cannot be mixed
+with \fB-D\fR.
+
+.TP
+\fB-D\fR \fItag-list\fR
+Discard auxiliary tags listed in \fItag-list\fR, keeping everything else.
+The list is comma separated and contains only the two letter tag
+codes.  As with \fB-d\fR tag-list can be specified using a simplified
+regular expression.  This means \fB-D ..\fR removes all auxiliary
+tags.
+
+The option may be specified more than once, but it cannot be mixed
+with \fB-d\fR.
+
 .SH "EXAMPLES"
 .PP
 To convert a BAM file from stdin to CRAM on stdout, using reference MT.fa.
@@ -178,12 +202,14 @@ To convert a BAM file from stdin to CRAM on stdout, using reference MT.fa.
 .fi
 
 .PP
-The default CRAM output format is version 3.0, so no version needs to
-be specified when converting from 2.1 to 3.0.  To perform the reverse
-use:
+The default CRAM output format is version 3.0.  The command below
+enables the experimental newer compression codecs (NB: do not use this
+in production) using the "small" profile, while also removing all tag
+types reserved for local/private use.  (Also consider \fB-d
+[A-Z][A-Z0-9]\fR instead of the \fB-D\fR arguments.)
 .PP
 .nf
-    scramble -V 2.1 in.cram out.cram
+    scramble -V 3.1 -X small -D [a-zXYZ]. -D.[a-z] in.cram out.cram
 .fi
 
 .SH "AUTHOR"

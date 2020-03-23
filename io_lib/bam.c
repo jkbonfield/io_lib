@@ -1624,6 +1624,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	}
 
 	default:
+	    cpt -= 2;
 	    fprintf(stderr, "Unknown aux format code '%c'\n", key[3]);
 	    break;
 	}
@@ -1853,6 +1854,45 @@ static int8_t aux_type_size[256] = {
 };
 
 /*
+ * Skips to the next tag start.
+ * Returns next tag pointer (or end of buffer) on success,
+ *         NULL on failure
+ */
+char *bam_aux_skip(const char *s) {
+    int sz;
+    if ((sz = aux_type_size[(uint8_t)s[2]])) {
+	s += sz + 3;
+    } else {
+	switch(s[2]) {
+	case 'Z':
+	case 'H': {  /* Variable length, null terminated */
+	    s += 3;
+	    while (*s++);
+	    ;
+	    break;
+	}
+	case 'B': {  /* Array types */
+	    uint32_t count;
+	    if ((sz = aux_type_size[(uint8_t)s[3]])) {
+		count = (   (uint32_t) s[4]
+			    + ((uint32_t) s[5] << 8)
+			    + ((uint32_t) s[6] << 16)
+			    + ((uint32_t) s[7] << 24));
+		s += 8 + count * sz;
+	    } else {
+		return NULL;
+	    }
+	    break;
+	}
+	default:
+	    return NULL;
+	}
+    }
+
+    return (char *)s;
+}
+
+/*
  * Looks for aux field 'key' and returns the type + value.
  * The type is the first char and the value is the 2nd character onwards.
  *
@@ -1862,41 +1902,11 @@ char *bam_aux_find(bam_seq_t *b, const char *key) {
     char *cp = bam_aux(b);
 
     while (*cp) {
-	int sz;
-
-	//printf("%c%c:%c:?\n", cp[0], cp[1], cp[2]);
-
 	if (cp[0] == key[0] && cp[1] == key[1])
 	    return cp+2;
-	
-	if ((sz = aux_type_size[(uint8_t) cp[2]])) {
-	    /* Fixed length fields */
-	    cp += sz + 3;
-	} else {
-	    switch (cp[2]) {
-	    case 'Z':
-	    case 'H': {  /* Variable length, null terminated */
-		cp += 3;
-		while (*cp++)
-		    ;
-		break;
-	    }
-	    case 'B': {  /* Array types */
-		uint32_t count;
-		if ((sz = aux_type_size[(uint8_t) cp[3]])) {
-		    count = ((uint32_t)    cp[4]
-			     + ((uint32_t) cp[5] << 8)
-			     + ((uint32_t) cp[6] << 16)
-			     + ((uint32_t) cp[7] << 24));
-		    cp += 8 + count * sz;
-		} else {
-		    return NULL;
-		}
-	    }
-	    default:
-		return NULL;
-	    }
-	}
+
+	if (!(cp = bam_aux_skip(cp)))
+	    return NULL;
     }
 
     return NULL;
@@ -2662,6 +2672,7 @@ int bam_aux_add_from_sam(bam_seq_t **bsp, char *sam) {
 	}
 
 	default:
+	    cpt -= 2;
 	    fprintf(stderr, "Unknown aux format code '%c'\n", key[3]);
 	    break;
 	}

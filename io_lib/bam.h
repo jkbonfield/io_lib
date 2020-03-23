@@ -374,6 +374,13 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp);
  */
 char *bam_aux_find(bam_seq_t *b, const char *key);
 
+/*
+ * Skips to the next tag start.
+ * Returns next tag pointer (or end of buffer) on success,
+ *         NULL on failure
+ */
+char *bam_aux_skip(const char *s);
+
 //!Converts an encoded integer value return by bam_aux_find to an integer.
 //
 //Analogous to the bam_aux2i functions in samtools.

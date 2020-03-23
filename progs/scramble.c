@@ -87,6 +87,100 @@ static char *detect_format(char *fn) {
     return "";
 }
 
+// Parse a XX,YY,ZZ style tag list and add items to a hash table.
+// Also supports [A-Z] for classes (but not [^A-Z]) and "." for any.
+// Thus [a-zX-Y]. and .[a-z] jointly match custom tags.
+static int parse_aux_list(char *optarg, char *aux_filter) {
+    char *optend = optarg + strlen(optarg);
+
+    while (optarg < optend) {
+	char c[2][257] = {{0}};
+	int i, j;
+	for (i = 0; i < 2; i++) {
+	    if (*optarg == ',') {
+		fprintf(stderr, "Auxiliary tags should be two characters long\n");
+		return -1;
+	    } else if (*optarg == '[') {
+		// inclusive-only character class
+		unsigned char last = 0;
+		j = 0;
+		while (++optarg < optend) {
+		    if (*optarg == ']') {
+			optarg++;
+			break;
+		    } else if (isalnum(*optarg)) {
+			c[i][last = *optarg] = 1;
+		    } else if (*optarg == '-') {
+			if (last && optarg+1 < optend && isalnum(optarg[1])) {
+			    optarg++;
+			    while (last <= *optarg)
+				c[i][last++] = 1;
+			}
+		    }
+		}
+	    } else if (*optarg == '.') {
+		for (j = '0'; j <= '9'; j++)
+		    c[i][j] = 1;
+		for (j = 'a'; j <= 'z'; j++)
+		    c[i][j] = 1;
+		for (j = 'A'; j <= 'Z'; j++)
+		    c[i][j] = 1;
+		optarg++;
+	    } else if (isprint(*optarg)) {
+		c[i][(uint8_t)*optarg++]=1;
+	    } else {
+		break;
+	    }
+	}
+	if (i != 2 || (optarg < optend && *optarg != ',')) {
+	    fprintf(stderr, "Auxiliary tags should be two characters long\n");
+	    return -1;
+	}
+	while (optarg < optend && *optarg == ',')
+	    optarg++;
+
+	for (i = 0; i < 256; i++) {
+	    if (!c[0][i]) continue;
+	    for (j = 0; j < 256; j++) {
+		if (!c[1][j]) continue;
+		aux_filter[(i<<8)+j]=1;
+	    }
+	}
+    }
+    return 0;
+}
+
+/*
+ * Removes tags from 's' based on the contents of aux_filter.
+ * We either remove all found in aux_filter (keep==0) or remove all
+ * except those found in aux_hash (keep=1).
+ */
+static int filter_tags(bam_seq_t *s, char *aux_filter, int keep) {
+    char *s_from, *s_to;
+    s_from = s_to = bam_aux(s);
+    while (*s_from) {
+	char *s_next = bam_aux_skip(s_from);
+	if (!s_next)
+	    return -1;
+
+	int x = (int)(uint8_t)s_from[0]<<8 | (uint8_t)s_from[1];
+	if (( keep && !aux_filter[x]) ||
+	    (!keep && aux_filter[x])) {
+	    // Drop this tag
+	} else {
+	    // Keep it
+	    if (s_to != s_from)
+		memmove(s_to, s_from, s_next - s_from);
+	    s_to += s_next - s_from;
+	}
+	s_from = s_next;
+    }
+    *s_to = 0; // marks end of tag list
+
+    return 0;
+}
+
+
 static void usage(FILE *fp) {
     fprintf(fp, "  -=- sCRAMble -=-     version %s\n", PACKAGE_VERSION);
     fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2020\n\n");
@@ -139,6 +233,8 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -g FILE        Convert to Bam using index (file.gzi)\n");
     fprintf(fp, "    -G FILE        Output Bam index when bam input(file.gzi)\n");
     fprintf(fp, "    -X mode        [Cram] Mode is fast, normal, small or archive.\n");
+    fprintf(fp, "    -d tag-list    Keep only specified aux tags (discard the others)\n");
+    fprintf(fp, "    -D tag-list    Discard specified aux tags (keep the others)\n");
 }
 
 int main(int argc, char **argv) {
@@ -168,11 +264,13 @@ int main(int argc, char **argv) {
     int add_pg = 1;
     int archive = 0;
     char *profile = "normal";
+    int aux_keep = -1;
+    char aux_filter[65536] = {0};
 
     scram_init();
 
     /* Parse command line arguments */
-    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xeEI:O:R:!MmajJzZt:BN:F:Hb:nPpqg:G:fTX:")) != -1) {
+    while ((c = getopt(argc, argv, "u0123456789hvs:S:V:r:xeEI:O:R:!MmajJzZt:BN:F:Hb:nPpqg:G:fTX:d:D:")) != -1) {
 	switch (c) {
 	case 'X':
 	    profile = optarg;
@@ -367,6 +465,26 @@ int main(int argc, char **argv) {
 
 	case 'G':
 	    index_out_fn = optarg;
+	    break;
+
+	case 'd':
+	    if (aux_keep != -1 && aux_keep != 1) {
+		fprintf(stderr, "Only one of -d and -D options must be specified.\n");
+		return 1;
+	    }
+	    aux_keep = 1;
+	    if (parse_aux_list(optarg, aux_filter) != 0)
+		return 1;
+	    break;
+
+	case 'D':
+	    if (aux_keep != -1 && aux_keep != 0) {
+		fprintf(stderr, "Only one of -d and -D options must be specified.\n");
+		return 1;
+	    }
+	    aux_keep = 0;
+	    if (parse_aux_list(optarg, aux_filter) != 0)
+		return 1;
 	    break;
 
 	case '?':
@@ -645,6 +763,8 @@ int main(int argc, char **argv) {
     s = NULL;
 
     while (scram_get_seq(in, &s) >= 0) {
+	if (aux_keep >= 0)
+	    filter_tags(s, aux_filter, aux_keep);
 	if (-1 == scram_put_seq(out, s)) {
 	    fprintf(stderr, "Failed to encode sequence\n");
 	    return 1;
