@@ -37,7 +37,9 @@
  * it does not require uncompression of data blocks.
  */
 
+#ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
+#endif
 
 #include <stdio.h>
 #include <assert.h>

@@ -36,7 +36,9 @@
  * It's an abomination frankly, but isn't intended for production use.
  */
 
+#ifdef HAVE_CONFIG_H
 #include "io_lib_config.h"
+#endif
 
 #include <stdio.h>
 #include <assert.h>

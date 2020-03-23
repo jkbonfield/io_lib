@@ -132,7 +132,8 @@ libstaden_read_la_SOURCES = \
 	cram_bambam.c \
 	bgzip.c \
 	bgzip.h \
-	cram_block_compression.h
+	cram_block_compression.h \
+	version.h
 
 libstaden_read_la_CPPFLAGS = -I${top_srcdir} -I${top_srcdir}/htscodecs @LIBCURL_CPPFLAGS@
 libstaden_read_la_LDFLAGS = -version-info @VERS_CURRENT@:@VERS_REVISION@:@VERS_AGE@ 

@@ -56,6 +56,7 @@
 
 #include <io_lib/scram.h>
 #include <io_lib/os.h>
+#include <io_lib/version.h>
 
 static char *parse_format(char *str) {
     if (strcmp(str, "sam") == 0 || strcmp(str, "SAM") == 0)
@@ -182,7 +183,7 @@ static int filter_tags(bam_seq_t *s, char *aux_filter, int keep) {
 
 
 static void usage(FILE *fp) {
-    fprintf(fp, "  -=- sCRAMble -=-     version %s\n", PACKAGE_VERSION);
+    fprintf(fp, "  -=- sCRAMble -=-     version %s\n", IOLIB_VERSION);
     fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2020\n\n");
 
     fprintf(fp, "Usage:    scramble [options] [input_file [output_file]]\n");
@@ -247,7 +248,6 @@ int main(int argc, char **argv) {
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
     int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0, use_tok = 0, use_arith = 0, use_zstd = 0;
-    double vers = 3.0; // 3.0, 3.1, 4.0, etc
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
@@ -321,7 +321,6 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    vers = atof(optarg);
 	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
 		return 1;
 	    break;
@@ -722,7 +721,7 @@ int main(int argc, char **argv) {
 
 	
 	    if (sam_hdr_add_PG(scram_get_header(out), "scramble",
-			       "VN", PACKAGE_VERSION,
+			       "VN", IOLIB_VERSION,
 			       "CL", arg_list, NULL))
 	        return 1;
 

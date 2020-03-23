@@ -51,6 +51,7 @@
 
 #include <io_lib/scram.h>
 #include <io_lib/os.h>
+#include <io_lib/version.h>
 
 static char *parse_format(char *str) {
     if (strcmp(str, "sam") == 0 || strcmp(str, "SAM") == 0)
@@ -83,7 +84,7 @@ static char *detect_format(char *fn) {
 }
 
 static void usage(FILE *fp) {
-    fprintf(fp, "  -=- scram_flagstat -=-     version %s\n", PACKAGE_VERSION);
+    fprintf(fp, "  -=- scram_flagstat -=-     version %s\n", IOLIB_VERSION);
     fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013\n\n");
 
     fprintf(fp, "Usage:    scram_flagstat [options] [input_file]\n");

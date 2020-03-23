@@ -51,6 +51,7 @@
 
 #include <io_lib/scram.h>
 #include <io_lib/os.h>
+#include <io_lib/version.h>
 
 /*
  * Return 1 for compatible
@@ -102,7 +103,7 @@ static char *detect_format(char *fn) {
 }
 
 static void usage(FILE *fp) {
-    fprintf(fp, "  -=- scram_merge -=-     version %s\n", PACKAGE_VERSION);
+    fprintf(fp, "  -=- scram_merge -=-     version %s\n", IOLIB_VERSION);
     fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013\n\n");
 
     fprintf(fp, "Usage:    scram_merge [options] input_file ...\n");

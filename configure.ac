@@ -1,5 +1,10 @@
 dnl Process this file with autoconf to produce a configure script.
 AC_INIT(io_lib, 1.14.12)
+IOLIB_VERSION=$PACKAGE_VERSION
+IOLIB_VERSION_MAJOR=`expr "$PACKAGE_VERSION" : '\([[0-9]]*\)'`
+IOLIB_VERSION_MINOR=`expr "$PACKAGE_VERSION" : '[[0-9]]*\.\([[0-9]]*\)'`
+IOLIB_VERSION_PATCH=`expr "$PACKAGE_VERSION" : '[[0-9]]*\.[[0-9]]*\.\([[0-9]]*\)'`
+
 AC_CONFIG_HEADERS([io_lib_config.h])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([serial-tests])
@@ -206,4 +211,8 @@ AC_CHECK_FUNCS(fsync)
 
 AC_SUBST([SET_STDIO_EXT])
 AC_SUBST([SET_CRAM_IO_CUSTOM_BUFFERING])
-AC_OUTPUT(Makefile io_lib/Makefile progs/Makefile tests/Makefile io_lib-config io_lib/os.h)
+AC_SUBST([IOLIB_VERSION])
+AC_SUBST([IOLIB_VERSION_MAJOR])
+AC_SUBST([IOLIB_VERSION_MINOR])
+AC_SUBST([IOLIB_VERSION_PATCH])
+AC_OUTPUT(Makefile io_lib/Makefile progs/Makefile tests/Makefile io_lib-config io_lib/os.h io_lib/version.h)

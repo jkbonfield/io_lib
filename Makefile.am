@@ -106,11 +106,11 @@ pkginclude_HEADERS = \
 	io_lib/sam_header.h \
 	io_lib/dstring.h \
 	io_lib/string_alloc.h \
-	io_lib_config.h \
 	io_lib/md5.h \
 	io_lib/thread_pool.h \
 	io_lib/binning.h \
-	io_lib/bgzip.h
+	io_lib/bgzip.h \
+	io_lib/version.h
 
 bin_SCRIPTS = io_lib-config
 
