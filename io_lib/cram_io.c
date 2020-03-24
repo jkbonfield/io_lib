@@ -2589,7 +2589,8 @@ int cram_compress_block(cram_fd *fd, cram_slice *s,
 
 		if (fd->verbose > 1 && method != metrics->revised_method)
 		    fprintf(stderr, "%d: revising method from %lx to %lx\n",
-			    b->content_id, metrics->revised_method, method);
+			    b->content_id, (long)metrics->revised_method,
+			    (long)method);
 		metrics->revised_method = method;
 	    }
 	    if (fd->metrics_lock) pthread_mutex_unlock(fd->metrics_lock);
