@@ -45,10 +45,6 @@
 extern "C" {
 #endif
 
-#ifdef HAVE_CONFIG_H
-#include "io_lib_config.h"
-#endif
-
 #include "io_lib/bam.h"
 #include "io_lib/cram.h"
 

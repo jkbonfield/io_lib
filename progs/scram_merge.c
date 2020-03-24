@@ -35,6 +35,10 @@
  * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

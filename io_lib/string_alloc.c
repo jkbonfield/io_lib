@@ -38,6 +38,10 @@
    Andrew Whitwham, September 2010.
 */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>

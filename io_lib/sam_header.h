@@ -62,10 +62,6 @@
 extern "C" {
 #endif
 
-#ifdef HAVE_CONFIG_H
-#include "io_lib_config.h"
-#endif
-
 #include <stdarg.h>
 
 #include "io_lib/dstring.h"

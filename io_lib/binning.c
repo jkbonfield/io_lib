@@ -35,6 +35,10 @@
  * Author: James Bonfield, Wellcome Trust Sanger Institute. 2014
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 #include <io_lib/binning.h>
 
 /* See http://res.illumina.com/documents/products/whitepapers/whitepaper_datacompression.pdf */

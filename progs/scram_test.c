@@ -31,6 +31,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "io_lib_config.h"
+#endif
+
 /*
  * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
  */
