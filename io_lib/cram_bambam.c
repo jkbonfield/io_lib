@@ -60,68 +60,7 @@
 #include "io_lib_config.h"
 #endif
 
-#include <stdio.h>
-#include <errno.h>
-#include <assert.h>
-#include <stdlib.h>
-#include <string.h>
-#include "io_lib/cram.h"
-
-
-//-----------------------------------------------------------------------------
-// FIXME: move these to a public header.
-// Public interface
-
-typedef enum cram_data_write_block_type {
-    cram_data_write_block_type_internal,
-    cram_data_write_block_type_block_final,
-    cram_data_write_block_type_file_final
-} cram_data_write_block_type;
-
-// Enqueue a package of work to compress a CRAM slice.
-typedef void
-(*cram_enque_compression_work_package_function_t)(void *userdata,
-						  void *workpackage);
-
-// Callback to indicate the block has been compressed
-typedef void
-(*cram_compression_work_package_finished_t)(void *userdata,
-					    size_t const inblockid,
-					    int const final);
-
-// Write function for compressed blocks, provided by libmaus.
-// Inblockid is the same as supplied by the dispatcher.
-// Outblockid increments from 0 per unique inblockid.
-typedef void
-(*cram_data_write_function_t)(void *userdata,
-			      ssize_t const inblockid,
-			      size_t const outblockid,
-			      char const *data,
-			      size_t const n,
-			      cram_data_write_block_type const blocktype);
-
-
-// Temporary copy from biobambam (BSD licence verbally accepted) to
-// help validate the interface via the compiler.
-extern void *cram_allocate_encoder(void *userdata,
-				   char const *sam_header,
-				   size_t const sam_headerlength,
-				   cram_data_write_function_t write_func);
-extern void cram_deallocate_encoder(void *context);
-extern int cram_enque_compression_block(
-	void *userdata,
-	void *context,
-	size_t const inblockid,
-	char const **block,
-	size_t const *blocksize,
-	size_t const *blockelements,
-	size_t const numblocks,
-	int const final,
-	cram_enque_compression_work_package_function_t workenqueuefunction,
-	cram_data_write_function_t writefunction,
-	cram_compression_work_package_finished_t workfinishedfunction);
-extern int cram_process_work_package(void *workpackage);
-
+#include "io_lib/cram_bambam.h"
 
 //-----------------------------------------------------------------------------
 // Internally used structures
@@ -564,3 +503,8 @@ int cram_process_work_package(void *workpackage) {
     return 0;
 }
 
+cram_fd * cram_encoder_get_fd(void *p)
+{
+    cram_enc_context * context = (cram_enc_context *)p;
+    return context->fd;
+}

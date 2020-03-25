@@ -100,6 +100,7 @@ pkginclude_HEADERS = \
 	io_lib/cram_codecs.h \
 	io_lib/cram_index.h \
 	io_lib/cram_stats.h \
+	io_lib/cram_bambam.h \
 	io_lib/zfio.h \
 	io_lib/scram.h \
 	io_lib/bam.h \
