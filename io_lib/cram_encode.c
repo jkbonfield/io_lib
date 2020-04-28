@@ -62,15 +62,15 @@
 void bam_copy(bam_seq_t **bt, bam_seq_t *bf) {
     size_t a;
 
-    if (bf->alloc > (*bt)->alloc) {
-	a = ((int)((bf->alloc+15)/16))*16;
+    // See bam.c bam_get_seq func for explanation of the 44.
+    if (bf->blk_size+44 > (*bt)->alloc) {
+	a = ((int)((bf->blk_size+44+15)/16))*16;
 	*bt = realloc(*bt, a);
-	memcpy(*bt, bf, bf->alloc);
     } else {
 	a = (*bt)->alloc;
-	memcpy(*bt, bf, bf->alloc);
     }
 
+    memcpy(*bt, bf, MIN(bf->alloc, bf->blk_size+44));
     (*bt)->alloc = a;
 }
 #endif
@@ -3968,6 +3968,9 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 
     /* Copy or alloc+copy the bam record, for later encoding */
     if (c->bams[c->curr_c_rec])
+	// 82% of main thread for 16-thread cram write
+	// Around 18% of total CPU time. => max 500% utilisation.
+	// Add "restrict" to pointer?
 	bam_copy(&c->bams[c->curr_c_rec], b);
     else
 	c->bams[c->curr_c_rec] = bam_dup(b);
