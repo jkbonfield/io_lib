@@ -320,7 +320,12 @@ static int get_next_base(pileup_t *p, int pos, int nth, int *is_insert) {
 
     case BAM_CSOFT_CLIP:
 	/* Last op 'S' => eof */
-	p->eof = p->cigar_ind == bam_cigar_len(b) ? 1 : 0;
+        p->eof = (p->cigar_ind == bam_cigar_len(b) ||
+		  (p->cigar_ind+1 == bam_cigar_len(b) &&
+		   (p->b_cigar[p->cigar_ind] & BAM_CIGAR_MASK)
+		   == BAM_CHARD_CLIP))
+	    ? 1
+	    : 0;
 	break;
 
     case BAM_CHARD_CLIP:

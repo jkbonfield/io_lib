@@ -966,8 +966,16 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	    if (s->aux_block[i]->method != RAW)
 		continue;
 
+	    int m2 = method, ml = level;
+	    // SA:Z and XA:Z can be large and benefit from light bzip2
+	    // compression more than large block bzip2.
+	    if (s->aux_block[i]->content_id == 0x58415a ||
+		s->aux_block[i]->content_id == 0x53415a) {
+		// m2 |= (1<<BZIP2); // approx 30% slower and 6% smaller
+		if (m2 & (1<<BZIP2)) ml = 1;
+	    }
 	    if (cram_compress_block(fd, s, s->aux_block[i], s->aux_block[i]->m,
-				    method, level))
+				    m2, ml))
 		return -1;
 	}
     }
