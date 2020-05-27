@@ -1644,6 +1644,185 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 }
 
 /*
+ * Based on htslib's copy from htslib/sam.c
+ *
+ * This reads the CG aux tag and copies it into CIGAR if required.
+ * We only do this if the CIGAR field matches the expected profile.
+ */
+static int bam_tag2cigar(bam_seq_t **bsp) {
+    bam_seq_t *bs = *bsp;
+
+    if (bam_cigar_len(bs) < 1)
+	return 0;
+
+    uint32_t *cigar = bam_cigar(bs);
+    if ((cigar[0] & BAM_CIGAR_MASK)   != BAM_CSOFT_CLIP ||
+	(cigar[0] >> BAM_CIGAR_SHIFT) != bs->len)
+	return 0;
+
+    char *CG = bam_aux_find(bs, "CG"); // point after CG
+    if (!CG)
+	return 0;
+    if (CG[0] != 'B' || CG[1] != 'I')
+	return 0; // Not of type B,I
+    uint32_t CG_len;
+    memcpy(&CG_len, CG+2, 4);
+    CG_len = le_int4(CG_len);
+    uint32_t cigar_len = bam_cigar_len(bs);
+    if (CG_len < cigar_len || CG_len >= 1U<<29)
+	return 0;
+
+    // We have a long cigar.  The CG tag is a B,I array holding the
+    // CIGAR ints.  Thus it is the same same as the intended CIGAR field.
+    // CG could occur anywhere, so we'll need to do some data shuffling.
+    //
+    //              tp     sp    fp                    xp    ep
+    //              |      |     |                     |     |
+    // From <......><CIGAR>;;;;;;<LONG_LONG_LONG_CGtag>//////
+    // to   <......><LONG_LONG_CIGAR>;;;;;;//////
+    //
+    // Some may move down in memory while others move up (sp to fp).
+    // It's hard to do this insitu without a lot of shuffling, so we
+    // use a temp buffer.
+    //
+    // We have seq, qual and maybe some aux between fake cigar and CG tag,
+    // which will be large.  So we cache copy of cigar as the smaller
+    // task.
+
+    // Pointers for the above diagram.
+    // sp=seq, fp=from-cigar, tp=to-cigar, xp=extra aux, ep=end
+    char *tp = (char *)cigar;
+    char *sp = bam_seq(bs);
+    uint64_t sp_len = CG-2 - sp;
+    char *fp = CG+6; // B, I, len x 4
+    char *xp = fp + CG_len*4;
+    char *ep = xp;
+    while (*ep)
+	ep = bam_aux_skip(ep);
+    ep++; // consume nul terminating byte too
+
+    char *cg_cache = NULL;
+    if (!(cg_cache = malloc(CG_len*4)))
+	return -1;
+    memcpy(cg_cache, fp, CG_len*4);
+
+    // Migrate seq up to make room for CG tag
+    memmove(tp+CG_len*4, sp, sp_len);
+    sp = tp+CG_len*4;
+
+    // Move cg_cache (was fp) down to tp
+    memmove(tp, cg_cache, CG_len*4);
+
+    // Finally move xp down to be flush with sp end
+    memmove(sp+sp_len, xp, ep-xp);
+
+    // Correct record
+    bs->bin = CG_len >> 16;
+    bs->cigar_len = CG_len;
+    bs->flag |= BAM_CIGAR32;
+    bs->blk_size -= cigar_len*4 + 8; // less fake cigar and CG:B,I
+
+    free(cg_cache);
+
+    return 0;
+}
+
+// see htslib/sam.h
+// bit 1: consume query; bit 2: consume reference
+#define BAM_CIGAR_TYPE 0x3C1A7
+#define bam_cigar_type(o) (BAM_CIGAR_TYPE>>((o)<<1)&3)
+
+// Compute length of alignment on reference
+static int64_t ref_len(bam_seq_t *b) {
+    int i, cig_len = bam_cigar_len(b), ref_len = 0;
+    uint32_t *cig = bam_cigar(b);
+    for (i = 0; i < cig_len; i++) {
+	if (bam_cigar_type(cig[i] & BAM_CIGAR_MASK) & 2)
+	    ref_len += cig[i]>>BAM_CIGAR_SHIFT;
+    }
+
+    return ref_len;
+}
+
+// Calculate bin from region [beg,end).
+// See SAM spec section 5.3
+static int compute_bin(int beg, int end) {
+    end--;
+    if (beg>>14 == end>>14) return ((1<<15)-1)/7 + (beg>>14);
+    if (beg>>17 == end>>17) return ((1<<12)-1)/7 + (beg>>17);
+    if (beg>>20 == end>>20) return ((1<<9) -1)/7 + (beg>>20);
+    if (beg>>23 == end>>23) return ((1<<6) -1)/7 + (beg>>23);
+    if (beg>>26 == end>>26) return ((1<<3) -1)/7 + (beg>>26);
+    return 0;
+}
+
+/*
+ * Convert a long-cigar BAM object to a CG-tag based BAM object.
+ * This returns a new structure as we cannot be sure it'll fit due to the
+ * extra tag name/type and fake cigar, plus we may not wish to modify
+ * the original data.
+ */
+static bam_seq_t *bam_cigar2tag(bam_seq_t *b) {
+    if (!(b->flag & BAM_CIGAR32))
+	return b;
+
+    if (bam_cigar_len(b) < 65536) {
+	b->flag &= ~BAM_CIGAR32;
+	b->bin = compute_bin(b->pos, b->pos + ref_len(b));
+	return b;
+    }
+
+    const size_t extra_len = 16; /* fake cigar + "CGBI" + <len4> */;
+
+    // Copy initial struct
+    bam_seq_t *bn = malloc(b->alloc+extra_len);
+    if (!bn)
+	return NULL;
+    *bn = *b;
+    bn->alloc += extra_len;
+    bn->blk_size += extra_len;
+
+    // Copy name
+    memcpy(bam_name(bn), bam_name(b), b->name_len);
+
+    // Make a fake cigar
+    uint32_t rlen = ref_len(b);
+    uint32_t cig[2] = {
+	le_int4((b->len<<BAM_CIGAR_SHIFT) + BAM_CSOFT_CLIP),
+	le_int4((rlen<<BAM_CIGAR_SHIFT) + BAM_CREF_SKIP),
+    };
+    memcpy(bam_cigar(bn), cig, 8);
+    bn->flag &= ~BAM_CIGAR32;
+    bn->bin = compute_bin(bn->pos, bn->pos + rlen);
+    bn->cigar_len = 2;
+
+    // Copy seq, qual, aux
+    memcpy(bam_seq(bn), bam_seq(b), bam_aux(b)-bam_seq(b));
+
+    // (Should be able to compute end directly from blk_size?)
+    char *fp = bam_aux(b), *ep = fp;
+    while (*ep)
+	ep = bam_aux_skip(ep);
+    memcpy(bam_aux(bn), bam_aux(b), ep-fp);
+
+    // Add the new CG tag.
+    ep = bam_aux(bn) + (ep-fp);
+    *ep++ = 'C';
+    *ep++ = 'G';
+    *ep++ = 'B';
+    *ep++ = 'I';
+    uint32_t len = le_int4(bam_cigar_len(b));
+    memcpy(ep, &len, 4); ep += 4;
+    memcpy(ep, bam_cigar(b), bam_cigar_len(b)*4);
+    ep += bam_cigar_len(b)*4;
+
+    // Terminate aux list
+    *ep++ = 0;
+
+    return bn;
+}
+
+/*
  * Fills out the next bam_seq_t struct.
  * bs must be non-null, but *bs may be NULL or an existing bam_seq_t pointer.
  * This function will alloc and/or grow the memory accordingly, allowing for
@@ -1727,6 +1906,9 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    cigar[i] = le_int4(cigar[i]);
 	}
     }
+
+    if (bam_tag2cigar(bsp) < 0)
+	return -1;
 
     return 1;
 }
@@ -1824,6 +2006,9 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 	    cigar[i] = le_int4(cigar[i]);
 	}
     }
+
+    if (bam_tag2cigar(bsp) < 0)
+	return -1;
 
     return 1;
 }
@@ -3344,7 +3529,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* FLAG */
 	if (end-fp->uncomp_p < 5) BF_FLUSH();
-	fp->uncomp_p = append_int(fp->uncomp_p, bam_flag(b));
+	fp->uncomp_p = append_int(fp->uncomp_p, bam_flag(b) & ~BAM_CIGAR32);
 	*fp->uncomp_p++ = '\t';
 
 	/* RNAME */
@@ -3700,6 +3885,14 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
     } else {
 	/* BAM */
+	bam_seq_t *b_orig = b;
+
+	if (b->flag & BAM_CIGAR32) {
+	    b = bam_cigar2tag(b);
+	    if (!b)
+		return -1;
+	}
+
 	unsigned char *end = fp->uncomp + BGZF_BUFF_SIZE, *ptr;
 	size_t to_write;
 	uint32_t i32;
@@ -3723,7 +3916,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 
 	/* If big endian, byte swap inline, write it out, and byte swap back */
 	b->bin_packed  = (b->bin  << 16) | (b->map_qual << 8) | b->name_len;
-	b->flag_packed = (b->flag << 16) | b->cigar_len;
+	b->flag_packed = ((b->flag & ~BAM_CIGAR32) << 16) | b->cigar_len;
 
 #ifdef SP_BIG_ENDIAN
 	b->ref         = le_int4(b->ref);
@@ -3814,6 +4007,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	i32          = b->flag_packed;
 	b->flag      = i32 >> 16;
 	b->cigar_len = i32 & 0xffff;
+
+	if (b_orig != b)
+	    free(b);
     }
 
     return 0;
