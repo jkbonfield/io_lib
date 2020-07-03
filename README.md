@@ -1,4 +1,4 @@
-Io_lib:  Version 1.14.12
+Io_lib:  Version 1.14.13
 ========================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -33,55 +33,100 @@ See the CHANGES for a summary of older updates or git logs for the
 full details.
 
 
-Version 1.14.12 (30th January 2020)
+Version 1.14.13 (3rd July 2020)
 ---------------
 
-This is primarily a change to CRAM, focusing mainly on the unofficial
-CRAM 3.1 and 4.0 file formats.  Note these newer experimental formats
-are INCOMPATIBLE with the 1.14.11 output!
+This release has a mixture of on-going CRAM 4 work (not compatible
+with previous CRAM 4) and some more general quality of life
+improvements for all CRAM versions including speed-ups and better
+multi-threading.
 
-Some changes also affect CRAM 3.0 (current) though.  Main updates are:
-
-* Added compression profiles to scramble: fast, normal (default),
-  small and archive.  Specify using scramble -X profile-name.  These
-  change compression codecs permitted as well as the granularity of
-  random access ("fast" profile is 1/10th the size per block than
-  normal).
-
-* NM and MD tags are now checked during encode to validate
-  auto-generation during decode.  If they differ they are stored
-  verbatim.
-
-* CRAM behaves better when many small chromosomes occur in the middle
-  of larger ones (as it can switch out of multi-ref mode again).
-
-* Numerous improvements to CRAM 4.0 compression ratios.
-
-* Some speed improvements to CRAM 3.1 and 4.0 decoding.
-
-* Fixes to github issues/bugs #12, #14-15, #17-22.
-
-See CHANGES for more details.
-
-
-Version 1.14.11 (16th October 2018)
----------------
+Note both CRAM 3.1 and 4.0 are still to be considered an unofficial
+CRAM extensions.
 
 Updates:
 
-* CRAM: http(s) queries now honour redirects.
-  The User-Agent header is also set, which is necessary in some
-  proxies.
+* Scramble can now filter-in or filter-out aux tags during
+  transcoding.  This is done using -d and -D options.  For example:
+
+      scramble -D OQ,BI,BD in.bam out.cram
+
+  removes the GATK added OQ, BI and BD aux tags.
+  Requested by @jhaezebrouck in issue #24.
+
+* The Scramble -X <profile> options are now implemented using a
+  CRAM_OPT_PROFILE option.  This simplifies the scramble code and
+  makes it easier to call from a library.  This also fixes a number of
+  bugs in the order of argument parsing.
+
+* Improved CRAM writing speeds.
+
+  The bam_copy function now only copies the number of used bytes
+  rather than the number of allocated bytes, which can sometimes be
+  substantially smaller.  As this was done in the main thread it may
+  have a significant benefit when multi-threading.
+
+* Added libdeflate support into CRAM too (in addition to the existing
+  support in BAM).  This isn't a huge change to CRAM speeds except at
+  high levels (-8 and -9) which are now slower, but also better
+  compression ratio.  A modest 2-3% speed gain is visible are low and
+  mid levels, and at -1/-2 to -4 the compression ratio is also
+  improved.
+
+* CRAM 3.1 compression level -1 is now 25% faster, but 4% larger.
+  This is achieved by difference choice of compression codecs, most
+  notably disabling the name tokeniser for level 1.  Use level 2 for
+  something comparable to the old behaviour.
+
+* Added an io_lib/version.h to make it easier to detect the version
+  being compiled against using IOLIB_VERSION macros.
+  Requested by German Tischler in issue #25.
+
+* Refactored the cram encoding interface used by biobambam.
+  Implemented by German Tischler in PR#27.
+
+* CRAM 4 now uses E_CONST instead of a uni-value version of
+  E_HUFFMAN.  Also added offset field to VARINT_SIGNED and
+  VARINT_UNSIGNED which helps for data series that have values from -1
+  to MAXINT.
+
+* CRAM 4 container structure has changed so that all values are
+  variable sized integers instead of fixed size.
+
+* Further improvements with CRAM 4's use of signed values.
+  - Ref_seq_id is container and slice headers are now signed.
+  - RI (ref ID) data series and NS (mate ref ID) are also now signed
+    as -1 is a valid value.
+  - Embedded ref id is now 0 for unusued instead of -1.
+
+* Reversed the use of CRAM 4 delta encoding for the B array.  It only
+  helps at the moment for ONT signal data, so it needs more work to
+  make it auto-detect when delta makes sense. (Enabling it globally
+  for CRAM4 B aux tags was accidental.)
+
+* Htscodecs submodule has gained support for big-endian platforms
+  Other big-endian improvements to parts of CRAM4 too.
 
 Bug fixes:
 
-* CRAM: fix to major range query bug introduced in 1.14.10.
+* Fixed CRAM MD tag generatin when using the "b" feature code
+  (NB: unused by known CRAM encoders).
+  Also see https://github.com/samtools/htslib/pull/1086 for more details.
 
-* CRAM: more bug fixing on range queries when multi-threading (EOF
-  detection).
+* Fixed CRAM quality string when using "q" feature code (unused by
+  encoders?) and in lossy-quality mode (maybe utilised in old
+  Cramtools).
+  Also see https://github.com/samtools/htslib/pull/1094 for more details.
 
-* The test harness now works correctly in bourne shell, without
-  using bashisms.
+* Fixed some minor memory leaks.
+
+* "Scramble -X archive -1" enabled lzma, which should only have
+  arrived at level 7 and above. (It compared integer 7 vs ASCII '1'.)
+
+* Removed minor compilation warning in printf debugging.
+
+* Fixed a 7 year old bug in scram_pileup which couldn't cope with
+  soft-clips being followed by hard-clips.
 
 
 Technology Demo: CRAM 3.1 and 4.0
@@ -120,24 +165,24 @@ on an Intel i5-4570 processor at 3.2GHz.
 |-O bam (default)    |    539.5|  45.0|   4.9|bgzf(libdeflate)           |
 |-O bam -9           |    499.5| 920.2|   4.9|bgzf(libdeflate)           |
 ||||||
-|-V2.0 -X fast       |    302.6|  33.5|  12.7|(default, level 1)         |
-|-V2.0 (default)     |    257.0|  39.7|  11.5|(default)                  |
-|-V2.0 -X small      |    216.3| 123.8|  32.0|bzip2                      |
+|-V2.0 -X fast       |    317.7|  38.8|  11.8|(default, level 1)         |
+|-V2.0 (default)     |    267.6|  47.0|  10.5|(default)                  |
+|-V2.0 -X small      |    218.0| 124.6|  33.1|bzip2                      |
 ||||||
-|-V3.0 -X fast       |    274.0|  30.8|  11.0|(default, level 1)         |
-|-V3.0 (default)     |    223.7|  36.7|  10.4|(default)                  |
-|-V3.0 -X small      |    212.2|  90.3|  18.2|bzip2                      |
-|-V3.0 -X archive    |    209.3| 103.5|  18.2|bzip2, lzma                |
+|-V3.0 -X fast       |    264.9|  31.3|  10.8|(default, level 1)         |
+|-V3.0 (default)     |    223.7|  34.7|  10.3|(default)                  |
+|-V3.0 -X small      |    212.3|  88.3|  18.2|bzip2                      |
+|-V3.0 -X archive    |    209.4|  98.7|  18.2|bzip2                      |
 ||||||
-|-V3.1 -X fast       |    275.1|  28.6|  11.3|rANS++                     |
-|-V3.1 (default)     |    186.2|  36.4|   8.5|rANS++,tok3                |
-|-V3.1 -X small      |    176.8|  77.9|  34.9|rANS++,tok3,fqz            |
-|-V3.1 -X archive    |    172.0| 134.7|  34.0|rANS++,tok3,fqz,bzip2,arith|
+|-V3.1 -X fast       |    262.4|  29.1|   9.3|rANS++                     |
+|-V3.1 (default)     |    186.4|  33.7|   8.3|rANS++,tok3                |
+|-V3.1 -X small      |    176.8|  74.0|  35.2|rANS++,tok3,fqz            |
+|-V3.1 -X archive    |    171.9| 127.9|  34.9|rANS++,tok3,fqz,bzip2,arith|
 ||||||
-|-V4.0 -X fast       |    258.4|  29.9|  11.2|rANS++                     |
-|-V4.0 (default)     |    181.9|  34.3|   8.3|rANS++,tok3                |
-|-V4.0 -X small      |    170.8|  74.7|  34.4|rANS++,tok3,fqz            |
-|-V4.0 -X archive    |    166.8| 122.0|  33.7|rANS++,tok3,fqz,bzip2,arith|
+|-V4.0 -X fast       |    251.2|  28.9|   9.6|rANS++                     |
+|-V4.0 (default)     |    182.1|  32.9|   8.2|rANS++,tok3                |
+|-V4.0 -X small      |    170.9|  70.9|  35.0|rANS++,tok3,fqz            |
+|-V4.0 -X archive    |    166.9| 116.4|  34.2|rANS++,tok3,fqz,bzip2,arith|
 
 We also tested on a small human aligned HiSeq run (ERR317482)
 representing older Illumina data with pre-binning era quality values.
@@ -154,6 +199,8 @@ in a more I/O stressed situation this test demonstrates the default
 profile of CRAM is faster to read than BAM, due to the smaller I/O
 footprint.
 
+NB: the table below was produced with 1.14.12.
+
 |Scramble opts.         |Size(MB) |Enc(s)|Dec(s)|Codecs used                     |
 |--------------------   |--------:|-----:|-----:|--------------------------------|
 |-t4 -O bam (default)   |    6526 | 115.4|  44.7|bgzf(libdeflate)                |
@@ -167,7 +214,7 @@ footprint.
 |-t4 -V3.0 -X fast      |    3620 |  88.3|  29.3|(default, level 1)              |
 |-t4 -V3.0 (default)    |    3287 |  90.5|  29.5|(default)                       |
 |-t4 -V3.0 -X small     |    3238 | 128.5|  40.3|bzip2                           |
-|-t4 -V3.0 -X archive   |    3220 | 164.9|  50.0|bzip2, lzma                     |
+|-t4 -V3.0 -X archive   |    3220 | 164.9|  50.0|bzip2                           |
 |-t4 -V3.0 -X archive -9|    3115 |1866.6|  75.2|bzip2, lzma                     |
 ||||||
 |-t4 -V3.1 -X fast      |    3611 |  87.9|  29.2|rANS++                          |

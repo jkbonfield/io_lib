@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(io_lib, 1.14.12)
+AC_INIT(io_lib, 1.14.13)
 IOLIB_VERSION=$PACKAGE_VERSION
 IOLIB_VERSION_MAJOR=`expr "$PACKAGE_VERSION" : '\([[0-9]]*\)'`
 IOLIB_VERSION_MINOR=`expr "$PACKAGE_VERSION" : '[[0-9]]*\.\([[0-9]]*\)'`
@@ -68,9 +68,9 @@ AX_SUBDIRS_CONFIGURE([htscodecs],[[--disable-shared],[--with-pic]])
 #       libstaden-read.so.1 -> libstaden-read.so.1.1.0
 #       libstaden-read.so.1.1.0
 
-VERS_CURRENT=14
+VERS_CURRENT=15
 VERS_REVISION=0
-VERS_AGE=0
+VERS_AGE=1
 AC_SUBST(VERS_CURRENT)
 AC_SUBST(VERS_REVISION)
 AC_SUBST(VERS_AGE)
