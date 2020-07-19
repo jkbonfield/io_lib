@@ -101,7 +101,7 @@
  * We now treat them as unsigned.
  * 17.09.91 LFW changed STLOUIS compilation flag to SAVE_EDITS
  * and AUTO_CLIP
- * 25.10.91 SD  Machine independant I/O...removed BIGENDIAN flag
+ * 25.10.91 SD  Machine independent I/O...removed BIGENDIAN flag
  * 25.11.91 SD There was a hard limit (of 1024) for allocation of
  * space for number of bases, yet program would 
  * read in more if there were any, causing nasties to happen.

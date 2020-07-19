@@ -581,7 +581,7 @@ int main(int argc, char **argv) {
     if (embed_ref) {
 	if (scram_get_header(in)->sort_order == ORDER_NAME ||
 	    scram_get_header(in)->sort_order == ORDER_UNSORTED) {
-	    fprintf(stderr, "Embeded reference with non-coordinate sorted data is "
+	    fprintf(stderr, "Embedded reference with non-coordinate sorted data is "
 		    "not supported.\nUsing -x for no-ref instead.\n");
 	    if (scram_set_option(out, CRAM_OPT_NO_REF, 1))
 		return 1;
@@ -594,7 +594,7 @@ int main(int argc, char **argv) {
     if (embed_cons) {
 	if (scram_get_header(in)->sort_order == ORDER_NAME ||
 	    scram_get_header(in)->sort_order == ORDER_UNSORTED) {
-	    fprintf(stderr, "Embeded consensus with non-coordinate sorted data is "
+	    fprintf(stderr, "Embedded consensus with non-coordinate sorted data is "
 		    "not supported.\n");
 	} else {
 	    if (scram_set_option(out, CRAM_OPT_EMBED_CONS, embed_cons))

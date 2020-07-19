@@ -139,7 +139,7 @@ char *zlib_huff(char *uncomp, int uncomp_len, int strategy, int *comp_len) {
     zstr.opaque = (voidpf)0;
 
     if ((err = deflateInit2(&zstr, 1, Z_DEFLATED, 15, 8, strategy)) != Z_OK) {
-	fprintf(stderr, "zlib errror in deflateInit2(): %d\n", err);
+	fprintf(stderr, "zlib error in deflateInit2(): %d\n", err);
 	return NULL;
     }
 
@@ -151,7 +151,7 @@ char *zlib_huff(char *uncomp, int uncomp_len, int strategy, int *comp_len) {
     
     /* Do the compression */
     if ((err = deflate(&zstr, Z_FINISH)) != Z_STREAM_END) {
-	fprintf(stderr, "zlib errror in deflate(): %d\n", err);
+	fprintf(stderr, "zlib error in deflate(): %d\n", err);
 	return NULL;
     }
 
@@ -207,7 +207,7 @@ char *zlib_dehuff(char *comp, int comp_len, int *uncomp_len) {
     zstr.opaque = (voidpf)0;
 
     if ((err = inflateInit(&zstr)) != Z_OK) {
-	fprintf(stderr, "zlib errror in inflateInit(): %d\n", err);
+	fprintf(stderr, "zlib error in inflateInit(): %d\n", err);
 	return NULL;
     }
 
@@ -219,7 +219,7 @@ char *zlib_dehuff(char *comp, int comp_len, int *uncomp_len) {
     
     /* Do the decompression */
     if ((err = inflate(&zstr, Z_FINISH)) != Z_STREAM_END) {
-	fprintf(stderr, "zlib errror in deflate(): %d\n", err);
+	fprintf(stderr, "zlib error in deflate(): %d\n", err);
 	return NULL;
     }
 
