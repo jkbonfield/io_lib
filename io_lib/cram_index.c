@@ -76,6 +76,14 @@
 #include "io_lib/os.h"
 #include "io_lib/zfio.h"
 
+/*
+   define PATH_MAX in case it is not available
+   (for example for hurd_i386)
+*/
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #if 0
 static void dump_index_(cram_index *e, int level) {
     int i, n;

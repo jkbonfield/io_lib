@@ -49,6 +49,14 @@
 #include <io_lib/cram.h>
 #include <io_lib/zfio.h>
 
+/*
+   define PATH_MAX in case it is not available
+   (for example for hurd_i386)
+*/
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 int main(int argc, char **argv) {
     cram_fd *fd;
 

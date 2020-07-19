@@ -38,6 +38,14 @@
 #include "io_lib/ztr.h"
 #include "io_lib/mFILE.h"
 
+/*
+   define PATH_MAX in case it is not available
+   (for example for hurd_i386)
+*/
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #define SRF_MAGIC		"SSRF"
 #define SRF_VERSION             "1.3"
 

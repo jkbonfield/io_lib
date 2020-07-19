@@ -121,6 +121,14 @@ func ptr v4.0		10614 (10540-10653)  all zigzag (w INT7 #define)
 #include <stdio_ext.h>
 #endif
 
+/*
+   define PATH_MAX in case it is not available
+   (for example for hurd_i386)
+*/
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 //#define REF_DEBUG
 
 #ifdef REF_DEBUG

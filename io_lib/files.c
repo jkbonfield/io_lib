@@ -86,6 +86,14 @@
 
 #include "io_lib/misc.h"
 
+/*
+   define PATH_MAX in case it is not available
+   (for example for hurd_i386)
+*/
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #include <sys/types.h>
 #include <sys/stat.h>
 /* Alliant's Concentrix <sys/stat.h> is hugely deficient */
