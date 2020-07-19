@@ -81,7 +81,7 @@
  */
 
 /*
- * Machine independant io:
+ * Machine independent io:
  * For reading and writing to big-endian and little-endian files
  *
  * Routines available:

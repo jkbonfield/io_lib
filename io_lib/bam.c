@@ -3876,7 +3876,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    }
 
 	    default:
-		fprintf(stderr, "Unhandled auxilary type '%c' in "
+		fprintf(stderr, "Unhandled auxiliary type '%c' in "
 			"bam_put_seq()\n", type);
 	    }
 	}

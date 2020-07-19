@@ -98,7 +98,7 @@
  * 30.07.91 SD  Those ole FWO_ field blues
  * 17.09.91 LFW changed STLOUIS compilation flag to SAVE_EDITS
  *              and AUTO_CLIP
- * 25.10.91 SD  Machine independant I/O...removed BIGENDIAN flag
+ * 25.10.91 SD  Machine independent I/O...removed BIGENDIAN flag
  * 21.07.92 LFW Added finding of primer position
  * 11.11.92 LFW added section to actually check that the trace it
  *              is trying to open is an ALF file using traceType sub

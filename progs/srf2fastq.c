@@ -641,7 +641,7 @@ int main(int argc, char **argv) {
 
     if ( reverse_set && ! (sequential || split) ) {
 	fprintf(stderr, "ERROR: The -r parameter is only supported when "
-		"spliting sequences by region.\n");
+		"splitting sequences by region.\n");
 	usage();
     }
 
