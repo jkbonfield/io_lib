@@ -54,10 +54,24 @@ typedef union {
     void *p;
 } HashData;
 
+/*
+ * The anonymous union below is strictly a C11 feature, but is supported
+ * by GNU99 and many other compilers.
+ *
+ * Adding an explicit name to the union changes the API.  The alternative
+ * is to have a non-union and explicit key and key64 both present, but
+ * that is costly.  It could be done for sizeof(char*)<64 only via an ifdef,
+ * which severely limits the likelihood of it being needed.  However we'll
+ * try the easy route to start with and see if this causes any problems.
+ */
+
 /* A hash item with "next" pointer to use in a linked list */
 typedef struct HashItemStruct {
     HashData data;        /* user defined data attached to this key */
-    char    *key;         /* key we hashed on */
+    union {
+      char    *key;       /* key we hashed on */
+      int64_t key64;
+    };
     int      key_len;     /* and its length */
     struct HashItemStruct *next;
 } HashItem;
@@ -171,11 +185,16 @@ void HashTableDestroy(HashTable *h, int deallocate_date);
 int HashTableResize(HashTable *h, int newsize);
 HashItem *HashTableAdd(HashTable *h, char *key, int key_len,
 		       HashData data, int *added);
+HashItem *HashTableAddInt64(HashTable *h, int64_t key,
+			    HashData data, int *added);
 int HashTableDel(HashTable *h, HashItem *hi, int deallocate_data);
 int HashTableRemove(HashTable *h, char *key, int key_len, int deallocate_data);
+int HashTableRemoveInt64(HashTable *h, int64_t key, int deallocate_data);
 HashItem *HashTableSearch(HashTable *h, char *key, int key_len);
+HashItem *HashTableSearchInt64(HashTable *h, int64_t key);
 HashItem *HashTableNext(HashItem *hi, char *key, int key_len);
 HashItem *HashTableNextInt(HashItem *hi, char *key, int key_len);
+HashItem *HashTableNextInt64(HashItem *hi, int64_t key);
 
 void HashTableStats(HashTable *h, FILE *fp);
 void HashTableDump(HashTable *h, FILE *fp, char *prefix);

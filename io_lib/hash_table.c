@@ -581,6 +581,49 @@ HashItem *HashTableAdd(HashTable *h, char *key, int key_len, HashData data,
     return hi;
 }
 
+// Custom version of above for option HASH_INT_KEYS | HASH_NONVOLATILE_KEYS.
+// Needed on 32-bit platforms where we cannot shoehorn in a 64-bit integer
+// into a pointer.  The previous interface is still valid for 32-bit integer
+// keys.
+HashItem *HashTableAddInt64(HashTable *h, int64_t key, HashData data,
+			    int *new) {
+    uint64_t hv;
+    HashItem *hi;
+
+    if (!(h->options & HASH_INT_KEYS))
+        return NULL;
+    hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, sizeof(key))
+	& h->mask;
+
+    /* Already exists? */
+    if (!(h->options & HASH_ALLOW_DUP_KEYS)) {
+	for (hi = h->bucket[hv]; hi; hi = hi->next) {
+	    if (hi->key64 == key) {
+		if (new) *new = 0;
+		return hi;
+	    }
+	}
+    }
+
+    /* No, so create a new one and link it in */
+    if (NULL == (hi = HashItemCreate(h)))
+	return NULL;
+
+    hi->key64 = key;
+    hi->key_len = sizeof(key);
+    hi->data = data;
+    hi->next = h->bucket[hv];
+    h->bucket[hv] = hi;
+
+    if ((h->options & HASH_DYNAMIC_SIZE) &&
+	h->nused > HASH_TABLE_RESIZE * h->nbuckets)
+	HashTableResize(h, h->nbuckets*4);
+
+    if (new) *new = 1;
+
+    return hi;
+}
+
 
 /*
  * Removes a specified HashItem from the HashTable. (To perform this it needs
@@ -685,6 +728,46 @@ int HashTableRemove(HashTable *h, char *key, int key_len,
     return retval;
 }
 
+int HashTableRemoveInt64(HashTable *h, int64_t key, int deallocate_data) {
+    uint64_t hv;
+    HashItem *last, *next, *hi;
+    int retval = -1;
+
+    if (!(h->options & HASH_INT_KEYS))
+	return -1;
+
+    hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, sizeof(key))
+	& h->mask;
+
+    last = NULL;
+    next = h->bucket[hv];
+
+    while (next) {
+	hi = next;
+	if (key == hi->key64) {
+	    /* An item to remove, adjust links and destroy */
+	    if (last)
+		last->next = hi->next;
+	    else
+		h->bucket[hv] = hi->next;
+
+	    next = hi->next;
+	    HashItemDestroy(h, hi, deallocate_data);
+
+	    retval = 0;
+	    if (!(h->options & HASH_ALLOW_DUP_KEYS))
+		break;
+
+	} else {
+	    /* We only update last when it's something we haven't destroyed */
+	    last = hi;
+	    next = hi->next;
+	}
+    }
+
+    return retval;
+}
+
 /*
  * Searches the HashTable for the data registered with 'key'.
  * If HASH_ALLOW_DUP_KEYS is used this will just be the first one found.
@@ -721,6 +804,29 @@ HashItem *HashTableSearch(HashTable *h, char *key, int key_len) {
     return NULL;
 }
 
+// As per HashTableAddInt64 this is a custom search function for 64-bit
+// integer keys.  Only needed on 32-bit platforms where the char *key is
+// not large enough to hold a 64-bit integer.
+// Note: On 64-bit platforms calling this function still works, so it is
+// the preferred new API.
+HashItem *HashTableSearchInt64(HashTable *h, int64_t key) {
+    uint64_t hv;
+    HashItem *hi;
+
+    if (!(h->options & HASH_INT_KEYS))
+        return NULL;
+
+    hv = hash64(h->options & HASH_FUNC_MASK, (uint8_t *)&key, sizeof(key))
+	& h->mask;
+
+    for (hi = h->bucket[hv]; hi; hi = hi->next) {
+	if (key == hi->key64)
+	    return hi;
+    }
+
+    return NULL;
+}
+
 /*
  * Find the next HashItem (starting from 'hi') to also match this key.
  * This is only valid when the HASH_ALLOW_DUP_KEYS is in use and
@@ -750,6 +856,18 @@ HashItem *HashTableNextInt(HashItem *hi, char *key, int key_len) {
     for (hi = hi->next; hi; hi = hi->next) {
 	if (key_len == hi->key_len &&
 	    memcmp(&key, &hi->key, key_len) == 0)
+	    return hi;
+    }
+
+    return NULL;
+}
+
+HashItem *HashTableNextInt64(HashItem *hi, int64_t key) {
+    if (!hi)
+	return NULL;
+
+    for (hi = hi->next; hi; hi = hi->next) {
+	if (key == hi->key64)
 	    return hi;
     }
 
