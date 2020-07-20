@@ -21,6 +21,14 @@
 extern "C" {
 #endif
 
+
+/*
+ * Define PATH_MAX in case it is not available (for example for hurd_i386)
+ */
+#ifndef PATH_MAX
+#  define PATH_MAX 4096
+#endif
+
 /*-----------------------------------------------------------------------------
  * Detection of endianness. The main part of this is done in autoconf, but
  * for the case of MacOS FAT binaries we fall back on auto-sensing based on
