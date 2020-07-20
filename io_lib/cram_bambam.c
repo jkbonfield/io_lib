@@ -60,6 +60,10 @@
 #include "io_lib_config.h"
 #endif
 
+#if !defined(CRAM_IO_CUSTOM_BUFFERING)
+// not used
+#else
+
 #include "io_lib/cram_bambam.h"
 
 //-----------------------------------------------------------------------------
@@ -508,3 +512,4 @@ cram_fd * cram_encoder_get_fd(void *p)
     cram_enc_context * context = (cram_enc_context *)p;
     return context->fd;
 }
+#endif // #if defined(CRAM_IO_CUSTOM_BUFFERING)

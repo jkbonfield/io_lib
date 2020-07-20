@@ -90,7 +90,6 @@ AC_DEFUN([AX_ZSTD],
   fi
 
   # Tidy up
-  unset zstd_ok
   unset _cppflags
   unset _ldflags
 ])

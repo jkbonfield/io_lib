@@ -1,3 +1,4 @@
+#if defined(CRAM_IO_CUSTOM_BUFFERING)
 #define CRAM_IO_TEST
 #include <io_lib/scram.h>
 #include <assert.h>
@@ -139,3 +140,9 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+
+#else
+
+int main(int argc, char *argv[]) { return 0; }
+
+#endif

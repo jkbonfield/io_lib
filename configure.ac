@@ -107,13 +107,47 @@ AC_SEARCH_LIBS([socket], [socket], [],
     [AC_CHECK_LIB([socket], [socket],
                   [LIBS="-lsocket -lnsl $LIBS"], [], [-lnsl])])
 
-AC_CHECK_LIB([bz2], [BZ2_bzBuffToBuffCompress], [
-	LIBS="-lbz2 $LIBS"
-	AC_DEFINE([HAVE_LIBBZ2],1,[Define to 1 if you have the libbz2 library.])])
+AC_ARG_ENABLE([bz2],
+    [AS_HELP_STRING([--disable-bz2],
+                    [omit support for BZ2-compressed CRAM files])],
+    [], [enable_bz2=yes])
 
-AC_CHECK_LIB([lzma], [lzma_easy_buffer_encode], [
-	LIBS="-llzma $LIBS"
-	AC_DEFINE([HAVE_LIBLZMA],1,[Define to 1 if you have the liblzma library.])])
+if test "$enable_bz2" != no
+then
+    bz2_devel=ok
+    AC_CHECK_LIB([bz2], [BZ2_bzBuffToBuffCompress], [
+        LIBS="-lbz2 $LIBS"
+        AC_DEFINE([HAVE_LIBBZ2],1,[Define to 1 if you have the libbz2 library.])], [bz2_devel=missing])
+    if test "$bz2_devel" != ok
+    then
+        AC_MSG_ERROR([libbzip2 development files not found.
+
+This is used within CRAM.  If you wish to compile io_lib without bzip2
+support, rerun configure with the --disable-bz2 option.
+])
+    fi
+fi
+
+AC_ARG_ENABLE([lzma],
+    [AS_HELP_STRING([--disable-lzma],
+                    [omit support for LZMA-compressed CRAM files])],
+    [], [enable_lzma=yes])
+
+if test "$enable_lzma" != no
+then
+    lzma_devel=ok
+    AC_CHECK_LIB([lzma], [lzma_easy_buffer_encode], [
+        LIBS="-llzma $LIBS"
+        AC_DEFINE([HAVE_LIBLZMA],1,[Define to 1 if you have the liblzma library.])], [lzma_devel=missing])
+    if test "$lzma_devel" != ok
+    then
+        AC_MSG_ERROR([liblzma development files not found.
+
+This is used within CRAM.  If you wish to compile io_lib without lzma
+support, rerun configure with the --disable-lzma option.
+])
+    fi
+fi
 
 AC_CHECK_LIB([bsc], [bsc_compress], [
 	LIBS="-lbsc $LIBS"
@@ -185,7 +219,10 @@ AC_ARG_ENABLE(own-crc,
 
 if test "$enable_own_crc" != "no"
 then
+    own_crc=yes
     AC_DEFINE([IOLIB_CRC],1,[Define to 1 to use own CRC function instead of from Zlib.])
+else
+    own_crc=no
 fi
 
 AC_CHECK_FUNCS(fileno)
@@ -216,3 +253,23 @@ AC_SUBST([IOLIB_VERSION_MAJOR])
 AC_SUBST([IOLIB_VERSION_MINOR])
 AC_SUBST([IOLIB_VERSION_PATCH])
 AC_OUTPUT(Makefile io_lib/Makefile progs/Makefile tests/Makefile io_lib-config io_lib/os.h io_lib/version.h)
+
+
+dnl Report summary
+echo
+echo "--------------------------------------------------"
+echo CONFIGURE SUMMARY
+echo "--------------------------------------------------"
+echo Bzip2 enabled: $enable_bz2
+echo lzma enabled: $enable_lzma
+echo custom-buffering enabled: $custombuffering
+echo Using own crc: $own_crc
+echo Libcurl enabled: $have_curl
+echo Libdeflate enabled: $ac_libdeflate_with
+echo have libbsc: $ac_cv_lib_bsc_bsc_compress
+echo Have zstd: $zstd_ok
+echo
+echo CC: $CC
+echo CFLAGS: $CFLAGS
+echo LDFLAGS: $LDFLAGS
+echo LIBS: $LIBS
