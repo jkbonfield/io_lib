@@ -363,26 +363,6 @@ int cram_external_decode_int(cram_slice *slice, cram_codec *c,
     return err ? -1 : 0;
 }
 
-int cram_external_decode_sint(cram_slice *slice, cram_codec *c,
-			      cram_block *in, char *out, int *out_size) {
-    char *cp;
-    cram_block *b;
-
-    /* Find the external block */
-    b = cram_get_block_by_id(slice, c->external.content_id);
-    if (!b)
-        return *out_size?-1:0;
-
-    cp = (char *)b->data + b->idx;
-    // E_INT and E_LONG are guaranteed single item queries
-    int err = 0;
-    *(int32_t *)out = c->vv->varint_get32s(&cp, (char *)b->data + b->uncomp_size, &err);
-    b->idx = cp - (char *)b->data;
-    *out_size = 1;
-
-    return err ? -1 : 0;
-}
-
 int cram_external_decode_long(cram_slice *slice, cram_codec *c,
 			      cram_block *in, char *out, int *out_size) {
     char *cp;
@@ -397,26 +377,6 @@ int cram_external_decode_long(cram_slice *slice, cram_codec *c,
     // E_INT and E_LONG are guaranteed single item queries
     int err = 0;
     *(int64_t *)out = c->vv->varint_get64(&cp, (char *)b->data + b->uncomp_size, &err);
-    b->idx = cp - (char *)b->data;
-    *out_size = 1;
-
-    return err ? -1 : 0;
-}
-
-int cram_external_decode_slong(cram_slice *slice, cram_codec *c,
-			       cram_block *in, char *out, int *out_size) {
-    char *cp;
-    cram_block *b;
-
-    /* Find the external block */
-    b = cram_get_block_by_id(slice, c->external.content_id);
-    if (!b)
-        return *out_size?-1:0;
-
-    cp = (char *)b->data + b->idx;
-    // E_INT and E_LONG are guaranteed single item queries
-    int err = 0;
-    *(int64_t *)out = c->vv->varint_get64s(&cp, (char *)b->data + b->uncomp_size, &err);
     b->idx = cp - (char *)b->data;
     *out_size = 1;
 
@@ -2722,6 +2682,7 @@ cram_codec *cram_huffman_decode_init(cram_block_compression_hdr *hdr,
     h->free   = cram_huffman_decode_free;
 
     h->huffman.ncodes = ncodes;
+    h->huffman.option = option;
     codes = h->huffman.codes = malloc(ncodes * sizeof(*codes));
     if (!codes) {
 	free(h);
@@ -3823,27 +3784,39 @@ int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c) {
     switch (c->codec) {
     case E_CONST_INT:
     case E_CONST_BYTE:
-	// shares struct with decode and nothing to do
+	// shares struct with decode
+	c->store = cram_const_encode_store;
 	break;
 
     case E_EXTERNAL:
-    case E_VARINT_SIGNED:
-    case E_VARINT_UNSIGNED:
 	// shares struct with decode
 	c->free = cram_external_encode_free;
 	c->store = cram_external_encode_store;
 	if (c->decode == cram_external_decode_int)
 	    c->encode = cram_external_encode_int;
-	else if (c->decode == cram_external_decode_sint)
-	    c->encode = cram_external_encode_sint;
 	else if (c->decode == cram_external_decode_char)
 	    c->encode = cram_external_encode_char;
 	else if (c->decode == cram_external_decode_block)
 	    c->encode = cram_external_encode_char; // no enc block
 	else if (c->decode == cram_external_decode_long)
 	    c->encode = cram_external_encode_long;
-	else if (c->decode == cram_external_decode_slong)
-	    c->encode = cram_external_encode_slong;
+	else
+	    return -1;
+	break;
+
+    case E_VARINT_SIGNED:
+    case E_VARINT_UNSIGNED:
+	// shares struct with decode
+	c->free = cram_varint_encode_free;
+	c->store = cram_varint_encode_store;
+	if (c->decode == cram_varint_decode_int)
+	    c->encode = cram_varint_encode_int;
+	else if (c->decode == cram_varint_decode_sint)
+	    c->encode = cram_varint_encode_sint;
+	else if (c->decode == cram_varint_decode_long)
+	    c->encode = cram_varint_encode_long;
+	else if (c->decode == cram_varint_decode_slong)
+	    c->encode = cram_varint_encode_slong;
 	else
 	    return -1;
 	break;
@@ -3855,11 +3828,13 @@ int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c) {
 	cram_codec *t = malloc(sizeof(*t));
 	if (!t)
 	    return -1;
+	t->vv = c->vv;
 	t->codec = E_HUFFMAN;
 	t->free = cram_huffman_encode_free;
 	t->store = cram_huffman_encode_store;
 	t->e_huffman.codes = c->huffman.codes;
 	t->e_huffman.nvals = c->huffman.ncodes;
+	t->e_huffman.option = c->huffman.option;
 	for (j = 0; j < t->e_huffman.nvals; j++) {
 	    int32_t sym = t->e_huffman.codes[j].symbol;
 	    if (sym >= -1 && sym < MAX_HUFF)
@@ -3925,6 +3900,7 @@ int cram_codec_decoder2encoder(cram_fd *fd, cram_codec *c) {
 	cram_codec *t = malloc(sizeof(*t));
 	if (!t)
 	    return -1;
+	t->vv = c->vv;
 	t->codec = E_BYTE_ARRAY_LEN;
 	t->free   = cram_byte_array_len_encode_free;
 	t->store  = cram_byte_array_len_encode_store;

@@ -65,6 +65,7 @@ typedef struct {
 typedef struct {
     int ncodes;
     cram_huffman_code *codes;
+    int option;
 } cram_huffman_decoder;
 
 #define MAX_HUFF 128
