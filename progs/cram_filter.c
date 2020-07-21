@@ -674,7 +674,7 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
 	    break;
     }
 
-    return cram_write_eof_block(fd_out);
+    return 0;
 
  tidy:
     HashTableDestroy(c->tags_used, 1);
@@ -683,7 +683,7 @@ int filter_blocks(cram_fd *fd_in, cram_fd *fd_out, HashTable *ds_h,
     if (ci_h)
 	HashTableDestroy(ci_h, 0);
 
-    return cram_write_eof_block(fd_out);
+    return 0;
 }
 
 
@@ -894,6 +894,16 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }
+
+    char vers[4] = {
+	'0' + fd_in->file_def->major_version,
+	'.',
+	'0' + fd_in->file_def->minor_version,
+	'\0'
+    };
+
+    if (cram_set_option(NULL, CRAM_OPT_VERSION, vers))
+	return 1;
 
     if (NULL == (fd_out = cram_open(argv[optind+1], "wb"))) {
 	fprintf(stderr, "Error opening CRAM file '%s'.\n", argv[optind+1]);
