@@ -15,6 +15,11 @@ matrix:
     - os: osx
       compiler: clang
 
+    # A little endian platform running linux plus address sanitizer
+    - os: linux
+      compiler: gcc
+      arch: ppc64le
+
 before_script:
   - git submodule update --init --recursive
 
