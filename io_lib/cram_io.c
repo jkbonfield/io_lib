@@ -5732,10 +5732,10 @@ cram_fd *cram_open_by_callbacks(
     fd->version = fd->file_def->major_version * 256 +
         fd->file_def->minor_version;
 
+    cram_init_tables(fd);
+
     if (!(fd->header = cram_read_SAM_hdr(fd)))
         goto err;
-
-    cram_init_tables(fd);
 
     fd->prefix = strdup((cp = strrchr(filename, '/')) ? cp+1 : filename);
     if (!fd->prefix)
