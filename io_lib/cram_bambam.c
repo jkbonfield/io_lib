@@ -60,11 +60,12 @@
 #include "io_lib_config.h"
 #endif
 
+#include "io_lib/os.h"
+
 #if !defined(CRAM_IO_CUSTOM_BUFFERING)
 // not used
 #else
 
-#include "io_lib/os.h"
 #include "io_lib/cram_bambam.h"
 
 //-----------------------------------------------------------------------------
