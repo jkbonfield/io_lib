@@ -64,6 +64,7 @@
 // not used
 #else
 
+#include "io_lib/os.h"
 #include "io_lib/cram_bambam.h"
 
 //-----------------------------------------------------------------------------
