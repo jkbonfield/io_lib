@@ -1,4 +1,4 @@
-Io_lib:  Version 1.14.13
+Io_lib:  Version 1.14.14
 ========================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -32,6 +32,12 @@ too. See the file include/Read.h for the generic 'Read' structure.
 See the CHANGES for a summary of older updates or git logs for the
 full details.
 
+
+Version 1.14.14 (17th March 2021)
+---------------
+
+This is simply a bug fix release.  It also updates to the latest
+htscodecs submodule, now at an official 1.0 release.
 
 Version 1.14.13 (3rd July 2020)
 ---------------
