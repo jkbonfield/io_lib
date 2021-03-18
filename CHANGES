@@ -1,3 +1,46 @@
+Version 1.14.14 (17th March 2021)
+---------------
+
+This is primarily a bug fix release.
+
+Updates:
+
+* Bumped htscodecs submodule to 1.0.  This is mainly security
+  hardening.  This now means for the first time Io_lib and HTSlib
+  share the same code for the CRAM codecs.
+
+* Cram_filter now copies with CRAM 3.1 and 4.0 files.
+
+* Added Power support(ppc64le) to CI. (Author: Arumugam)
+
+* Added int64_t as a HashTable key type.
+
+* Improved configure script handling of lzma and bzip2, which are now
+  on by default.
+
+* Improved support for hurd_i386 by defining PATH_MAX (with thanks to
+  Michael Crusoe).
+
+Bug fixes:
+
+* The CRAM_IO_CUSTOM_BUFFERING code is now enabled correctly.  This is
+  required for biobambam2 / libmaus2 integration.  (Thanks to German
+  Tischler-Hohle)
+
+* Fixed a recent bug in the cram_open_by_callbacks function used by
+  Biobambam. (#39. Thanks to German Tischler-Hohle)
+
+* Fixed cram_codec_decoder2encoder handling of CRAM 4 encodings.
+
+* Fixed an uninitialised memory access added during 1.14.13 (harmless
+  as it was then immediately replaced again, but it triggered valgrind
+  warnings).
+
+* Fixed configure --disable-custom-buffering
+
+* Typo fixes, courtesy of Debian lintian.
+
+
 Version 1.14.13 (3rd July 2020)
 ---------------
 
