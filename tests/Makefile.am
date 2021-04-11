@@ -31,10 +31,10 @@
 # 
 ## Makefile.am -- Process this file with automake to produce Makefile.in
 
-EXTRA_DIST              = $(TESTS) data compare_sam.pl generate_data.pl cram_io_test.c
+EXTRA_DIST              = $(TESTS) data compare_sam.pl generate_data.pl cram_io_test.c cram_bambam_interface_test.c
 MAINTAINERCLEANFILES    = Makefile.in
 
-noinst_PROGRAMS = cram_io_test
+noinst_PROGRAMS = cram_io_test cram_bambam_interface_test
 
 test_outdir              = test.out
 
@@ -57,6 +57,9 @@ TESTS                   = \
 
 cram_io_test_SOURCES = cram_io_test.c
 cram_io_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
+
+cram_bambam_interface_test_SOURCES = cram_bambam_interface_test.c
+cram_bambam_interface_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
 AM_CPPFLAGS= -I${top_srcdir} -I${top_srcdir}/htscodecs
 
