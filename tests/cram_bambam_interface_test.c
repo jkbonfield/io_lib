@@ -404,6 +404,9 @@ typedef struct _ControlData
 
     /* next output block (not currently used) */
     size_t nextoutblock;
+
+    /* output file */
+    FILE * outfile;
 } ControlData;
 
 #define RUN_CLEANUP_IF_FAILURE(flag) { if ( flag ) { rv = EXIT_FAILURE; goto cleanup; } }
@@ -454,7 +457,7 @@ ControlData * freeControlData(ControlData * CD)
 /**
  * allocate control data structure
  **/
-ControlData * allocateControlData(size_t const rnuminputblocks)
+ControlData * allocateControlData(size_t const rnuminputblocks, FILE * outfile)
 {
     ControlData * CD = NULL;
     size_t i;
@@ -474,6 +477,8 @@ ControlData * allocateControlData(size_t const rnuminputblocks)
     CD->inputBlocksFreeList_f = 0;
     CD->inputBlocksFreeList = NULL;
     CD->inBlockIdPair_f =0;
+
+    CD->outfile = outfile;
 
     CD->dataBlockSemaphore = allocateSemaphore();
 
@@ -610,9 +615,9 @@ void compression_work_package_finished(void *userdata, size_t const inblockid, i
 
 void write_function(void *userdata, ssize_t const inblockid, size_t const outblockid, char const *data, size_t const n, cram_data_write_block_type const blocktype)
 {
-    /* ControlData * CD = (ControlData*)userdata; */
+    ControlData * CD = (ControlData*)userdata;
     /* fprintf(stderr,"write %lu\n", (unsigned long) n); */
-    ssize_t const w = fwrite(data,n,1,stdout);
+    ssize_t const w = fwrite(data,n,1,CD->outfile);
     assert ( w == 1 );
 }
 
@@ -634,12 +639,28 @@ int main(int argc, char *argv[])
     size_t encoded = 0;
     size_t lastprint = 0;
     int const printshift = 20;
+    char const * infn = NULL;
+    char const * outfn = NULL;
+    FILE * outfile = NULL;
 
-    infd = scram_open("-","r");
+    if ( !(2 < argc) )
+    {
+        fprintf(stderr,"usage %s <in> <out>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    infn = argv[1];
+    outfn = argv[2];
+
+    infd = scram_open(infn,"r");
 
     RUN_CLEANUP_IF_FAILURE(!infd);
 
-    CD = allocateControlData(numinputblocks);
+    outfile = fopen(outfn,"w");
+
+    RUN_CLEANUP_IF_FAILURE(!outfile);
+
+    CD = allocateControlData(numinputblocks,outfile);
 
     RUN_CLEANUP_IF_FAILURE(!CD);
 
@@ -720,6 +741,8 @@ int main(int argc, char *argv[])
         sam_hdr_free(hdrdup);
     if ( infd )
         scram_close(infd);
+    if ( outfile )
+        fclose(outfile);
     freeControlData(CD);
 
     return rv;
