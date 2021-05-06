@@ -55,7 +55,7 @@ do
     $scramble_enc -O bam $outdir/$root.full.cram > $outdir/$root.full.bam || exit 1
     echo "$scramble $outdir/$root.full.bam $outdir/tmp.sam"
     $scramble $outdir/$root.full.bam $outdir/tmp.sam || exit 1
-    sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -O bam/\1/' $outdir/tmp.sam > $outdir/$root.full.bam.sam
+    egrep -v '^@PG' $outdir/tmp.sam > $outdir/$root.full.bam.sam
     rm $outdir/tmp.sam
     echo "$compare_sam --partialmd --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam"
     $compare_sam --partialmd --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
@@ -71,7 +71,7 @@ do
 
         echo "$scramble -m $outdir/$root.full.cram > $outdir/$root.full.sam"
         $scramble $outdir/$root.full.cram > $outdir/tmp.sam || exit 1
-	sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -e /\1 /' $outdir/tmp.sam > $outdir/$root.full.bam.sam
+	egrep -v '^@PG' $outdir/$root.full.sam > $outdir/$root.full.bam.sam
         $compare_sam --partialmd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
         echo "$compare_sam --partialmd --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam"
         $compare_sam --partialmd --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
@@ -88,7 +88,7 @@ do
 
         echo "$scramble -m $outdir/$root.full.cram > $outdir/$root.full.sam"
         $scramble $outdir/$root.full.cram > $outdir/tmp.sam || exit 1
-	sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -e /\1 /' $outdir/tmp.sam > $outdir/$root.full.bam.sam
+	egrep -v '^@PG' $outdir/tmp.sam > $outdir/$root.full.bam.sam
         $compare_sam --partialmd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
         echo "$compare_sam --partialmd --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam"
         $compare_sam --partialmd --nopg $outdir/$root.full.sam $outdir/$root.full.bam.sam || exit 1
@@ -102,7 +102,8 @@ do
 
     echo "$scramble $outdir/$root.full.cram > $outdir/$root.full.sam"
     $scramble $outdir/$root.full.cram > $outdir/tmp.sam || exit 1
-    sed '/^@PG.*scramble\.3.*/d;s/^\(@PG.*scramble.*\) -x /\1 /' $outdir/tmp.sam > $outdir/$root.full.bam.sam
+
+    egrep -v '^@PG' $outdir/tmp.sam > $outdir/$root.full.bam.sam
     $compare_sam --partialmd --unknownrg $cmp_sam $outdir/$root.full.sam || exit 1
     # need compare against original here as ce#5b.sam as "*" in seq.
     echo "$compare_sam --unknownrg $cmp_sam $outdir/$root.full.bam.sam"
