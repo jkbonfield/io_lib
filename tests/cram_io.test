@@ -1,3 +1,24 @@
 #!/bin/sh
 
-$top_builddir/tests/cram_io_test $outdir/aux#aux.full.cram
+scramble="$top_builddir/progs/scramble"
+
+# Buffered I/O test
+$top_builddir/tests/cram_io_test $outdir/aux#aux.full.cram || exit 1
+
+# Biobambam interface
+# This test needs a BAM file with M5 SQ headers and REF_PATH setting.
+# We create this by converting to CRAM and back in order to populate
+# the headers.
+REF_PATH=$srcdir/data/md5/%s; export REF_PATH
+$scramble -r $srcdir/data/ce.fa $outdir/ce#sorted.full.bam $outdir/tmp.cram
+$scramble $outdir/tmp.cram $outdir/tmp.bam
+
+$top_builddir/tests/cram_bambam_interface_test $outdir/tmp.bam $outdir/ce#bambam.cram || exit 1
+
+want=`$scramble -H $outdir/tmp.cram | md5sum`
+got=`$scramble -H $outdir/ce#bambam.cram | md5sum`
+if [ "$want" != "$got" ]
+then
+    echo "Biobambam interface test failure"
+    exit 1
+fi
