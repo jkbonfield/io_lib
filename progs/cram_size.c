@@ -250,13 +250,12 @@ int process_sizes(cram_fd *fd,
 	    for (id = 0; id < s->hdr->num_blocks; id++) {
 		if (s->block[id]->comp_size >= 2 &&
 		    s->block[id]->orig_method == RANS_PR0 &&
-		    s->block[id]->data[0] != 0) {
+		    (s->block[id]->data[0]&~4) != 0) {
 		    // Assumption: PR1 to PR193 are consecutive
 		    s->block[id]->orig_method = RANS_PR1-1;
 		    s->block[id]->orig_method +=    s->block[id]->data[0]&0x01;
 		    s->block[id]->orig_method += 2*((s->block[id]->data[0]&0x40)>0);
 		    s->block[id]->orig_method += 4*((s->block[id]->data[0]&0x80)>0);
-
 		}
 	    }
 

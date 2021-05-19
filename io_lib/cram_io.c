@@ -2378,7 +2378,8 @@ static char *cram_compress_by_method(cram_slice *s, char *in, size_t in_size,
 	static int methmap[] = { 1, 64,9, 128,129, 192,193 };
 
 	cp = rans_compress_4x16((unsigned char *)in, in_size, &out_size_i,
-				method == RANS_PR0 ? 0 : methmap[method - RANS_PR1]);
+				0x100 + // auto-SIMDify on large blocks
+				(method == RANS_PR0 ? 0 : methmap[method - RANS_PR1]));
 	*out_size = out_size_i;
 	return (char *)cp;
     }

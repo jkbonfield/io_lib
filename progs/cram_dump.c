@@ -400,8 +400,11 @@ int main(int argc, char **argv) {
 	    for (id = 0; id < s->hdr->num_blocks; id++)
 		bmethod[id] = s->block[id]->method;
 
-	    for (id = 0; id < s->hdr->num_blocks; id++)
+	    for (id = 0; id < s->hdr->num_blocks; id++) {
+		// repurpose bit field to track SIMD 32-way vs 4-way.
+		s->block[id]->bit = s->block[id]->data[0];
 		cram_uncompress_block(s->block[id]);
+	    }
 
 	    /* Test decoding of 1st seq */
 	    if (verbose) {
@@ -778,8 +781,13 @@ int main(int argc, char **argv) {
 		printf("\n\tBlock %d/%d\n", id+1, s->hdr->num_blocks);
 		printf("\t    Size:         %d comp / %d uncomp\n",
 		       b->comp_size, b->uncomp_size);
-		printf("\t    Method:       %s\t(%d)\n",
-		       cram_block_method2str(b->orig_method), bmethod[id]);
+		if (bmethod[id] == RANS_PR0)
+		    printf("\t    Method:       %s\t(%d / #%d)\n",
+			   cram_block_method2str(b->orig_method), bmethod[id],
+			   b->bit);
+		else
+		    printf("\t    Method:       %s\t(%d)\n",
+			   cram_block_method2str(b->orig_method), bmethod[id]);
 		struct {
 		    int id;
 		    enum cram_block_method method;
