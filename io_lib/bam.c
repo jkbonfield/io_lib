@@ -2043,9 +2043,10 @@ static int8_t aux_type_size[256] = {
  * Returns next tag pointer (or end of buffer) on success,
  *         NULL on failure
  */
-char *bam_aux_skip(const char *s) {
+char *bam_aux_skip(const char *s_) {
+    const uint8_t *s = (const uint8_t *)s_;
     int sz;
-    if ((sz = aux_type_size[(uint8_t)s[2]])) {
+    if ((sz = aux_type_size[s[2]])) {
 	s += sz + 3;
     } else {
 	switch(s[2]) {
@@ -2058,7 +2059,7 @@ char *bam_aux_skip(const char *s) {
 	}
 	case 'B': {  /* Array types */
 	    uint32_t count;
-	    if ((sz = aux_type_size[(uint8_t)s[3]])) {
+	    if ((sz = aux_type_size[s[3]])) {
 		count = (   (uint32_t) s[4]
 			    + ((uint32_t) s[5] << 8)
 			    + ((uint32_t) s[6] << 16)
