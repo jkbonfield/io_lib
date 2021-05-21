@@ -3941,7 +3941,7 @@ int cram_put_bam_seq(cram_fd *fd, bam_seq_t *b) {
 	    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
 	    int unsorted = fd->unsorted;
 	    if (fd->ref_lock) pthread_mutex_unlock(fd->ref_lock);
-	    if (unsorted && multi_seq) {
+	    if (!unsorted && multi_seq) {
 		if (!c->refs_used) {
 		    if (fd->ref_lock) pthread_mutex_lock(fd->ref_lock);
 		    c->refs_used = calloc(fd->refs->nref, sizeof(int));
