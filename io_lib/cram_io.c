@@ -3072,6 +3072,7 @@ refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
 	e->count = 0;
 	e->seq = NULL;
 	e->mf = NULL;
+	e->is_md5 = 0;
 
 	hd.p = e;
 	if (!(hi = HashTableAdd(r->h_meta, e->name, strlen(e->name), hd, &n))){
@@ -3386,6 +3387,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 		bzi_close(fd->refs->fp);
 	    fd->refs->fp = fp;
 	    fd->refs->fn = r->fn;
+	    r->is_md5 = 1;
 
 	    // Fall back to cram_get_ref() where it'll do the actual
 	    // reading of the file.
@@ -3405,6 +3407,7 @@ static int cram_populate_ref(cram_fd *fd, int id, ref_entry *r) {
 	    r->mf = mf;
 	}
 	r->length = sz;
+	r->is_md5 = 1;
     } else {
 	refs_t *refs;
 	char *fn;
@@ -3523,7 +3526,8 @@ static void cram_ref_decr_locked(refs_t *r, int id) {
 		RP("%d FREE REF %d (%p)\n", gettid(),
 		   r->last_id, r->ref_id[r->last_id]->seq);
 		ref_entry_free_seq(r->ref_id[r->last_id]);
-		r->ref_id[r->last_id]->length = 0;
+		if (r->ref_id[r->last_id]->is_md5)
+		    r->ref_id[r->last_id]->length = 0;
 	    }
 	}
 	r->last_id = id;
@@ -3643,6 +3647,9 @@ ref_entry *cram_ref_load(refs_t *r, int id) {
 	}
     }
 
+    if (!r->fn)
+        return NULL;
+
     /* Open file if it's not already the current open reference */
     if (strcmp(r->fn, e->fn) || r->fp == NULL) {
 	if (r->fp)
@@ -3705,7 +3712,7 @@ char *cram_get_ref(cram_fd *fd, int id, int start, int end) {
     char *seq;
     int ostart = start;
 
-    if (id == -1)
+    if (id == -1 || start < 1)
 	return NULL;
 
     /* FIXME: axiomatic query of r->seq being true?
