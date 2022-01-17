@@ -58,6 +58,8 @@
 #include "io_lib/md5.h"
 #include "io_lib/crc32.h"
 
+#include <htscodecs/fqzcomp_qual.h>
+
 //Whether CIGAR has just M or uses = and X to indicate match and mismatch
 //#define USE_X
 
@@ -2607,6 +2609,13 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 	    return -1;
     }
 
+    int ds_tmp = s->data_series;
+    cram_block *b = NULL;
+    if (c->comp_hdr->codecs[DS_QS]->codec == E_EXTERNAL && s->block_by_id &&
+	(b = s->block_by_id[c->comp_hdr->codecs[DS_QS]->external.content_id])
+	&& fqz_uses_seq(b))
+	s->data_series &= ~CRAM_QS;
+
 #define RETURN return printf("Fail to decode CRAM rec %d at %s:%d\n", rec, __FILE__, __LINE__),
     int last_ref_id = -9; // Arbitrary -ve marker for not-yet-set
     for (rec = 0; rec < s->hdr->num_records; rec++) {
@@ -3007,6 +3016,51 @@ int cram_decode_slice(cram_fd *fd, cram_container *c, cram_slice *s,
 
     /* Resolve mate pair cross-references between recs within this slice */
     r |= cram_decode_slice_xref(s, fd->required_fields);
+
+    // Decode quality block if it was encoded with a dependency on sequence
+    // (Eg FQZComp for PacBio data).
+    s->data_series = ds_tmp;
+    if ((ds_tmp & CRAM_QS) &&
+	c->comp_hdr->codecs[DS_QS]->codec == E_EXTERNAL &&
+	s->block_by_id &&
+	(b = s->block_by_id[c->comp_hdr->codecs[DS_QS]->external.content_id])
+	&& b->method == FQZ &&
+	b->comp_size >= 5) {
+	uint8_t *uncomp = NULL;
+	size_t uncomp_size = b->uncomp_size;
+	fqz_slice *f = malloc(2*s->hdr->num_records * sizeof(uint32_t)
+			      + s->hdr->num_records * sizeof(char *)
+			      + sizeof(fqz_slice));
+	if (f) {
+	    f->num_records = s->hdr->num_records;
+	    f->len = (uint32_t *)(((char *)f) + sizeof(fqz_slice));
+	    f->flags = f->len + s->hdr->num_records;
+	    f->seq = (unsigned char **)(f->flags + s->hdr->num_records);
+	    int i;
+	    for (i = 0; i < s->hdr->num_records; i++) {
+		f->flags[i] = s->crecs[i].flags;
+		f->len[i] = (i+1 < s->hdr->num_records
+			     ? s->crecs[i+1].seq - s->crecs[i].seq
+			     //: s->block[DS_QS]->uncomp_size-s->crecs[i].qual);
+			     : s->seqs_blk->byte - s->crecs[i].seq);
+		f->seq[i] = BLOCK_DATA(s->seqs_blk) + s->crecs[i].seq;
+	    }
+
+	    uncomp = (uint8_t *)fqz_decompress((char *)BLOCK_DATA(b),
+					       b->comp_size, &uncomp_size,
+					       NULL, 0, f);
+	}
+	if (uncomp) {
+	    free(BLOCK_DATA(s->qual_blk));
+	    BLOCK_DATA(s->qual_blk) = uncomp;
+	    s->qual_blk->alloc = uncomp_size;
+	    s->qual_blk->byte = uncomp_size;
+	    s->qual_blk->idx = 0;
+	} else {
+	    r |= -1;
+	}
+	free(f);
+    }
 
     // Free the original blocks as we no longer need these.
     {

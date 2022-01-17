@@ -100,6 +100,10 @@ int cram_write_block(cram_fd *fd, cram_block *b);
  */
 void cram_free_block(cram_block *b);
 
+/*! Returns true if the block uses FQZ with sequence context
+ */
+int fqz_uses_seq(cram_block *b);
+
 /*! Uncompresses a CRAM block, if compressed.
  *
  * @return

@@ -882,6 +882,14 @@ static int cram_compress_slice(cram_fd *fd, cram_container *c, cram_slice *s) {
 	    qmethod  |= (1<<FQZ_c) | (1<<FQZ_d);
 	    qmethodF |= (1<<FQZ_c) | (1<<FQZ_d);
 	}
+	// PacBio/ONT data can benefit from seq-based contexts
+	if (fd->level < 7 &&
+	    s->seqs_blk->byte / (s->hdr->num_records+1) >= 1000) {
+	    qmethod  &= ~((1<<FQZ) | (1<<FQZ_b) | (1<<FQZ_c) | (1<<FQZ_d));
+	    qmethodF &= ~((1<<FQZ) | (1<<FQZ_b) | (1<<FQZ_c) | (1<<FQZ_d));
+	    qmethod  |= (1<<FQZ_d);
+	    qmethodF |= (1<<FQZ_d);
+	}
     }
 
     if (fd->metrics_lock) pthread_mutex_lock(fd->metrics_lock);
