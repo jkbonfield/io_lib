@@ -1722,6 +1722,13 @@ int cram_encode_container(cram_fd *fd, cram_container *c) {
 	    s->hdr->ref_seq_id    = -2;
 	    s->hdr->ref_seq_start = 0;
 	    s->hdr->ref_seq_span  = 0;
+// This is spec compliant, but also see htslib issue #1387.
+// Until modern htslib's become prevalent, it's probably wise to not
+// enforce this little bit of spec compliance.
+//	} else if (c->ref_id == -1) {
+//	    s->hdr->ref_seq_id    = -1;
+//	    s->hdr->ref_seq_start = 0;
+//	    s->hdr->ref_seq_span  = 0;
 	} else {
 	    s->hdr->ref_seq_id    = c->ref_id;
 	    s->hdr->ref_seq_start = first_base;
@@ -3096,6 +3103,13 @@ void cram_update_curr_slice(cram_container *c) {
 	s->hdr->ref_seq_id    = -2;
 	s->hdr->ref_seq_start = 0;
 	s->hdr->ref_seq_span  = 0;
+// This is spec compliant, but also see htslib issue #1387.
+// Until modern htslib's become prevalent, it's probably wise to not
+// enforce this little bit of spec compliance.
+//    } else if (c->ref_id == -1) {
+//	s->hdr->ref_seq_id    = -1;
+//	s->hdr->ref_seq_start = 0;
+//	s->hdr->ref_seq_span  = 0;
     } else {
 	s->hdr->ref_seq_id    = c->curr_ref;
 	s->hdr->ref_seq_start = c->first_base;
