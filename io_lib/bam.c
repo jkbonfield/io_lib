@@ -2120,22 +2120,29 @@ int32_t bam_aux_i(const uint8_t *dat) {
 
 float bam_aux_f(const uint8_t *dat) {
     assert(dat[0] == 'f');
-    return (float)((int32_t)((dat[1]<<0)+
-			     (dat[2]<<8)+
-			     (dat[3]<<16)+
-			     (dat[4]<<24)));
+    union {
+	uint32_t i;
+	float    f;
+    } f;
+    f.i = (dat[1]<<0) + (dat[2]<<8) + (dat[3]<<16) + (dat[4]<<24);
+    return f.f;
 }
 
 double bam_aux_d(const uint8_t *dat) { 
     assert(dat[0] == 'd');
-    return (double)((int64_t)((((uint64_t)dat[1])<<0)+
-			      (((uint64_t)dat[2])<<8)+
-			      (((uint64_t)dat[3])<<16)+
-			      (((uint64_t)dat[4])<<24)+
-			      (((uint64_t)dat[5])<<32)+
-			      (((uint64_t)dat[6])<<40)+
-			      (((uint64_t)dat[7])<<48)+
-			      (((uint64_t)dat[8])<<54)));
+    union {
+	uint64_t i;
+	double   d;
+    } d;
+    d.i = (((uint64_t)dat[1])<<0)+
+	  (((uint64_t)dat[2])<<8)+
+	  (((uint64_t)dat[3])<<16)+
+	  (((uint64_t)dat[4])<<24)+
+	  (((uint64_t)dat[5])<<32)+
+	  (((uint64_t)dat[6])<<40)+
+	  (((uint64_t)dat[7])<<48)+
+	  (((uint64_t)dat[8])<<54);
+    return d.d;
 }
 
 char bam_aux_A(const uint8_t *dat) {
