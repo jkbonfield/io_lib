@@ -49,6 +49,7 @@ extern "C" {
 #endif
 
 #include <inttypes.h>
+#include <stddef.h>
 #include <zlib.h>
 
 #include "io_lib/os.h"
@@ -261,7 +262,9 @@ static inline void bam_set_bin(bam_seq_t *b, uint32_t v) {
 #define bam_set_flag(b,v)       ((b)->flag = (v))
 #define bam_set_seq_len(b,v)    ((b)->len = (v))
 
-#define bam_name(b)      ((char *)(&(b)->data))
+// equivalent to (char *)(&(b)->data)
+#define bam_name(b) ((char *)(b) + offsetof(bam_seq_t, data))
+
 #ifdef ALLOW_UAC
 #define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + bam_name_len((b))))
 #else
