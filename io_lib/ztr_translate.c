@@ -96,6 +96,7 @@ static char *ztr_encode_samples_4(ztr_t *z,
 	int blen;
 	blen = sprintf(buf, "%d", r->baseline);
 	*mdata = (char *)malloc(6+blen);
+	if (strlen(buf) >= blen) abort(); // silence gcc12 warning
 	*mdbytes = sprintf(*mdata, "OFFS%c%s", 0, buf) + 1;
     } else {
 	*mdata = NULL;
