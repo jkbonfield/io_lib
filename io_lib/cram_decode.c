@@ -2349,6 +2349,10 @@ static int bam_size(SAM_hdr *bfd, cram_fd *fd, cram_record *cr) {
 	+ cr->aux_size + rg_len + 1;
 }
 
+/*
+ * Returns 0 on success,
+ *        -1 on failure
+ */
 static int bulk_cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s) {
     int i;
     int r = 0;
@@ -2379,7 +2383,7 @@ static int bulk_cram_to_bam(SAM_hdr *bfd, cram_fd *fd, cram_slice *s) {
 	s->bl[i] = b;
     }
 
-    return 0;
+    return r?-1:0;
 }
 
 /*
