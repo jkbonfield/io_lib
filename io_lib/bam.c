@@ -271,6 +271,11 @@ static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
 		used_l = to-buf;
 		b->uncomp_p++;
 		buf[used_l] = 0;
+		// Enable next line when using valgrind to avoid uninitialised
+		// memory complaints.  We don't need to do this normally as
+		// one null in the next 8 is sufficient to terminate CPF
+		// macros.
+		//memset(&buf[used_l], 0, 8);
 		b->uncomp_sz -= (tmp - next_condition);
 		return used_l;
 	    }
