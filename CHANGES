@@ -1,3 +1,32 @@
+Version 1.14.15 (6th December 2022)
+---------------
+
+This is a bug fix release.
+
+Updates:
+
+* Switched to using GitHub actions for CI.
+
+* Updated htscodecs submodule to the latest version (1.3.0).
+  Also fixed function names used within it.
+
+* Minor code tidyups to remove compiler warnings.
+
+Bug fixes:
+
+* MacOS testing fix to cope with sed failing on long lines.
+
+* Fixed bam_aux_skip B array handling of signed values.
+
+* Improved detection of unsorted mode, which was causing a drastic
+  slow-down when encoding unsorted data.
+
+* Fixed a CRAM reference multi-threading bug when fetching from a
+  fasta file.
+
+* Fixed bam_aux_f decoding of floats.
+
+
 Version 1.14.14 (17th March 2021)
 ---------------
 
