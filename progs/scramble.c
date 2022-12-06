@@ -184,7 +184,7 @@ static int filter_tags(bam_seq_t *s, char *aux_filter, int keep) {
 
 static void usage(FILE *fp) {
     fprintf(fp, "  -=- sCRAMble -=-     version %s\n", IOLIB_VERSION);
-    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2021\n\n");
+    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2022\n\n");
 
     fprintf(fp, "Usage:    scramble [options] [input_file [output_file]]\n");
 
@@ -500,10 +500,14 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    if (cram_default_version() > 300) {
+    if (cram_default_version() >= 400) {
 	fprintf(stderr, "\nWARNING: this version of CRAM is not a recognised GA4GH standard.\n"
 		"Note this CRAM version is a technology demonstration only.\n"
 		"Future versions of Scramble may not be able to read these files.\n\n");
+    } else if (cram_default_version() > 300) {
+	fprintf(stderr, "\nWARNING: this version of CRAM has yet to be formally signed off.\n"
+		"CRAM 3.1 has multiple implementations that have been cross-validated, but\n"
+		"the specification document has not yet been accepted as an official standard.\n\n");
     }
 
     if (argc - optind > 2) {
