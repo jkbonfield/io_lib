@@ -1,5 +1,5 @@
 @HD	VN:1.4	SO:coordinate
-@SQ	SN:xx	LN:30	AS:?	SP:?	UR:?	M5:bbf4de6d8497a119dda6e074521643dc
+@SQ	SN:xx	LN:30	AS:?	SP:?	UR:?	M5:1224b81d8664d77635e1620d7f2c1523
 @RG	ID:x1	SM:x1
 @RG	ID:x2	SM:x2	LB:x	PG:foo:bar	PI:1111
 @PG	ID:emacs	PN:emacs	VN:23.1.1

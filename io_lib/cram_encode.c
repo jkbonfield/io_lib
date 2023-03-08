@@ -535,6 +535,7 @@ static int cram_encode_slice_read(cram_fd *fd,
     int32_t i32;
     int64_t i64;
     unsigned char uc;
+    int explicit_qual = 0;
 
     //fprintf(stderr, "Encode seq %d, %d/%d FN=%d, %s\n", rec, core->byte, core->bit, cr->nfeature, s->name_ds->str + cr->name);
 
@@ -609,11 +610,6 @@ static int cram_encode_slice_read(cram_fd *fd,
     /* Aux tags */
     r |= h->codecs[DS_TL]->encode(s, h->codecs[DS_TL], (char *)&cr->TL, 1);
 
-    // qual
-    r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS],
-				  (char *)BLOCK_DATA(s->qual_blk) + cr->qual,
-				  cr->len);
-
     // features (diffs)
     if (!(cr->flags & BAM_FUNMAP)) {
 	int prev_pos = 0, j;
@@ -686,6 +682,7 @@ static int cram_encode_slice_read(cram_fd *fd,
 		uc  = f->B.qual;
 		r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS],
 					      (char *)&uc, 1);
+		explicit_qual++;
 		break;
 
 	    case 'b':
@@ -700,6 +697,7 @@ static int cram_encode_slice_read(cram_fd *fd,
 		uc  = f->Q.qual;
 		r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS],
 					      (char *)&uc, 1);
+		explicit_qual++;
 		break;
 
 	    case 'N':
@@ -735,6 +733,11 @@ static int cram_encode_slice_read(cram_fd *fd,
 	if (cr->len)
 	    r |= h->codecs[DS_BA]->encode(s, h->codecs[DS_BA], seq, cr->len);
     }
+
+    // qual
+    r |= h->codecs[DS_QS]->encode(s, h->codecs[DS_QS],
+				  (char *)BLOCK_DATA(s->qual_blk) + cr->qual
+				  + explicit_qual, cr->len);
 
     return r ? -1 : 0;
 }
