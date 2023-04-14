@@ -98,6 +98,47 @@ CPU running Ubuntu 20.04 under Microsoft's WSL2.
 |-V4.0 -X small      |    162.3|  34.8|  20.2|rANS++,tok3,fqz            |
 |-V4.0 -X archive    |    157.9|  82.2|  26.2|rANS++,tok3,fqz,bzip2,arith|
 
+```mermaid
+gantt
+    title 10 million Illumina NovaSeq records
+    todayMarker off
+    dateFormat  X
+    axisFormat %s
+
+    section BAM
+    -5 zlib   66s / 6s   : 0,518
+    -1,       17s / 3s   : 0,584
+    -5,       28s / 3s   : 0,525
+    -9,      810s / 3s   : 0,486
+    - : 0,0
+
+    section CRAM 2.0
+    fast,     23s /  8s  : 0,294
+    normal,   33s /  8s  : 0,253
+    small,    85s / 23s  : 0,208
+    archive,  88s / 24s  : 0,206
+    - : 0,0
+
+    section CRAM 3.0
+    fast,     20s /  8s  : 0,241
+    normal,   23s /  9s  : 0,208
+    small,    60s / 14s  : 0,202
+    archive,  62s / 14s  : 0,200
+    - : 0,0
+
+    section CRAM 3.1
+    fast,     22s /  8s  : 0,237
+    normal,   27s /  9s  : 0,176
+    small,    48s / 25s  : 0,167
+    archive,  72s / 21s  : 0,162
+    - : 0,0
+
+    section CRAM 4.0
+    fast,     17s /  6s  : 0,227
+    normal,   20s /  6s  : 0,173
+    small,    35s / 20s  : 0,162
+    archive,  82s / 26s  : 0,158
+```
 
 With 1 million aligned PacBio Revio records, on the same system.  Also
 using one thread only:
@@ -128,6 +169,46 @@ using one thread only:
 |-V4.0 -X small      |      892| 137.6|  78.8|rANS++,tok3,fqz            |
 |-V4.0 -X archive    |      874| 283.6|  87.9|rANS++,tok3,fqz,bzip2,arith|
 
+```mermaid
+gantt
+    title 1 million PacBio Revio records
+    todayMarker off
+    dateFormat  X
+    axisFormat %s
+
+    section BAM
+    -1,       97s / 16s  : 0,3061
+    -5,      128s / 15s  : 0,2981
+    -9,     2315s / 16s  : 0,2651
+    - : 0,0
+
+    section CRAM 2.0
+    fast,     80s / 24s  : 0,1334
+    normal,  111s / 25s  : 0,1206
+    small,   276s / 32s  : 0,1048
+    archive, 294s / 35s  : 0,1042
+    - : 0,0
+
+    section CRAM 3.0
+    fast,     67s / 18s  : 0,1164
+    normal,   64s / 26s  : 0,1016
+    small,   125s / 32s  : 0,1003
+    archive, 162s / 35s  : 0, 997
+    - : 0,0
+
+    section CRAM 3.1
+    fast,     57s / 18s  : 0,1161
+    normal,   66s / 18s  : 0, 943
+    small,   143s / 82s  : 0, 892
+    archive, 289s / 97s  : 0, 875
+    - : 0,0
+
+    section CRAM 4.0
+    fast,     54s / 18s  : 0,1160
+    normal,   61s / 18s  : 0, 941
+    small,   128s / 79s  : 0, 892
+    archive, 284s / 88s  : 0, 874
+```
 
 
 Building
