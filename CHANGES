@@ -1,3 +1,21 @@
+Version 1.15.0 (14th April 2023)
+--------------
+
+Version number bumped to reflect the official status of CRAM 3.1.
+
+Updates:
+
+* Formally accept CRAM 3.1 as an official standard.  Warning removed.
+  For best compatibility CRAM 3.0 is still the default CRAM, but use
+  "-V3.1" to specify the version.
+
+* Updated to latest htscodecs.  This has a significant speed
+  improvement in encoding with fqzcomp (enabled in "-X small" profile).
+
+  Tested on a NovaSeq dataset, encoding from BAM to CRAM was 27% faster.
+  Decoding a CRAM with fqzcomp is also around 6% faster.
+
+
 Version 1.14.15 (6th December 2022)
 ---------------
 
