@@ -99,6 +99,37 @@ CPU running Ubuntu 20.04 under Microsoft's WSL2.
 |-V4.0 -X archive    |    157.9|  82.2|  26.2|rANS++,tok3,fqz,bzip2,arith|
 
 
+With 1 million aligned PacBio Revio records, on the same system.  Also
+using one thread only:
+
+|Scramble opts.      |Size(MB) |Enc(s)|Dec(s)|Codecs used                |
+|--------------------|--------:|-----:|-----:|---------------------------|
+|-O bam -1           |     3061|  97.5|  16.0|bgzf(libdeflate)           |
+|-O bam (default)    |     2891| 128.4|  15.3|bgzf(libdeflate)           |
+|-O bam -9           |     2651|2314.7|  16.4|bgzf(libdeflate)           |
+||||||
+|-V2.0 -X fast       |     1334|  80.3|  23.9|(default, level 1)         |
+|-V2.0 (default)     |     1206| 111.2|  25.1|(default)                  |
+|-V2.0 -X small      |     1048| 276.3|  98.7|bzip2                      |
+|-V2.0 -X archive    |     1042| 294.2|  98.5|bzip2                      |
+||||||
+|-V3.0 -X fast       |     1164|  67.3|  18.5|(default, level 1)         |
+|-V3.0 (default)     |     1016|  64.5|  26.4|(default)                  |
+|-V3.0 -X small      |     1003| 124.8|  32.2|bzip2                      |
+|-V3.0 -X archive    |      997| 162.4|  34.7|bzip2                      |
+||||||
+|-V3.1 -X fast       |     1161|  56.8|  17.6|rANS++                     |
+|-V3.1 (default)     |      943|  66.0|  18.5|rANS++,tok3                |
+|-V3.1 -X small      |      892| 142.7|  81.8|rANS++,tok3,fqz            |
+|-V3.1 -X archive    |      875| 288.9|  97.6|rANS++,tok3,fqz,bzip2,arith|
+||||||
+|-V4.0 -X fast       |     1160|  53.6|  17.6|rANS++                     |
+|-V4.0 (default)     |      941|  60.9|  17.7|rANS++,tok3                |
+|-V4.0 -X small      |      892| 137.6|  78.8|rANS++,tok3,fqz            |
+|-V4.0 -X archive    |      874| 283.6|  87.9|rANS++,tok3,fqz,bzip2,arith|
+
+
+
 Building
 ========
 
