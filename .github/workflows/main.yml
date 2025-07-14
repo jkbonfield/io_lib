@@ -10,6 +10,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: deps
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-suggests --no-install-recommends zlib1g-dev libbz2-dev liblzma-dev libdeflate-dev
     - name: submodule
       run: git submodule update --init
     - name: configure
@@ -28,11 +32,13 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Update Homebrew packages
-      run: brew update --preinstall; brew install autoconf automake libtool
+      run: |
+        brew update --auto-update
+        brew install --overwrite autoconf automake libtool xz
     - name: submodule
       run: git submodule update --init
     - name: configure
-      run: ./bootstrap; ./configure
+      run: ./bootstrap; ./configure CPPFLAGS=-I/opt/homebrew/include
     - name: make
       run: make
     - name: make check
