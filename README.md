@@ -1,4 +1,4 @@
-Io_lib:  Version 1.15.0
+Io_lib:  Version 1.15.1
 =======================
 
 Io_lib is a library of file reading and writing code to provide a general
@@ -31,6 +31,14 @@ too. See the file include/Read.h for the generic 'Read' structure.
 
 See the CHANGES for a summary of older updates or git logs for the
 full details.
+
+
+Version 1.15.1 (14th July 2025)
+--------------
+
+This is simply a change to the build infrastructure, with newer
+versions of the htscodecs submodule and an updated configure/libtool
+script to help MacOS builds.
 
 
 Version 1.15.0 (14th April 2023)
