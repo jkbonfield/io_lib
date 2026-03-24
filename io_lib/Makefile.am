@@ -100,20 +100,6 @@ libstaden_read_la_SOURCES = \
 	sam_header.h \
 	sam_header.c \
 	cram.h \
-	cram_codecs.c \
-	cram_codecs.h \
-	cram_encode.c \
-	cram_encode.h \
-	cram_decode.c \
-	cram_decode.h \
-	cram_stats.c \
-	cram_stats.h \
-	cram_io.c \
-	cram_io.h \
-	cram_index.c \
-	cram_index.h \
-	cram_structs.h \
-	cram_bambam.h \
 	zfio.c \
 	zfio.h \
 	dstring.c \
@@ -130,7 +116,6 @@ libstaden_read_la_SOURCES = \
 	thread_pool.h \
 	binning.h \
 	binning.c \
-	cram_bambam.c \
 	bgzip.c \
 	bgzip.h \
 	cram_block_compression.h \

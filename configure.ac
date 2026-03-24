@@ -107,48 +107,6 @@ AC_SEARCH_LIBS([socket], [socket], [],
     [AC_CHECK_LIB([socket], [socket],
                   [LIBS="-lsocket -lnsl $LIBS"], [], [-lnsl])])
 
-AC_ARG_ENABLE([bz2],
-    [AS_HELP_STRING([--disable-bz2],
-                    [omit support for BZ2-compressed CRAM files])],
-    [], [enable_bz2=yes])
-
-if test "$enable_bz2" != no
-then
-    bz2_devel=ok
-    AC_CHECK_LIB([bz2], [BZ2_bzBuffToBuffCompress], [
-        LIBS="-lbz2 $LIBS"
-        AC_DEFINE([HAVE_LIBBZ2],1,[Define to 1 if you have the libbz2 library.])], [bz2_devel=missing])
-    if test "$bz2_devel" != ok
-    then
-        AC_MSG_ERROR([libbzip2 development files not found.
-
-This is used within CRAM.  If you wish to compile io_lib without bzip2
-support, rerun configure with the --disable-bz2 option.
-])
-    fi
-fi
-
-AC_ARG_ENABLE([lzma],
-    [AS_HELP_STRING([--disable-lzma],
-                    [omit support for LZMA-compressed CRAM files])],
-    [], [enable_lzma=yes])
-
-if test "$enable_lzma" != no
-then
-    lzma_devel=ok
-    AC_CHECK_LIB([lzma], [lzma_easy_buffer_encode], [
-        LIBS="-llzma $LIBS"
-        AC_DEFINE([HAVE_LIBLZMA],1,[Define to 1 if you have the liblzma library.])], [lzma_devel=missing])
-    if test "$lzma_devel" != ok
-    then
-        AC_MSG_ERROR([liblzma development files not found.
-
-This is used within CRAM.  If you wish to compile io_lib without lzma
-support, rerun configure with the --disable-lzma option.
-])
-    fi
-fi
-
 AC_CHECK_LIB([bsc], [bsc_compress], [
 	LIBS="-lbsc $LIBS"
 	AC_DEFINE([HAVE_LIBBSC],1,[Define to 1 if you have the libbsc library.])])
@@ -205,15 +163,6 @@ dnl AC_TYPE_OFF_T
 dnl AC_TYPE_SIZE_T
 dnl AC_STRUCT_TM
 
-AC_ARG_ENABLE(custom-buffering,
-        AS_HELP_STRING([--enable-custom-buffering],[enable custom buffering code for CRAM [default yes]]),
-        [custombuffering=${enableval}],[custombuffering=yes])
-
-SET_CRAM_IO_CUSTOM_BUFFERING=
-if test ${custombuffering} = "yes" ; then
-    SET_CRAM_IO_CUSTOM_BUFFERING="#define CRAM_IO_CUSTOM_BUFFERING"
-fi
-
 AC_ARG_ENABLE(own-crc,
 	AS_HELP_STRING([--disable-own-crc],[Disable use of own CRC32 function (instead of Zlib's)]))
 
@@ -233,9 +182,6 @@ dnl Large file support
 AC_SYS_LARGEFILE
 AC_FUNC_FSEEKO
 
-dnl Mmap is used for CRAM reference files
-AC_FUNC_MMAP
-
 dnl Checks for library functions.
 AC_SEARCH_LIBS([pthread_join], [pthread])
 AC_SEARCH_LIBS(cos, m)
@@ -247,7 +193,6 @@ dnl AC_CHECK_FUNCS(mktime strspn strstr strtol)
 AC_CHECK_FUNCS(fsync)
 
 AC_SUBST([SET_STDIO_EXT])
-AC_SUBST([SET_CRAM_IO_CUSTOM_BUFFERING])
 AC_SUBST([IOLIB_VERSION])
 AC_SUBST([IOLIB_VERSION_MAJOR])
 AC_SUBST([IOLIB_VERSION_MINOR])

@@ -215,12 +215,6 @@ static void usage(FILE *fp) {
 #ifdef HAVE_LIBLZMA
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
 #endif
-#ifdef HAVE_LIBBSC
-    fprintf(fp, "    -J             [Cram] Also compression using libbsc (V3.1+)\n");
-#endif
-#ifdef HAVE_ZSTD
-    fprintf(fp, "    -z             [Cram] Also compression using zstd (V3.1+)\n");
-#endif
     fprintf(fp, "    -f             [Cram] Also compression using fqzcomp (V3.1+)\n");
     fprintf(fp, "    -T             [Cram] Also compression using name tokeniser (V3.1+)\n");
     fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
@@ -247,7 +241,7 @@ int main(int argc, char **argv) {
     int s_opt = 0, S_opt = 0, embed_ref = 0, embed_cons = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
-    int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0, use_tok = 0, use_arith = 0, use_zstd = 0;
+    int use_bz2 = 0, use_lzma = 0, use_fqz = 0, use_tok = 0, use_arith = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
@@ -321,8 +315,8 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
-		return 1;
+//	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
+//		return 1;
 	    break;
 
 	case 'r':
@@ -394,24 +388,6 @@ int main(int argc, char **argv) {
 		    " version.\nPlease recompile.\n");
 #endif
 	    break;
-
-#ifdef HAVE_LIBBSC
-	case 'J':
-	    use_bsc = 1;
-	    break;
-#else
-	    fprintf(stderr, "Warning: bsc support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
-
-#ifdef HAVE_ZSTD
-	case 'z':
-	    use_zstd = 1;
-	    break;
-#else
-	    fprintf(stderr, "Warning: zstd support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
 
 	case 'Z':
 #ifdef HAVE_LIBLZMA
@@ -493,18 +469,11 @@ int main(int argc, char **argv) {
 	}
     }    
 
-    if (cram_default_version() <= 300 && (use_bsc || use_fqz || use_zstd)) {
-	fprintf(stderr, "Libbsc, ZSTD and/or fqzcomp codecs are only permitted in CRAM v3.1 and 4.0.\n"
-		"Note these CRAM versions are a technology demonstration only.\n"
-		"Future versions of Scramble may not be able to read these files.\n");
-	return 1;
-    }
-
-    if (cram_default_version() >= 400) {
-	fprintf(stderr, "\nWARNING: this version of CRAM is not a recognised GA4GH standard.\n"
-		"Note this CRAM version is a technology demonstration only.\n"
-		"Future versions of Scramble may not be able to read these files.\n\n");
-    }
+//    if (cram_default_version() >= 400) {
+//	fprintf(stderr, "\nWARNING: this version of CRAM is not a recognised GA4GH standard.\n"
+//		"Note this CRAM version is a technology demonstration only.\n"
+//		"Future versions of Scramble may not be able to read these files.\n\n");
+//    }
 
     if (argc - optind > 2) {
 	fprintf(stderr, "Usage: scramble [input_file [output_file]]\n");
@@ -533,13 +502,14 @@ int main(int argc, char **argv) {
 	}
     }
     if (!in->is_bam && ref_fn) {
-	cram_load_reference(in->c, ref_fn);
-	if (!in->c->refs && !embed_ref) {
-	    fprintf(stderr, "Unable to find an appropriate reference.\n"
-		    "Please specify a valid reference with "
-		    "-r ref.fa option.\n");
-	    return 1;
-	}
+	return 1;
+//	cram_load_reference(in->c, ref_fn);
+//	if (!in->c->refs && !embed_ref) {
+//	    fprintf(stderr, "Unable to find an appropriate reference.\n"
+//		    "Please specify a valid reference with "
+//		    "-r ref.fa option.\n");
+//	    return 1;
+//	}
     }
 
     sprintf(omode, "w%s%c", out_f, level);
@@ -604,14 +574,6 @@ int main(int argc, char **argv) {
 
     if (use_bz2)
 	if (scram_set_option(out, CRAM_OPT_USE_BZIP2, use_bz2))
-	    return 1;
-
-    if (use_bsc)
-	if (scram_set_option(out, CRAM_OPT_USE_BSC, use_bsc))
-	    return 1;
-
-    if (use_zstd)
-	if (scram_set_option(out, CRAM_OPT_USE_ZSTD, use_zstd))
 	    return 1;
 
     if (use_lzma)
@@ -735,27 +697,30 @@ int main(int argc, char **argv) {
 
     /* Support for sub-range queries, currently implemented for CRAM only */
     if (*ref_name != 0) {
-	cram_range r;
-	int refid;
-
 	if (in->is_bam) {
 	    fprintf(stderr, "Currently the -R option is only implemented for CRAM indices\n");
 	    return 1;
 	}
 	    
-	cram_index_load(in->c, argv[optind]);
+	fprintf(stderr, "CRAM support temporarily disabled\n");
+	return 1;
 
-	refid = sam_hdr_name2ref(in->c->header, ref_name);
-
-	if (refid == -1 && *ref_name != '*') {
-	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
-	    return 1;
-	}
-	r.refid = refid;
-	r.start = start;
-	r.end = end;
-	if (scram_set_option(in, CRAM_OPT_RANGE, &r))
-	    return 1;
+//	cram_range r;
+//	int refid;
+//
+//	cram_index_load(in->c, argv[optind]);
+//
+//	refid = sam_hdr_name2ref(in->c->header, ref_name);
+//
+//	if (refid == -1 && *ref_name != '*') {
+//	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
+//	    return 1;
+//	}
+//	r.refid = refid;
+//	r.start = start;
+//	r.end = end;
+//	if (scram_set_option(in, CRAM_OPT_RANGE, &r))
+//	    return 1;
     }
 
     /* Do the actual file format conversion */

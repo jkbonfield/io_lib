@@ -171,7 +171,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    cram_set_option(NULL, CRAM_OPT_VERSION, optarg);
+	    //cram_set_option(NULL, CRAM_OPT_VERSION, optarg);
 	    break;
 
 	case 'r':
@@ -265,29 +265,31 @@ int main(int argc, char **argv) {
 
 	/* Support for sub-range queries, currently implemented for CRAM only */
 	if (*ref_name != 0) {
-	    cram_range r;
-	    int refid;
-
 	    if (in[i]->is_bam) {
 		fprintf(stderr, "Currently the -R option is only implemented for CRAM indices\n");
 		return 1;
 	    }
-	    
-	    cram_index_load(in[i]->c, argv[optind]);
 
-	    refid = sam_hdr_name2ref(in[i]->c->header, ref_name);
-
-
-	    if (refid == -1 && *ref_name != '*') {
-		fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
-		return 1;
-	    }
-	    r.refid = refid;
-	    r.start = start;
-	    r.end = end;
-
-	    if (scram_set_option(in[i], CRAM_OPT_RANGE, &r))
-	    	return 1;
+	    fprintf(stderr, "CRAM support temporarily disabled\n");
+	    return 1;
+//	    cram_range r;
+//	    int refid;
+//
+//	    cram_index_load(in[i]->c, argv[optind]);
+//
+//	    refid = sam_hdr_name2ref(in[i]->c->header, ref_name);
+//
+//
+//	    if (refid == -1 && *ref_name != '*') {
+//		fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
+//		return 1;
+//	    }
+//	    r.refid = refid;
+//	    r.start = start;
+//	    r.end = end;
+//
+//	    if (scram_set_option(in[i], CRAM_OPT_RANGE, &r))
+//	    	return 1;
 	}
     }
 

@@ -209,11 +209,12 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 
     if (*mode == 'r') {
 	if (mode[1] != 'b' && mode[1] != 's') {
-	    if ((fd->c = cram_open(filename, mode))) {
-		cram_load_reference(fd->c, NULL);
-		fd->is_bam = 0;
-		return fd;
-	    }
+	    return NULL;
+//	    if ((fd->c = cram_open(filename, mode))) {
+//		cram_load_reference(fd->c, NULL);
+//		fd->is_bam = 0;
+//		return fd;
+//	    }
 	}
 
 	if ((fd->b = bam_open(filename, mode))) {
@@ -229,10 +230,11 @@ scram_fd *scram_open(const char *filename, const char *mode) {
      * on the format in the mode string.
      */
     if (strncmp(mode, "wc", 2) == 0) {
-	if (!(fd->c = cram_open(filename, mode))) {
-	    free(fd);
-	    return NULL;
-	}
+	return NULL;
+//	if (!(fd->c = cram_open(filename, mode))) {
+//	    free(fd);
+//	    return NULL;
+//	}
 	fd->is_bam = 0;
 	return fd;
     }
@@ -292,7 +294,8 @@ int scram_close(scram_fd *fd) {
     if (fd->is_bam) {
 	r = bam_close(fd->b);
     } else {
-	r = cram_close(fd->c);
+	return -1;
+	//r = cram_close(fd->c);
     }
 
     if (fd->pool)
@@ -313,17 +316,19 @@ SAM_hdr *scram_get_header(scram_fd *fd) {
 }
 
 refs_t *scram_get_refs(scram_fd *fd) {
-    return fd->is_bam ? NULL : fd->c->refs;
+    return NULL;
+    //return fd->is_bam ? NULL : fd->c->refs;
 }
 
 void scram_set_refs(scram_fd *fd, refs_t *refs) {
-    if (fd->is_bam)
-	return;
-    if (fd->c->refs)
-	refs_free(fd->c->refs);
-    fd->c->refs = refs;
-    if (refs)
-	refs->count++;
+    return;
+//    if (fd->is_bam)
+//	return;
+//    if (fd->c->refs)
+//	refs_free(fd->c->refs);
+//    fd->c->refs = refs;
+//    if (refs)
+//	refs->count++;
 }
 
 void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
@@ -339,7 +344,8 @@ void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
 int scram_write_header(scram_fd *fd) {
     return fd->is_bam
 	? bam_write_header(fd->b)
-	: cram_write_SAM_hdr(fd->c, fd->c->header);
+	: -1;
+//	: cram_write_SAM_hdr(fd->c, fd->c->header);
 }
 
 int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
@@ -360,11 +366,12 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
 	}
     }
 
-    if (-1 == cram_get_bam_seq(fd->c, bsp)) {
-	fd->eof = cram_eof(fd->c);
-	return -1;
-    }
-    return 0;
+    return -1;
+//    if (-1 == cram_get_bam_seq(fd->c, bsp)) {
+//	fd->eof = cram_eof(fd->c);
+//	return -1;
+//    }
+//    return 0;
 }
 
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
@@ -374,7 +381,8 @@ int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
 int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
     return fd->is_bam
 	? bam_put_seq(fd->b, s)
-	: cram_put_bam_seq(fd->c, s);
+	: -1;
+//	: cram_put_bam_seq(fd->c, s);
 }
 
 int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
@@ -388,7 +396,8 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 	if (fd->is_bam)
 	    return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, p);
 	else
-	    return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, p);
+	    return -1;
+//	    return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, p);
     } else if (opt == CRAM_OPT_NTHREADS) {
 	int nthreads = va_arg(args, int);
 	if (nthreads > 1) {
@@ -398,7 +407,8 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 	    if (fd->is_bam)
 		return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, fd->pool);
 	    else
-		return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, fd->pool);
+		return -1;
+//		return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, fd->pool);
 	} else {
 	    fd->pool = NULL;
 	    return 0;
@@ -408,13 +418,15 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 
 	return fd->is_bam
 	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
-	    : cram_set_option(fd->c, CRAM_OPT_BINNING, bin);
+	    : -1;
+//	    : cram_set_option(fd->c, CRAM_OPT_BINNING, bin);
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
 
 	return fd->is_bam
 	    ? bam_set_option (fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
-	    : cram_set_option(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
+	    : -1;
+//	    : cram_set_option(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
     } else if (opt == CRAM_OPT_WITH_BGZIP_INDEX) {
         gzi *idx = va_arg(args, gzi *);
         if (fd->is_bam)
@@ -426,7 +438,8 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
     }
 
     if (!fd->is_bam) {
-	r = cram_set_voption(fd->c, opt, args);
+	//r = cram_set_voption(fd->c, opt, args);
+	r = -1;
     }
 
     va_end(args);

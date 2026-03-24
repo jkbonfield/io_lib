@@ -32,7 +32,7 @@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = htscodecs io_lib progs tests
+SUBDIRS = io_lib progs tests
 
 man_MANS = \
 	man/man1/srf_index_hash.1 \
@@ -92,15 +92,6 @@ pkginclude_HEADERS = \
 	io_lib/deflate_interlaced.h \
 	io_lib/srf.h \
 	io_lib/pooled_alloc.h \
-	io_lib/cram.h \
-	io_lib/cram_structs.h \
-	io_lib/cram_io.h \
-	io_lib/cram_encode.h \
-	io_lib/cram_decode.h \
-	io_lib/cram_codecs.h \
-	io_lib/cram_index.h \
-	io_lib/cram_stats.h \
-	io_lib/cram_bambam.h \
 	io_lib/zfio.h \
 	io_lib/scram.h \
 	io_lib/bam.h \

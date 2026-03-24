@@ -44,7 +44,6 @@ extern "C" {
 @SET_ENDIAN@
 
 @SET_STDIO_EXT@
-@SET_CRAM_IO_CUSTOM_BUFFERING@
 #endif
 
 /* Mac FAT binaries or unknown. Auto detect based on CPU type */

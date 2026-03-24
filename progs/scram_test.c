@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
     char imode[10], *in_f = "";
     int level = '\0'; // nul terminate string => auto level
     int c;
-    char *ref_fn = NULL;
+    //char *ref_fn = NULL;
     int start, end, ignore_md5 = 0;
     char ref_name[1024] = {0};
     bam_flagstat_t st;
@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
 	    return 0;
 
 	case 'r':
-	    ref_fn = optarg;
+	    //ref_fn = optarg;
 	    break;
 
 	case 'I':
@@ -207,8 +207,8 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }
-    if (!in->is_bam && ref_fn)
-	cram_load_reference(in->c, ref_fn);
+//    if (!in->is_bam && ref_fn)
+//	cram_load_reference(in->c, ref_fn);
 
     if (nthreads > 1) 
 	if (scram_set_option(in,  CRAM_OPT_NTHREADS, nthreads))
@@ -223,27 +223,29 @@ int main(int argc, char **argv) {
 
     /* Support for sub-range queries, currently implemented for CRAM only */
     if (*ref_name != 0) {
-	cram_range r;
-	int refid;
-
 	if (in->is_bam) {
 	    fprintf(stderr, "Currently the -R option is only implemented for CRAM indices\n");
 	    return 1;
 	}
 	    
-	cram_index_load(in->c, argv[optind]);
-
-	refid = sam_hdr_name2ref(in->c->header, ref_name);
-
-	if (refid == -1 && *ref_name != '*') {
-	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
-	    return 1;
-	}
-	r.refid = refid;
-	r.start = start;
-	r.end = end;
-	if (scram_set_option(in, CRAM_OPT_RANGE, &r))
-	    return 1;
+	fprintf(stderr, "CRAM support temporarily disabled\n");
+	return 1;
+//	cram_range r;
+//	int refid;
+//
+//	cram_index_load(in->c, argv[optind]);
+//
+//	refid = sam_hdr_name2ref(in->c->header, ref_name);
+//
+//	if (refid == -1 && *ref_name != '*') {
+//	    fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
+//	    return 1;
+//	}
+//	r.refid = refid;
+//	r.start = start;
+//	r.end = end;
+//	if (scram_set_option(in, CRAM_OPT_RANGE, &r))
+//	    return 1;
     }
 
     /* Do the actual file format conversion */
