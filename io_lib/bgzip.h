@@ -38,14 +38,14 @@ typedef struct gzi {
     uint64_t n;
     uint64_t *c_off;
     uint64_t *u_off;
-} gzi;
+} bgzi;
 
-int gzi_index_add_block(gzi *idx, uint64_t c_off, uint64_t u_off);
-int gzi_index_dump(gzi *idx, const char *bname, const char *suffix);
-gzi *gzi_index_init();
-gzi *gzi_index_load(const char *fn);
-void gzi_index_free(gzi *idx);
-uint64_t gzi_load(FILE *fp, gzi *idx, uint64_t ustart, uint64_t uend, char *out);
+int gzi_index_add_block(bgzi *idx, uint64_t c_off, uint64_t u_off);
+int gzi_index_dump(bgzi *idx, const char *bname, const char *suffix);
+bgzi *gzi_index_init();
+bgzi *gzi_index_load(const char *fn);
+void gzi_index_free(bgzi *idx);
+uint64_t gzi_load(FILE *fp, bgzi *idx, uint64_t ustart, uint64_t uend, char *out);
 
 struct bzi_FILE;
 typedef struct bzi_FILE bzi_FILE;

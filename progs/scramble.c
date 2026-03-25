@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
     refs_t *refs;
     int nthreads = 1;
     t_pool *p = NULL;
-    gzi *idx =NULL;
+    bgzi *idx =NULL;
     int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
     int sam_fields = 0; // all
@@ -260,6 +260,7 @@ int main(int argc, char **argv) {
     char *profile = "normal";
     int aux_keep = -1;
     char aux_filter[65536] = {0};
+    char *cram_version = NULL;
 
     scram_init();
 
@@ -315,8 +316,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-//	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
-//		return 1;
+	    cram_version = optarg;
 	    break;
 
 	case 'r':
@@ -502,14 +502,10 @@ int main(int argc, char **argv) {
 	}
     }
     if (!in->is_bam && ref_fn) {
-	return 1;
-//	cram_load_reference(in->c, ref_fn);
-//	if (!in->c->refs && !embed_ref) {
-//	    fprintf(stderr, "Unable to find an appropriate reference.\n"
-//		    "Please specify a valid reference with "
-//		    "-r ref.fa option.\n");
-//	    return 1;
-//	}
+	if (cram_load_reference(in->c, ref_fn) != 0) {
+	    fprintf(stderr, "Unable to load reference\n");
+	    return 1;
+	}
     }
 
     sprintf(omode, "w%s%c", out_f, level);
@@ -526,6 +522,9 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }
+    if (cram_version)
+	if (scram_set_option(out, CRAM_OPT_VERSION, cram_version) < 0)
+	    return 1;
 
 
     /* Set any format specific options */
@@ -548,9 +547,9 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_BASES_PER_SLICE, bases_per_slice))
 	    return 1;
 
+    enum sam_sort_order so = sam_hrecs_sort_order(scram_get_header(in));
     if (embed_ref) {
-	if (scram_get_header(in)->sort_order == ORDER_NAME ||
-	    scram_get_header(in)->sort_order == ORDER_UNSORTED) {
+	if (so == ORDER_NAME || so == ORDER_UNSORTED) {
 	    fprintf(stderr, "Embedded reference with non-coordinate sorted data is "
 		    "not supported.\nUsing -x for no-ref instead.\n");
 	    if (scram_set_option(out, CRAM_OPT_NO_REF, 1))
@@ -562,8 +561,7 @@ int main(int argc, char **argv) {
     }
 
     if (embed_cons) {
-	if (scram_get_header(in)->sort_order == ORDER_NAME ||
-	    scram_get_header(in)->sort_order == ORDER_UNSORTED) {
+	if (so == ORDER_NAME || so == ORDER_UNSORTED) {
 	    fprintf(stderr, "Embedded consensus with non-coordinate sorted data is "
 		    "not supported.\n");
 	} else {
@@ -609,9 +607,9 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "Cannot use -m in conjunction with -x.\n");
 	    return 1;
 	}
-	if (scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md))
-	    return 1;
     }
+    if (scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md))
+	return 1;
 
     if (index_fn) {
 	if (NULL == (idx = gzi_index_load(index_fn))) {

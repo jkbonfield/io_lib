@@ -66,8 +66,8 @@
 /* Loads an bgzip index and returns it.
  * Returns NULL on failure.
  */
-gzi *gzi_index_load(const char *fn) {
-    gzi *idx = malloc(sizeof(*idx));
+bgzi *gzi_index_load(const char *fn) {
+    bgzi *idx = malloc(sizeof(*idx));
     FILE *fp;
 
     if (strlen(fn) >= 4 && strcmp(fn+strlen(fn)-4, ".gzi") == 0) {
@@ -121,7 +121,7 @@ gzi *gzi_index_load(const char *fn) {
     return NULL;
 }
 
-void gzi_index_free(gzi *idx) {
+void gzi_index_free(bgzi *idx) {
     if (idx) {
 	free(idx->c_off);
 	free(idx->u_off);
@@ -129,8 +129,8 @@ void gzi_index_free(gzi *idx) {
     }
 }
 
-gzi *gzi_index_init() {
-    gzi *idx = calloc(1, sizeof(*idx));
+bgzi *gzi_index_init() {
+    bgzi *idx = calloc(1, sizeof(*idx));
     return idx;
 }
 
@@ -139,7 +139,7 @@ gzi *gzi_index_init() {
  * Returns 0 on success;
  *        -1 on failure.
  */
-int gzi_index_add_block(gzi *idx, uint64_t c_off, uint64_t u_off) {
+int gzi_index_add_block(bgzi *idx, uint64_t c_off, uint64_t u_off) {
     uint64_t n;
     idx->n++;
     n = idx->n;
@@ -165,7 +165,7 @@ int gzi_index_add_block(gzi *idx, uint64_t c_off, uint64_t u_off) {
  * Returns 0 on success;
  *        -1 on failure.
  */
-int gzi_index_dump(gzi *idx, const char *bname, const char *suffix) {
+int gzi_index_dump(bgzi *idx, const char *bname, const char *suffix) {
     char *tmp = (char *)bname;
     if (!idx)
         return -1;
@@ -225,7 +225,7 @@ int gzi_index_dump(gzi *idx, const char *bname, const char *suffix) {
  * *sz is returned as the size of the compressed block containig
  * uoff, or 0 if unknown (determine from EOF instead).
  */
-static int64_t gzi_uoff_to_voff(gzi *idx, uint64_t uoff, int *sz) {
+static int64_t gzi_uoff_to_voff(bgzi *idx, uint64_t uoff, int *sz) {
     /* Binary search */
     int lo = 0, hi = idx->n, x;
 
@@ -253,7 +253,7 @@ static int64_t gzi_uoff_to_voff(gzi *idx, uint64_t uoff, int *sz) {
     return (idx->c_off[x]<<16) | (uoff - idx->u_off[x]);
 }
 
-uint64_t gzi_load(FILE *fp, gzi *idx, uint64_t ustart, uint64_t uend, char *out) {
+uint64_t gzi_load(FILE *fp, bgzi *idx, uint64_t ustart, uint64_t uend, char *out) {
     int csz = 0, err;
     int64_t vstart = gzi_uoff_to_voff(idx, ustart, 0);
     int64_t vend   = gzi_uoff_to_voff(idx, uend, &csz);
@@ -337,7 +337,7 @@ uint64_t gzi_load(FILE *fp, gzi *idx, uint64_t ustart, uint64_t uend, char *out)
  */
 struct bzi_FILE {
     FILE *fp;
-    gzi  *idx;
+    bgzi  *idx;
     uint64_t pos;
 };
 
@@ -412,7 +412,7 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    gzi *idx = gzi_index_load(argv[1]);
+    bgzi *idx = gzi_index_load(argv[1]);
     uint64_t ustart = atoll(argv[2]), uend = atoll(argv[3]);
 
     if (!idx) {

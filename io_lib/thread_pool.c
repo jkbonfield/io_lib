@@ -46,6 +46,8 @@
 
 #include "io_lib/thread_pool.h"
 
+#if 0
+
 //#define DEBUG
 //#define DEBUG_TIME
 
@@ -849,3 +851,4 @@ int main(int argc, char **argv) {
     return 0;
 }
 #endif
+#endif // if 0

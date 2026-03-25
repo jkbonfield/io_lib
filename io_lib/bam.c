@@ -323,7 +323,7 @@ static int load_bam_header(bam_file_t *b) {
     if (header_len != bam_read(b, header, header_len))
 	return -1;
 
-    if (!(b->header = sam_hdr_parse(header, header_len)))
+    if (!(b->header = sam_hdr_parse(header_len, header)))
 	return -1;
     free(header);
 
@@ -331,7 +331,7 @@ static int load_bam_header(bam_file_t *b) {
     if (4 != bam_read(b, &nref, 4))
 	return -1;
     nref = le_int4(nref);
-    if (b->header->nref != nref && b->header->nref) {
+    if (sam_hdr_nref(b->header) != nref && sam_hdr_nref(b->header)) {
 	fprintf(stderr, "Error: @RG lines are at odds with "
 		"binary encoded reference data\n");
 	return -1;
@@ -356,14 +356,15 @@ static int load_bam_header(bam_file_t *b) {
 	    return -1;
 	len = le_int4(len);
 
-	if (i < b->header->nref && b->header->ref[i].name) {
-	    if (strcmp(b->header->ref[i].name, name)) {
+	const char *rname = sam_hdr_tid2name(b->header, i);
+	if (rname) {
+	    if (strcmp(rname, name)) {
 		fprintf(stderr, "Error: @SQ lines are at odds with "
 			"binary encoded reference data\n");
 		return -1;
 	    }
 
-	    if (b->header->ref[i].len != len) {
+	    if (sam_hdr_tid2len(b->header, i) != len) {
 		fprintf(stderr, "Error: @SQ lines are at odds with "
 			"binary encoded reference data\n");
 		return -1;
@@ -371,7 +372,7 @@ static int load_bam_header(bam_file_t *b) {
 	} else {
 	    char len_c[100];
 	    sprintf(len_c, "%d", len);
-	    if (sam_hdr_add(b->header, "SQ", "SN", name, "LN", len_c, NULL)<0)
+	    if (sam_hdr_add_line(b->header, "SQ", "SN", name, "LN", len_c, NULL)<0)
 		return -1;
 	}
 
@@ -388,30 +389,37 @@ static int load_sam_header(bam_file_t *b) {
     unsigned char *str = NULL;
     size_t alloc = 0, len;
     dstring_t *header = dstring_create(NULL);;
-    int r = 0;
+    int r = 0, ret = -1;
 
     while ((b->uncomp_sz > 0 || (r=bam_uncompress_input(b)) > 0) && *b->uncomp_p == '@') {
 	b->line++;
-	if ((len = bam_get_line(b, &str, &alloc)) == -1)
-	    return -1;
+	if ((len = bam_get_line(b, &str, &alloc)) == -1) {
+	    fprintf(stderr, "Failed to process SAM header line\n");
+	    goto err;
+	}
 
 	if (-1 == dstring_nappend(header, (char *)str, len))
-	    return -1;
+	    goto err;
 	if (-1 == dstring_append_char(header, '\n'))
-	    return -1;
+	    goto err;
     }
     if (r == -1)
-	return -1;
+	goto err;
     b->line = 0; // FIXME
 
-    if (!(b->header = sam_hdr_parse((char *)dstring_str(header),
-				    dstring_length(header))))
-	return -1;
+    const char *text = dstring_str(header);
+    if (!(b->header = sam_hdr_parse(dstring_length(header),
+				    text ? text : ""))) {
+	fprintf(stderr, "Failed to parse SAM header\n");
+	goto err;
+    }
 
+    ret = 0;
+ err:
     dstring_destroy(header);
     free(str);
 
-    return 0;
+    return ret;
 }
 
 /* --------------------------------------------------------------------------
@@ -621,7 +629,7 @@ int bam_close(bam_file_t *b) {
 	free(b->bs);
 
     if (b->header)
-	sam_hdr_free(b->header);
+	sam_hdr_destroy(b->header);
 
     if (b->gzip)
 	inflateEnd(&b->s);
@@ -649,7 +657,8 @@ int bam_close(bam_file_t *b) {
 	 * abort in-flight jobs connected to this specific results queue.
 	 */
 	//fprintf(stderr, "BAM: Draining pool\n");
-	t_pool_flush(b->pool);
+	//t_pool_flush(b->pool);
+	t_pool_flush(b->equeue);
     }
 
     //fprintf(stderr, "BAM: destroying equeue %p, dqueue %p\n",
@@ -805,7 +814,8 @@ static int bam_uncompress_input(bam_file_t *b) {
 
 	/* Multi-threaded decoding. Assume BGZF for now */
 	//while (b->nd_jobs < b->pool->qsize) {
-	while (t_pool_results_queue_sz(b->dqueue) < b->pool->qsize) {
+	while (t_pool_results_queue_sz(b->dqueue) <
+	       hts_tpool_process_qsize(b->dqueue)) {
 	    bgzf_decode_job *j;
 	    int nonblock;
 
@@ -914,7 +924,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 	    return 0;
 
 	res = t_pool_next_result_wait(b->dqueue);
-	if (!res || !res->data) {
+	if (!res || !hts_tpool_result_data(res)) {
 	    fprintf(stderr, "t_pool_next_result failure\n");
 	    return -1;
 	}
@@ -931,7 +941,7 @@ static int bam_uncompress_input(bam_file_t *b) {
 	    }
 	}
 
-	j = (bgzf_decode_job *)res->data;
+	j = (bgzf_decode_job *)hts_tpool_result_data(res);
 
 #if 0
 	memcpy(b->uncomp, j->uncomp, j->uncomp_sz);
@@ -1235,9 +1245,7 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     unsigned char *cpf, *cpt, *cp;
     int cigar_len;
     bam_seq_t *bs;
-    HashItem *hi;
     int64_t start, end;
-    SAM_hdr *sh = b->header;
 
     static const char lookup[256] = {
 	15,15,15,15,15,15,15,15, 15,15,15,15,15,15,15,15, /* 00 */
@@ -1309,30 +1317,17 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	/* Unmapped */
 	bs->ref = -1;
     } else {
-	hi = HashTableSearch(b->header->ref_hash, (char *)cp, cpf-cp);
-	if (!hi) {
-	    SAM_hdr *sh = b->header;
-	    HashData hd;
-
+	char rname[1024];
+	memcpy(rname, cp, MIN(1023,cpf-cp));
+	rname[MIN(1023,cpf-cp)]=0;
+	bs->ref = sam_hdr_name2tid(b->header, rname);
+	if (bs->ref < 0) {
 	    fprintf(stderr, "Reference seq %.*s unknown\n", (int)(cpf-cp), cp);
 
 	    /* Fabricate it instead */
-	    sh->ref = realloc(sh->ref, (sh->nref+1)*sizeof(*sh->ref));
-	    if (!sh->ref)
-		return -1;
-	    sh->ref[sh->nref].len  = 0; /* Unknown value */
-	    sh->ref[sh->nref].name = malloc(cpf-cp+1);
-	    if (!sh->ref[sh->nref].name)
-		return -1;
-	    memcpy(sh->ref[sh->nref].name, cp, cpf-cp);
-	    sh->ref[sh->nref].name[cpf-cp] = 0;
-
-	    hd.i = sh->nref;
-	    hi = HashTableAdd(sh->ref_hash, sh->ref[sh->nref].name, 0,
-			      hd, NULL);
-	    sh->nref++;
+	    sam_hdr_add_line(b->header, "SQ", "ID", rname, "LN", 0, NULL);
+	    bs->ref = sam_hdr_name2tid(b->header, rname);
 	}
-	bs->ref = hi->data.i;
     }
     if (!*cpf++) return -1;
 
@@ -1411,29 +1406,17 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     } else if (*cp == '=' && cp[1] == '\t') {
 	bs->mate_ref = bs->ref;
     } else {
-	hi = HashTableSearch(sh->ref_hash, (char *)cp, cpf-cp);
-	if (!hi) {
-	    HashData hd;
-
-	    fprintf(stderr, "Mate ref seq \"%.*s\" unknown\n", (int)(cpf-cp), cp);
+	char mrname[1024];
+	memcpy(mrname, cp, MIN(1023,cpf-cp));
+	mrname[MIN(1023,cpf-cp)]=0;
+	bs->mate_ref = sam_hdr_name2tid(b->header, mrname);
+	if (bs->mate_ref < 0) {
+	    fprintf(stderr, "Reference seq %.*s unknown\n", (int)(cpf-cp), cp);
 
 	    /* Fabricate it instead */
-	    sh->ref = realloc(sh->ref, (sh->nref+1)*sizeof(*sh->ref));
-	    if (!sh->ref)
-		return -1;
-	    sh->ref[sh->nref].len  = 0; /* Unknown value */
-	    sh->ref[sh->nref].name = malloc(cpf-cp+1);
-	    if (!sh->ref[sh->nref].name)
-		return -1;
-	    memcpy(sh->ref[sh->nref].name, cp, cpf-cp);
-	    sh->ref[sh->nref].name[cpf-cp] = 0;
-
-	    hd.i = sh->nref;
-	    hi = HashTableAdd(sh->ref_hash, sh->ref[sh->nref].name, 0,
-			      hd, NULL);
-	    sh->nref++;
+	    sam_hdr_add_line(b->header, "SQ", "ID", mrname, "LN", 0, NULL);
+	    bs->mate_ref = sam_hdr_name2tid(b->header, mrname);
 	}
-	bs->mate_ref = hi->data.i;
     }
     if (!*cpf++) return -1;
 
@@ -3412,14 +3395,19 @@ static int bgzf_write_mt(bam_file_t *bf, int level, const void *buf,
     j->level = level;
     memcpy(j->in, buf, count);
     j->in_sz = count;
-    t_pool_dispatch(bf->pool, bf->equeue, bgzf_encode_thread, j);
+    int dl = 0;
+    do {
+	errno = 0;
+	dl = t_pool_dispatch2(bf->pool, bf->equeue, bgzf_encode_thread, j, 1);
 
-    while ((r = t_pool_next_result(bf->equeue))) {
-	j = (bgzf_encode_job *)r->data;
-	if (j->out_sz != fwrite(j->out, 1, j->out_sz, bf->fp))
-	    return -1;
-	t_pool_delete_result(r, 1);
-    }
+	while ((r = t_pool_next_result(bf->equeue))) {
+	    bgzf_encode_job *jr;
+	    jr = (bgzf_encode_job *)hts_tpool_result_data(r);
+	    if (jr->out_sz != fwrite(jr->out, 1, jr->out_sz, bf->fp))
+		return -1;
+	    t_pool_delete_result(r, 1);
+	}
+    } while (dl < 0 && errno == EAGAIN);
 
     return 0;
 }
@@ -3432,10 +3420,12 @@ static int bgzf_flush_mt(bam_file_t *bf) {
     if (!bf->pool)
 	return 0;
 
-    t_pool_flush(bf->pool);
+    //t_pool_flush(bf->pool);
+    hts_tpool_process_flush(bf->dqueue);
+    hts_tpool_process_flush(bf->equeue);
 
     while ((r = t_pool_next_result(bf->equeue))) {
-	j = (bgzf_encode_job *)r->data;
+	j = (bgzf_encode_job *)hts_tpool_result_data(r);
 	if (j->out_sz != fwrite(j->out, 1, j->out_sz, bf->fp))
 	    return -1;
 	t_pool_delete_result(r, 1);
@@ -3531,13 +3521,15 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	} while(0)
 
 	/* QNAME */
-	if (end - fp->uncomp_p < (sz = bam_name_len(b))) BF_FLUSH();
-	if (bam_name(b) - (char *)b + sz-1 >
+	// strlen(bam_name(b)) instead
+	if (end - fp->uncomp_p < (sz = strlen(bam_name(b)))+1)
+	    BF_FLUSH();
+	if (bam_name(b) - (char *)b + sz >
 	    b->blk_size + offsetof(bam_seq_t, ref)) {
 	    fprintf(stderr, "Name length too large for bam block\n");
 	    return -1;
 	}
-	memcpy(fp->uncomp_p, bam_name(b), sz-1); fp->uncomp_p += sz-1;
+	memcpy(fp->uncomp_p, bam_name(b), sz); fp->uncomp_p += sz;
 	*fp->uncomp_p++ = '\t';
 
 	/* FLAG */
@@ -3546,13 +3538,14 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->uncomp_p++ = '\t';
 
 	/* RNAME */
-	if (b->ref < -1 || b->ref >= fp->header->nref)
+	if (b->ref < -1 || b->ref >= sam_hdr_nref(fp->header))
 	    return -1;
 
 	if (b->ref != -1) {
-	    size_t l = strlen(fp->header->ref[b->ref].name);
+	    const char *rname = sam_hdr_tid2name(fp->header, b->ref);
+	    size_t l = strlen(rname);
 	    if (end-fp->uncomp_p < l+1) BF_FLUSH();
-	    memcpy(fp->uncomp_p, fp->header->ref[b->ref].name, l);
+	    memcpy(fp->uncomp_p, rname, l);
 	    fp->uncomp_p += l;
 	} else {
 	    if (end-fp->uncomp_p < 2) BF_FLUSH();
@@ -3587,7 +3580,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->uncomp_p++='\t';
 
 	/* NRNM */
-	if (b->mate_ref < -1 || b->mate_ref >= fp->header->nref)
+	if (b->mate_ref < -1 || b->mate_ref >= sam_hdr_nref(fp->header))
 	    return -1;
 
 	if (b->mate_ref != -1) {
@@ -3595,9 +3588,10 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		if (end-fp->uncomp_p < 2) BF_FLUSH();
 		*fp->uncomp_p++ = '=';
 	    } else {
-		size_t l = strlen(fp->header->ref[b->mate_ref].name);
+		const char *mrname = sam_hdr_tid2name(fp->header, b->mate_ref);
+		size_t l = strlen(mrname);
 		if (end-fp->uncomp_p < l+1) BF_FLUSH();
-		memcpy(fp->uncomp_p, fp->header->ref[b->mate_ref].name, l);
+		memcpy(fp->uncomp_p, mrname, l);
 		fp->uncomp_p += l;
 	    }
 	} else {
@@ -4034,19 +4028,21 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
  *        -1 for failure
  */
 int bam_write_header(bam_file_t *out) {
-    char *header, *hp, *htext;
+    char *header, *hp;
+    const char *htext;
     size_t hdr_size;
     int i, htext_len;
 
-    if (sam_hdr_rebuild(out->header))
+    // Force sam_hdr_rebuild call
+    if (!sam_hdr_str(out->header))
 	return -1;
 
     htext = sam_hdr_str(out->header);
     htext_len = sam_hdr_length(out->header);
 
     hdr_size = 12 + htext_len+1;
-    for (i = 0; i < out->header->nref; i++) {
-	hdr_size += strlen(out->header->ref[i].name)+1 + 8;
+    for (i = 0; i < sam_hdr_nref(out->header); i++) {
+	hdr_size += strlen(sam_hdr_tid2name(out->header, i))+1 + 8;
     }
     if (NULL == (hp = header = malloc(hdr_size)))
 	return -1;
@@ -4061,16 +4057,17 @@ int bam_write_header(bam_file_t *out) {
     if (out->binary) {
 	int i;
 
-	STORE_UINT32(hp, out->header->nref);
+	STORE_UINT32(hp, sam_hdr_nref(out->header));
 
-	for (i = 0; i < out->header->nref; i++) {
-	    size_t l = strlen(out->header->ref[i].name)+1;
+	for (i = 0; i < sam_hdr_nref(out->header); i++) {
+	    const char *rname = sam_hdr_tid2name(out->header, i);
+	    size_t l = strlen(rname)+1;
 	    STORE_UINT32(hp, l);
 
-	    strcpy(hp, out->header->ref[i].name);
+	    strcpy(hp, rname);
 	    hp += l;
 
-	    l = out->header->ref[i].len;
+	    l = sam_hdr_tid2len(out->header, i);
 	    STORE_UINT32(hp, l);
 	}
     }
@@ -4126,8 +4123,8 @@ int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args) {
     switch (opt) {
     case BAM_OPT_THREAD_POOL:
 	fd->pool = va_arg(args, t_pool *);
-	fd->equeue = t_results_queue_init();
-	fd->dqueue = t_results_queue_init();
+	fd->equeue = t_results_queue_init(fd->pool, hts_tpool_size(fd->pool), 0);
+	fd->dqueue = t_results_queue_init(fd->pool, hts_tpool_size(fd->pool), 0);
 	break;
 
     case BAM_OPT_BINNING:
@@ -4138,7 +4135,7 @@ int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args) {
 	fd->ignore_chksum = va_arg(args, int);
 	break;
     case BAM_OPT_WITH_BGZIP_IDX:
-        fd->idx =  va_arg(args, gzi *);
+        fd->idx =  va_arg(args, bgzi *);
 	break;
     case BAM_OPT_OUTPUT_BGZIP_IDX:
         fd->idx_fn =  va_arg(args, char *);

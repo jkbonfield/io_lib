@@ -63,13 +63,14 @@
  */
 static int hdr_compare(SAM_hdr *h1, SAM_hdr *h2) {
     int i;
-    if (h1->nref != h2->nref)
+    if (sam_hdr_nref(h1) != sam_hdr_nref(h2))
 	return 0;
 
-    for (i = 0; i < h1->nref; i++) {
-	if (strcmp(h1->ref[i].name, h2->ref[i].name) != 0)
+    for (i = 0; i < sam_hdr_nref(h1); i++) {
+	if (strcmp(sam_hdr_tid2name(h1, i),
+		   sam_hdr_tid2name(h2, i)) != 0)
 	    return 0;
-	if (h1->ref[i].len != h2->ref[i].len)
+	if (sam_hdr_tid2len(h1, i) != sam_hdr_tid2len(h2, i))
 	    return 0;
     }
 

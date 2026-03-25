@@ -47,6 +47,37 @@ extern "C" {
 
 #include "io_lib/bam.h"
 #include "io_lib/cram.h"
+#include <htslib/sam.h>
+
+// conflicts
+//#include <htslib/cram.h>
+typedef struct cram_fd cram_fd;
+typedef void refs_t;
+extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
+
+// It turns off BAM CRC checks too in io_lib's original, plus ignoring
+// cram container optional BD and SD tags (somewhat experimental)
+#define CRAM_OPT_IGNORE_CHKSUM     1001
+
+// Specifies the location of a BGZIP index
+// As a filename
+#define CRAM_OPT_OUTPUT_BGZIP_IDX  1002
+#define BAM_OPT_OUTPUT_BGZIP_IDX   1002
+
+// Or as a file pointer
+#define CRAM_OPT_WITH_BGZIP_INDEX  1003
+#define BAM_OPT_WITH_BGZIP_IDX     1003
+
+// Unsupported in htslib
+#define BAM_OPT_BINNING             1004
+#define CRAM_OPT_BINNING            1004
+#define CRAM_OPT_PRESERVE_AUX_SIZE  1005
+#define CRAM_OPT_PRESERVE_AUX_ORDER 1006
+#define CRAM_OPT_LOSSY_READ_NAMES   1007
+
+#define CRAM_OPT_EMBED_CONS        CRAM_OPT_EMBED_REF // via embed_ref=2
+#define CRAM_OPT_PROFILE           HTS_OPT_PROFILE
+
 
 /*! The primary file handle for reading and writing. */
 typedef struct {
@@ -54,8 +85,9 @@ typedef struct {
     int eof;
     union {
 	bam_file_t *b;
-	cram_fd    *c;
+        samFile *c;
     };
+    sam_hdr_t *hdr;
 
     /* Primary Input/Output buffer */
     unsigned char *buf;
@@ -269,6 +301,18 @@ int scram_line(scram_fd *fd);
  * unless it is a larger amount.
  */
 void scram_init(void);
+
+/*! Loads a reference and attaches it to a cram filehandle
+ *
+ * Returns 0 on success,
+ *        -1 on failure
+ */
+static inline int cram_load_reference(void *fd, const char *ref) {
+    return hts_set_fai_filename((samFile *)fd, ref);
+}
+
+#define cram_set_option(f,o, ...) hts_set_opt((f), (o), __VA_ARGS__)
+
 #ifdef __cplusplus
 }
 #endif

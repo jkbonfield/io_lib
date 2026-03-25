@@ -48,6 +48,9 @@
 extern "C" {
 #endif
 
+#include <htslib/sam.h>
+#undef bam_get_seq // clashes with our function; use bam_seq.
+
 #include <inttypes.h>
 #include <stddef.h>
 #include <zlib.h>
@@ -58,6 +61,10 @@ extern "C" {
 #include "io_lib/thread_pool.h"
 #include "io_lib/binning.h"
 #include "io_lib/bgzip.h"
+
+// Renames of the htslib/sam.h ones
+#define BAM_CBASE_MATCH 7
+#define BAM_CBASE_MISMATCH 8
 
 /* BAM header structs */
 typedef struct tag_list {
@@ -206,7 +213,7 @@ typedef struct {
     int ignore_chksum;
 
     /* Used when gzi files are supplied. */
-    gzi *idx;
+    bgzi *idx;
     char *idx_fn;
     uint64_t current_block;
     unsigned char bgbuf[Z_BUFF_SIZE];
@@ -273,26 +280,32 @@ static inline void bam_set_bin(bam_seq_t *b, uint32_t v) {
 #define bam_seq(b)       (((char *)bam_cigar((b))) + 4*bam_cigar_len(b))
 #define bam_qual(b)      (bam_seq(b) + (int)(((b)->len+1)/2))
 #define bam_aux(b)       (bam_qual(b) + (b)->len)
+// 32 is the size of the fixed BAM record on disk.
+#define bam_aux_len(b)   (&(b)->data + (b)->blk_size-32 - (uint8_t *)bam_aux((b)))
 
 /* Rounds up to the next multiple of 4 or 8 */
 #define round4(v) (((v-1)&~3)+4)
 #define round8(v) (((v-1)&~7)+8)
 
 /* CIGAR operations, taken from samtools bam.h */
-#define BAM_CIGAR_SHIFT 4
-#define BAM_CIGAR_MASK  ((1 << BAM_CIGAR_SHIFT) - 1)
+#ifndef BAM_CIGAR_SHIFT
+#  define BAM_CIGAR_SHIFT 4
+#  define BAM_CIGAR_MASK  ((1 << BAM_CIGAR_SHIFT) - 1)
+#endif
 
+// Mirrors values in htslib/sam.h, but we need it here so we can define
+// the type.
 enum cigar_op {
-    BAM_UNKNOWN=-1,
-    BAM_CMATCH=0,
-    BAM_CINS=1,
-    BAM_CDEL=2,
-    BAM_CREF_SKIP=3,
-    BAM_CSOFT_CLIP=4,
-    BAM_CHARD_CLIP=5,
-    BAM_CPAD=6,
-    BAM_CBASE_MATCH=7,
-    BAM_CBASE_MISMATCH=8
+    IOLIB_BAM_UNKNOWN=-1,
+    IOLIB_BAM_CMATCH=0,
+    IOLIB_BAM_CINS=1,
+    IOLIB_BAM_CDEL=2,
+    IOLIB_BAM_CREF_SKIP=3,
+    IOLIB_BAM_CSOFT_CLIP=4,
+    IOLIB_BAM_CHARD_CLIP=5,
+    IOLIB_BAM_CPAD=6,
+    IOLIB_BAM_CBASE_MATCH=7,
+    IOLIB_BAM_CBASE_MISMATCH=8
 };
 
 /*
@@ -673,8 +686,6 @@ int bam_add_raw(bam_seq_t **b, size_t len, const uint8_t *data);
 int bam_aux_iter(bam_seq_t *b, char **iter_handle,
 		 char *key, char *type, bam_aux_t *val);
 
-/* Taken from samtools/bam.h */
-#define bam_seqi(s, i) ((s)[(i)/2] >> 4*(1-(i)%2) & 0xf)
 #define bam_nt16_rev_table "=ACMGRSVTWYHKDBN"
 
 /* Output code */

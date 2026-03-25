@@ -766,7 +766,8 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
     }
 
     /* Equivalent to the printf below, but faster */
-    buf_len = strlen(scram_get_header(fp)->ref[ref].name) + 1 // name
+    const char *rname = sam_hdr_tid2name(scram_get_header(fp), ref);
+    buf_len = strlen(rname) + 1 // name
 	+ 10 + 1                                              // pos
 	+ 1  + 1                                              // base
 	+ 10 + 1                                              // depth
@@ -776,7 +777,7 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
 	buf = realloc(buf, buf_alloc = buf_len);
 
     cp = buf;
-    strcpy((char *) cp, scram_get_header(fp)->ref[ref].name);
+    strcpy((char *) cp, rname);
     cp += strlen((char *) cp);
     *cp++ = '\t';
     cp = append_int(cp, pos);   *cp++ = '\t';
@@ -818,7 +819,7 @@ static int basic_pileup(void *cd, scram_fd *fp, pileup_t *p,
 
     /* Ref, pos, depth */
     ref = p->b->ref;
-    rp = (unsigned char *) scram_get_header(fp)->ref[ref].name;
+    rp = (unsigned char *) sam_hdr_tid2name(scram_get_header(fp), ref);
     while ((*cp++ = *rp++))
 	;
     cp--;
@@ -849,7 +850,7 @@ static int depth_pileup(void *cd, scram_fd *fp, pileup_t *p,
     if (nth)
 	return 0;
 
-    rp = (unsigned char *) scram_get_header(fp)->ref[p->b->ref].name;
+    rp = (unsigned char *) sam_hdr_tid2name(scram_get_header(fp), p->b->ref);
     while ((*cp++ = *rp++))
 	;
     cp[-1] = '\t';

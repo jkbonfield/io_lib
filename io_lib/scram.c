@@ -209,12 +209,16 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 
     if (*mode == 'r') {
 	if (mode[1] != 'b' && mode[1] != 's') {
-	    return NULL;
-//	    if ((fd->c = cram_open(filename, mode))) {
-//		cram_load_reference(fd->c, NULL);
-//		fd->is_bam = 0;
-//		return fd;
-//	    }
+	    if (!(fd->c = sam_open(filename, mode))) {
+		fprintf(stderr, "Error opening \"%s\"\n", filename);
+		return NULL;
+	    }
+	    fd->is_bam = 0;
+	    if (!(fd->hdr = sam_hdr_read(fd->c))) {
+		fprintf(stderr, "Failed to read header\n");
+		return NULL;
+	    }
+	    return fd;
 	}
 
 	if ((fd->b = bam_open(filename, mode))) {
@@ -230,11 +234,10 @@ scram_fd *scram_open(const char *filename, const char *mode) {
      * on the format in the mode string.
      */
     if (strncmp(mode, "wc", 2) == 0) {
-	return NULL;
-//	if (!(fd->c = cram_open(filename, mode))) {
-//	    free(fd);
-//	    return NULL;
-//	}
+	if (!(fd->c = sam_open(filename, mode))) {
+	    fprintf(stderr, "Error opening \"%s\"\n", filename);
+	    return NULL;
+	}
 	fd->is_bam = 0;
 	return fd;
     }
@@ -294,13 +297,14 @@ int scram_close(scram_fd *fd) {
     if (fd->is_bam) {
 	r = bam_close(fd->b);
     } else {
-	return -1;
-	//r = cram_close(fd->c);
+	r = sam_close(fd->c);
     }
 
     if (fd->pool)
 	t_pool_destroy(fd->pool, 0);
 
+    if (fd->hdr)
+	sam_hdr_destroy(fd->hdr);
 
     free(fd);
     return r;
@@ -309,9 +313,9 @@ int scram_close(scram_fd *fd) {
 SAM_hdr *scram_get_header(scram_fd *fd) {
 #ifdef __INTEL_COMPILER
     // avoids cmovne generation from icc 2015 (bug)
-    return fd->is_bam && fd->b ? fd->b->header : fd->c->header;
+    return fd->is_bam && fd->b ? fd->b->header : fd->hdr;
 #else
-    return fd->is_bam ? fd->b->header : fd->c->header;
+    return fd->is_bam ? fd->b->header : fd->hdr;
 #endif
 }
 
@@ -335,17 +339,84 @@ void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
     if (fd->is_bam) {
 	fd->b->header = sh;
     } else {
-	fd->c->header = sh;
+	fd->c->bam_header = sh;
     }
-
     sam_hdr_incr_ref(sh);
+
+    fd->hdr = sh;
+    sam_hdr_incr_ref(fd->hdr);
 }
 
 int scram_write_header(scram_fd *fd) {
     return fd->is_bam
 	? bam_write_header(fd->b)
-	: -1;
-//	: cram_write_SAM_hdr(fd->c, fd->c->header);
+	: sam_hdr_write(fd->c, fd->c->bam_header);
+}
+
+int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
+    bam_seq_t *bsp = *bsp_p;
+    if (!bsp) {
+	bsp = calloc(1, sizeof(*bsp));
+	if (!bsp)
+	    return -1;
+	*bsp_p = bsp;
+    }
+    if (bsp->alloc < sizeof(*bsp) + b->l_data+1) {
+	bsp->alloc = sizeof(*bsp) + b->l_data + 8;
+	bam_seq_t *n = realloc(bsp, bsp->alloc);
+	if (!n)
+	    return -1;
+	bsp = *bsp_p = n;
+    }
+    bsp->blk_size    = b->l_data + 32;
+    bsp->pos         = b->core.pos;
+    bsp->mate_pos    = b->core.mpos;
+    bsp->ins_size    = b->core.isize;
+    // As per raw BAM block below
+    bsp->ref         = b->core.tid;
+    bsp->pos_32      = b->core.pos; // bottom 32-bits
+    bsp->name_len    = b->core.l_qname;
+    bsp->map_qual    = b->core.qual;
+    bsp->bin         = b->core.bin;
+    bsp->cigar_len   = b->core.n_cigar;
+    bsp->flag        = b->core.flag;
+    bsp->len         = b->core.l_qseq;
+    bsp->mate_ref    = b->core.mtid;
+    bsp->mate_pos_32 = b->core.mpos;
+    bsp->ins_size_32 = b->core.isize;
+
+    memcpy(&bsp->data, b->data, b->l_data);
+    (&bsp->data)[b->l_data] = 0; // io_lib's AUX end of tag marker
+    return 0;
+}
+
+int bam_seq_to_bam1(bam_seq_t *bsp, bam1_t *b) {
+    // NB: bam_set1 doesn't work as bam_seq(bsp) is 4-bit encoding while
+    // bam_set1 uses ASCII.
+    if (b->m_data < bsp->blk_size) {
+	b->m_data = bsp->blk_size + 8;
+	uint8_t *n = realloc(b->data, b->m_data);
+	if (!n)
+	    return -1;
+	b->data = n;
+    }
+    b->l_data = bsp->blk_size - 32;
+    b->core.pos = bsp->pos;
+    b->core.mpos = bsp->mate_pos;
+    b->core.isize = bsp->ins_size;
+    b->core.tid = bsp->ref;
+    b->core.l_qname = bsp->name_len;
+    // SADLY this is costly in the main thread
+    b->core.l_extranul = bsp->name_len - (strlen(bam_name(bsp))+1);
+    b->core.qual = bsp->map_qual;
+    b->core.bin = bsp->bin;
+    b->core.n_cigar = bsp->cigar_len;
+    b->core.flag = bsp->flag;
+    b->core.l_qseq = bsp->len;
+    b->core.mtid = bsp->mate_ref;
+    
+    memcpy(b->data, &bsp->data, b->l_data);
+    return 0;
 }
 
 int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
@@ -366,12 +437,23 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
 	}
     }
 
-    return -1;
-//    if (-1 == cram_get_bam_seq(fd->c, bsp)) {
-//	fd->eof = cram_eof(fd->c);
-//	return -1;
-//    }
-//    return 0;
+    // CRAM
+    // TODO: cache
+    bam1_t *b = bam_init1();
+    int ret;
+    if ((ret = sam_read1(fd->c, fd->hdr, b)) < 0) {
+	fd->eof = ret == -1;
+	bam_destroy1(b);
+	return -1;
+    }
+
+    // convert bam1_t to bam_seq
+    ret = bam1_to_bam_seq(b, bsp);
+
+    // TODO: cache
+    bam_destroy1(b);
+
+    return ret;
 }
 
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
@@ -379,10 +461,19 @@ int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
 }
 
 int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
-    return fd->is_bam
-	? bam_put_seq(fd->b, s)
-	: -1;
-//	: cram_put_bam_seq(fd->c, s);
+    if (fd->is_bam)
+	return bam_put_seq(fd->b, s);
+
+    // TODO: cache me in fd
+    bam1_t *b = bam_init1();
+    if (bam_seq_to_bam1(s, b) < 0) {
+	bam_destroy1(b);
+	return -1;
+    }
+    int r = sam_write1(fd->c, fd->hdr, b);
+
+    bam_destroy1(b);
+    return r;
 }
 
 int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
@@ -393,53 +484,57 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 
     if (opt == CRAM_OPT_THREAD_POOL) {
 	t_pool *p = va_arg(args, t_pool *);
-	if (fd->is_bam)
+	if (fd->is_bam) {
 	    return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, p);
-	else
-	    return -1;
-//	    return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, p);
+	} else {
+	    htsThreadPool tp = {
+		.pool = p,
+		.qsize = hts_tpool_size(p)*2
+	    };
+	    return hts_set_thread_pool(fd->c, &tp);
+	}
     } else if (opt == CRAM_OPT_NTHREADS) {
 	int nthreads = va_arg(args, int);
 	if (nthreads > 1) {
-	    if (!(fd->pool = t_pool_init(nthreads*2, nthreads)))
-		return -1;
+	    if (fd->is_bam) {
+		if (!(fd->pool = t_pool_init(nthreads*2, nthreads)))
+		    return -1;
 
-	    if (fd->is_bam)
 		return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, fd->pool);
-	    else
-		return -1;
-//		return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, fd->pool);
+	    } else {
+		return hts_set_threads(fd->c, nthreads);
+	    }
 	} else {
 	    fd->pool = NULL;
 	    return 0;
 	}
-    } else if (opt == CRAM_OPT_BINNING) {
-	int bin = va_arg(args, int);
-
-	return fd->is_bam
-	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
-	    : -1;
+//    // unsupported in HTSlib
+//    } else if (opt == CRAM_OPT_BINNING) {
+//	int bin = va_arg(args, int);
+//
+//	return fd->is_bam
+//	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
 //	    : cram_set_option(fd->c, CRAM_OPT_BINNING, bin);
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
 
 	return fd->is_bam
-	    ? bam_set_option (fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
-	    : -1;
-//	    : cram_set_option(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
+	    ? bam_set_option(fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
+	    : hts_set_opt(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
     } else if (opt == CRAM_OPT_WITH_BGZIP_INDEX) {
-        gzi *idx = va_arg(args, gzi *);
+        bgzi *idx = va_arg(args, bgzi *);
         if (fd->is_bam)
-	    return bam_set_option (fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
+	    return bam_set_option(fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
     } else if (opt == CRAM_OPT_OUTPUT_BGZIP_IDX) {
         char *idx_fn = va_arg(args, char *);
         if (fd->is_bam)
-	    return bam_set_option (fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
+	    return bam_set_option(fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
+    } else if (opt == CRAM_OPT_EMBED_CONS) {
+	return hts_set_opt(fd->c, CRAM_OPT_EMBED_REF, 2);
     }
 
     if (!fd->is_bam) {
-	//r = cram_set_voption(fd->c, opt, args);
-	r = -1;
+	r = cram_set_voption(fd->c->fp.cram, opt, args);
     }
 
     va_end(args);

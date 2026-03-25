@@ -192,6 +192,14 @@ AC_CHECK_FUNCS(strdup)
 dnl AC_CHECK_FUNCS(mktime strspn strstr strtol)
 AC_CHECK_FUNCS(fsync)
 
+AX_WITH_HTSLIB
+if test "$ax_cv_htslib" != yes; then
+  AC_MSG_ERROR([HTSlib development files not found.])
+fi
+CPPFLAGS="$CPPFLAGS $HTSLIB_CPPFLAGS"
+LDFLAGS="$LDFLAGS $HTSLIB_LDFLAGS"
+LIBS="$LIBS -lhts"
+
 AC_SUBST([SET_STDIO_EXT])
 AC_SUBST([IOLIB_VERSION])
 AC_SUBST([IOLIB_VERSION_MAJOR])
@@ -205,16 +213,13 @@ echo
 echo "--------------------------------------------------"
 echo CONFIGURE SUMMARY
 echo "--------------------------------------------------"
-echo Bzip2 enabled: $enable_bz2
-echo lzma enabled: $enable_lzma
-echo custom-buffering enabled: $custombuffering
 echo Using own crc: $own_crc
-echo Libcurl enabled: $have_curl
 echo Libdeflate enabled: $ac_libdeflate_with
-echo have libbsc: $ac_cv_lib_bsc_bsc_compress
-echo Have zstd: $zstd_ok
+echo "Using HTSlib: $HTSDIR"
+
 echo
-echo CC: $CC
-echo CFLAGS: $CFLAGS
-echo LDFLAGS: $LDFLAGS
-echo LIBS: $LIBS
+echo "CC:       $CC"
+echo "CFLAGS:   $CFLAGS"
+echo "CPPFLAGS: $CPPFLAGS"
+echo "LDFLAGS:  $LDFLAGS"
+echo "LIBS:     $LIBS"

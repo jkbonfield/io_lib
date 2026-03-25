@@ -52,6 +52,31 @@
 #ifndef _THREAD_POOL_H_
 #define _THREAD_POOL_H_
 
+// Convert hts thread pool to io_lib nomenclature.
+// This is an easy one to one mapping as htslib's implementation started
+// off here in io_lib.
+#include <htslib/thread_pool.h>
+typedef hts_tpool t_pool;
+typedef hts_tpool_process t_results_queue;
+typedef hts_tpool_result t_pool_result;
+
+#define t_pool_init(q,t)             hts_tpool_init((t))
+#define t_pool_dispatch              hts_tpool_dispatch
+#define t_pool_dispatch2             hts_tpool_dispatch2
+#define t_pool_flush                 hts_tpool_process_flush
+#define t_pool_next_result           hts_tpool_next_result
+#define t_pool_next_result_wait      hts_tpool_next_result_wait
+#define t_pool_delete_result         hts_tpool_delete_result
+#define t_pool_destroy(p,k)          hts_tpool_destroy((p))
+#define t_pool_results_queue_empty   hts_tpool_process_empty
+#define t_pool_delete_result         hts_tpool_delete_result
+#define t_results_queue_init         hts_tpool_process_init
+#define t_results_queue_destroy      hts_tpool_process_destroy
+#define t_pool_results_queue_empty   hts_tpool_process_empty
+#define t_pool_results_queue_len     hts_tpool_process_len
+#define t_pool_results_queue_sz      hts_tpool_process_sz
+
+#if 0
 #include <pthread.h>
 
 struct t_pool;
@@ -211,5 +236,6 @@ int t_pool_results_queue_len(t_results_queue *q);
  * Returns the number of completed jobs plus the number queued up to run.
  */
 int t_pool_results_queue_sz(t_results_queue *q);
+#endif
 
 #endif /* _THREAD_POOL_H_ */
