@@ -79,7 +79,10 @@ extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 #define CRAM_OPT_PROFILE           HTS_OPT_PROFILE
 
 
-/*! The primary file handle for reading and writing. */
+/*! The primary file handle for reading and writing.
+ *
+ * Please consider this to be private.
+ */
 typedef struct {
     int is_bam;
     int eof;
@@ -96,6 +99,7 @@ typedef struct {
     FILE *fp;   // copy of file handle.
 
     t_pool *pool;
+    bam1_t *bc;
 } scram_fd;
 
 /*

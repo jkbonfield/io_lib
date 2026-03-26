@@ -306,6 +306,9 @@ int scram_close(scram_fd *fd) {
     if (fd->hdr)
 	sam_hdr_destroy(fd->hdr);
 
+    if (fd->bc)
+	bam_destroy1(fd->bc);
+
     free(fd);
     return r;
 }
@@ -438,22 +441,16 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
     }
 
     // CRAM
-    // TODO: cache
-    bam1_t *b = bam_init1();
+    if (!fd->bc)
+	fd->bc = bam_init1();
     int ret;
-    if ((ret = sam_read1(fd->c, fd->hdr, b)) < 0) {
+    if ((ret = sam_read1(fd->c, fd->hdr, fd->bc)) < 0) {
 	fd->eof = ret == -1;
-	bam_destroy1(b);
 	return -1;
     }
 
     // convert bam1_t to bam_seq
-    ret = bam1_to_bam_seq(b, bsp);
-
-    // TODO: cache
-    bam_destroy1(b);
-
-    return ret;
+    return bam1_to_bam_seq(fd->bc, bsp);
 }
 
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
@@ -464,16 +461,11 @@ int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
     if (fd->is_bam)
 	return bam_put_seq(fd->b, s);
 
-    // TODO: cache me in fd
-    bam1_t *b = bam_init1();
-    if (bam_seq_to_bam1(s, b) < 0) {
-	bam_destroy1(b);
+    if (!fd->bc)
+	fd->bc = bam_init1();
+    if (bam_seq_to_bam1(s, fd->bc) < 0)
 	return -1;
-    }
-    int r = sam_write1(fd->c, fd->hdr, b);
-
-    bam_destroy1(b);
-    return r;
+    return sam_write1(fd->c, fd->hdr, fd->bc);
 }
 
 int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {

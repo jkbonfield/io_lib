@@ -657,7 +657,6 @@ int bam_close(bam_file_t *b) {
 	 * abort in-flight jobs connected to this specific results queue.
 	 */
 	//fprintf(stderr, "BAM: Draining pool\n");
-	//t_pool_flush(b->pool);
 	t_pool_flush(b->equeue);
     }
 
