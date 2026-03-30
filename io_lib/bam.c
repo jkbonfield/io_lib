@@ -3520,8 +3520,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	} while(0)
 
 	/* QNAME */
-	// strlen(bam_name(b)) instead
-	if (end - fp->uncomp_p < (sz = strlen(bam_name(b)))+1)
+	// NB bam_name_len may have extra padding, but is good worst case.
+	//if (end - fp->uncomp_p < (sz = strlen(bam_name(b)))+1)
+	if (end - fp->uncomp_p < (sz = bam_name_len(b)))
 	    BF_FLUSH();
 	if (bam_name(b) - (char *)b + sz >
 	    b->blk_size + offsetof(bam_seq_t, ref)) {
@@ -3529,6 +3530,9 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	    return -1;
 	}
 	memcpy(fp->uncomp_p, bam_name(b), sz); fp->uncomp_p += sz;
+	// We may have copied too many nuls.
+	while (fp->uncomp_p[-2] == 0)
+	    fp->uncomp_p--;
 	*fp->uncomp_p++ = '\t';
 
 	/* FLAG */
