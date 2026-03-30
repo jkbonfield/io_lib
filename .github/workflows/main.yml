@@ -13,9 +13,7 @@ jobs:
     - name: deps
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-suggests --no-install-recommends zlib1g-dev libbz2-dev liblzma-dev libdeflate-dev
-    - name: submodule
-      run: git submodule update --init
+        sudo apt-get install -y --no-install-suggests --no-install-recommends zlib1g-dev libhts-dev libdeflate-dev
     - name: configure
       run: ./bootstrap; ./configure; # CC="gcc -fsanitize=address"
     - name: make
@@ -34,9 +32,7 @@ jobs:
     - name: Update Homebrew packages
       run: |
         brew update --auto-update
-        brew install --overwrite autoconf automake libtool xz
-    - name: submodule
-      run: git submodule update --init
+        brew install --overwrite autoconf automake libtool htslib libdeflate
     - name: configure
       run: ./bootstrap; ./configure CPPFLAGS=-I/opt/homebrew/include
     - name: make
