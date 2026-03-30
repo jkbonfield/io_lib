@@ -10,15 +10,6 @@ AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([serial-tests])
 AM_MAINTAINER_MODE
 
-# Htscodec subdirectory.
-#
-# For simplicity, we use --disable-shared and --with-pic here so we can
-# compile these directly into libstaden-read itself.
-
-dnl AC_CONFIG_SUBDIRS([htscodecs])
-AX_SUBDIRS_CONFIGURE([htscodecs],[[--disable-shared],[--with-pic]])
-
-
 # For my own benefit, here's a summary of how versioning should work.
 #
 # Library versioning, not to be confused with the release number:
@@ -214,6 +205,7 @@ echo "--------------------------------------------------"
 echo CONFIGURE SUMMARY
 echo "--------------------------------------------------"
 echo Using own crc: $own_crc
+echo Libcurl enabled: $have_curl
 echo Libdeflate enabled: $ac_libdeflate_with
 echo "Using HTSlib: $HTSDIR"
 

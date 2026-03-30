@@ -58,7 +58,7 @@ TESTS                   = \
 cram_io_test_SOURCES = cram_io_test.c
 cram_io_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
-AM_CPPFLAGS= -I${top_srcdir} -I${top_srcdir}/htscodecs
+AM_CPPFLAGS= -I${top_srcdir}
 
 # Scram and scram_mt are the same input and output,
 # but with different options.  Hence they clash and cannot run

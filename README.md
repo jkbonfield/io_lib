@@ -32,6 +32,14 @@ too. See the file include/Read.h for the generic 'Read' structure.
 See the CHANGES for a summary of older updates or git logs for the
 full details.
 
+Branch
+------
+
+Replaced CRAM reading and writing with calls to htslib instead.
+This brings numerous bug fixes, as updating the code in two places has
+been too time consuming.  Note this does have some small API
+incompatibilities however.
+
 
 Version 1.15.1 (14th July 2025)
 --------------

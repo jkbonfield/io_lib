@@ -126,4 +126,4 @@ scram_flagstat_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 scram_test_SOURCES = scram_test.c
 scram_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
 
-AM_CPPFLAGS= -I${top_srcdir} -I${top_srcdir}/htscodecs 
+AM_CPPFLAGS= -I${top_srcdir}
