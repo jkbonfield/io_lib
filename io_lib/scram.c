@@ -547,7 +547,6 @@ int scram_line(scram_fd *fd) {
 	return 0;
 }
 
-
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>
 #endif
@@ -571,4 +570,176 @@ void scram_init(void) {
 #if defined(HAVE_MALLOPT) && defined(M_TRIM_THRESHOLD)
     mallopt(M_TRIM_THRESHOLD, 100000000);
 #endif
+}
+
+
+/* ---------------------------------------------------------------------------
+ * A generalisation of CRAM_IO_CUSTOM_BUFFERING mode, used by libmaus.
+ *
+ * We use htslib's hfile plugin system to register a scramio type, and
+ * then open the file via this new plugin backend.
+ * This permits us to hijack all the read/write calls and call the
+ * CRAM_IO_CUSTOM_BUFFERING function pointers.
+ */
+
+#include "hfile_internal.h"
+
+typedef struct hFILE_scram {
+    hFILE base;
+
+    // CRAM_IO_CUSTOM_BUFFERING compatability
+    // cram_io_{input,output}_t are tables of function pointers, used by
+    // libmause2 to redirect the underlying I/O to read or write to buffers
+    // instead of file streams.  See io_lib/cram.h for the definition.
+
+    cram_io_input_t  *in_callbacks;
+    cram_io_output_t *out_callbacks;
+
+    //cram_io_deallocate_read_input_t  in_deallocate_func;
+    //cram_io_deallocate_read_output_t out_deallocate_func;
+
+    size_t bufsize;
+} hFILE_scram;
+
+static ssize_t scramio_read(hFILE *fpv, void *buffer, size_t nbytes) {
+    hFILE_scram *fp = (hFILE_scram *)fpv;
+    return fp->in_callbacks->fread_callback(buffer, 1, nbytes,
+					    fp->in_callbacks->user_data);
+    //return hread(&fp->base, buffer, nbytes);
+}
+
+static ssize_t scramio_write(hFILE *fpv, const void *buffer, size_t nbytes) {
+    hFILE_scram *fp = (hFILE_scram *)fpv;
+    return fp->out_callbacks->fwrite_callback((void *)buffer, 1, nbytes,
+					      fp->out_callbacks->user_data);
+    //return hwrite(&fp->base, buffer, nbytes);
+}
+
+static off_t scramio_seek(hFILE *fpv, off_t offset, int whence) {
+    hFILE_scram *fp = (hFILE_scram *)fpv;
+    // in or out?  How do I know?  add to struct maybe
+    return fp->in_callbacks->fseek_callback(fp->in_callbacks->user_data,
+					    offset, whence);
+    //return hseek(&fp->base, offset, whence);
+}
+
+// FIXME: no ftell_callback?  It's in cram.h, but htslib lacks it.
+// Let's hope we don't need this!
+// I think it was only used in old io_lib to update buf_start so the tell
+// coord matches seek coord, but I'm not 100% sure.
+
+static int scramio_flush(hFILE *fpv) {
+    return 0;
+    //hFILE_scram *fp = (hFILE_scram *)fpv;
+    //return hflush(&fp->base);
+}
+
+static int scramio_close(hFILE *fpv) {
+    hFILE_scram *fp = (hFILE_scram *)fpv;
+    free(fp);
+    return 0;
+
+    //int ret = hclose(&fp->base);
+    //return ret;
+}
+
+
+static const struct hFILE_backend scramio_backend =
+{
+    scramio_read, scramio_write, scramio_seek, scramio_flush,
+    scramio_close
+};
+
+static hFILE *hopen_scramio(const char *filename, const char *modestr) {
+    // For now, just make this a NOP operation
+    hFILE_scram *fp = calloc(1, sizeof(*fp));
+    if (!fp)
+	return NULL;
+
+    // hfile_init fills out hFILE_scram->base only.  The rest is ours
+    fp = (hFILE_scram *)hfile_init(sizeof(*fp), modestr, 1024*1024);
+    if (!fp) {
+	free(fp);
+	return NULL;
+    }
+    fp->base.backend = &scramio_backend;
+
+    return (hFILE *)fp;
+}
+
+/*
+ * Open CRAM file for reading via callbacks
+ *
+ * Returns scram pointer on success
+ *         NULL on failure
+ */
+scram_fd *scram_open_cram_via_callbacks(
+    char const *filename,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize            
+)
+{
+    scram_fd *fd = calloc(1, sizeof(*fd));
+    if (!fd)
+	return NULL;
+
+    // Register scheme handler.  It doesn't matter if it's done many times
+    hfile_has_plugin("load-me");
+    static const struct hFILE_scheme_handler handler =
+        { hopen_scramio, hfile_always_local, "scramio", 10 };
+    hfile_add_scheme_handler("scramio", &handler);
+
+    // Open the filename with scheme scramio to get an hFILE_scram
+    char fn[1024];
+    snprintf(fn, 1024, "scramio:%s", filename);
+    hFILE *hf = hopen(fn, "r");
+    if (!hf)
+	return NULL;
+
+    // Extend the hFILE with the function callbacks given to us here.
+    hFILE_scram *sio = (hFILE_scram *)hf;
+    sio->in_callbacks = callback_allocate_function(filename, 0);
+    sio->bufsize = bufsize;
+    // TODO: close needs to call callback_deallocate_function, which means we
+    // need to cache this somewhere to call it later.
+    //fd->sio->in_deallocate_func = callback_deallocate_function;
+
+    // Now expand the hFILE into an hts_file.
+    fd->c = hts_hopen(hf, filename, "r");
+
+    fd->is_bam = 0;
+    if (!(fd->hdr = sam_hdr_read(fd->c))) {
+	// FIXME: mem leak
+	fprintf(stderr, "Failed to read header\n");
+	return NULL;
+    }
+
+    return fd;
+}
+
+// Experiment to test scram_open_cram_via_callbacks()
+cram_io_input_t *alloc_read_funcs(const char *fn, const int decompress) {
+    cram_io_input_t *io = malloc(sizeof(*io));
+    if (!io)
+	return NULL;
+    io->user_data = (void *)fopen(fn, "r");
+    io->fread_callback  = (cram_io_C_FILE_fread_t)fread;
+    io->fseek_callback  = (cram_io_C_FILE_fseek_t)fseeko;
+    io->ftell_callback  = (cram_io_C_FILE_ftell_t)ftello;
+
+    return io;
+}
+
+cram_io_input_t *free_read_funcs(cram_io_input_t *io) {
+    fclose((FILE *)io->user_data);
+    free(io);
+    return NULL;
+}
+
+scram_fd *scram_open_(const char *filename, const char *mode) {
+    return scram_open_cram_via_callbacks(filename,
+					 alloc_read_funcs,
+					 free_read_funcs,
+					 1024*1024);
 }

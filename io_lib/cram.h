@@ -59,4 +59,63 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define SLICE_PER_CNT  1
 #define CRAM_OPT_PROFILE HTS_OPT_PROFILE
 
+/* ---------------------------------------------------------------------------
+ * CRAM_IO_CUSTOM_BUFFERING mode, used by libmaus
+ */
+
+typedef size_t (*cram_io_C_FILE_fread_t)(void *ptr, size_t size, size_t nmemb, void *stream);
+typedef size_t (*cram_io_C_FILE_fwrite_t)(void *ptr, size_t size, size_t nmemb, void *stream);
+typedef int    (*cram_io_C_FILE_fseek_t)(void * fd, off_t offset, int whence);
+typedef off_t  (*cram_io_C_FILE_ftell_t)(void * fd);
+
+typedef struct {
+    void                   *user_data;
+    cram_io_C_FILE_fread_t  fread_callback;
+    cram_io_C_FILE_fseek_t  fseek_callback;
+    cram_io_C_FILE_ftell_t  ftell_callback;
+} cram_io_input_t;
+
+typedef struct {
+    void                   *user_data;
+    cram_io_C_FILE_fwrite_t fwrite_callback;
+    cram_io_C_FILE_ftell_t  ftell_callback;
+} cram_io_output_t;
+
+typedef cram_io_input_t * (*cram_io_allocate_read_input_t)(char const * filename, int const decompress);
+typedef cram_io_input_t * (*cram_io_deallocate_read_input_t)(cram_io_input_t * obj);
+
+typedef cram_io_output_t * (*cram_io_allocate_write_output_t)(char const * filename);
+typedef cram_io_output_t * (*cram_io_deallocate_write_output_t)(cram_io_output_t * obj);
+
+//typedef struct {
+//    /* input buffer size */
+//    size_t         fp_in_buf_size;
+//    /* input buffer base pointer */
+//    char          *fp_in_buffer;
+//    /* position of buffer start in file */
+//    uint64_t       fp_in_buf_start;
+//    /* start of window pointer; same as fp_in_buffer */
+//    char          *fp_in_buf_pa;
+//    /* window current pointer */
+//    char          *fp_in_buf_pc;
+//    /* window end pointer;  same as fp_in_buffer + fp_in_buf_size (no seeks) */
+//    char          *fp_in_buf_pe;    
+//} cram_fd_input_buffer;
+//
+//typedef struct {
+//    /* output buffer size */
+//    size_t         fp_out_buf_size;
+//    /* output buffer base pointer */
+//    char          *fp_out_buffer;
+//    /* position of buffer start in file */
+//    uint64_t       fp_out_buf_start;
+//    /* start of window pointer; same as fp_out_buffer */
+//    char          *fp_out_buf_pa;
+//    /* window current pointer */
+//    char          *fp_out_buf_pc;
+//    /* window end pointer */
+//    char          *fp_out_buf_pe;    
+//} cram_fd_output_buffer;
+
+
 #endif

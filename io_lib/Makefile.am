@@ -112,6 +112,7 @@ libstaden_read_la_SOURCES = \
 	crc32.h \
 	scram.c \
 	scram.h \
+	hfile_internal.h \
 	thread_pool.c \
 	thread_pool.h \
 	binning.h \

@@ -79,6 +79,8 @@ extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 #define CRAM_OPT_PROFILE           HTS_OPT_PROFILE
 
 
+typedef struct hFILE_scram hFILE_scram;
+
 /*! The primary file handle for reading and writing.
  *
  * Please consider this to be private.
@@ -89,6 +91,7 @@ typedef struct {
     union {
 	bam_file_t *b;
         samFile *c;
+        hFILE_scram *sio;
     };
     sam_hdr_t *hdr;
 
@@ -152,6 +155,7 @@ typedef struct {
  *         NULL on failure
  */
 scram_fd *scram_open(const char *filename, const char *mode);
+scram_fd *scram_open_(const char *filename, const char *mode);
 
 #if defined(CRAM_IO_CUSTOM_BUFFERING)
 /*
@@ -305,6 +309,19 @@ int scram_line(scram_fd *fd);
  * unless it is a larger amount.
  */
 void scram_init(void);
+
+/*
+ * Open CRAM file for reading via callbacks
+ *
+ * Returns scram pointer on success
+ *         NULL on failure
+ */
+scram_fd *scram_open_cram_via_callbacks(
+    char const * filename,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize            
+);
 
 /*! Loads a reference and attaches it to a cram filehandle
  *
