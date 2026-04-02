@@ -60,12 +60,10 @@
 #include "io_lib_config.h"
 #endif
 
+#include <pthread.h>
+
 #include "io_lib/os.h"
-
-#if !defined(CRAM_IO_CUSTOM_BUFFERING)
-// not used
-#else
-
+#include "io_lib/scram.h"
 #include "io_lib/cram_bambam.h"
 
 //-----------------------------------------------------------------------------
@@ -78,12 +76,29 @@
 // (for the CRAM container header) and our CRAM in-memory file
 // descriptor.
 typedef struct {
-    cram_fd *fd;
-    void *userdata; // supplied by caller, pass back into write_func
+    sam_hdr_t *hdr;
     cram_data_write_function_t write_func;
+    void *userdata; // supplied by caller, pass back into write_func
+    cram_fd *fd;     // used only for setting options
     size_t num_records;
     pthread_mutex_t context_lock; // a lock for manipulating this struct
     pthread_mutex_t header_lock;  // a lock on fd->header
+
+//int libmaus2_bambam_scram_cram_set_cram_profile(void * context, char const * profile) {
+//        cram_fd * fd = cram_encoder_get_fd(context);
+//        return cram_set_option(fd, CRAM_OPT_PROFILE, profile);
+//}
+//
+// The code is assuming we can set this once and maintain it by duplicating
+// the cram_fd, but we want to reset all these options.
+// Instead we use cram_get_option to interrogate and replay them.
+
+
+
+//    cram_fd *fd;
+//    cram_data_write_function_t write_func;
+//    size_t num_records;
+//    pthread_mutex_t header_lock;  // a lock on fd->header
 } cram_enc_context;
 
 // A work package is a series of BAM blocks for conversion to CRAM
@@ -173,27 +188,48 @@ void *cram_allocate_encoder(void *userdata,
 			    char const *sam_header,
 			    size_t const sam_headerlength,
 			    cram_data_write_function_t write_func) {
-    cram_fd *fd = NULL;
+    cram_enc_context *c = malloc(sizeof(*c));
+    c->hdr = sam_hdr_parse(sam_headerlength, sam_header);
+    if (!c->hdr) {
+	free(c);
+	return NULL;
+    }
+
+    c->userdata = userdata;
+    c->write_func = write_func;
+
+    // Create a cram_fd purely to enable us to set options on.
+    // Eg libmaus2_bambam_scram_cram_set_cram_profile uses
+    // cram_set_option(cram_encoder_get_fd(context), CRAM_OPT_PROFILEE, ?)
+    c->fd = cram_open("mem:x", "w");
+
+    pthread_mutex_init(&c->context_lock, NULL);
+    pthread_mutex_init(&c->header_lock, NULL);
+
+    return c;
+
+#if 0
+    scram_fd *fd = NULL;
     SAM_hdr *hdr = NULL;
     cram_enc_context *c = malloc(sizeof(*c));
 
     if (!c)
 	goto err;
 
-    if (!(hdr = sam_hdr_parse(sam_header, sam_headerlength)))
+    if (!(hdr = sam_hdr_parse(sam_headerlength, sam_header)))
 	goto err;
 
-    fd = cram_openw_by_callbacks(NULL,
-				 cram_callback_allocate_func,
-				 cram_callback_deallocate_func,
-				 1024*1024);
+    fd = scram_openw_cram_via_callbacks(NULL,
+					cram_callback_allocate_func,
+					cram_callback_deallocate_func,
+					1024*1024);
     if (!fd)
 	goto err;
 
     //fd->inblockid = 0;
     //fd->outblockid = 0;
 
-    fd->header = hdr;
+    fd->hdr = hdr;
     sam_hdr_incr_ref(hdr);
     if (cram_write_SAM_hdr(fd, hdr) != 0)
 	goto err;
@@ -236,10 +272,19 @@ void *cram_allocate_encoder(void *userdata,
     if (hdr)
 	sam_hdr_free(hdr);
 
+#endif
     return NULL;
 }
 
 void cram_deallocate_encoder(void *context) {
+    cram_enc_context *c = (cram_enc_context *)context;
+    sam_hdr_free(c->hdr);
+    cram_close(c->fd);
+    pthread_mutex_destroy(&c->context_lock);
+    pthread_mutex_destroy(&c->header_lock);
+    free(c);
+
+#if 0
     cram_enc_context *c = (cram_enc_context *)context;
     cram_fd *fd;
 
@@ -265,6 +310,7 @@ void cram_deallocate_encoder(void *context) {
 	cram_close(fd);
 
     free(c);
+#endif
 }
 
 
@@ -349,53 +395,53 @@ int cram_enque_compression_block(
     return 0;
 }
 
-static cram_fd *cram_dup_fd(cram_fd *orig) {
-    int bufsize = 65536; // FIXME
-    cram_fd *fd = malloc(sizeof(*fd));
-
-    if (!fd)
-	return NULL;
-
-    memcpy(fd, orig, sizeof(*fd));
-    fd->ctr = NULL;
-
-    fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
-    fd->fp_out_callbacks = cram_callback_allocate_func(NULL);
-
-    fd->fp_out = NULL;
-
-    return fd;
-}
-
-static void cram_dup_close(cram_fd *fd) {
-    spare_bams *bl, *next;
-
-    if (!fd)
-	return;
-
-    if (fd->fp_out_buffer)
-	cram_io_deallocate_output_buffer(fd->fp_out_buffer);
-
-    if (fd->fp_out_callbacks)
-	cram_callback_deallocate_func(fd->fp_out_callbacks);
-
-    for (bl = fd->bl; bl; bl = next) {
-	int i, max_rec = fd->seqs_per_slice * fd->slices_per_container;
-
-	next = bl->next;
-	for (i = 0; i < max_rec; i++) {
-	    if (bl->bams[i])
-		free(bl->bams[i]);
-	}
-	free(bl->bams);
-	free(bl);
-    }
-
-    if (fd->ctr)
-	cram_free_container(fd->ctr);
-
-    free(fd);
-}
+//static cram_fd *cram_dup_fd(cram_fd *orig) {
+//    int bufsize = 65536; // FIXME
+//    cram_fd *fd = malloc(sizeof(*fd));
+//
+//    if (!fd)
+//	return NULL;
+//
+//    memcpy(fd, orig, sizeof(*fd));
+//    fd->ctr = NULL;
+//
+//    fd->fp_out_buffer = cram_io_allocate_output_buffer(bufsize);
+//    fd->fp_out_callbacks = cram_callback_allocate_func(NULL);
+//
+//    fd->fp_out = NULL;
+//
+//    return fd;
+//}
+//
+//static void cram_dup_close(cram_fd *fd) {
+//    spare_bams *bl, *next;
+//
+//    if (!fd)
+//	return;
+//
+//    if (fd->fp_out_buffer)
+//	cram_io_deallocate_output_buffer(fd->fp_out_buffer);
+//
+//    if (fd->fp_out_callbacks)
+//	cram_callback_deallocate_func(fd->fp_out_callbacks);
+//
+//    for (bl = fd->bl; bl; bl = next) {
+//	int i, max_rec = fd->seqs_per_slice * fd->slices_per_container;
+//
+//	next = bl->next;
+//	for (i = 0; i < max_rec; i++) {
+//	    if (bl->bams[i])
+//		free(bl->bams[i]);
+//	}
+//	free(bl->bams);
+//	free(bl);
+//    }
+//
+//    if (fd->ctr)
+//	cram_free_container(fd->ctr);
+//
+//    free(fd);
+//}
 
 
 /**
@@ -410,7 +456,6 @@ static void cram_dup_close(cram_fd *fd) {
 int cram_process_work_package(void *workpackage) {
     cram_enc_work_package *pkg = (cram_enc_work_package *)workpackage;
     cram_enc_context *c;
-    cram_fd *fd;
     size_t bnum;
 
     if (!pkg)
@@ -419,6 +464,85 @@ int cram_process_work_package(void *workpackage) {
     if (!(c = pkg->context))
 	return -1;
 
+    // Our package task is turning a block of BAM records into a block
+    // of CRAM records.  This is essentially a bam-read cram-write loop.
+
+    // We reopen a new file handle for each block, so it's independent and
+    // thread safe.  However these filehandles are essentially backed by
+    // memory write rather than real I/O so this isn't so inefficient.
+    // We need to set the cram header so the write can work, but this
+    // doesn't write the header. (We need a series of naked cram blocks
+    // that we can stitch together.)
+    scram_fd *fd = scram_open("scramio:mem", "w");
+    // FIXME: set the output buffer pointers up too
+    // Or use scram_openw_cram_via_callbacks()
+    scram_set_header(fd, c->hdr);
+
+    // Copy the compression options from c->fd;
+    // FIXME: using internals of htsFile is wrong?
+    cram_fd *cfd = fd->c->fp.cram;
+    int opts[] = {
+	CRAM_OPT_PROFILE,
+	CRAM_OPT_SEQS_PER_SLICE,
+	CRAM_OPT_BASES_PER_SLICE,
+	CRAM_OPT_VERSION
+    };
+    for (int i = 0; i < sizeof(opts)/sizeof(*opts); i++) {
+	switch(opts[i]) {
+	case CRAM_OPT_VERSION: {
+	    // TODO: use cram_get_option_str.
+	    char vers[100];
+	    int v = cram_get_option_int(cfd, opts[i]);
+	    sprintf(vers, "%d.%d", v>>8, v&0xff);
+	    break;
+	}
+
+	default:
+	    // FIXME: use hts_set_option on fd instead of cfd
+	    cram_set_option(cfd, opts[i], cram_get_option_int(cfd, opts[i]));
+	}
+    }
+	
+    // We create a fake bam_file_t containing the entire BAM block and
+    // then use the standard bam_get_seq() API to iterate over
+    // sequences within the BAM block.
+    for (bnum = 0; bnum < pkg->num_blocks; bnum++) {
+	bam_file_t *bf;
+	bam_seq_t *bsp = NULL;
+
+	pthread_mutex_lock(&c->header_lock);
+	bf = bam_open_block(pkg->block[bnum],
+			    pkg->blocksize[bnum],
+			    c->hdr);
+	pthread_mutex_unlock(&c->header_lock);
+	if (!bf)
+	    return -1;
+
+	while (bam_get_seq(bf, &bsp)) {
+	    if (scram_put_seq(fd, bsp) != 0) {
+		fprintf(stderr, "Failed to write CRAM record\n");
+		pthread_mutex_lock(&c->header_lock);
+		bam_close(bf);
+		pthread_mutex_unlock(&c->header_lock);
+		scram_close(fd);
+		return -1;
+	    }
+	}
+
+	pthread_mutex_lock(&c->header_lock);
+	bam_close(bf);
+	pthread_mutex_unlock(&c->header_lock);
+
+	if (bsp)
+	    free(bsp);
+    }
+
+    scram_close(fd);
+
+    free(pkg);
+    return 0;
+
+#if 0
     // Each work package can be running in a separate thread, so we
     // need to make sure writing to CRAM isn't clobbering over shared
     // memory.
@@ -507,6 +631,7 @@ int cram_process_work_package(void *workpackage) {
     cram_dup_close(fd);
 
     return 0;
+#endif
 }
 
 cram_fd * cram_encoder_get_fd(void *p)
@@ -514,4 +639,71 @@ cram_fd * cram_encoder_get_fd(void *p)
     cram_enc_context * context = (cram_enc_context *)p;
     return context->fd;
 }
-#endif // #if defined(CRAM_IO_CUSTOM_BUFFERING)
+
+/*
+ * Loads a CRAM .crai index into memory.
+ *
+ * Returns 0 for success
+ *        -1 for failure
+ */
+int cram_index_load_via_callbacks(
+    cram_fd *fd, char const *fn,
+    cram_io_allocate_read_input_t   callback_allocate_function,
+    cram_io_deallocate_read_input_t callback_deallocate_function        
+) {
+    // Unknown currently whether this really does need to have the io
+    // redirection / buffering.
+    // Or maybe it'll just load automatically on CRAM_OPT_RANGE query?
+    // (Sadly I think not.)
+
+#if 1
+    // We may simply be able to load direct onto the cram_fd supplied.
+    htsFile hf;
+    hf.format.format = cram;
+    hf.fp.cram = fd;
+    hts_idx_t *idx = sam_index_load(&hf, fn);
+    if (!idx)
+	return -1;
+
+    free(idx);
+    return 0;
+#endif
+
+#if 0
+    cram_fd * input = NULL;
+    int r = -1;
+    static char const * indexsuffix = ".crai";
+    char * indexfn = NULL;
+    size_t const fnsize = strlen(fn);
+    size_t const suffixsize = strlen(indexsuffix);
+    size_t const indexfnsize = fnsize+suffixsize+1;
+    
+    if ( !(indexfn = (char *)malloc(indexfnsize)) ) {
+        r = -1;
+        goto cleanup;
+    }
+    
+    memcpy(indexfn,       fn,         fnsize);
+    memcpy(indexfn+fnsize,indexsuffix,suffixsize);
+    indexfn[fnsize+suffixsize] = 0;
+    
+    if ( ! (input = cram_io_open_by_callbacks(indexfn,callback_allocate_function,callback_deallocate_function,32*1024,1/* decompress */)) ) {
+        r = -1;
+        goto cleanup;
+    }
+
+    r = cram_index_load_private(fd,input,cram_io_input_buffer_fgets_func);
+    
+    cleanup:
+    if ( input ) {
+        cram_io_close(input,NULL);
+        input = NULL;
+    }
+    if ( indexfn ) {
+        free(indexfn);
+        indexfn = NULL;
+    }
+    
+    return r;
+#endif
+}

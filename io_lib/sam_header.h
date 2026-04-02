@@ -59,7 +59,7 @@ extern "C" {
 typedef sam_hdr_t       SAM_hdr;
 
 #define sam_hdr_add      sam_hdr_add_line
-#define sam_hdr_free     sam_hdr_destroy
+//#define sam_hdr_free     sam_hdr_destroy
 #define sam_hdr_name2ref sam_hdr_name2tid
 #define sam_hdr_add_PG   sam_hdr_add_pg
 

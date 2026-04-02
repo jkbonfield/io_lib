@@ -486,7 +486,7 @@ int main(int argc, char **argv) {
     if (argc - optind > 0) {
 	if (*in_f == 0)
 	    sprintf(imode, "r%s%c", detect_format(argv[optind]), level);
-	if (!(in = scram_open_(argv[optind], imode))) {
+	if (!(in = scram_open(argv[optind], imode))) {
 	    fprintf(stderr, "Failed to open file %s\n", argv[optind]);
 	    return 1;
 	}

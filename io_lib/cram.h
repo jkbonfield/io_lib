@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "bam.h"
 #include "sam_header.h"
+#include <htslib/cram.h>
 
 //#ifdef WITH_CRAM
 //#else

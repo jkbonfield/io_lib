@@ -51,8 +51,8 @@ extern "C" {
 
 // conflicts
 //#include <htslib/cram.h>
-typedef struct cram_fd cram_fd;
-typedef void refs_t;
+//typedef struct cram_fd cram_fd;
+//typedef void refs_t;
 extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 
 // It turns off BAM CRC checks too in io_lib's original, plus ignoring
@@ -87,11 +87,12 @@ typedef struct hFILE_scram hFILE_scram;
  */
 typedef struct {
     int is_bam;
+    // else is hFILE_scram
+
     int eof;
     union {
 	bam_file_t *b;
         samFile *c;
-        hFILE_scram *sio;
     };
     sam_hdr_t *hdr;
 
@@ -310,16 +311,19 @@ int scram_line(scram_fd *fd);
  */
 void scram_init(void);
 
-/*
- * Open CRAM file for reading via callbacks
- *
- * Returns scram pointer on success
- *         NULL on failure
- */
+// DOES NOT NEED TO BE EXTERNAL
 scram_fd *scram_open_cram_via_callbacks(
     char const * filename,
     cram_io_allocate_read_input_t   callback_allocate_function,
     cram_io_deallocate_read_input_t callback_deallocate_function,
+    size_t const bufsize            
+);
+
+// DOES NOT NEED TO BE EXTERNAL
+scram_fd *scram_openw_cram_via_callbacks(
+    char const *filename,
+    cram_io_allocate_write_output_t   callback_allocate_function,
+    cram_io_deallocate_write_output_t callback_deallocate_function,
     size_t const bufsize            
 );
 
@@ -332,7 +336,7 @@ static inline int cram_load_reference(void *fd, const char *ref) {
     return hts_set_fai_filename((samFile *)fd, ref);
 }
 
-#define cram_set_option(f,o, ...) hts_set_opt((f), (o), __VA_ARGS__)
+//#define cram_set_option(f,o, ...) hts_set_opt((f), (o), __VA_ARGS__)
 
 #ifdef __cplusplus
 }
