@@ -61,6 +61,7 @@
 #include "io_lib/thread_pool.h"
 #include "io_lib/crc32.h"
 #include "io_lib/bgzip.h"
+#include "io_lib/sam_header.h"
 
 // On later gcc releases the ALLOW_UAC code causes the vectorizor to
 // use aligned SIMD instructions on unaligned memory access.  This is due
@@ -323,7 +324,7 @@ static int load_bam_header(bam_file_t *b) {
     if (header_len != bam_read(b, header, header_len))
 	return -1;
 
-    if (!(b->header = sam_hdr_parse(header_len, header)))
+    if (!(b->header = sam_hdr_convert(sam_hdr_parse(header, header_len))))
 	return -1;
     free(header);
 
@@ -331,7 +332,7 @@ static int load_bam_header(bam_file_t *b) {
     if (4 != bam_read(b, &nref, 4))
 	return -1;
     nref = le_int4(nref);
-    if (sam_hdr_nref(b->header) != nref && sam_hdr_nref(b->header)) {
+    if (sam_hdr_nref(b->header->hdr) != nref && sam_hdr_nref(b->header->hdr)) {
 	fprintf(stderr, "Error: @RG lines are at odds with "
 		"binary encoded reference data\n");
 	return -1;
@@ -356,7 +357,7 @@ static int load_bam_header(bam_file_t *b) {
 	    return -1;
 	len = le_int4(len);
 
-	const char *rname = sam_hdr_tid2name(b->header, i);
+	const char *rname = sam_hdr_tid2name(b->header->hdr, i);
 	if (rname) {
 	    if (strcmp(rname, name)) {
 		fprintf(stderr, "Error: @SQ lines are at odds with "
@@ -364,7 +365,7 @@ static int load_bam_header(bam_file_t *b) {
 		return -1;
 	    }
 
-	    if (sam_hdr_tid2len(b->header, i) != len) {
+	    if (sam_hdr_tid2len(b->header->hdr, i) != len) {
 		fprintf(stderr, "Error: @SQ lines are at odds with "
 			"binary encoded reference data\n");
 		return -1;
@@ -372,7 +373,7 @@ static int load_bam_header(bam_file_t *b) {
 	} else {
 	    char len_c[100];
 	    sprintf(len_c, "%d", len);
-	    if (sam_hdr_add_line(b->header, "SQ", "SN", name, "LN", len_c, NULL)<0)
+	    if (sam_hdr_add_line(b->header->hdr, "SQ", "SN", name, "LN", len_c, NULL)<0)
 		return -1;
 	}
 
@@ -408,8 +409,8 @@ static int load_sam_header(bam_file_t *b) {
     b->line = 0; // FIXME
 
     const char *text = dstring_str(header);
-    if (!(b->header = sam_hdr_parse(dstring_length(header),
-				    text ? text : ""))) {
+    if (!(b->header = sam_hdr_convert(sam_hdr_parse(text ? text : "",
+						    dstring_length(header))))) {
 	fprintf(stderr, "Failed to parse SAM header\n");
 	goto err;
     }
@@ -590,7 +591,7 @@ bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh) {
     b->uncomp_sz = blk_size;
     b->header = sh;
 
-    sam_hdr_incr_ref(sh);
+    sam_hdr_incr_ref(sh->hdr);
 
     return b;
 }
@@ -629,7 +630,7 @@ int bam_close(bam_file_t *b) {
 	free(b->bs);
 
     if (b->header)
-	sam_hdr_destroy(b->header);
+	sam_hdr_free(b->header);
 
     if (b->gzip)
 	inflateEnd(&b->s);
@@ -1319,13 +1320,14 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	char rname[1024];
 	memcpy(rname, cp, MIN(1023,cpf-cp));
 	rname[MIN(1023,cpf-cp)]=0;
-	bs->ref = sam_hdr_name2tid(b->header, rname);
+	sam_hdr_t *h = b->header->hdr;
+	bs->ref = sam_hdr_name2tid(h, rname);
 	if (bs->ref < 0) {
 	    fprintf(stderr, "Reference seq %.*s unknown\n", (int)(cpf-cp), cp);
 
 	    /* Fabricate it instead */
-	    sam_hdr_add_line(b->header, "SQ", "ID", rname, "LN", 0, NULL);
-	    bs->ref = sam_hdr_name2tid(b->header, rname);
+	    sam_hdr_add_line(h, "SQ", "ID", rname, "LN", 0, NULL);
+	    bs->ref = sam_hdr_name2tid(h, rname);
 	}
     }
     if (!*cpf++) return -1;
@@ -1408,13 +1410,14 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	char mrname[1024];
 	memcpy(mrname, cp, MIN(1023,cpf-cp));
 	mrname[MIN(1023,cpf-cp)]=0;
-	bs->mate_ref = sam_hdr_name2tid(b->header, mrname);
+	sam_hdr_t *h = b->header->hdr;
+	bs->mate_ref = sam_hdr_name2tid(h, mrname);
 	if (bs->mate_ref < 0) {
 	    fprintf(stderr, "Reference seq %.*s unknown\n", (int)(cpf-cp), cp);
 
 	    /* Fabricate it instead */
-	    sam_hdr_add_line(b->header, "SQ", "ID", mrname, "LN", 0, NULL);
-	    bs->mate_ref = sam_hdr_name2tid(b->header, mrname);
+	    sam_hdr_add_line(h, "SQ", "ID", mrname, "LN", 0, NULL);
+	    bs->mate_ref = sam_hdr_name2tid(h, mrname);
 	}
     }
     if (!*cpf++) return -1;
@@ -3541,11 +3544,11 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->uncomp_p++ = '\t';
 
 	/* RNAME */
-	if (b->ref < -1 || b->ref >= sam_hdr_nref(fp->header))
+	if (b->ref < -1 || b->ref >= sam_hdr_nref(fp->header->hdr))
 	    return -1;
 
 	if (b->ref != -1) {
-	    const char *rname = sam_hdr_tid2name(fp->header, b->ref);
+	    const char *rname = sam_hdr_tid2name(fp->header->hdr, b->ref);
 	    size_t l = strlen(rname);
 	    if (end-fp->uncomp_p < l+1) BF_FLUSH();
 	    memcpy(fp->uncomp_p, rname, l);
@@ -3583,7 +3586,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->uncomp_p++='\t';
 
 	/* NRNM */
-	if (b->mate_ref < -1 || b->mate_ref >= sam_hdr_nref(fp->header))
+	if (b->mate_ref < -1 || b->mate_ref >= sam_hdr_nref(fp->header->hdr))
 	    return -1;
 
 	if (b->mate_ref != -1) {
@@ -3591,7 +3594,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		if (end-fp->uncomp_p < 2) BF_FLUSH();
 		*fp->uncomp_p++ = '=';
 	    } else {
-		const char *mrname = sam_hdr_tid2name(fp->header, b->mate_ref);
+		const char *mrname = sam_hdr_tid2name(fp->header->hdr, b->mate_ref);
 		size_t l = strlen(mrname);
 		if (end-fp->uncomp_p < l+1) BF_FLUSH();
 		memcpy(fp->uncomp_p, mrname, l);
@@ -4037,15 +4040,15 @@ int bam_write_header(bam_file_t *out) {
     int i, htext_len;
 
     // Force sam_hdr_rebuild call
-    if (!sam_hdr_str(out->header))
+    if (!sam_hdr_str(out->header->hdr))
 	return -1;
 
-    htext = sam_hdr_str(out->header);
-    htext_len = sam_hdr_length(out->header);
+    htext = sam_hdr_str(out->header->hdr);
+    htext_len = sam_hdr_length(out->header->hdr);
 
     hdr_size = 12 + htext_len+1;
-    for (i = 0; i < sam_hdr_nref(out->header); i++) {
-	hdr_size += strlen(sam_hdr_tid2name(out->header, i))+1 + 8;
+    for (i = 0; i < sam_hdr_nref(out->header->hdr); i++) {
+	hdr_size += strlen(sam_hdr_tid2name(out->header->hdr, i))+1 + 8;
     }
     if (NULL == (hp = header = malloc(hdr_size)))
 	return -1;
@@ -4060,17 +4063,17 @@ int bam_write_header(bam_file_t *out) {
     if (out->binary) {
 	int i;
 
-	STORE_UINT32(hp, sam_hdr_nref(out->header));
+	STORE_UINT32(hp, sam_hdr_nref(out->header->hdr));
 
-	for (i = 0; i < sam_hdr_nref(out->header); i++) {
-	    const char *rname = sam_hdr_tid2name(out->header, i);
+	for (i = 0; i < sam_hdr_nref(out->header->hdr); i++) {
+	    const char *rname = sam_hdr_tid2name(out->header->hdr, i);
 	    size_t l = strlen(rname)+1;
 	    STORE_UINT32(hp, l);
 
 	    strcpy(hp, rname);
 	    hp += l;
 
-	    l = sam_hdr_tid2len(out->header, i);
+	    l = sam_hdr_tid2len(out->header->hdr, i);
 	    STORE_UINT32(hp, l);
 	}
     }

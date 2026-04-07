@@ -766,7 +766,7 @@ static int sam_pileup(void *cd_v, scram_fd *fp, pileup_t *p,
     }
 
     /* Equivalent to the printf below, but faster */
-    const char *rname = sam_hdr_tid2name(scram_get_header(fp), ref);
+    const char *rname = SAM_hdr_tid2name(scram_get_header(fp), ref);
     buf_len = strlen(rname) + 1 // name
 	+ 10 + 1                                              // pos
 	+ 1  + 1                                              // base
@@ -819,7 +819,7 @@ static int basic_pileup(void *cd, scram_fd *fp, pileup_t *p,
 
     /* Ref, pos, depth */
     ref = p->b->ref;
-    rp = (unsigned char *) sam_hdr_tid2name(scram_get_header(fp), ref);
+    rp = (unsigned char *) SAM_hdr_tid2name(scram_get_header(fp), ref);
     while ((*cp++ = *rp++))
 	;
     cp--;
@@ -850,7 +850,7 @@ static int depth_pileup(void *cd, scram_fd *fp, pileup_t *p,
     if (nth)
 	return 0;
 
-    rp = (unsigned char *) sam_hdr_tid2name(scram_get_header(fp), p->b->ref);
+    rp = (unsigned char *) SAM_hdr_tid2name(scram_get_header(fp), p->b->ref);
     while ((*cp++ = *rp++))
 	;
     cp[-1] = '\t';

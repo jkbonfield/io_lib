@@ -1283,5 +1283,4 @@ char *stringify_argv(int argc, char *argv[]) {
 }
 
 #else
-static const char *hstr = "sam_header.c removed";
 #endif

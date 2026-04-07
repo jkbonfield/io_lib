@@ -76,7 +76,7 @@
 // (for the CRAM container header) and our CRAM in-memory file
 // descriptor.
 typedef struct {
-    sam_hdr_t *hdr;
+    SAM_hdr *hdr;
     cram_data_write_function_t write_func;
     void *userdata; // supplied by caller, pass back into write_func
     cram_fd *fd;     // used only for setting options
@@ -144,32 +144,32 @@ size_t cram_mem_write_callback(void *ptr,
     return 0;
 }
 
-static cram_io_output_t *
-cram_callback_allocate_func(char const *filename) {
-    cram_io_output_t *io = malloc(sizeof(*io));
-    dstring_t *ds = dstring_create(NULL);
-
-    if (!io)
-	return NULL;
-
-    io->user_data = ds;
-    io->fwrite_callback = cram_mem_write_callback;
-    //io->ftell_callback = cram_mem_tell_callback;
-    io->ftell_callback = NULL;
-
-    return io;
-}
-
-static cram_io_output_t *
-cram_callback_deallocate_func(cram_io_output_t *io) {
-    if (io) {
-	if (io->user_data)
-	    dstring_destroy(io->user_data);
-	free(io);
-    }
-
-    return NULL;
-}
+//static cram_io_output_t *
+//cram_callback_allocate_func(char const *filename) {
+//    cram_io_output_t *io = malloc(sizeof(*io));
+//    dstring_t *ds = dstring_create(NULL);
+//
+//    if (!io)
+//	return NULL;
+//
+//    io->user_data = ds;
+//    io->fwrite_callback = cram_mem_write_callback;
+//    //io->ftell_callback = cram_mem_tell_callback;
+//    io->ftell_callback = NULL;
+//
+//    return io;
+//}
+//
+//static cram_io_output_t *
+//cram_callback_deallocate_func(cram_io_output_t *io) {
+//    if (io) {
+//	if (io->user_data)
+//	    dstring_destroy(io->user_data);
+//	free(io);
+//    }
+//
+//    return NULL;
+//}
 
 //-----------------------------------------------------------------------------
 // The libmaus threading interface itself.
@@ -189,7 +189,7 @@ void *cram_allocate_encoder(void *userdata,
 			    size_t const sam_headerlength,
 			    cram_data_write_function_t write_func) {
     cram_enc_context *c = malloc(sizeof(*c));
-    c->hdr = sam_hdr_parse(sam_headerlength, sam_header);
+    c->hdr = sam_hdr_convert(sam_hdr_parse(sam_header, sam_headerlength));
     if (!c->hdr) {
 	free(c);
 	return NULL;
@@ -216,7 +216,7 @@ void *cram_allocate_encoder(void *userdata,
     if (!c)
 	goto err;
 
-    if (!(hdr = sam_hdr_parse(sam_headerlength, sam_header)))
+    if (!(hdr = sam_hdr_parse(sam_header, sam_headerlength)))
 	goto err;
 
     fd = scram_openw_cram_via_callbacks(NULL,
@@ -480,7 +480,7 @@ int cram_process_work_package(void *workpackage) {
 
     // Copy the compression options from c->fd;
     // FIXME: using internals of htsFile is wrong?
-    cram_fd *cfd = fd->c->fp.cram;
+    cram_fd *cfd = fd->sc->fp.cram;
     int opts[] = {
 	CRAM_OPT_PROFILE,
 	CRAM_OPT_SEQS_PER_SLICE,
@@ -647,7 +647,7 @@ cram_fd * cram_encoder_get_fd(void *p)
  *        -1 for failure
  */
 int cram_index_load_via_callbacks(
-    cram_fd *fd, char const *fn,
+    cram_fd_ *fd, char const *fn,
     cram_io_allocate_read_input_t   callback_allocate_function,
     cram_io_deallocate_read_input_t callback_deallocate_function        
 ) {
@@ -658,10 +658,10 @@ int cram_index_load_via_callbacks(
 
 #if 1
     // We may simply be able to load direct onto the cram_fd supplied.
-    htsFile hf;
-    hf.format.format = cram;
-    hf.fp.cram = fd;
-    hts_idx_t *idx = sam_index_load(&hf, fn);
+    htsFile *hf = fd->sc;
+    //hf.format.format = cram;
+    //hf.fp.cram = fd->sc;
+    hts_idx_t *idx = sam_index_load(hf, fn);
     if (!idx)
 	return -1;
 

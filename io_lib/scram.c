@@ -209,15 +209,20 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 
     if (*mode == 'r') {
 	if (mode[1] != 'b' && mode[1] != 's') {
-	    if (!(fd->c = sam_open(filename, mode))) {
+	    if (!(fd->sc= sam_open(filename, mode))) {
 		fprintf(stderr, "Error opening \"%s\"\n", filename);
 		return NULL;
 	    }
 	    fd->is_bam = 0;
-	    if (!(fd->hdr = sam_hdr_read(fd->c))) {
+	    if (!(fd->hdr = sam_hdr_convert(sam_hdr_read(fd->sc)))) {
 		fprintf(stderr, "Failed to read header\n");
 		return NULL;
 	    }
+	    fd->c = malloc(sizeof(*fd->c));
+	    if (!fd->c)
+		return NULL;
+	    fd->c->sc = fd->sc;
+	    fd->c->header = fd->hdr;
 	    return fd;
 	}
 
@@ -234,11 +239,15 @@ scram_fd *scram_open(const char *filename, const char *mode) {
      * on the format in the mode string.
      */
     if (strncmp(mode, "wc", 2) == 0) {
-	if (!(fd->c = sam_open(filename, mode))) {
+	if (!(fd->sc = sam_open(filename, mode))) {
 	    fprintf(stderr, "Error opening \"%s\"\n", filename);
 	    return NULL;
 	}
 	fd->is_bam = 0;
+	fd->c = malloc(sizeof(*fd->c));
+	if (!fd->c)
+	    return NULL;
+	fd->c->sc = fd->sc;
 	return fd;
     }
 
@@ -257,14 +266,14 @@ int scram_close(scram_fd *fd) {
     if (fd->is_bam) {
 	r = bam_close(fd->b);
     } else {
-	r = sam_close(fd->c);
+	r = sam_close(fd->sc);
     }
 
     if (fd->pool)
 	t_pool_destroy(fd->pool, 0);
 
-    if (fd->hdr)
-	sam_hdr_destroy(fd->hdr);
+//    if (fd->hdr)
+//	sam_hdr_free(fd->hdr);
 
     if (fd->bc)
 	bam_destroy1(fd->bc);
@@ -273,47 +282,52 @@ int scram_close(scram_fd *fd) {
     return r;
 }
 
+
+// Use htslib's sam_hdr_parse and create a shadow struct matching the
+// io_lib name.  This is to permit some fields to be exposed.
+SAM_hdr *sam_hdr_parse_(const char *hdr, int len) {
+    SAM_hdr *h = sam_hdr_convert(sam_hdr_parse(hdr, len));
+    if (!h)
+	return NULL;
+    return h;
+}
+
 SAM_hdr *scram_get_header(scram_fd *fd) {
-#ifdef __INTEL_COMPILER
     // avoids cmovne generation from icc 2015 (bug)
     return fd->is_bam && fd->b ? fd->b->header : fd->hdr;
-#else
-    return fd->is_bam ? fd->b->header : fd->hdr;
-#endif
 }
 
 refs_t *scram_get_refs(scram_fd *fd) {
-    return NULL;
-    //return fd->is_bam ? NULL : fd->c->refs;
+    return fd->is_bam ? NULL : fd->c->refs;
 }
 
 void scram_set_refs(scram_fd *fd, refs_t *refs) {
     return;
-//    if (fd->is_bam)
-//	return;
+    if (fd->is_bam)
+	return;
 //    if (fd->c->refs)
 //	refs_free(fd->c->refs);
-//    fd->c->refs = refs;
+    fd->c->refs = refs;
 //    if (refs)
 //	refs->count++;
 }
 
 void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
     if (fd->is_bam) {
-	fd->b->header = sh;
+	fd->b->header = SAM_hdr_dup(sh);
     } else {
-	fd->c->bam_header = sh;
+	fd->sc->bam_header = sam_hdr_parse(sh->text->str, sh->text->length);
+	fd->c->header = sh;
     }
-    sam_hdr_incr_ref(sh);
+    sam_hdr_incr_ref(sh->hdr);
 
     fd->hdr = sh;
-    sam_hdr_incr_ref(fd->hdr);
 }
 
 int scram_write_header(scram_fd *fd) {
     return fd->is_bam
 	? bam_write_header(fd->b)
-	: sam_hdr_write(fd->c, fd->c->bam_header);
+	: sam_hdr_write(fd->sc, fd->hdr->hdr);
 }
 
 int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
@@ -404,7 +418,7 @@ int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
     if (!fd->bc)
 	fd->bc = bam_init1();
     int ret;
-    if ((ret = sam_read1(fd->c, fd->hdr, fd->bc)) < 0) {
+    if ((ret = sam_read1(fd->sc, fd->hdr->hdr, fd->bc)) < 0) {
 	fd->eof = ret == -1;
 	return -1;
     }
@@ -425,7 +439,7 @@ int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
 	fd->bc = bam_init1();
     if (bam_seq_to_bam1(s, fd->bc) < 0)
 	return -1;
-    return sam_write1(fd->c, fd->hdr, fd->bc);
+    return sam_write1(fd->sc, fd->hdr->hdr, fd->bc);
 }
 
 int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
@@ -443,7 +457,7 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 		.pool = p,
 		.qsize = hts_tpool_size(p)*2
 	    };
-	    return hts_set_thread_pool(fd->c, &tp);
+	    return hts_set_thread_pool(fd->sc, &tp);
 	}
     } else if (opt == CRAM_OPT_NTHREADS) {
 	int nthreads = va_arg(args, int);
@@ -454,7 +468,7 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 
 		return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, fd->pool);
 	    } else {
-		return hts_set_threads(fd->c, nthreads);
+		return hts_set_threads(fd->sc, nthreads);
 	    }
 	} else {
 	    fd->pool = NULL;
@@ -466,13 +480,13 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 //
 //	return fd->is_bam
 //	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
-//	    : cram_set_option(fd->c, CRAM_OPT_BINNING, bin);
+//	    : cram_set_option(fd->sc, CRAM_OPT_BINNING, bin);
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
 
 	return fd->is_bam
 	    ? bam_set_option(fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
-	    : hts_set_opt(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
+	    : hts_set_opt(fd->sc, CRAM_OPT_IGNORE_CHKSUM, chk);
     } else if (opt == CRAM_OPT_WITH_BGZIP_INDEX) {
         bgzi *idx = va_arg(args, bgzi *);
         if (fd->is_bam)
@@ -482,11 +496,11 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
         if (fd->is_bam)
 	    return bam_set_option(fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
     } else if (opt == CRAM_OPT_EMBED_CONS) {
-	return hts_set_opt(fd->c, CRAM_OPT_EMBED_REF, 2);
+	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 2);
     }
 
     if (!fd->is_bam) {
-	r = cram_set_voption(fd->c->fp.cram, opt, args);
+	r = cram_set_voption(fd->sc->fp.cram, opt, args);
     }
 
     va_end(args);
@@ -679,10 +693,14 @@ scram_fd *scram_open_cram_via_callbacks(
     sio->is_read = 1;
 
     // Now expand the hFILE into an hts_file.
-    fd->c = hts_hopen(hf, filename, "rc");
+    fd->sc = hts_hopen(hf, filename, "rc");
+    fd->c = malloc(sizeof(*fd->c));
+    if (!fd->c)
+	return NULL;
+    fd->c->sc = fd->sc;
     fd->is_bam = 0;
 
-    if (!(fd->hdr = sam_hdr_read(fd->c))) {
+    if (!(fd->hdr = sam_hdr_convert(sam_hdr_read(fd->sc)))) {
 	// FIXME: mem leak
 	fprintf(stderr, "Failed to read header\n");
 	return NULL;
@@ -724,10 +742,18 @@ scram_fd *scram_openw_cram_via_callbacks(
     sio->is_read = 0;
 
     // Now expand the hFILE into an hts_file.
-    fd->c = hts_hopen(hf, filename, "wc");
+    fd->sc = hts_hopen(hf, filename, "wc");
+    fd->c = malloc(sizeof(*fd->c));
+    if (!fd->c)
+	return NULL;
+    fd->c->sc = fd->sc;
     fd->is_bam = 0;
 
     return fd;
+}
+
+int cram_index_load(cram_fd_ *fd, char const *fn) {
+    return sam_index_load(((cram_fd_ *)fd)->sc, fn) ? 0 : -1;
 }
 
 // //-----------------------------------------------------------------------------

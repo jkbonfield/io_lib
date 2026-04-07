@@ -56,12 +56,32 @@ extern "C" {
 #include <htslib/kstring.h>
 #include "io_lib/dstring.h"
 
-typedef sam_hdr_t       SAM_hdr;
+/*! Parsed \@SQ lines */
+typedef struct {
+    char *name;
+    uint32_t len;
+} SAM_SQ;
 
-#define sam_hdr_add      sam_hdr_add_line
-//#define sam_hdr_free     sam_hdr_destroy
-#define sam_hdr_name2ref sam_hdr_name2tid
-#define sam_hdr_add_PG   sam_hdr_add_pg
+
+// A container for htslib's header API instead (which is derived from this
+// code originally).
+typedef struct {
+    sam_hdr_t *hdr;           //!<htslib header struct
+    dstring_t *text;          //!< concatenated text, indexed by SAM_hdr_tag
+    int nref;                 //!< Number of \@SQ lines
+    SAM_SQ *ref;              //!< Array of parsed \@SQ lines
+} SAM_hdr;
+
+//typedef sam_hdr_t       SAM_hdr;
+
+#define sam_hdr_add(h,t,...) sam_hdr_add_line((h),(t),__VA_ARGS__)
+#define sam_hdr_add_PG(h,n,...) sam_hdr_add_pg((h),(n),__VA_ARGS__)
+
+#define sam_hdr_parse(t,l) sam_hdr_parse(l,t)
+
+static inline int sam_hdr_name2ref(SAM_hdr *h, const char *name) {
+    return sam_hdr_name2tid(h->hdr, name);
+}
 
 // These are private in htslib.  I'm not sure why
 enum sam_sort_order {
@@ -94,6 +114,57 @@ static inline enum sam_sort_order sam_hrecs_sort_order(sam_hdr_t *hdr) {
 
     ks_free(&str);
     return ret;
+}
+
+static inline void sam_hdr_free(SAM_hdr *hdr) {
+    sam_hdr_destroy(hdr->hdr);
+    free(hdr->text);
+    free(hdr->ref);
+    free(hdr);
+}
+
+static inline SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr) {
+    if (!hdr)
+	return NULL;
+
+    SAM_hdr *h = calloc(1, sizeof(*h));
+    if (!h)
+	return NULL;
+
+    h->hdr = hdr;
+    h->text = malloc(sizeof(*h->text));
+    if (!h->text)
+	return NULL;
+    h->text->allocated = 0;
+    h->text->length = hdr->l_text;
+    h->text->str = hdr->text;
+    h->nref = hdr->n_targets;
+    // taget_name and target_len
+    h->ref = calloc(h->nref, sizeof(*h->ref));
+    if (!h->ref)
+	return NULL;
+    for (int i = 0; i < h->nref; i++) {
+	h->ref[i].name = hdr->target_name[i];
+	h->ref[i].len = hdr->target_len[i];
+    }
+
+    return h;
+}
+
+static inline int SAM_hdr_nref(SAM_hdr *h) {
+    return h->nref;
+}
+
+static inline const char *SAM_hdr_tid2name(SAM_hdr *h, int id) {
+    return sam_hdr_tid2name(h->hdr, id);
+}
+
+static inline hts_pos_t SAM_hdr_tid2len(SAM_hdr *h, int id) {
+    return sam_hdr_tid2len(h->hdr, id);
+}
+
+static inline SAM_hdr *SAM_hdr_dup(SAM_hdr *h) {
+    return sam_hdr_convert(sam_hdr_dup(h->hdr));
 }
 
 #ifdef __cplusplus

@@ -80,6 +80,14 @@ extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 
 
 typedef struct hFILE_scram hFILE_scram;
+typedef struct refs_t refs_t;
+
+// For transparent wrapping of old cram_fd contents, used by libmaus.
+typedef struct {
+    SAM_hdr *header;
+    refs_t *refs;
+    samFile *sc;
+} cram_fd_;
 
 /*! The primary file handle for reading and writing.
  *
@@ -92,9 +100,11 @@ typedef struct {
     int eof;
     union {
 	bam_file_t *b;
-        samFile *c;
+        samFile *sc;
     };
-    sam_hdr_t *hdr;
+    cram_fd_ *c;    // legacy cram container, redirects to sc.
+    //sam_hdr_t *hdr; // htslib header
+    SAM_hdr *hdr;
 
     /* Primary Input/Output buffer */
     unsigned char *buf;
@@ -185,9 +195,12 @@ int scram_close(scram_fd *fd);
 /*! Returns the SAM_hdr struct.
  *
  * @return
- * The SAM_hdr struct on success; NULL on failure.
+ * The sam_hdr_t struct on success; NULL on failure.
  */
 SAM_hdr *scram_get_header(scram_fd *fd);
+static inline sam_hdr_t *hts_get_header(scram_fd *fd) {
+    return scram_get_header(fd)->hdr;
+}
 
 
 /*! Sets the SAM_hdr struct.
@@ -195,13 +208,14 @@ SAM_hdr *scram_get_header(scram_fd *fd);
  * Note that this sets the raw pointer and does not take an internal
  * copy of it. If you need to do this call sam_hdr_dup() first.
  */
+//void scram_set_header(scram_fd *fd, sam_hdr_t *sh);
 void scram_set_header(scram_fd *fd, SAM_hdr *sh);
 
 
 /*! Writes the SAM hdr.
  *
  * This calls the appropriate SAM, BAM or CRAM I/O function to write
- * out the SAM_hdr currently associated with this fd.
+ * out the SAM header currently associated with this fd.
  *
  * @return
  * Returns 0 on success;
@@ -337,6 +351,8 @@ static inline int cram_load_reference(void *fd, const char *ref) {
 }
 
 //#define cram_set_option(f,o, ...) hts_set_opt((f), (o), __VA_ARGS__)
+
+int cram_index_load(cram_fd_ *fd, char const *fn);
 
 #ifdef __cplusplus
 }

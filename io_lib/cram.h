@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "bam.h"
 #include "sam_header.h"
+
+#define HTS_NO_SAM_HDR
 #include <htslib/cram.h>
 
 //#ifdef WITH_CRAM
@@ -88,6 +90,13 @@ typedef cram_io_input_t * (*cram_io_deallocate_read_input_t)(cram_io_input_t * o
 typedef cram_io_output_t * (*cram_io_allocate_write_output_t)(char const * filename);
 typedef cram_io_output_t * (*cram_io_deallocate_write_output_t)(cram_io_output_t * obj);
 
+typedef struct {
+    int refid;
+    int64_t start;
+    int64_t end;
+} cram_range;
+
+
 //typedef struct {
 //    /* input buffer size */
 //    size_t         fp_in_buf_size;
@@ -117,6 +126,5 @@ typedef cram_io_output_t * (*cram_io_deallocate_write_output_t)(cram_io_output_t
 //    /* window end pointer */
 //    char          *fp_out_buf_pe;    
 //} cram_fd_output_buffer;
-
 
 #endif

@@ -547,7 +547,7 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_BASES_PER_SLICE, bases_per_slice))
 	    return 1;
 
-    enum sam_sort_order so = sam_hrecs_sort_order(scram_get_header(in));
+    enum sam_sort_order so = sam_hrecs_sort_order(hts_get_header(in));
     if (embed_ref) {
 	if (so == ORDER_NAME || so == ORDER_UNSORTED) {
 	    fprintf(stderr, "Embedded reference with non-coordinate sorted data is "
@@ -667,9 +667,12 @@ int main(int argc, char **argv) {
     if (ref_fn) {
 	if (scram_set_option(out, CRAM_OPT_REFERENCE, ref_fn))
 	    return 1;
+	if (scram_set_option(in, CRAM_OPT_REFERENCE, ref_fn))
+	    return 1;
     } else {
 	// Attempt to fill out a cram->refs[] array from @SQ headers
 	scram_set_option(out, CRAM_OPT_REFERENCE, NULL);
+	scram_set_option(in, CRAM_OPT_REFERENCE, NULL);
     }
 
     if (scram_get_header(out)) {
@@ -680,7 +683,7 @@ int main(int argc, char **argv) {
 		return 1;
 
 	
-	    if (sam_hdr_add_PG(scram_get_header(out), "scramble",
+	    if (sam_hdr_add_PG(hts_get_header(out), "scramble",
 			       "VN", IOLIB_VERSION,
 			       "CL", arg_list, NULL))
 	        return 1;

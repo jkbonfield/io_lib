@@ -63,14 +63,14 @@
  */
 static int hdr_compare(SAM_hdr *h1, SAM_hdr *h2) {
     int i;
-    if (sam_hdr_nref(h1) != sam_hdr_nref(h2))
+    if (SAM_hdr_nref(h1) != SAM_hdr_nref(h2))
 	return 0;
 
-    for (i = 0; i < sam_hdr_nref(h1); i++) {
-	if (strcmp(sam_hdr_tid2name(h1, i),
-		   sam_hdr_tid2name(h2, i)) != 0)
+    for (i = 0; i < SAM_hdr_nref(h1); i++) {
+	if (strcmp(SAM_hdr_tid2name(h1, i),
+		   SAM_hdr_tid2name(h2, i)) != 0)
 	    return 0;
-	if (sam_hdr_tid2len(h1, i) != sam_hdr_tid2len(h2, i))
+	if (SAM_hdr_tid2len(h1, i) != SAM_hdr_tid2len(h2, i))
 	    return 0;
     }
 
@@ -315,7 +315,7 @@ int main(int argc, char **argv) {
     /* Copy header and refs from in to out, for writing purposes */
     // FIXME: do proper merging of @PG lines
     // FIXME: track mapping of old PG aux name to new PG aux name per seq
-    scram_set_header(out, sam_hdr_dup(scram_get_header(in[0])));
+    scram_set_header(out, SAM_hdr_dup(scram_get_header(in[0])));
 
     // Needs doing after loading the header.
     if (ref_fn)
