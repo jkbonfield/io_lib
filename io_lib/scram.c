@@ -345,6 +345,11 @@ int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
 	    return -1;
 	bsp = *bsp_p = n;
     }
+
+    // libmaus2 validates read names length matches strlen(name)+1.
+    // So we must remove the padding bytes sadly.
+    // NB: This meant libmaus2 also didn't work on systems without ALLOC_UAC.
+
     bsp->blk_size    = b->l_data + 32;
     bsp->pos         = b->core.pos;
     bsp->mate_pos    = b->core.mpos;
@@ -352,7 +357,8 @@ int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
     // As per raw BAM block below
     bsp->ref         = b->core.tid;
     bsp->pos_32      = b->core.pos; // bottom 32-bits
-    bsp->name_len    = b->core.l_qname;
+    //bsp->name_len    = b->core.l_qname;
+    bsp->name_len    = strlen((char *)b->data)+1;
     bsp->map_qual    = b->core.qual;
     bsp->bin         = b->core.bin;
     bsp->cigar_len   = b->core.n_cigar;
@@ -362,8 +368,14 @@ int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
     bsp->mate_pos_32 = b->core.mpos;
     bsp->ins_size_32 = b->core.isize;
 
-    memcpy(&bsp->data, b->data, b->l_data);
-    (&bsp->data)[b->l_data] = 0; // io_lib's AUX end of tag marker
+    memcpy(&bsp->data, b->data, bsp->name_len);
+    memcpy(&bsp->data + bsp->name_len, b->data+b->core.l_qname,
+	   b->l_data - b->core.l_qname);
+    bsp->blk_size -= b->core.l_qname - bsp->name_len;
+    (&bsp->data)[bsp->blk_size - 32] = 0; // io_lib's AUX end of tag marker
+
+    //memcpy(&bsp->data, b->data, b->l_data);
+    //(&bsp->data)[b->l_data] = 0; // io_lib's AUX end of tag marker
     return 0;
 }
 

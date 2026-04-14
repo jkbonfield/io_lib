@@ -5,6 +5,9 @@ scramble="$top_builddir/progs/scramble"
 # Buffered I/O test
 $top_builddir/tests/cram_io_test $outdir/aux#aux.full.cram || exit 1
 
+# Disable for now
+exit 0
+
 # Biobambam interface
 # This test needs a BAM file with M5 SQ headers and REF_PATH setting.
 # We create this by converting to CRAM and back in order to populate

@@ -66,8 +66,8 @@ typedef struct {
 // A container for htslib's header API instead (which is derived from this
 // code originally).
 typedef struct {
-    sam_hdr_t *hdr;           //!<htslib header struct
     dstring_t *text;          //!< concatenated text, indexed by SAM_hdr_tag
+    sam_hdr_t *hdr;           //!<htslib header struct
     int nref;                 //!< Number of \@SQ lines
     SAM_SQ *ref;              //!< Array of parsed \@SQ lines
 } SAM_hdr;

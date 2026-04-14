@@ -647,7 +647,7 @@ cram_fd * cram_encoder_get_fd(void *p)
  *        -1 for failure
  */
 int cram_index_load_via_callbacks(
-    cram_fd_ *fd, char const *fn,
+    cram_fd *fd2, char const *fn,
     cram_io_allocate_read_input_t   callback_allocate_function,
     cram_io_deallocate_read_input_t callback_deallocate_function        
 ) {
@@ -657,6 +657,8 @@ int cram_index_load_via_callbacks(
     // (Sadly I think not.)
 
 #if 1
+    cram_fd_ *fd = (cram_fd_ *)fd2; // FIXME
+
     // We may simply be able to load direct onto the cram_fd supplied.
     htsFile *hf = fd->sc;
     //hf.format.format = cram;

@@ -120,7 +120,7 @@ extern int cram_process_work_package(void *workpackage);
 extern cram_fd * cram_encoder_get_fd(void *context);
 
 extern int cram_index_load_via_callbacks(
-    cram_fd_ *fd, char const *fn,
+    cram_fd *fd, char const *fn,
     cram_io_allocate_read_input_t   callback_allocate_function,
     cram_io_deallocate_read_input_t callback_deallocate_function);
 
