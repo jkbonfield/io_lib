@@ -316,7 +316,7 @@ void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
     if (fd->is_bam) {
 	fd->b->header = SAM_hdr_dup(sh);
     } else {
-	fd->sc->bam_header = sam_hdr_parse(sh->text->str, sh->text->length);
+	fd->sc->bam_header = sam_hdr_parse_htslib(sh->text->str, sh->text->length);
 	fd->c->header = sh;
     }
     sam_hdr_incr_ref(sh->hdr);

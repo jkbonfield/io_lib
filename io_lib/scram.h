@@ -89,6 +89,8 @@ typedef struct {
     samFile *sc;
 } cram_fd_;
 
+// FIXME: how to rename cram_fd_ to cram_fd?
+
 /*! The primary file handle for reading and writing.
  *
  * Please consider this to be private.
@@ -346,8 +348,12 @@ scram_fd *scram_openw_cram_via_callbacks(
  * Returns 0 on success,
  *        -1 on failure
  */
-static inline int cram_load_reference(void *fd, const char *ref) {
-    return hts_set_fai_filename((samFile *)fd, ref);
+//static inline int cram_load_reference(void *fd, const char *ref) {
+static inline int cram_load_reference(cram_fd_ *fd, const char *ref) {
+    int r = hts_set_fai_filename(fd->sc, ref);
+    fd->refs = cram_get_refs(fd->sc);
+
+    return r;
 }
 
 //#define cram_set_option(f,o, ...) hts_set_opt((f), (o), __VA_ARGS__)
