@@ -764,8 +764,8 @@ scram_fd *scram_openw_cram_via_callbacks(
     return fd;
 }
 
-int cram_index_load(cram_fd_ *fd, char const *fn) {
-    return sam_index_load(((cram_fd_ *)fd)->sc, fn) ? 0 : -1;
+int cram_index_load(cram_fd *fd, char const *fn) {
+    return sam_index_load(fd->sc, fn) ? 0 : -1;
 }
 
 // //-----------------------------------------------------------------------------

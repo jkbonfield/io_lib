@@ -83,13 +83,11 @@ typedef struct hFILE_scram hFILE_scram;
 typedef struct refs_t refs_t;
 
 // For transparent wrapping of old cram_fd contents, used by libmaus.
-typedef struct {
+struct cram_fd {
     SAM_hdr *header;
     refs_t *refs;
     samFile *sc;
-} cram_fd_;
-
-// FIXME: how to rename cram_fd_ to cram_fd?
+};
 
 /*! The primary file handle for reading and writing.
  *
@@ -104,7 +102,7 @@ typedef struct {
 	bam_file_t *b;
         samFile *sc;
     };
-    cram_fd_ *c;    // legacy cram container, redirects to sc.
+    cram_fd *c;    // legacy cram container, redirects to sc.
     //sam_hdr_t *hdr; // htslib header
     SAM_hdr *hdr;
 
@@ -349,7 +347,7 @@ scram_fd *scram_openw_cram_via_callbacks(
  *        -1 on failure
  */
 //static inline int cram_load_reference(void *fd, const char *ref) {
-static inline int cram_load_reference(cram_fd_ *fd, const char *ref) {
+static inline int cram_load_reference(cram_fd *fd, const char *ref) {
     int r = hts_set_fai_filename(fd->sc, ref);
     fd->refs = cram_get_refs(fd->sc);
 
@@ -358,7 +356,7 @@ static inline int cram_load_reference(cram_fd_ *fd, const char *ref) {
 
 //#define cram_set_option(f,o, ...) hts_set_opt((f), (o), __VA_ARGS__)
 
-int cram_index_load(cram_fd_ *fd, char const *fn);
+int cram_index_load(cram_fd *fd, char const *fn);
 
 #ifdef __cplusplus
 }
