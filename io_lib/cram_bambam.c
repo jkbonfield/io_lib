@@ -207,73 +207,6 @@ void *cram_allocate_encoder(void *userdata,
     pthread_mutex_init(&c->header_lock, NULL);
 
     return c;
-
-#if 0
-    scram_fd *fd = NULL;
-    SAM_hdr *hdr = NULL;
-    cram_enc_context *c = malloc(sizeof(*c));
-
-    if (!c)
-	goto err;
-
-    if (!(hdr = sam_hdr_parse(sam_header, sam_headerlength)))
-	goto err;
-
-    fd = scram_openw_cram_via_callbacks(NULL,
-					cram_callback_allocate_func,
-					cram_callback_deallocate_func,
-					1024*1024);
-    if (!fd)
-	goto err;
-
-    //fd->inblockid = 0;
-    //fd->outblockid = 0;
-
-    fd->hdr = hdr;
-    sam_hdr_incr_ref(hdr);
-    if (cram_write_SAM_hdr(fd, hdr) != 0)
-	goto err;
-
-    cram_io_flush_output_buffer(fd);
-
-    c->fd = fd;
-    c->userdata = userdata;
-    c->write_func = write_func;
-    c->num_records = 0;
-
-    // While the cram_fd itself does not have its own internal
-    // multithreading, we manually create the mutexes it would use
-    // to ensure that this cram_fd running in our own separate
-    // threads can handle locking correctly.
-    fd->metrics_lock = malloc(sizeof(pthread_mutex_t));
-    fd->ref_lock = malloc(sizeof(pthread_mutex_t));
-    fd->bam_list_lock = malloc(sizeof(pthread_mutex_t));
-    pthread_mutex_init(fd->metrics_lock, NULL);
-    pthread_mutex_init(fd->ref_lock, NULL);
-    pthread_mutex_init(fd->bam_list_lock, NULL);
-
-    dstring_t *ds = (dstring_t *)fd->fp_out_callbacks->user_data;
-    write_func(userdata, -1, 0,
-	       DSTRING_STR(ds), DSTRING_LEN(ds),
-	       cram_data_write_block_type_block_final);
-
-    pthread_mutex_init(&c->context_lock, NULL);
-    pthread_mutex_init(&c->header_lock, NULL);
-
-    return c;
-
- err:
-    if (c)
-	free(c);
-
-    if (fd)
-	cram_close(fd);
-
-    if (hdr)
-	sam_hdr_free(hdr);
-
-#endif
-    return NULL;
 }
 
 void cram_deallocate_encoder(void *context) {
@@ -283,34 +216,6 @@ void cram_deallocate_encoder(void *context) {
     pthread_mutex_destroy(&c->context_lock);
     pthread_mutex_destroy(&c->header_lock);
     free(c);
-
-#if 0
-    cram_enc_context *c = (cram_enc_context *)context;
-    cram_fd *fd;
-
-    if (!c)
-	return;
-
-    fd = c->fd;
-
-    pthread_mutex_destroy(&c->context_lock);
-    pthread_mutex_destroy(&c->header_lock);
-
-    pthread_mutex_destroy(fd->metrics_lock);
-    pthread_mutex_destroy(fd->ref_lock);
-    pthread_mutex_destroy(fd->bam_list_lock);
-    free(fd->metrics_lock);
-    free(fd->ref_lock);
-    free(fd->bam_list_lock);
-
-    if (fd->header)
-	sam_hdr_free(fd->header);
-
-    if (fd)
-	cram_close(fd);
-
-    free(c);
-#endif
 }
 
 
@@ -541,97 +446,6 @@ int cram_process_work_package(void *workpackage) {
 
     free(pkg);
     return 0;
-
-#if 0
-    // Each work package can be running in a separate thread, so we
-    // need to make sure writing to CRAM isn't clobbering over shared
-    // memory.
-    //
-    // The reference sequences work fine with reference counting, but
-    // the output buffer is one per cram_fd.  Therefore we create a
-    // temporary local copy of cram_fd with pointers to share as much
-    // as we can.
-    //
-    // FIXME: consider having a free-list of previously used cram_fd.
-    pthread_mutex_lock(&c->context_lock);
-    fd = cram_dup_fd(c->fd);
-    pthread_mutex_unlock(&c->context_lock);
-
-    fd->record_counter = pkg->num_records;
-
-
-    // We create a fake bam_file_t containing the entire BAM block and
-    // then use the standard bam_get_seq() API to iterate over
-    // sequences within the BAM block.
-    for (bnum = 0; bnum < pkg->num_blocks; bnum++) {
-	bam_file_t *bf;
-	bam_seq_t *bsp = NULL;
-
-	pthread_mutex_lock(&c->header_lock);
-	bf = bam_open_block(pkg->block[bnum],
-			    pkg->blocksize[bnum],
-			    fd->header);
-	pthread_mutex_unlock(&c->header_lock);
-	if (!bf)
-	    return -1;
-
-	while (bam_get_seq(bf, &bsp)) {
-	    if (cram_put_bam_seq(fd, bsp) != 0) {
-		fprintf(stderr, "Failed to write CRAM record\n");
-		pthread_mutex_lock(&c->header_lock);
-		bam_close(bf);
-		pthread_mutex_unlock(&c->header_lock);
-
-		cram_dup_close(fd);
-		return -1;
-	    }
-	}
-
-	pthread_mutex_lock(&c->header_lock);
-	bam_close(bf);
-	pthread_mutex_unlock(&c->header_lock);
-
-	if (bsp)
-	    free(bsp);
-    }
-
-    cram_flush(fd);
-
-    if (pkg->final) {
-	// The final package needs the EOF block adding too.
-	cram_write_eof_block(fd);
-    }
-
-    // Write the block
-    dstring_t *ds = (dstring_t *)fd->fp_out_callbacks->user_data;
-#if defined(IO_LIB_CRAM_BAMBAM_DEBUG)
-    fprintf(stderr, "Writing work package %d,%d "
-	    "from rec %d, length %d, final %d\n",
-	    (int)pkg->inblockid, (int)pkg->outblockid,
-	    (int)pkg->num_records,
-	    (int)DSTRING_LEN(ds),
-	    pkg->final);
-#endif
-
-    pkg->write_func(pkg->userdata, 
-		    pkg->inblockid,
-		    pkg->outblockid++,
-		    DSTRING_STR(ds),
-		    DSTRING_LEN(ds),
-		    pkg->final
-		    ? cram_data_write_block_type_file_final
-		    : cram_data_write_block_type_block_final);
-
-    pkg->finished_func(pkg->userdata, pkg->inblockid, pkg->final);
-
-    // Free the work package
-    free(pkg);
-
-    // FIXME: do we also need to do something to decr reference seqs?
-    cram_dup_close(fd);
-
-    return 0;
-#endif
 }
 
 cram_fd * cram_encoder_get_fd(void *p)
@@ -656,7 +470,6 @@ int cram_index_load_via_callbacks(
     // Or maybe it'll just load automatically on CRAM_OPT_RANGE query?
     // (Sadly I think not.)
 
-#if 1
     // We may simply be able to load direct onto the cram_fd supplied.
     htsFile *hf = fd->sc;
     //hf.format.format = cram;
@@ -667,43 +480,4 @@ int cram_index_load_via_callbacks(
 
     free(idx);
     return 0;
-#endif
-
-#if 0
-    cram_fd * input = NULL;
-    int r = -1;
-    static char const * indexsuffix = ".crai";
-    char * indexfn = NULL;
-    size_t const fnsize = strlen(fn);
-    size_t const suffixsize = strlen(indexsuffix);
-    size_t const indexfnsize = fnsize+suffixsize+1;
-    
-    if ( !(indexfn = (char *)malloc(indexfnsize)) ) {
-        r = -1;
-        goto cleanup;
-    }
-    
-    memcpy(indexfn,       fn,         fnsize);
-    memcpy(indexfn+fnsize,indexsuffix,suffixsize);
-    indexfn[fnsize+suffixsize] = 0;
-    
-    if ( ! (input = cram_io_open_by_callbacks(indexfn,callback_allocate_function,callback_deallocate_function,32*1024,1/* decompress */)) ) {
-        r = -1;
-        goto cleanup;
-    }
-
-    r = cram_index_load_private(fd,input,cram_io_input_buffer_fgets_func);
-    
-    cleanup:
-    if ( input ) {
-        cram_io_close(input,NULL);
-        input = NULL;
-    }
-    if ( indexfn ) {
-        free(indexfn);
-        indexfn = NULL;
-    }
-    
-    return r;
-#endif
 }
