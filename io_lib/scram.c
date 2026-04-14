@@ -272,11 +272,14 @@ int scram_close(scram_fd *fd) {
     if (fd->pool)
 	t_pool_destroy(fd->pool, 0);
 
-//    if (fd->hdr)
-//	sam_hdr_free(fd->hdr);
+    if (fd->hdr)
+	sam_hdr_free(fd->hdr);
 
     if (fd->bc)
 	bam_destroy1(fd->bc);
+
+    if (fd->c)
+	free(fd->c);
 
     free(fd);
     return r;

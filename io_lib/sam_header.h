@@ -116,10 +116,13 @@ static inline enum sam_sort_order sam_hrecs_sort_order(sam_hdr_t *hdr) {
 }
 
 static inline void sam_hdr_free(SAM_hdr *hdr) {
+    int rc = hdr->hdr->ref_count;
     sam_hdr_destroy(hdr->hdr);
-    free(hdr->text);
-    free(hdr->ref);
-    free(hdr);
+    if (rc < 1) {
+        free(hdr->text);
+        free(hdr->ref);
+        free(hdr);
+    }
 }
 
 static inline SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr) {
