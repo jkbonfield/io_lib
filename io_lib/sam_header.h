@@ -52,7 +52,9 @@ extern "C" {
  * bit of typedefing and shim functions.
  */
 #include <stdarg.h>
+//#define sam_hdr_parse sam_hdr_parse_htslib
 #include <htslib/sam.h>
+//#undef sam_hdr_parse
 #include <htslib/kstring.h>
 #include "io_lib/dstring.h"
 
@@ -77,7 +79,6 @@ typedef struct {
 #define sam_hdr_add(h,t,...) sam_hdr_add_line((h),(t),__VA_ARGS__)
 #define sam_hdr_add_PG(h,n,...) sam_hdr_add_pg((h),(n),__VA_ARGS__)
 
-#define sam_hdr_parse(t,l) sam_hdr_parse(l,t)
 
 static inline int sam_hdr_name2ref(SAM_hdr *h, const char *name) {
     return sam_hdr_name2tid(h->hdr, name);
@@ -150,6 +151,19 @@ static inline SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr) {
 
     return h;
 }
+
+// io_lib's header.
+static inline SAM_hdr *sam_hdr_parse_(const char *hdr, int len) {
+    SAM_hdr *h = sam_hdr_convert(sam_hdr_parse(len, hdr));
+    if (!h)
+        return NULL;
+    return h;
+}
+
+// Map io_lib header calls to sam_hdr_parse_ which converts from htslib's
+// identically named sam_hdr_parse function.
+#define sam_hdr_parse(h,l) sam_hdr_parse_(h,l)
+
 
 static inline int SAM_hdr_nref(SAM_hdr *h) {
     return h->nref;

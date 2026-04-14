@@ -189,7 +189,7 @@ void *cram_allocate_encoder(void *userdata,
 			    size_t const sam_headerlength,
 			    cram_data_write_function_t write_func) {
     cram_enc_context *c = malloc(sizeof(*c));
-    c->hdr = sam_hdr_convert(sam_hdr_parse(sam_header, sam_headerlength));
+    c->hdr = sam_hdr_parse(sam_header, sam_headerlength);
     if (!c->hdr) {
 	free(c);
 	return NULL;

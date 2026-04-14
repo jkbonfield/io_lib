@@ -324,7 +324,7 @@ static int load_bam_header(bam_file_t *b) {
     if (header_len != bam_read(b, header, header_len))
 	return -1;
 
-    if (!(b->header = sam_hdr_convert(sam_hdr_parse(header, header_len))))
+    if (!(b->header = sam_hdr_parse(header, header_len)))
 	return -1;
     free(header);
 
@@ -409,8 +409,8 @@ static int load_sam_header(bam_file_t *b) {
     b->line = 0; // FIXME
 
     const char *text = dstring_str(header);
-    if (!(b->header = sam_hdr_convert(sam_hdr_parse(text ? text : "",
-						    dstring_length(header))))) {
+    if (!(b->header = sam_hdr_parse(text ? text : "",
+				    dstring_length(header)))) {
 	fprintf(stderr, "Failed to parse SAM header\n");
 	goto err;
     }

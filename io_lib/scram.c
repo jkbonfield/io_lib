@@ -283,14 +283,14 @@ int scram_close(scram_fd *fd) {
 }
 
 
-// Use htslib's sam_hdr_parse and create a shadow struct matching the
-// io_lib name.  This is to permit some fields to be exposed.
-SAM_hdr *sam_hdr_parse_(const char *hdr, int len) {
-    SAM_hdr *h = sam_hdr_convert(sam_hdr_parse(hdr, len));
-    if (!h)
-	return NULL;
-    return h;
-}
+//// Use htslib's sam_hdr_parse and create a shadow struct matching the
+//// io_lib name.  This is to permit some fields to be exposed.
+//SAM_hdr *sam_hdr_parse_(const char *hdr, int len) {
+//    SAM_hdr *h = sam_hdr_convert(sam_hdr_parse_htslib(hdr, len));
+//    if (!h)
+//	return NULL;
+//    return h;
+//}
 
 SAM_hdr *scram_get_header(scram_fd *fd) {
     // avoids cmovne generation from icc 2015 (bug)

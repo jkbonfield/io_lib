@@ -49,6 +49,7 @@ extern "C" {
 #endif
 
 #include <htslib/sam.h>
+
 #undef bam_get_seq // clashes with our function; use bam_seq.
 
 #include <inttypes.h>
