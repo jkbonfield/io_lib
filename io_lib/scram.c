@@ -709,7 +709,7 @@ scram_fd *scram_open_cram_via_callbacks(
 
     // Now expand the hFILE into an hts_file.
     fd->sc = hts_hopen(hf, filename, "rc");
-    fd->c = malloc(sizeof(*fd->c));
+    fd->c = calloc(1, sizeof(*fd->c));
     if (!fd->c)
 	return NULL;
     fd->c->sc = fd->sc;
@@ -720,6 +720,7 @@ scram_fd *scram_open_cram_via_callbacks(
 	fprintf(stderr, "Failed to read header\n");
 	return NULL;
     }
+    fd->c->header = fd->hdr;
 
     return fd;
 }
@@ -770,6 +771,54 @@ scram_fd *scram_openw_cram_via_callbacks(
 int cram_index_load(cram_fd *fd, char const *fn) {
     return sam_index_load(fd->sc, fn) ? 0 : -1;
 }
+
+
+//-----------------------------------------------------------------------------
+// Header manipulation
+int sam_hdr_name2ref(SAM_hdr *h, const char *name) {
+    return sam_hdr_name2tid(h->hdr, name);
+}
+
+
+SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr) {
+    if (!hdr)
+	return NULL;
+
+    SAM_hdr *h = calloc(1, sizeof(*h));
+    if (!h)
+	return NULL;
+
+    h->hdr = hdr;
+    h->text = malloc(sizeof(*h->text));
+    if (!h->text)
+	return NULL;
+    h->text->allocated = 0;
+    h->text->length = hdr->l_text;
+    h->text->str = hdr->text;
+    h->nref = hdr->n_targets;
+    // taget_name and target_len
+    h->ref = calloc(h->nref, sizeof(*h->ref));
+    if (!h->ref)
+	return NULL;
+    for (int i = 0; i < h->nref; i++) {
+	h->ref[i].name = hdr->target_name[i];
+	h->ref[i].len = hdr->target_len[i];
+    }
+
+    return h;
+}
+
+void sam_hdr_free(SAM_hdr *hdr) {
+    int rc = hdr->hdr->ref_count;
+    sam_hdr_destroy(hdr->hdr);
+
+    if (rc < 1) {
+        free(hdr->text);
+        free(hdr->ref);
+        free(hdr);
+    }
+}
+
 
 // //-----------------------------------------------------------------------------
 // // Experiment to test scram_open_cram_via_callbacks()

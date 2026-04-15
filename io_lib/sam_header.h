@@ -78,9 +78,7 @@ typedef struct {
 #define sam_hdr_add_PG(h,n,...) sam_hdr_add_pg((h),(n),__VA_ARGS__)
 
 
-static inline int sam_hdr_name2ref(SAM_hdr *h, const char *name) {
-    return sam_hdr_name2tid(h->hdr, name);
-}
+int sam_hdr_name2ref(SAM_hdr *h, const char *name);
 
 // These are private in htslib.  I'm not sure why
 enum sam_sort_order {
@@ -115,43 +113,8 @@ static inline enum sam_sort_order sam_hrecs_sort_order(sam_hdr_t *hdr) {
     return ret;
 }
 
-static inline void sam_hdr_free(SAM_hdr *hdr) {
-    int rc = hdr->hdr->ref_count;
-    sam_hdr_destroy(hdr->hdr);
-    if (rc < 1) {
-        free(hdr->text);
-        free(hdr->ref);
-        free(hdr);
-    }
-}
-
-static inline SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr) {
-    if (!hdr)
-	return NULL;
-
-    SAM_hdr *h = calloc(1, sizeof(*h));
-    if (!h)
-	return NULL;
-
-    h->hdr = hdr;
-    h->text = malloc(sizeof(*h->text));
-    if (!h->text)
-	return NULL;
-    h->text->allocated = 0;
-    h->text->length = hdr->l_text;
-    h->text->str = hdr->text;
-    h->nref = hdr->n_targets;
-    // taget_name and target_len
-    h->ref = calloc(h->nref, sizeof(*h->ref));
-    if (!h->ref)
-	return NULL;
-    for (int i = 0; i < h->nref; i++) {
-	h->ref[i].name = hdr->target_name[i];
-	h->ref[i].len = hdr->target_len[i];
-    }
-
-    return h;
-}
+SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr);
+void sam_hdr_free(SAM_hdr *hdr);
 
 // io_lib's header.
 static inline sam_hdr_t *sam_hdr_parse_htslib(const char *hdr, int len) {
