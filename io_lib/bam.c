@@ -332,7 +332,7 @@ static int load_bam_header(bam_file_t *b) {
     if (4 != bam_read(b, &nref, 4))
 	return -1;
     nref = le_int4(nref);
-    if (sam_hdr_nref(b->header->hdr) != nref && sam_hdr_nref(b->header->hdr)) {
+    if (sam_hdr_nref(b->header) != nref && sam_hdr_nref(b->header)) {
 	fprintf(stderr, "Error: @RG lines are at odds with "
 		"binary encoded reference data\n");
 	return -1;
@@ -357,7 +357,7 @@ static int load_bam_header(bam_file_t *b) {
 	    return -1;
 	len = le_int4(len);
 
-	const char *rname = sam_hdr_tid2name(b->header->hdr, i);
+	const char *rname = sam_hdr_ref2name(b->header, i);
 	if (rname) {
 	    if (strcmp(rname, name)) {
 		fprintf(stderr, "Error: @SQ lines are at odds with "
@@ -365,7 +365,7 @@ static int load_bam_header(bam_file_t *b) {
 		return -1;
 	    }
 
-	    if (sam_hdr_tid2len(b->header->hdr, i) != len) {
+	    if (sam_hdr_ref2len(b->header, i) != len) {
 		fprintf(stderr, "Error: @SQ lines are at odds with "
 			"binary encoded reference data\n");
 		return -1;
@@ -373,7 +373,7 @@ static int load_bam_header(bam_file_t *b) {
 	} else {
 	    char len_c[100];
 	    sprintf(len_c, "%d", len);
-	    if (sam_hdr_add_line(b->header->hdr, "SQ", "SN", name, "LN", len_c, NULL)<0)
+	    if (sam_hdr_add(b->header, "SQ", "SN", name, "LN", len_c, NULL)<0)
 		return -1;
 	}
 
@@ -591,7 +591,7 @@ bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh) {
     b->uncomp_sz = blk_size;
     b->header = sh;
 
-    sam_hdr_incr_ref(sh->hdr);
+    sam_hdr_incr_ref(sh);
 
     return b;
 }
@@ -1320,14 +1320,13 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	char rname[1024];
 	memcpy(rname, cp, MIN(1023,cpf-cp));
 	rname[MIN(1023,cpf-cp)]=0;
-	sam_hdr_t *h = b->header->hdr;
-	bs->ref = sam_hdr_name2tid(h, rname);
+	bs->ref = sam_hdr_name2ref(b->header, rname);
 	if (bs->ref < 0) {
 	    fprintf(stderr, "Reference seq %.*s unknown\n", (int)(cpf-cp), cp);
 
 	    /* Fabricate it instead */
-	    sam_hdr_add_line(h, "SQ", "ID", rname, "LN", 0, NULL);
-	    bs->ref = sam_hdr_name2tid(h, rname);
+	    sam_hdr_add(b->header, "SQ", "ID", rname, "LN", 0, NULL);
+	    bs->ref = sam_hdr_name2ref(b->header, rname);
 	}
     }
     if (!*cpf++) return -1;
@@ -1410,14 +1409,13 @@ static int sam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
 	char mrname[1024];
 	memcpy(mrname, cp, MIN(1023,cpf-cp));
 	mrname[MIN(1023,cpf-cp)]=0;
-	sam_hdr_t *h = b->header->hdr;
-	bs->mate_ref = sam_hdr_name2tid(h, mrname);
+	bs->mate_ref = sam_hdr_name2ref(b->header, mrname);
 	if (bs->mate_ref < 0) {
 	    fprintf(stderr, "Reference seq %.*s unknown\n", (int)(cpf-cp), cp);
 
 	    /* Fabricate it instead */
-	    sam_hdr_add_line(h, "SQ", "ID", mrname, "LN", 0, NULL);
-	    bs->mate_ref = sam_hdr_name2tid(h, mrname);
+	    sam_hdr_add(b->header, "SQ", "ID", mrname, "LN", 0, NULL);
+	    bs->mate_ref = sam_hdr_name2ref(b->header, mrname);
 	}
     }
     if (!*cpf++) return -1;
@@ -3544,11 +3542,11 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->uncomp_p++ = '\t';
 
 	/* RNAME */
-	if (b->ref < -1 || b->ref >= sam_hdr_nref(fp->header->hdr))
+	if (b->ref < -1 || b->ref >= sam_hdr_nref(fp->header))
 	    return -1;
 
 	if (b->ref != -1) {
-	    const char *rname = sam_hdr_tid2name(fp->header->hdr, b->ref);
+	    const char *rname = sam_hdr_ref2name(fp->header, b->ref);
 	    size_t l = strlen(rname);
 	    if (end-fp->uncomp_p < l+1) BF_FLUSH();
 	    memcpy(fp->uncomp_p, rname, l);
@@ -3586,7 +3584,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 	*fp->uncomp_p++='\t';
 
 	/* NRNM */
-	if (b->mate_ref < -1 || b->mate_ref >= sam_hdr_nref(fp->header->hdr))
+	if (b->mate_ref < -1 || b->mate_ref >= sam_hdr_nref(fp->header))
 	    return -1;
 
 	if (b->mate_ref != -1) {
@@ -3594,7 +3592,7 @@ int bam_put_seq(bam_file_t *fp, bam_seq_t *b) {
 		if (end-fp->uncomp_p < 2) BF_FLUSH();
 		*fp->uncomp_p++ = '=';
 	    } else {
-		const char *mrname = sam_hdr_tid2name(fp->header->hdr, b->mate_ref);
+		const char *mrname = sam_hdr_ref2name(fp->header, b->mate_ref);
 		size_t l = strlen(mrname);
 		if (end-fp->uncomp_p < l+1) BF_FLUSH();
 		memcpy(fp->uncomp_p, mrname, l);
@@ -4040,15 +4038,15 @@ int bam_write_header(bam_file_t *out) {
     int i, htext_len;
 
     // Force sam_hdr_rebuild call
-    if (!sam_hdr_str(out->header->hdr))
+    if (!sam_hdr_str(out->header))
 	return -1;
 
-    htext = sam_hdr_str(out->header->hdr);
-    htext_len = sam_hdr_length(out->header->hdr);
+    htext = sam_hdr_str(out->header);
+    htext_len = sam_hdr_length(out->header);
 
     hdr_size = 12 + htext_len+1;
-    for (i = 0; i < sam_hdr_nref(out->header->hdr); i++) {
-	hdr_size += strlen(sam_hdr_tid2name(out->header->hdr, i))+1 + 8;
+    for (i = 0; i < sam_hdr_nref(out->header); i++) {
+	hdr_size += strlen(sam_hdr_ref2name(out->header, i))+1 + 8;
     }
     if (NULL == (hp = header = malloc(hdr_size)))
 	return -1;
@@ -4063,17 +4061,17 @@ int bam_write_header(bam_file_t *out) {
     if (out->binary) {
 	int i;
 
-	STORE_UINT32(hp, sam_hdr_nref(out->header->hdr));
+	STORE_UINT32(hp, sam_hdr_nref(out->header));
 
-	for (i = 0; i < sam_hdr_nref(out->header->hdr); i++) {
-	    const char *rname = sam_hdr_tid2name(out->header->hdr, i);
+	for (i = 0; i < sam_hdr_nref(out->header); i++) {
+	    const char *rname = sam_hdr_ref2name(out->header, i);
 	    size_t l = strlen(rname)+1;
 	    STORE_UINT32(hp, l);
 
 	    strcpy(hp, rname);
 	    hp += l;
 
-	    l = sam_hdr_tid2len(out->header->hdr, i);
+	    l = sam_hdr_ref2len(out->header, i);
 	    STORE_UINT32(hp, l);
 	}
     }

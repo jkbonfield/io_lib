@@ -103,7 +103,6 @@ typedef struct {
         samFile *sc;
     };
     cram_fd *c;    // legacy cram container, redirects to sc.
-    //sam_hdr_t *hdr; // htslib header
     SAM_hdr *hdr;
 
     /* Primary Input/Output buffer */
@@ -198,9 +197,9 @@ int scram_close(scram_fd *fd);
  * The sam_hdr_t struct on success; NULL on failure.
  */
 SAM_hdr *scram_get_header(scram_fd *fd);
-static inline sam_hdr_t *hts_get_header(scram_fd *fd) {
-    return scram_get_header(fd)->hdr;
-}
+//static inline sam_hdr_t *hts_get_header(scram_fd *fd) {
+//    return scram_get_header(fd)->hdr;
+//}
 
 
 /*! Sets the SAM_hdr struct.
@@ -357,6 +356,9 @@ static inline int cram_load_reference(cram_fd *fd, const char *ref) {
 //#define cram_set_option(f,o, ...) hts_set_opt((f), (o), __VA_ARGS__)
 
 int cram_index_load(cram_fd *fd, char const *fn);
+
+// For enum cigar_op in old io_lib
+#define BAM_UNKNOWN -1
 
 #ifdef __cplusplus
 }

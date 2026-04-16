@@ -63,14 +63,13 @@
  */
 static int hdr_compare(SAM_hdr *h1, SAM_hdr *h2) {
     int i;
-    if (SAM_hdr_nref(h1) != SAM_hdr_nref(h2))
+    if (h1->nref != h2->nref)
 	return 0;
 
-    for (i = 0; i < SAM_hdr_nref(h1); i++) {
-	if (strcmp(SAM_hdr_tid2name(h1, i),
-		   SAM_hdr_tid2name(h2, i)) != 0)
+    for (i = 0; i < h1->nref; i++) {
+	if (strcmp(h1->ref[i].name, h2->ref[i].name) != 0)
 	    return 0;
-	if (SAM_hdr_tid2len(h1, i) != SAM_hdr_tid2len(h2, i))
+	if (h1->ref[i].len != h2->ref[i].len)
 	    return 0;
     }
 
@@ -172,7 +171,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    //cram_set_option(NULL, CRAM_OPT_VERSION, optarg);
+	    cram_set_option(NULL, CRAM_OPT_VERSION, optarg);
 	    break;
 
 	case 'r':
@@ -266,31 +265,29 @@ int main(int argc, char **argv) {
 
 	/* Support for sub-range queries, currently implemented for CRAM only */
 	if (*ref_name != 0) {
+	    cram_range r;
+	    int refid;
+
 	    if (in[i]->is_bam) {
 		fprintf(stderr, "Currently the -R option is only implemented for CRAM indices\n");
 		return 1;
 	    }
+	    
+	    cram_index_load(in[i]->c, argv[optind]);
 
-	    fprintf(stderr, "CRAM support temporarily disabled\n");
-	    return 1;
-//	    cram_range r;
-//	    int refid;
-//
-//	    cram_index_load(in[i]->c, argv[optind]);
-//
-//	    refid = sam_hdr_name2ref(in[i]->c->header, ref_name);
-//
-//
-//	    if (refid == -1 && *ref_name != '*') {
-//		fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
-//		return 1;
-//	    }
-//	    r.refid = refid;
-//	    r.start = start;
-//	    r.end = end;
-//
-//	    if (scram_set_option(in[i], CRAM_OPT_RANGE, &r))
-//	    	return 1;
+	    refid = sam_hdr_name2ref(in[i]->c->header, ref_name);
+
+
+	    if (refid == -1 && *ref_name != '*') {
+		fprintf(stderr, "Unknown reference name '%s'\n", ref_name);
+		return 1;
+	    }
+	    r.refid = refid;
+	    r.start = start;
+	    r.end = end;
+
+	    if (scram_set_option(in[i], CRAM_OPT_RANGE, &r))
+	    	return 1;
 	}
     }
 
@@ -315,7 +312,7 @@ int main(int argc, char **argv) {
     /* Copy header and refs from in to out, for writing purposes */
     // FIXME: do proper merging of @PG lines
     // FIXME: track mapping of old PG aux name to new PG aux name per seq
-    scram_set_header(out, SAM_hdr_dup(scram_get_header(in[0])));
+    scram_set_header(out, sam_hdr_dup(scram_get_header(in[0])));
 
     // Needs doing after loading the header.
     if (ref_fn)

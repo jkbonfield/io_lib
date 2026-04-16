@@ -55,99 +55,680 @@ extern "C" {
 #include <htslib/sam.h>
 #include <htslib/kstring.h>
 #include "io_lib/dstring.h"
+#include "io_lib/hash_table.h"
+#include "io_lib/string_alloc.h"
+
+/*
+ * Proposed new SAM header parsing
+
+1 @SQ ID:foo LN:100
+2 @SQ ID:bar LN:200
+3 @SQ ID:ram LN:300 UR:xyz
+4 @RG ID:r ...
+5 @RG ID:s ...
+
+Hash table for 2-char keys without dup entries.
+If dup lines, we form a circular linked list. Ie hash keys = {RG, SQ}.
+
+HASH("SQ")--\
+            |
+    (3) <-> 1 <-> 2 <-> 3 <-> (1)
+
+HASH("RG")--\
+            |
+    (5) <-> 4 <-> 5 <-> (4)
+
+Items stored in the hash values also form their own linked lists:
+Ie SQ->ID(foo)->LN(100)
+   SQ->ID(bar)->LN(200)
+   SQ->ID(ram)->LN(300)->UR(xyz)
+   RG->ID(r)
+ */
+
+/*! A single key:value pair on a header line
+ *
+ * These form a linked list and hold strings. The strings are
+ * allocated from a string_alloc_t pool refeenced in the master
+ * SAM_hdr structure. Do not attempt to free, malloc or manipulate
+ * these strings directly.
+ */
+typedef struct SAM_hdr_tag_s {
+    struct SAM_hdr_tag_s *next;
+    char *str;
+    int   len;
+} SAM_hdr_tag;
+
+/*! The parsed version of the SAM header string.
+ * 
+ * Each header type (SQ, RG, HD, etc) points to its own SAM_hdr_type
+ * struct via the main HashTable h in the SAM_hdr struct.
+ *
+ * These in turn consist of circular bi-directional linked lists (ie
+ * rings) to hold the multiple instances of the same header type
+ * code. For example if we have 5 \@SQ lines the primary hash table
+ * will key on \@SQ pointing to the first SAM_hdr_type and that in turn
+ * will be part of a ring of 5 elements.
+ *
+ * For each SAM_hdr_type structure we also point to a SAM_hdr_tag
+ * structure which holds the tokenised attributes; the tab separated
+ * key:value pairs per line.
+ */
+typedef struct SAM_hdr_item_s {
+    struct SAM_hdr_item_s *next; // cirular
+    struct SAM_hdr_item_s *prev;
+    SAM_hdr_tag *tag;            // first tag
+    int order;                   // 0 upwards
+} SAM_hdr_type;
 
 /*! Parsed \@SQ lines */
 typedef struct {
     char *name;
     uint32_t len;
+    SAM_hdr_type *ty;
+    SAM_hdr_tag  *tag;
 } SAM_SQ;
 
-
-// A container for htslib's header API instead (which is derived from this
-// code originally).
+/*! Parsed \@RG lines */
 typedef struct {
-    dstring_t *text;          //!< concatenated text, indexed by SAM_hdr_tag
-    sam_hdr_t *hdr;           //!<htslib header struct
-    int nref;                 //!< Number of \@SQ lines
-    SAM_SQ *ref;              //!< Array of parsed \@SQ lines
-} SAM_hdr;
+    char *name;
+    SAM_hdr_type *ty;
+    SAM_hdr_tag  *tag;
+    int name_len;
+    int id;           // numerical ID
+} SAM_RG;
 
-//typedef sam_hdr_t       SAM_hdr;
+/*! Parsed \@PG lines */
+typedef struct {
+    char *name;
+    SAM_hdr_type *ty;
+    SAM_hdr_tag  *tag;
+    int name_len;
+    int id;           // numerical ID
+    int prev_id;      // -1 if none
+} SAM_PG;
 
-#define sam_hdr_add(h,t,...) sam_hdr_add_line((h),(t),__VA_ARGS__)
-#define sam_hdr_add_PG(h,n,...) sam_hdr_add_pg((h),(n),__VA_ARGS__)
-
-
-int sam_hdr_name2ref(SAM_hdr *h, const char *name);
-
-// These are private in htslib.  I'm not sure why
+/*! Sort order parsed from @HD line */
 enum sam_sort_order {
     ORDER_UNKNOWN  =-1,
     ORDER_UNSORTED = 0,
     ORDER_NAME     = 1,
-    ORDER_COORD    = 2
+    ORDER_COORD    = 2,
+  //ORDER_COLLATE  = 3 // maybe one day!
 };
 
-enum sam_group_order {
-    ORDER_NONE      =-1,
-    ORDER_QUERY     = 0,
-    ORDER_REFERENCE = 1
-};
+/*! Primary structure for header manipulation
+ *
+ * The initial header text is held in the text dstring_t, but is also
+ * parsed out into SQ, RG and PG arrays. These have a HashTable
+ * associated with each to allow lookup by ID or SN fields instead of
+ * their numeric array indices. Additionally PG has an array to hold
+ * the linked list start points (the last in a PP chain).
+ *
+ * Use the appropriate sam_hdr_* functions to edit the header, and 
+ * call sam_hdr_rebuild() any time the textual form needs to be
+ * updated again.
+ */
+typedef struct {
+    sam_hdr_t *hdr;           //!< htslib header struct
+    //int htslib_stale;         //!< True if hdr needs updating.
+    dstring_t *text;          //!< concatenated text, indexed by SAM_hdr_tag
+    HashTable *h;             //!< 2-char IDs, values are SAM_hdr_type
+    string_alloc_t *str_pool; //!< Pool of SAM_hdr_tag->str strings
+    pool_alloc_t   *type_pool;//!< Pool of SAM_hdr_type structs
+    pool_alloc_t   *tag_pool; //!< Pool of SAM_hdr_tag structs
 
-static inline enum sam_sort_order sam_hrecs_sort_order(sam_hdr_t *hdr) {
-    kstring_t str = KS_INITIALIZE;
-    if (sam_hdr_find_tag_hd(hdr, "SO", &str) < 0)
-        return ORDER_UNKNOWN;
+    // @SQ lines / references
+    int nref;                 //!< Number of \@SQ lines
+    SAM_SQ *ref;              //!< Array of parsed \@SQ lines
+    HashTable *ref_hash;      //!< Hash table indexed by SN: field
 
-    int ret;
-    if (strcmp(str.s, "coordinate") == 0)
-        ret = ORDER_COORD;
-    else if (strcmp(str.s, "name") == 0)
-        ret = ORDER_NAME;
-    else if (strcmp(str.s, "unsorted") == 0)
-        ret = ORDER_UNSORTED;
-    else
-        ret = ORDER_UNKNOWN;
+    // @RG lines / read-groups
+    int nrg;                  //!< Number of \@RG lines
+    SAM_RG *rg;               //!< Array of parsed \@RG lines
+    HashTable *rg_hash;	      //!< Hash table indexed by ID: field
 
-    ks_free(&str);
-    return ret;
-}
+    // @PG lines / programs
+    int npg;                  //!< Number of \@PG lines
+    int npg_end;              //!< Number of terminating \@PG lines
+    int npg_end_alloc;        //!< Size of pg_end field
+    SAM_PG *pg;		      //!< Array of parsed \@PG lines
+    HashTable *pg_hash;	      //!< Hash table indexed by ID: field
+    int *pg_end;              //!< \@PG chain termination IDs
+
+    // @HD data
+    enum sam_sort_order sort_order; //!< @HD SO: field
+
+    // Order of first occurence of @?? lines.
+    dstring_t *type_order;
+    int ntypes;
+
+    // @cond internal
+    char ID_buf[1024];  // temporary buffer
+    int ID_cnt;
+    int ref_count;      // number of uses of this SAM_hdr
+    // @endcond
+} SAM_hdr;
+
+
+/* ---------------------------------------------------------------------------
+ * Htslib / io_lib integration. This is tricky due to function name clashes.
+ *
+ * We're not attempting to achieve ABI compatibility here, just API.
+ * So we can use static inline functions and #defines to rewrite code such
+ * that both libraries can be included and used together.
+ */
 
 SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr);
+sam_hdr_t *sam_hdr_convert_to_htslib(SAM_hdr *hdr);
 void sam_hdr_free(SAM_hdr *hdr);
 
-// io_lib's header.
-static inline sam_hdr_t *sam_hdr_parse_htslib(const char *hdr, int len) {
+// -----
+// Htslib wrappers.  We add _htslib to the function name so we can call this
+// API from within our own code or external tools, permitting us to rename
+// the clashing function names to _iolib suffix variants instead for anyone
+// including this file.
+// This also avoids issues when tools include both io_lib/sam_header.h and
+// htslib/sam.h.
+static inline sam_hdr_t *sam_hdr_parse_htslib(int len, const char *hdr) {
     return sam_hdr_parse(len, hdr);
 }
 
-static inline SAM_hdr *sam_hdr_parse_iolib(const char *hdr, int len) {
-    SAM_hdr *h = sam_hdr_convert(sam_hdr_parse(len, hdr));
-    if (!h)
-        return NULL;
-    return h;
+static inline sam_hdr_t *sam_hdr_dup_htslib(sam_hdr_t *h) {
+    return sam_hdr_dup(h);
 }
+
+static inline void sam_hdr_incr_ref_htslib(sam_hdr_t *h) {
+    return sam_hdr_incr_ref(h);
+}
+
+static inline size_t sam_hdr_length_htslib(sam_hdr_t *h) {
+    return sam_hdr_length(h);
+}
+
+static inline const char *sam_hdr_str_htslib(sam_hdr_t *h) {
+    return sam_hdr_str(h);
+}
+
+// // -----
+// // io_lib wrappers, all ending in _iolib instead.
+// // These get rewritten via #defines so the old API is intact.
+// // As much as possible these are rewritten using the htslib API,
+// // but in some cases we are required to keep shadow copies of the
+// // entire header structures because htslib's API is incompletely
+// // exported.
+// static inline SAM_hdr *sam_hdr_parse_iolib(const char *hdr, int len) {
+//     SAM_hdr *h = sam_hdr_convert(sam_hdr_parse(len, hdr));
+//     if (!h)
+//         return NULL;
+//     return h;
+// }
+// 
+// static inline SAM_hdr *sam_hdr_dup_iolib(SAM_hdr *h) {
+//     return sam_hdr_convert(sam_hdr_dup(h->hdr));
+// }
+// 
+// static inline int sam_hdr_nref_iolib(SAM_hdr *h) {
+//     return h->nref;
+// }
+// 
+// static inline const char *sam_hdr_ref2name_iolib(SAM_hdr *h, int i) {
+//     return i >= 0 && i < sam_hdr_nref_iolib(h) ? h->ref[i].name : NULL;
+// }
+// 
+// static inline ssize_t sam_hdr_ref2len_iolib(SAM_hdr *h, int i) {
+//     return i >= 0 && i < sam_hdr_nref_iolib(h) ? h->ref[i].len : -1;
+// }
+
 
 // Map io_lib header calls to sam_hdr_parse_ which converts from htslib's
 // identically named sam_hdr_parse function.
-#define sam_hdr_parse(h,l) sam_hdr_parse_iolib(h,l)
+#define sam_hdr_new         sam_hdr_new_iolib
+#define sam_hdr_parse       sam_hdr_parse_iolib
+#define sam_hdr_dup         sam_hdr_dup_iolib
+#define sam_hdr_incr_ref    sam_hdr_incr_ref_iolib
+#define sam_hdr_decr_ref    sam_hdr_decr_ref_iolib
+#define sam_hdr_free        sam_hdr_free_iolib
+#define sam_hdr_length      sam_hdr_length_iolib
+#define sam_hdr_str         sam_hdr_length_str_iolib
+#define sam_hdr_add_lines   sam_hdr_length_add_lines_iolib
+#define sam_hdr_add         sam_hdr_add_iolib
+#define sam_hdr_vadd        sam_hdr_vadd_iolib
+#define sam_hdr_find        sam_hdr_find_iolib
+#define sam_hdr_find_line   sam_hdr_find_line_iolib
+#define sam_hdr_find_key    sam_hdr_find_key_iolib
+#define sam_hdr_rebuild     sam_hdr_rebuild_iolib
+#define sam_hdr_name2ref    sam_hdr_name2ref_iolib
+#define sam_hdr_find_rg     sam_hdr_find_rg_iolib
+#define sam_hdr_link_pg     sam_hdr_link_rg_iolib
+#define sam_hdr_add_PG      sam_hdr_add_PG_iolib
+
+// New for completeness
+#define sam_hdr_nref        sam_hdr_nref_iolib
+#define sam_hdr_ref2name    sam_hdr_ref2name_iolib
+#define sam_hdr_ref2len     sam_hdr_ref2len_iolib
+
+// stringify_argv is identical to htslib so not shadowed
+
+/* ---------------------------------------------------------------------------
+ * Original io_lib header API follows
+ */
+
+/*! Creates an empty SAM header, ready to be populated.
+ * 
+ * @return
+ * Returns a SAM_hdr struct on success (free with sam_hdr_free())
+ *         NULL on failure
+ */
+SAM_hdr *sam_hdr_new();
+
+/*! Tokenises a SAM header into a hash table.
+ *
+ * Also extracts a few bits on specific data types, such as @RG lines.
+ *
+ * @return
+ * Returns a SAM_hdr struct on success (free with sam_hdr_free());
+ *         NULL on failure
+ */
+#ifdef SAMTOOLS
+SAM_hdr *sam_hdr_parse_(const char *hdr, int len);
+#else
+SAM_hdr *sam_hdr_parse(const char *hdr, int len);
+#endif
 
 
-static inline int SAM_hdr_nref(SAM_hdr *h) {
-    return h->nref;
-}
+/*! Produces a duplicate copy of hdr and returns it.
+ * @return
+ * Returns NULL on failure
+ */
+SAM_hdr *sam_hdr_dup(SAM_hdr *hdr);
 
-static inline const char *SAM_hdr_tid2name(SAM_hdr *h, int id) {
-    return sam_hdr_tid2name(h->hdr, id);
-}
 
-static inline hts_pos_t SAM_hdr_tid2len(SAM_hdr *h, int id) {
-    return sam_hdr_tid2len(h->hdr, id);
-}
+/*! Increments a reference count on hdr.
+ *
+ * This permits multiple files to share the same header, all calling
+ * sam_hdr_free when done, without causing errors for other open  files.
+ */
+void sam_hdr_incr_ref(SAM_hdr *hdr);
 
-static inline SAM_hdr *SAM_hdr_dup(SAM_hdr *h) {
-    return sam_hdr_convert(sam_hdr_dup(h->hdr));
-}
+
+/*! Increments a reference count on hdr.
+ *
+ * This permits multiple files to share the same header, all calling
+ * sam_hdr_free when done, without causing errors for other open  files.
+ *
+ * If the reference count hits zero then the header is automatically
+ * freed. This makes it a synonym for sam_hdr_free().
+ */
+void sam_hdr_decr_ref(SAM_hdr *hdr);
+
+
+/*! Deallocates all storage used by a SAM_hdr struct.
+ *
+ * This also decrements the header reference count. If after decrementing 
+ * it is still non-zero then the header is assumed to be in use by another
+ * caller and the free is not done.
+ *
+ * This is a synonym for sam_hdr_dec_ref().
+ */
+void sam_hdr_free(SAM_hdr *hdr);
+
+/*! Returns the current length of the SAM_hdr in text form.
+ *
+ * Call sam_hdr_rebuild() first if editing has taken place.
+ */
+int sam_hdr_length(SAM_hdr *hdr);
+
+/*! Returns the string form of the SAM_hdr.
+ *
+ * Call sam_hdr_rebuild() first if editing has taken place.
+ */
+char *sam_hdr_str(SAM_hdr *hdr);
+
+/*! Appends a formatted line to an existing SAM header.
+ *
+ * Line is a full SAM header record, eg "@SQ\tSN:foo\tLN:100", with
+ * optional new-line. If it contains more than 1 line then multiple lines
+ * will be added in order.
+ *
+ * Input text is of maximum length len or as terminated earlier by a NUL.
+ * Len may be 0 if unknown, in which case lines must be NUL-terminated.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int sam_hdr_add_lines(SAM_hdr *sh, const char *lines, int len);
+
+/*! Adds a single line to a SAM header.
+ *
+ * Specify type and one or more key,value pairs, ending with the NULL key.
+ * Eg. sam_hdr_add(h, "SQ", "ID", "foo", "LN", "100", NULL).
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int sam_hdr_add(SAM_hdr *sh, const char *type, ...);
+
+/*! Adds a single line to a SAM header.
+ *
+ * This is much like sam_hdr_add() but with the additional va_list
+ * argument. This is followed by specifying type and one or more
+ * key,value pairs, ending with the NULL key.
+ *
+ * Eg. sam_hdr_vadd(h, "SQ", args, "ID", "foo", "LN", "100", NULL).
+ *
+ * The purpose of the additional va_list parameter is to permit other
+ * varargs functions to call this while including their own additional
+ * parameters; an example is in sam_hdr_add_PG().
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int sam_hdr_vadd(SAM_hdr *sh, const char *type, va_list ap, ...);
+
+/*!
+ * @return
+ * Returns the first header item matching 'type'. If ID is non-NULL it checks
+ * for the tag ID: and compares against the specified ID.
+ *
+ * Returns NULL if no type/ID is found
+ */
+SAM_hdr_type *sam_hdr_find(SAM_hdr *hdr, char *type,
+			   char *ID_key, char *ID_value);
+
+/*!
+ *
+ * As per SAM_hdr_type, but returns a complete line of formatted text
+ * for a specific head type/ID combination. If ID is NULL then it returns
+ * the first line of the specified type.
+ *
+ * The returned string is malloced and should be freed by the calling
+ * function with free().
+ *
+ * @return
+ * Returns NULL if no type/ID is found.
+ */
+char *sam_hdr_find_line(SAM_hdr *hdr, char *type,
+			char *ID_key, char *ID_value);
+
+/*! Looks for a specific key in a single sam header line.
+ *
+ * If prev is non-NULL it also fills this out with the previous tag, to
+ * permit use in key removal. *prev is set to NULL when the tag is the first
+ * key in the list. When a tag isn't found, prev (if non NULL) will be the last
+ * tag in the existing list.
+ *
+ * @return
+ * Returns the tag pointer on success;
+ *         NULL on failure
+ */
+SAM_hdr_tag *sam_hdr_find_key(SAM_hdr *sh,
+			      SAM_hdr_type *type,
+			      char *key,
+			      SAM_hdr_tag **prev);
+
+/*! Adds or updates tag key,value pairs in a header line.
+ *
+ * Eg for adding M5 tags to @SQ lines or updating sort order for the
+ * @HD line (although use the sam_hdr_sort_order() function for
+ * HD manipulation, which is a wrapper around this funuction).
+ *
+ * Specify multiple key,value pairs ending in NULL.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int sam_hdr_update(SAM_hdr *hdr, SAM_hdr_type *type, ...);
+
+/*! Returns the sort order from the @HD SO: field */
+enum sam_sort_order sam_hdr_sort_order(SAM_hdr *hdr);
+
+/*! Reconstructs the dstring from the header hash table.
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int sam_hdr_rebuild(SAM_hdr *hdr);
+
+/*! Looks up a reference sequence by name and returns the numerical ID.
+ * @return
+ * Returns -1 if unknown reference.
+ */
+int sam_hdr_name2ref(SAM_hdr *hdr, char *ref);
+
+/*! Looks up a read-group by name and returns a pointer to the start of the
+ * associated tag list.
+ *
+ * @return
+ * Returns NULL on failure
+ */
+SAM_RG *sam_hdr_find_rg(SAM_hdr *hdr, char *rg);
+
+/*! Fixes any PP links in @PG headers.
+ *
+ * If the entries are in order then this doesn't need doing, but incase
+ * our header is out of order this goes through the sh->pg[] array
+ * setting the prev_id field.
+ *
+ * @return
+ * Returns 0 on sucess;
+ *        -1 on failure (indicating broken PG/PP records)
+ */
+int sam_hdr_link_pg(SAM_hdr *hdr);
+
+
+/*! Add an @PG line.
+ *
+ * If we wish complete control over this use sam_hdr_add() directly. This
+ * function uses that, but attempts to do a lot of tedious house work for
+ * you too.
+ *
+ * - It will generate a suitable ID if the supplied one clashes.
+ * - It will generate multiple @PG records if we have multiple PG chains.
+ *
+ * Call it as per sam_hdr_add() with a series of key,value pairs ending
+ * in NULL.
+ *
+ * @return
+ * Returns 0 on success;
+ *        -1 on failure
+ */
+int sam_hdr_add_PG(SAM_hdr *sh, const char *name, ...);
+
+/*! Returns the number of references in a header
+ *
+ * @return
+ * Reference count
+ */
+int sam_hdr_nref(SAM_hdr *sh);
+
+/*! Converts a reference number (>= 0) to reference name
+ *
+ * @return
+ * Returns reference name on success
+ *         NULL on failure
+ */
+const char *sam_hdr_ref2name(SAM_hdr *sh, int rnum);
+
+/*! Converts a reference number (>= 0) to reference length
+ *
+ * @return
+ * Returns reference length on success
+ *         -1 on failure
+ */
+ssize_t sam_hdr_ref2len(SAM_hdr *sh, int rnum);
+
+/*!
+ * A function to help with construction of CL tags in @PG records.
+ * Takes an argc, argv pair and returns a single space-separated string.
+ * This string should be deallocated by the calling function.
+ * 
+ * @return
+ * Returns malloced char * on success;
+ *         NULL on failure
+ */
+char *stringify_argv(int argc, char *argv[]);
+
+//static inline enum sam_sort_order sam_hdr_sort_order(SAM_hdr *h) {
+//    sam_hdr_t *hdr = h->hdr;
+//
+//    kstring_t str = KS_INITIALIZE;
+//    if (sam_hdr_find_tag_hd(hdr, "SO", &str) < 0) // htslib API
+//        return ORDER_UNKNOWN;
+//
+//    int ret;
+//    if (strcmp(str.s, "coordinate") == 0)
+//        ret = ORDER_COORD;
+//    else if (strcmp(str.s, "name") == 0)
+//        ret = ORDER_NAME;
+//    else if (strcmp(str.s, "unsorted") == 0)
+//        ret = ORDER_UNSORTED;
+//    else
+//        ret = ORDER_UNKNOWN;
+//
+//    ks_free(&str);
+//    return ret;
+//}
+
+#if 0
+// /*! Parsed \@SQ lines */
+// typedef struct {
+//     char *name;
+//     uint32_t len;
+// } SAM_SQ;
+// 
+// 
+// // A container for htslib's header API instead (which is derived from this
+// // code originally).
+// typedef struct {
+//     dstring_t *text;          //!< concatenated text, indexed by SAM_hdr_tag
+//     sam_hdr_t *hdr;           //!<htslib header struct
+//     int nref;                 //!< Number of \@SQ lines
+//     SAM_SQ *ref;              //!< Array of parsed \@SQ lines
+// } SAM_hdr;
+// 
+// //typedef sam_hdr_t       SAM_hdr;
+// 
+// #define sam_hdr_add(h,t,...) sam_hdr_add_line((h),(t),__VA_ARGS__)
+// #define sam_hdr_add_PG(h,n,...) sam_hdr_add_pg((h),(n),__VA_ARGS__)
+// 
+// 
+// int sam_hdr_name2ref(SAM_hdr *h, const char *name);
+// 
+// // These are private in htslib.  I'm not sure why
+// enum sam_sort_order {
+//     ORDER_UNKNOWN  =-1,
+//     ORDER_UNSORTED = 0,
+//     ORDER_NAME     = 1,
+//     ORDER_COORD    = 2
+// };
+// 
+// enum sam_group_order {
+//     ORDER_NONE      =-1,
+//     ORDER_QUERY     = 0,
+//     ORDER_REFERENCE = 1
+// };
+// 
+// static inline enum sam_sort_order sam_hrecs_sort_order(sam_hdr_t *hdr) {
+//     kstring_t str = KS_INITIALIZE;
+//     if (sam_hdr_find_tag_hd(hdr, "SO", &str) < 0)
+//         return ORDER_UNKNOWN;
+// 
+//     int ret;
+//     if (strcmp(str.s, "coordinate") == 0)
+//         ret = ORDER_COORD;
+//     else if (strcmp(str.s, "name") == 0)
+//         ret = ORDER_NAME;
+//     else if (strcmp(str.s, "unsorted") == 0)
+//         ret = ORDER_UNSORTED;
+//     else
+//         ret = ORDER_UNKNOWN;
+// 
+//     ks_free(&str);
+//     return ret;
+// }
+// 
+// static inline int SAM_hdr_nref(SAM_hdr *h) {
+//     return h->nref;
+// }
+// 
+// static inline const char *SAM_hdr_tid2name(SAM_hdr *h, int id) {
+//     return sam_hdr_tid2name(h->hdr, id);
+// }
+// 
+// static inline hts_pos_t SAM_hdr_tid2len(SAM_hdr *h, int id) {
+//     return sam_hdr_tid2len(h->hdr, id);
+// }
+// 
+// static inline SAM_hdr *SAM_hdr_dup(SAM_hdr *h) {
+//     return sam_hdr_convert(sam_hdr_dup(h->hdr));
+// }
+// #endif
+// 
+// 
+// #if 0
+// 
+// /*! A single key:value pair on a header line
+//  *
+//  * These form a linked list and hold strings. The strings are
+//  * allocated from a string_alloc_t pool refeenced in the master
+//  * SAM_hdr structure. Do not attempt to free, malloc or manipulate
+//  * these strings directly.
+//  */
+// typedef struct SAM_hdr_tag_s {
+//     struct SAM_hdr_tag_s *next;
+//     char *str;
+//     int   len;
+// } SAM_hdr_tag;
+// 
+// /*! The parsed version of the SAM header string.
+//  * 
+//  * Each header type (SQ, RG, HD, etc) points to its own SAM_hdr_type
+//  * struct via the main HashTable h in the SAM_hdr struct.
+//  *
+//  * These in turn consist of circular bi-directional linked lists (ie
+//  * rings) to hold the multiple instances of the same header type
+//  * code. For example if we have 5 \@SQ lines the primary hash table
+//  * will key on \@SQ pointing to the first SAM_hdr_type and that in turn
+//  * will be part of a ring of 5 elements.
+//  *
+//  * For each SAM_hdr_type structure we also point to a SAM_hdr_tag
+//  * structure which holds the tokenised attributes; the tab separated
+//  * key:value pairs per line.
+//  */
+// typedef struct SAM_hdr_item_s {
+//     struct SAM_hdr_item_s *next; // cirular
+//     struct SAM_hdr_item_s *prev;
+//     SAM_hdr_tag *tag;            // first tag
+//     int order;                   // 0 upwards
+// } SAM_hdr_type;
+// 
+// /*!
+//  * @return
+//  * Returns the first header item matching 'type'. If ID is non-NULL it checks
+//  * for the tag ID: and compares against the specified ID.
+//  *
+//  * Returns NULL if no type/ID is found
+//  */
+// static inline
+// SAM_hdr_type *SAM_hdr_find(SAM_hdr *hdr, char *type,
+//                            char *ID_key, char *ID_value) {
+//     // Htslib's sam_hrecs_find_type_id function is the equivalent,
+//     // but it's not exposed.
+//     // We can call sam_hdr_find_line_id, which calls it and then converts
+//     // this to a full string again, but it requires more parsing.
+//     //
+//     // Or... we expose the API in htslib?
+// 
+//     // For HD maybe we just use sam_hdr_find_tag_id on "VN"?
+//     // Similarly SQ to SN, RG and PL to ID?  These are the commonly looked
+//     // for items.  We cannot rely on this as HD may have no tag at all,
+//     // or it may have only sort-order, or only version.
+// }
+#endif // if 0
 
 #ifdef __cplusplus
 }

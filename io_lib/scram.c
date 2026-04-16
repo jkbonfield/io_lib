@@ -317,20 +317,26 @@ void scram_set_refs(scram_fd *fd, refs_t *refs) {
 
 void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
     if (fd->is_bam) {
-	fd->b->header = SAM_hdr_dup(sh);
+	fd->b->header = sam_hdr_dup(sh);
     } else {
-	fd->sc->bam_header = sam_hdr_parse_htslib(sh->text->str, sh->text->length);
+	fd->sc->bam_header = sam_hdr_parse_htslib(sh->text->length,
+						  sh->text->str);
 	fd->c->header = sh;
     }
-    sam_hdr_incr_ref(sh->hdr);
+    sam_hdr_incr_ref(sh);
 
     fd->hdr = sh;
 }
 
 int scram_write_header(scram_fd *fd) {
-    return fd->is_bam
-	? bam_write_header(fd->b)
-	: sam_hdr_write(fd->sc, fd->hdr->hdr);
+    if (fd->is_bam)
+	return bam_write_header(fd->b);
+
+    // TODO: keep fd->hdr->hdr updated on the fly.
+    if (fd->hdr->hdr)
+	sam_hdr_destroy(fd->hdr->hdr);
+    fd->hdr->hdr = sam_hdr_convert_to_htslib(fd->hdr);
+    return sam_hdr_write(fd->sc, fd->hdr->hdr);
 }
 
 int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
@@ -775,49 +781,6 @@ int cram_index_load(cram_fd *fd, char const *fn) {
 
 //-----------------------------------------------------------------------------
 // Header manipulation
-int sam_hdr_name2ref(SAM_hdr *h, const char *name) {
-    return sam_hdr_name2tid(h->hdr, name);
-}
-
-
-SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr) {
-    if (!hdr)
-	return NULL;
-
-    SAM_hdr *h = calloc(1, sizeof(*h));
-    if (!h)
-	return NULL;
-
-    h->hdr = hdr;
-    h->text = malloc(sizeof(*h->text));
-    if (!h->text)
-	return NULL;
-    h->text->allocated = 0;
-    h->text->length = hdr->l_text;
-    h->text->str = hdr->text;
-    h->nref = hdr->n_targets;
-    // taget_name and target_len
-    h->ref = calloc(h->nref, sizeof(*h->ref));
-    if (!h->ref)
-	return NULL;
-    for (int i = 0; i < h->nref; i++) {
-	h->ref[i].name = hdr->target_name[i];
-	h->ref[i].len = hdr->target_len[i];
-    }
-
-    return h;
-}
-
-void sam_hdr_free(SAM_hdr *hdr) {
-    int rc = hdr->hdr->ref_count;
-    sam_hdr_destroy(hdr->hdr);
-
-    if (rc < 1) {
-        free(hdr->text);
-        free(hdr->ref);
-        free(hdr);
-    }
-}
 
 
 // //-----------------------------------------------------------------------------
