@@ -49,10 +49,6 @@ extern "C" {
 #include "io_lib/cram.h"
 #include <htslib/sam.h>
 
-// conflicts
-//#include <htslib/cram.h>
-//typedef struct cram_fd cram_fd;
-//typedef void refs_t;
 extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 
 // It turns off BAM CRC checks too in io_lib's original, plus ignoring

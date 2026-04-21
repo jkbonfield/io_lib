@@ -48,14 +48,44 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define HTS_NO_SAM_HDR
 #include <htslib/cram.h>
 
-//#ifdef WITH_CRAM
-//#else
-//typedef struct {
-//    void *header;
-//    void *refs;
-//} cram_fd;
-//typedef void refs_t;
-//#endif
+// Minimal implementation for gap5's export_snps.c to build, but not to run.
+// (That code is internal debugging and not exported to the users.)
+typedef struct {
+    char *name;
+    char *fn;
+    int64_t length;
+    int64_t offset;
+    int bases_per_line;
+    int line_length;
+    int64_t count;         // for shared references so we know to dealloc seq
+    char *seq;
+    //mFILE *mf;
+    int is_md5;            // Reference comes from a raw seq found by MD5
+} ref_entry;
+
+typedef struct refs_t {
+    // big enough to swallow htslib's copy (112)
+    uint8_t htslib_private[1024];
+
+    // io_lib bits accessed by Gap5.  This ensures any modification doesn't
+    // overwrite htslib's data.
+    void *fp;
+    ref_entry **ref_id;
+    int nref;
+} refs_t;
+
+static inline
+char *load_ref_portion(void *fp, ref_entry *e, int start, int end) {
+    return NULL;
+}
+
+static inline
+refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
+    return NULL;
+}
+
+static inline
+void refs_free(refs_t *r) {}
 
 #define SEQS_PER_SLICE 10000
 #define BASES_PER_SLICE (SEQS_PER_SLICE*500)
