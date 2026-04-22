@@ -76,90 +76,6 @@ before sending on to FILE *fp.
 
 #include "io_lib/scram.h"
 
-#define SCRAM_BUF_SIZE (1024*1024)
-
-/*
- * Expands the input buffer.
- * Returns 0 on sucess
- *        -1 on failure
- */
-static int scram_more_input(scram_fd *fd) {
-    size_t avail = fd->alloc - fd->used;
-    size_t l;
-
-    l = fread(&fd->buf[fd->used], 1, avail, fd->fp);
-    if (l <= 0)
-	return -1;
-    
-    fd->used += l;
-    return 0;
-}
-
-/*
- * Consumes a block of data from the input stream and returns a malloced
- * copy of it. The input buffer is then copied down (FIXME: inefficient).
- */
-static unsigned char *scram_input_next_block(scram_fd *fd, size_t max_size,
-					     size_t *out_size) {
-    ssize_t l = MIN(max_size, fd->used);
-    ssize_t i;
-    unsigned char *r = NULL;
-
-    if (max_size > fd->used) {
-	scram_more_input(fd);
-	if (fd->used == 0)
-	    return NULL;
-    }
-
-    if (fd->b->binary) {
-	uint32_t bsize;
-
-	if (l < 19)
-	    return NULL;
-	bsize = fd->buf[16] + 256*fd->buf[17] + 1;
-	fprintf(stderr, "block_size=%d\n", bsize);
-	
-	l = MIN(bsize, l);
-    } else {
-	for (i = l-1; i >= 0; i--) {
-	    while (fd->buf[i] != '\n')
-		i--;
-	}
-	assert(i >= 0);
-
-	l = i;
-    }
-
-    if (!(r = malloc(l)))
-	return NULL;
-    memcpy(r, fd->buf, l);
-    memcpy(fd->buf, &fd->buf[l], fd->used - l);
-    fd->used -= l;
-
-    if (out_size)
-	*out_size = l;
-
-    return r;
-}
-
-int scram_input_bam_block(scram_fd *fd) {
-    size_t sz;
-    unsigned char *r;
-
-    if (!fd->is_bam)
-	return -1;
-    r = scram_input_next_block(fd, Z_BUFF_SIZE, &sz);
-    if (!r)
-	return -1;
-
-//    if (fd->b->comp_p && fd->b->comp_p != fd->b->comp)
-//	free(fd->b->comp_p);
-    fd->b->comp_p = r;
-    fd->b->comp_sz = sz;
-    
-    return 0;
-}
-
 /*
  * Opens filename.
  * If reading we initially try cram first and then bam/sam if that fails.
@@ -208,12 +124,12 @@ scram_fd *scram_open(const char *filename, const char *mode) {
     }
 
     if (*mode == 'r') {
-	if (mode[1] != 'b' && mode[1] != 's') {
+	if (1) {//mode[1] != 'b' && mode[1] != 's') {
 	    if (!(fd->sc= sam_open(filename, mode))) {
 		fprintf(stderr, "Error opening \"%s\"\n", filename);
 		return NULL;
 	    }
-	    fd->is_bam = 0;
+	    fd->is_bam = 2 * !(mode[1] != 'b' && mode[1] != 's');
 	    if (!(fd->hdr = sam_hdr_convert(sam_hdr_read(fd->sc)))) {
 		fprintf(stderr, "Failed to read header\n");
 		return NULL;
@@ -238,12 +154,17 @@ scram_fd *scram_open(const char *filename, const char *mode) {
     /* For writing we cannot auto detect, so create the file type based
      * on the format in the mode string.
      */
-    if (strncmp(mode, "wc", 2) == 0) {
-	if (!(fd->sc = sam_open(filename, mode))) {
+    //if (strncmp(mode, "wc", 2) == 0) {
+    if (*mode == 'w') {
+	fd->is_bam = 2 * !(mode[1] != 'b' && mode[1] != 's');
+	// Mode s is for socket in htslib, or SAM for iolib
+	char mode2[100];
+	snprintf(mode2, 100, "%c%s", mode[0],
+		 mode[1] == 's' ? mode+2 : mode+1);
+	if (!(fd->sc = sam_open(filename, mode2))) {
 	    fprintf(stderr, "Error opening \"%s\"\n", filename);
 	    return NULL;
 	}
-	fd->is_bam = 0;
 	fd->c = malloc(sizeof(*fd->c));
 	if (!fd->c)
 	    return NULL;
@@ -263,7 +184,10 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 int scram_close(scram_fd *fd) {
     int r;
 
-    if (fd->is_bam) {
+    if (fd->is_bam == 1)
+	abort(); // this code shouldn't happen any more
+
+    if (fd->is_bam == 1) {
 	r = bam_close(fd->b);
     } else {
 	r = sam_close(fd->sc);
@@ -297,7 +221,7 @@ int scram_close(scram_fd *fd) {
 
 SAM_hdr *scram_get_header(scram_fd *fd) {
     // avoids cmovne generation from icc 2015 (bug)
-    return fd->is_bam && fd->b ? fd->b->header : fd->hdr;
+    return fd->is_bam == 1 && fd->b ? fd->b->header : fd->hdr;
 }
 
 refs_t *scram_get_refs(scram_fd *fd) {
@@ -316,7 +240,7 @@ void scram_set_refs(scram_fd *fd, refs_t *refs) {
 }
 
 void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
-    if (fd->is_bam) {
+    if (fd->is_bam == 1) {
 	fd->b->header = sam_hdr_dup(sh);
     } else {
 	fd->sc->bam_header = sam_hdr_parse_htslib(sh->text->length,
@@ -329,7 +253,7 @@ void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
 }
 
 int scram_write_header(scram_fd *fd) {
-    if (fd->is_bam)
+    if (fd->is_bam == 1)
 	return bam_write_header(fd->b);
 
     // TODO: keep fd->hdr->hdr updated on the fly.
@@ -405,7 +329,10 @@ int bam_seq_to_bam1(bam_seq_t *bsp, bam1_t *b) {
     b->core.tid = bsp->ref;
     b->core.l_qname = bsp->name_len;
     // SADLY this is costly in the main thread
-    b->core.l_extranul = bsp->name_len - (strlen(bam_name(bsp))+1);
+    //b->core.l_extranul = bsp->name_len - (strlen(bam_name(bsp))+1);
+    //fprintf(stderr, "%d\n", b->core.l_extranul);
+    b->core.l_extranul = 0; // mandated due to biobambam's needs
+
     b->core.qual = bsp->map_qual;
     b->core.bin = bsp->bin;
     b->core.n_cigar = bsp->cigar_len;
@@ -418,7 +345,7 @@ int bam_seq_to_bam1(bam_seq_t *bsp, bam1_t *b) {
 }
 
 int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
-    if (fd->is_bam) {
+    if (fd->is_bam == 1) {
 	switch (bam_get_seq(fd->b, bsp)) {
 	case 1:
 	    return 0;
@@ -453,7 +380,7 @@ int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
 }
 
 int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
-    if (fd->is_bam)
+    if (fd->is_bam == 1)
 	return bam_put_seq(fd->b, s);
 
     if (!fd->bc)
@@ -471,7 +398,7 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 
     if (opt == CRAM_OPT_THREAD_POOL) {
 	t_pool *p = va_arg(args, t_pool *);
-	if (fd->is_bam) {
+	if (fd->is_bam == 1) {
 	    return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, p);
 	} else {
 	    htsThreadPool tp = {
@@ -483,7 +410,7 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
     } else if (opt == CRAM_OPT_NTHREADS) {
 	int nthreads = va_arg(args, int);
 	if (nthreads > 1) {
-	    if (fd->is_bam) {
+	    if (fd->is_bam == 1) {
 		if (!(fd->pool = t_pool_init(nthreads*2, nthreads)))
 		    return -1;
 
@@ -505,22 +432,22 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
 
-	return fd->is_bam
+	return fd->is_bam == 1
 	    ? bam_set_option(fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
 	    : hts_set_opt(fd->sc, CRAM_OPT_IGNORE_CHKSUM, chk);
     } else if (opt == CRAM_OPT_WITH_BGZIP_INDEX) {
         bgzi *idx = va_arg(args, bgzi *);
-        if (fd->is_bam)
+        if (fd->is_bam == 1)
 	    return bam_set_option(fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
     } else if (opt == CRAM_OPT_OUTPUT_BGZIP_IDX) {
         char *idx_fn = va_arg(args, char *);
-        if (fd->is_bam)
+        if (fd->is_bam == 1)
 	    return bam_set_option(fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
     } else if (opt == CRAM_OPT_EMBED_CONS) {
 	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 2);
     }
 
-    if (!fd->is_bam) {
+    if (fd->is_bam == 0) {
 	r = cram_set_voption(fd->sc->fp.cram, opt, args);
     }
 
@@ -548,7 +475,7 @@ int cram_set_option(cram_fd *fd, enum hts_fmt_option opt, ...) {
  *         0 for CRAM / BAM input.
  */
 int scram_line(scram_fd *fd) {
-    if (fd->is_bam)
+    if (fd->is_bam == 1)
 	return fd->b->line;
     else
 	return 0;

@@ -1105,7 +1105,7 @@ SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr) {
     sh->hdr = hdr;
 
     // Reparse the htslib text into io_lib's format.
-    if (sam_hdr_add_lines(sh, hdr->text, hdr->l_text) < 0) {
+    if (sam_hdr_add_lines(sh, hdr->text?hdr->text:"", hdr->l_text) < 0) {
 	free(sh);
 	return NULL;
     }
@@ -1151,6 +1151,7 @@ sam_hdr_t *sam_hdr_convert_to_htslib(SAM_hdr *sh) {
     if (!h)
 	return NULL;
 
+    // FIXME: why here?  Why -1?
     for (int i = 0; i < sh->ref_count-1; i++)
 	sam_hdr_incr_ref_htslib(h);
 
