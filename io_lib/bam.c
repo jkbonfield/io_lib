@@ -87,6 +87,7 @@ typedef uint32_t uint32_u;
 
 //#define iolib_crc32 crc32
 
+#if 0
 #define USE_MT
 
 #ifdef USE_MT
@@ -107,6 +108,7 @@ typedef uint32_t uint32_u;
  * The value is put in the location pointed to by ucp, which should be 
  * an unsigned char pointer.  ucp is incremented by the size of the
  * stored value. */
+#endif
 
 #define STORE_UINT16(ucp, val)			\
     *(ucp)++ = ((uint16_t) val)      & 0xff;	\
@@ -128,1083 +130,1084 @@ typedef uint32_t uint32_u;
     *(ucp)++ = ((uint64_t) (val) >> 48) & 0xff; \
     *(ucp)++ = ((uint64_t) (val) >> 56) & 0xff;
 
-static int bam_more_input(bam_file_t *b);
-static int bam_uncompress_input(bam_file_t *b);
-static int reg2bin(int start, int end);
-static int bgzf_block_write(bam_file_t *bf, int level, const void *buf, size_t count);
-static int bgzf_write(bam_file_t *bf, int level, const void *buf, size_t count);
-static int bgzf_write_mt(bam_file_t *bf, int level, const void *buf, size_t count);
-#ifdef USE_MT
-static int bgzf_flush_mt(bam_file_t *bf);
-#else
-static int bgzf_flush(bam_file_t *bf);
-#endif
-
-/*
- * Reads len bytes from fp into data.
- *
- * Returns the number of bytes read.
- *         0 for eof.
- *        -1 for failure.
- */
-static int bam_read(bam_file_t *b, void *data, size_t len) {
-    int nb = 0, n;
-    unsigned char *cdata = data;
-
-    while (len) {
-	/* Consume any available uncompressed output */
-	if (b->uncomp_sz) {
-	    size_t l = MIN(b->uncomp_sz, len);
-	    memcpy(cdata, b->uncomp_p, l);
-	    b->uncomp_p += l;
-	    b->uncomp_sz -= l;
-	    cdata += l;
-	    len -= l;
-	    nb += l;
-
-	    if (!len)
-		return nb;
-	}
-
-	if (!b->gzip) {
-	    /* Already uncompressed, so easy to deal with */
-	    if (!b->comp_sz)
-		if (-1 == bam_more_input(b))
-		    return nb ? nb : 0;
-		    
-	    b->uncomp_p  = b->comp_p;
-	    b->uncomp_sz = b->comp_sz;
-	    b->comp_sz  = 0;
-	    continue;
-	}
-
-	/* in=compressed out=uncompressed, but used as input (sorry!) */
-	n = bam_uncompress_input(b);
-	if (n == -1)
-	    return -1;
-	if (n == 0)
-	    return nb;
-    }
-
-    return nb;
-}
-
-/*
- * Reads a line of text of unknown length.
- * 'str' is both input and output. If *str == NULL then memory is allocated
- * for the line. If *str != NULL then it is expected to point to an existing
- * block of memory that we can write into and realloc as required.
- *
- * Similarly *len is both input and output. It is expected to hold the
- * current allocated size of *str. It is modified if we realloc it.
- *
- * Lines have the \n removed and will be null terminated.
- *
- * Returns actual line length used (note note the same as *len) on success
- *        -1 on failure
- */
-static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
-    unsigned char *buf = *str;
-    int used_l = 0;
-    size_t alloc_l = *len;
-    int next_condition, r = 0;
-
-    while (b->uncomp_sz || (r=bam_uncompress_input(b)) > 0) {
-	int tmp;
-	unsigned char *from = b->uncomp_p;
-	unsigned char *to   = &buf[used_l];
-
-	/*
-	 * Next condition is the number of loop iterations before something
-	 * has to be done - either getting more uncompressed output or
-	 * resizing the buffer. We don't care which, but it allows us to
-	 * have just one check per loop instead of two. Once out of the loop
-	 * we can then afford to determine which case is and deal with it.
-	 */
-	tmp = next_condition = MIN(b->uncomp_sz, alloc_l-used_l);
-
-	/*
-	 * Consume 32 or 64 bits at a time, looking for \n in any byte.
-	 * On 64-bit OS this function becomes 3x faster.
-	 */
-#ifdef ALLOW_UAC
-#if SIZEOF_LONG == 8 && ULONG_MAX != 0xffffffff
-#define hasless(x,n) (((x)-0x0101010101010101UL*(n))&~(x)&0x8080808080808080UL)
-#define haszero(x) (((x)-0x0101010101010101UL)&~(x)&0x8080808080808080UL)
-	{
-	    uint64_t *fromi     = (uint64_t *)from;
-	    uint64_t *toi       = (uint64_t *)to;
-	    while (next_condition >= 8) {
-		uint64_t w = *fromi ^ 0x0a0a0a0a0a0a0a0aUL;
-		if (haszero(w))
-		    break;
-
-		*toi++ = *fromi++;
-		next_condition -= 8;
-	    }
-	}
-#else
-#define hasless(x,n) (((x)-0x01010101UL*(n))&~(x)&0x80808080UL)
-#define haszero(x) (((x)-0x01010101UL)&~(x)&0x80808080UL)
-	{
-	    uint32_t *fromi     = (uint32_t *)from;
-	    uint32_t *toi       = (uint32_t *)to;
-	    while (next_condition >= 4) {
-		uint32_t w = *fromi ^ 0x0a0a0a0aUL;
-		if (haszero(w))
-		    break;
-
-		*toi++ = *fromi++;
-		next_condition -= 4;
-	    }
-	}
-#endif
-	from += tmp-next_condition;
-	to   += tmp-next_condition;
-#endif
-
-	while (next_condition-- > 0) { /* these 3 lines are 50% of SAM cpu */
-	    if (*from != '\n') {
-		*to++ = *from++;
-	    } else {
-		if (to > buf && to[-1] == '\r') *--to = 0; // handle \r\n too
-		b->uncomp_p = from;
-		used_l = to-buf;
-		b->uncomp_p++;
-		buf[used_l] = 0;
-		// Enable next line when using valgrind to avoid uninitialised
-		// memory complaints.  We don't need to do this normally as
-		// one null in the next 8 is sufficient to terminate CPF
-		// macros.
-		//memset(&buf[used_l], 0, 8);
-		b->uncomp_sz -= (tmp - next_condition);
-		return used_l;
-	    }
-	}
-
-	used_l = to-buf;
-	b->uncomp_p = from;
-	b->uncomp_sz -= tmp;
-
-	if (used_l >= alloc_l) {
-	    alloc_l = alloc_l ? alloc_l * 2 : 1024;
-	    // +8 to cope with the 64-bit copy function in the
-	    // COPY_CPF_TO_CPTM macro.
-	    if (NULL == (buf = realloc(buf, alloc_l+8)))
-		return -1;
-	    *str = buf;
-	    *len = alloc_l;
-	}
-    }
-
-    if (r == -1)
-	return -1;
-    if (b->uncomp_sz)
-	return -1;
-    
-    b->eof_block = 1; // expected eof
-    return 0;
-}
-
-static int load_bam_header(bam_file_t *b) {
-    char magic[4], *header;
-    int i;
-    int32_t header_len, nref;
-
-    if (4 != bam_read(b, magic, 4))
-	return -1;
-    if (memcmp(magic, "BAM\x01",4) != 0)
-	return -1;
-    if (4 != bam_read(b, &header_len, 4))
-	return -1;
-    header_len = le_int4(header_len);
-    if (!(header = malloc(header_len+1)))
-	return -1;
-    *header = 0;
-    if (header_len != bam_read(b, header, header_len))
-	return -1;
-
-    if (!(b->header = sam_hdr_parse(header, header_len)))
-	return -1;
-    free(header);
-
-    /* Load the reference data and check it matches the parsed header */
-    if (4 != bam_read(b, &nref, 4))
-	return -1;
-    nref = le_int4(nref);
-    if (sam_hdr_nref(b->header) != nref && sam_hdr_nref(b->header)) {
-	fprintf(stderr, "Error: @RG lines are at odds with "
-		"binary encoded reference data\n");
-	return -1;
-    }
-
-    for (i = 0; i < nref; i++) {
-	uint32_t nlen, len;
-	char name_a[1024], *name;
-
-	if (4 != bam_read(b, &nlen, 4))
-	    return -1;
-	nlen = le_int4(nlen);
-        name = (nlen < 1023 ? name_a
-                : (nlen < UINT32_MAX ? malloc(nlen + 1) : NULL));
-	if (!name)
-	    return -1;
-	if (nlen != bam_read(b, name, nlen))
-	    return -1;
-	name[nlen] = 0;
-
-	if (4 != bam_read(b, &len, 4))
-	    return -1;
-	len = le_int4(len);
-
-	const char *rname = sam_hdr_ref2name(b->header, i);
-	if (rname) {
-	    if (strcmp(rname, name)) {
-		fprintf(stderr, "Error: @SQ lines are at odds with "
-			"binary encoded reference data\n");
-		return -1;
-	    }
-
-	    if (sam_hdr_ref2len(b->header, i) != len) {
-		fprintf(stderr, "Error: @SQ lines are at odds with "
-			"binary encoded reference data\n");
-		return -1;
-	    }
-	} else {
-	    char len_c[100];
-	    sprintf(len_c, "%d", len);
-	    if (sam_hdr_add(b->header, "SQ", "SN", name, "LN", len_c, NULL)<0)
-		return -1;
-	}
-
-	if (name != name_a)
-	    free(name);
-    }
-
-    b->line = 0; // FIXME
-
-    return 0;
-}
-
-static int load_sam_header(bam_file_t *b) {
-    unsigned char *str = NULL;
-    size_t alloc = 0, len;
-    dstring_t *header = dstring_create(NULL);;
-    int r = 0, ret = -1;
-
-    while ((b->uncomp_sz > 0 || (r=bam_uncompress_input(b)) > 0) && *b->uncomp_p == '@') {
-	b->line++;
-	if ((len = bam_get_line(b, &str, &alloc)) == -1) {
-	    fprintf(stderr, "Failed to process SAM header line\n");
-	    goto err;
-	}
-
-	if (-1 == dstring_nappend(header, (char *)str, len))
-	    goto err;
-	if (-1 == dstring_append_char(header, '\n'))
-	    goto err;
-    }
-    if (r == -1)
-	goto err;
-    b->line = 0; // FIXME
-
-    const char *text = dstring_str(header);
-    if (!(b->header = sam_hdr_parse(text ? text : "",
-				    dstring_length(header)))) {
-	fprintf(stderr, "Failed to parse SAM header\n");
-	goto err;
-    }
-
-    ret = 0;
- err:
-    dstring_destroy(header);
-    free(str);
-
-    return ret;
-}
-
-/* --------------------------------------------------------------------------
- * 
- */
-
-#ifndef O_BINARY
-#    define O_BINARY 0
-#endif
-
-static void bam_file_init(bam_file_t *b) {
-    b->comp_p     = b->comp;
-    b->comp_sz    = 0;
-    b->uncomp_p    = b->uncomp;
-    b->uncomp_sz   = 0;
-    b->next_len = -1;
-    b->bs       = NULL;
-    b->bs_size  = 0;
-    b->z_finish = 1;
-    b->bgzf     = 0;
-    b->no_aux   = 0;
-    b->line     = 0;
-    b->binary   = 0;
-    b->level    = Z_DEFAULT_COMPRESSION;
-    b->sam_str  = NULL;
-    b->pool     = NULL;
-    b->equeue   = NULL;
-    b->dqueue   = NULL;
-    b->job_pending = NULL;
-    b->eof      = 0;
-    b->nd_jobs    = 0;
-    b->ne_jobs    = 0;
-    b->idx = NULL;
-    b->current_block = 0;
-    b->bgbuf_p = b->bgbuf;
-    b->bgbuf_sz = 0;
-    b->idx_fn = NULL;
-}
-
-/*! Opens a SAM or BAM file.
- *
- * The mode parameter indicates the file
- * type (if not auto-detecting) and whether it is for reading or
- * writing. Use "rb" or "wb" for reading or writing BAM and "r" or
- * "w" or reading or writing SAM. When writing BAM, the mode may end
- * with a digit from 0 to 9 to indicate the compression to use with 0
- * indicating uncompressed data.
- *
- * @param fn The filename to open or create.
- * @param mode The input/output mode, similar to fopen().
- *
- * @return
- * Returns a bam_file_t pointer on success;
- *         NULL on failure.
- */
-bam_file_t *bam_open(const char *fn, const char *mode) {
-    bam_file_t *b = calloc(1, sizeof *b);
-    
-    if (!b)
-	return NULL;
-
-    bam_file_init(b);
-
-    /* Creation */
-    if (*mode == 'w') {
-	b->mode = O_WRONLY | O_TRUNC | O_CREAT;
-	if (mode[1] == 'b') {
-	    b->mode |= O_BINARY;
-	    b->binary = 1;
-	}
-	if (mode[2] >= '0' && mode[2] <= '9')
-	    b->level = mode[2] - '0';
-
-	if (strcmp(fn, "-") == 0) {
-	    b->fp = stdout; /* Stdout */
-#ifdef _WIN32
-	    _setmode(1, _O_BINARY);
-#endif
-	} else {
-	    if (NULL == (b->fp = fopen(fn, "wb")))
-		goto error;
-	}
-
-	return b;
-    }
-
-    if (*mode != 'r')
-	return NULL;
-
-    if (strcmp(mode, "rb") == 0) {
-	b->mode = O_RDONLY | O_BINARY;
-    } else {
-	b->mode = O_RDONLY;
-    }
-    if (strcmp(fn, "-") == 0) {
-	b->fp = stdin;
-    } else {
-	if (NULL == (b->fp = fopen(fn, "rb")))
-	    goto error;
-    }
-
-    if (NULL == (b->idx = gzi_index_init()))
-      goto error;
-
-    /* Load first block so we can check */
-    bam_more_input(b);
-    if (b->comp_sz >= 2 && b->comp_p[0] == 31 && b->comp_p[1] == 139)
-	b->gzip = 1;
-    else
-	b->gzip = 0;
-
-    if (b->gzip) {
-	/* Set up zlib */
-	b->s.zalloc    = NULL;
-	b->s.zfree     = NULL;
-	b->s.opaque    = NULL;
-	inflateInit2(&b->s, -15);
-    }
-
-    if (-1 == bam_uncompress_input(b))
-	return NULL;
-    /* Auto-correct open file type if we detect a BAM */
-    if (b->uncomp_sz >= 4 && strncmp("BAM\001", (char *)b->uncomp_p, 4) == 0) {
-	b->mode |= O_BINARY;
-	b->binary = 1;
-	mode = "rb";
-    } else {
-	b->mode &= ~O_BINARY;
-	mode = "r";
-    }
-
-    /* Load header */
-    if (strcmp(mode, "rb") == 0) {
-	if (-1 == load_bam_header(b))
-	    goto error;
-	b->bam = 1;
-    } else {
-	if (-1 == load_sam_header(b))
-	    goto error;
-	b->bam = 0;
-    }
-
-    return b;
-
- error:
-    if (b) {
-	if (b->header)
-	    free(b->header);
-	free(b);
-    }
-
-    return NULL;
-}
-
-bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh) {
-    bam_file_t *b = calloc(1, sizeof *b);
-    
-    if (!b)
-	return NULL;
-
-    bam_file_init(b);
-
-    b->fp = NULL; // forces bam_more_input() to fail
-    b->bam = 1;
-    b->gzip = 0;
-    b->comp_sz = 0;
-    b->uncomp_p = (unsigned char *) blk;
-    b->uncomp_sz = blk_size;
-    b->header = sh;
-
-    sam_hdr_incr_ref(sh);
-
-    return b;
-}
-
-
-int bam_close(bam_file_t *b) {
-    int r = 0;
-
-    if (!b)
-	return 0;
-
-    if (b->mode & O_WRONLY) {
-	if (b->binary) {
-	    if (bgzf_block_write(b, b->level, b->uncomp,
-				 b->uncomp_p - b->uncomp)) {
-		fprintf(stderr, "Write failed in bam_close()\n");
-	    }
-
-	    BGZF_FLUSH(b);
-
-	    /* Output a blank BGZF block too to mark EOF */
-	    if (28 != fwrite(EOF_BLOCK, 1, 28, b->fp)) {
-		fprintf(stderr, "Write failed in bam_close()\n");
-	    }
-	} else {
-	    BGZF_FLUSH(b);
-
-	    if (b->uncomp_p - b->uncomp !=
-		fwrite(b->uncomp, 1, b->uncomp_p - b->uncomp, b->fp)) {
-		fprintf(stderr, "Write failed in bam_close()\n");
-	    }
-	}
-    }
-
-    if (b->bs)
-	free(b->bs);
-
-    if (b->header)
-	sam_hdr_free(b->header);
-
-    if (b->gzip)
-	inflateEnd(&b->s);
-
-    if (b->sam_str)
-	free(b->sam_str);
-
-    if (b->fp)
-	r = fclose(b->fp);
-
-    if (b->idx) {
-	if ((b->mode == O_RDONLY) && b->idx_fn) {
-	    gzi_index_dump(b->idx, b->idx_fn, NULL);
-	}
-	gzi_index_free(b->idx);
-    }
-
-    if (b->pool) {
-	/* Should be no BAM jobs left in the pool, but if we abort on
-	 * and error and close early then we need to drain the pool of
-	 * jobs before destroying the results queue they are about to
-	 * append to.
-	 *
-	 * Consider adding a t_pool_terminate function or similar to
-	 * abort in-flight jobs connected to this specific results queue.
-	 */
-	//fprintf(stderr, "BAM: Draining pool\n");
-	t_pool_flush(b->equeue);
-    }
-
-    //fprintf(stderr, "BAM: destroying equeue %p, dqueue %p\n",
-    //	    b->equeue, b->dqueue);
-
-    if (b->equeue)
-	t_results_queue_destroy(b->equeue);
-    if (b->dqueue)
-	t_results_queue_destroy(b->dqueue);
-
-    free(b);
-
-    return r;
-}
-
-/*
- * Loads more data into the input (compressed) buffer.
- *
- * Returns 0 on success
- *        -1 on failure.
- */
-static int bam_more_input(bam_file_t *b) {
-    size_t l;
-
-    if (!b->fp)
-	return -1;
-
-    if (b->comp != b->comp_p) {
-	memmove(b->comp, b->comp_p, b->comp_sz);
-	b->comp_p = b->comp;
-    }
-
-    l = fread(&b->comp[b->comp_sz], 1, Z_BUFF_SIZE - b->comp_sz, b->fp);
-    if (l <= 0)
-	return -1;
-    
-    b->comp_sz += l;
-    return 0;
-}
-
-typedef struct {
-    unsigned char comp[Z_BUFF_SIZE];
-    unsigned char uncomp[Z_BUFF_SIZE];
-    size_t comp_sz, uncomp_sz;
-    int ignore_chksum;
-} bgzf_decode_job;
-static bgzf_decode_job *last_job = NULL;
-
-
-/*
- * Uncompresses a single zlib buffer.
- */
-#ifdef HAVE_LIBDEFLATE
-void *bgzf_decode_thread(void *arg) {
-    bgzf_decode_job *j = (bgzf_decode_job *)arg;
-    struct libdeflate_decompressor *z = libdeflate_alloc_decompressor();
-    if (!z) return NULL;
-
-    int err = libdeflate_deflate_decompress(z, j->comp, j->comp_sz,
-					    j->uncomp, Z_BUFF_SIZE, &j->uncomp_sz);
-
-    libdeflate_free_decompressor(z);
-    if (err != LIBDEFLATE_SUCCESS) {
-	fprintf(stderr, "Libdeflate returned error code %d\n", err);
-	return NULL;
-    }
-
-    if (!j->ignore_chksum) {
-	uint32_t crc1=libdeflate_crc32(0L, (unsigned char *)j->uncomp, j->uncomp_sz);
-	uint32_t crc2;
-	memcpy(&crc2, j->comp + j->comp_sz, 4);
-	crc2 = le_int4(crc2);
-	if (crc1 != crc2) {
-	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
-		    crc1, crc2);
-	    return NULL;
-	}
-    }
-
-    return j;
-}
-#else
-void *bgzf_decode_thread(void *arg) {
-    bgzf_decode_job *j = (bgzf_decode_job *)arg;
-    int err;
-    z_stream s;
-
-    s.avail_in  = j->comp_sz;
-    s.next_in   = j->comp; 
-    s.avail_out = Z_BUFF_SIZE;
-    s.next_out  = j->uncomp;
-    s.total_out = 0;
-    s.zalloc    = NULL;
-    s.zfree     = NULL;
-    s.opaque    = NULL;
-
-    inflateInit2(&s, -15);
-    err = inflate(&s, Z_FINISH);
-    inflateEnd(&s);
-
-    if (err != Z_STREAM_END) {
-	fprintf(stderr, "Inflate returned error code %d\n", err);
-	return NULL;
-    }
-
-    if (!j->ignore_chksum) {
-	uint32_t crc1=iolib_crc32(0L, (unsigned char *)j->uncomp, s.total_out);
-	uint32_t crc2;
-	memcpy(&crc2, j->comp + j->comp_sz, 4);
-	crc2 = le_int4(crc2);
-	if (crc1 != crc2) {
-	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
-		    crc1, crc2);
-	    return NULL;
-	}
-    }
-
-    j->uncomp_sz  = s.total_out;
-
-    return j;
-}
-#endif
-
-/*
- * Converts compressed input to the uncompressed output buffer
- *
- * Returns number of additional output bytes on success
- *         0 on eof
- *        -1 on failure.
- */
-static int bam_uncompress_input(bam_file_t *b) {
-    int err = Z_OK;
-    unsigned char *bgzf;
-    int xlen, bsize;
-    bgzf_decode_job *j;
-
-    assert(b->uncomp_sz == 0);
-
-    if (!b->gzip) {
-	/* Already uncompressed, so easy to deal with */
-	if (!b->comp_sz)
-	    if (-1 == bam_more_input(b))
-		return 0;
-		    
-	b->uncomp_p  = b->comp_p;
-	b->uncomp_sz = b->comp_sz;
-	b->comp_sz  = 0;
-	return b->uncomp_sz;
-    }
-
-    if (b->pool) {
-	t_pool_result *res;
-
-	/* Multi-threaded decoding. Assume BGZF for now */
-	//while (b->nd_jobs < b->pool->qsize) {
-	while (t_pool_results_queue_sz(b->dqueue) <
-	       hts_tpool_process_qsize(b->dqueue)) {
-	    bgzf_decode_job *j;
-	    int nonblock;
-
-	    if (b->job_pending) {
-		j = b->job_pending;
-	    } else {
-		if (!(j = malloc(sizeof(*j))))
-		    return -1;
-
-	    empty_block_1:
-		if (b->comp_sz < 28 && !b->eof) {
-		    if (-1 == bam_more_input(b)) {
-			b->eof = 1;
-			if (b->comp_sz < 28) {
-			    b->eof = 2;
-			    free(j);
-			    break;
-			}
-		    }
-		} else if (b->comp_sz == 0 && b->eof) {
-		    b->eof = 2;
-		    free(j);
-		    break;
-		}
-	    
-		if (!b->eof) {
-		    if (memcmp(b->comp_p, EOF_BLOCK, 28) == 0) {
-			b->eof_block = 1;
-			b->comp_p += 28; b->comp_sz -= 28;
-			goto empty_block_1;
-		    } else {
-			b->eof_block = 0;
-		    }
-		}
-
-		bgzf = b->comp_p;
-		b->comp_p += 10; b->comp_sz -= 10;
-
-		if (bgzf[0] != 31 || bgzf[1] != 139) {
-		    fprintf(stderr, "Zlib magic number failure\n");
-		    free(j);
-		    return -1; /* magic number failure */
-		}
-	    
-		if ((bgzf[3] & 4) == 4) {
-		    /* has extra fields, eg BGZF */
-		    xlen = bgzf[10] + bgzf[11]*256;
-		    b->comp_p += 2; b->comp_sz -= 2;
-		} else {
-		    fprintf(stderr, "Not BGZF\n");
-		    free(j);
-		    return -1;
-		}
-
-		if (xlen != 6) {
-		    fprintf(stderr, "XLEN != 6\n");
-		    free(j);
-		    return -1;
-		}
-
-		b->comp_p += 6;
-		b->comp_sz -= 6;
-
-		if (bgzf[12] != 'B' || bgzf[13] != 'C' ||
-		    bgzf[14] !=  2  || bgzf[15] !=  0) {
-		    fprintf(stderr, "BGZF XLEN block incorrect\n");
-		    free(j);
-		    return -1;
-		}
-		bsize = bgzf[16] + bgzf[17]*256;
-		bsize -= 6+19;
-
-		if (b->comp_sz < bsize + 8) {
-		    do {
-			if (bam_more_input(b) == -1) {
-			    fprintf(stderr, "EOF - truncated block\n");
-			    free(j);
-			    return -1; /* Truncated */
-			}
-		    } while (b->comp_sz < bsize + 8);
-		}
-
-		memcpy(j->comp, b->comp_p, bsize+8);
-		j->comp_sz = bsize;
-		j->ignore_chksum = b->ignore_chksum;
-
-		b->comp_p  += bsize + 8; // crc & isize
-		b->comp_sz -= bsize + 8; // crc & isize
-	    }
-
-	    //nonblock = b->nd_jobs ? 1 : 0;
-	    nonblock = t_pool_results_queue_len(b->dqueue) ? 1 : 0;
-
-	    if (-1 == t_pool_dispatch2(b->pool, b->dqueue,
-				       bgzf_decode_thread, j, nonblock)) {
-		/* Would block */
-		b->job_pending = j;
-		break;
-	    } else {
-		b->job_pending = NULL;
-		b->nd_jobs++;
-	    }
-	}
-
-	if (b->eof == 2 && t_pool_results_queue_empty(b->dqueue))
-	    return 0;
-
-	res = t_pool_next_result_wait(b->dqueue);
-	if (!res || !hts_tpool_result_data(res)) {
-	    fprintf(stderr, "t_pool_next_result failure\n");
-	    return -1;
-	}
-
-	b->nd_jobs--;
-
-	/* make a start on the next job as we know there is room now */
-	if (b->job_pending) {
-	    if (0 == t_pool_dispatch2(b->pool, b->dqueue,
-				      bgzf_decode_thread,
-				      b->job_pending, 1)) {
-		b->job_pending = NULL;
-		b->nd_jobs++;
-	    }
-	}
-
-	j = (bgzf_decode_job *)hts_tpool_result_data(res);
-
 #if 0
-	memcpy(b->uncomp, j->uncomp, j->uncomp_sz);
-	b->uncomp_p = b->uncomp;
-#else
-	if (last_job)
-	    free(last_job);
-	last_job = j;
-	b->uncomp_p = j->uncomp;
+//static int bam_more_input(bam_file_t *b);
+//static int bam_uncompress_input(bam_file_t *b);
+static int reg2bin(int start, int end);
+//static int bgzf_block_write(bam_file_t *bf, int level, const void *buf, size_t count);
+//static int bgzf_write(bam_file_t *bf, int level, const void *buf, size_t count);
+//static int bgzf_write_mt(bam_file_t *bf, int level, const void *buf, size_t count);
+//#ifdef USE_MT
+//static int bgzf_flush_mt(bam_file_t *bf);
+//#else
+//static int bgzf_flush(bam_file_t *bf);
+//#endif
+// 
+// /*
+//  * Reads len bytes from fp into data.
+//  *
+//  * Returns the number of bytes read.
+//  *         0 for eof.
+//  *        -1 for failure.
+//  */
+// static int bam_read(bam_file_t *b, void *data, size_t len) {
+//     int nb = 0, n;
+//     unsigned char *cdata = data;
+// 
+//     while (len) {
+// 	/* Consume any available uncompressed output */
+// 	if (b->uncomp_sz) {
+// 	    size_t l = MIN(b->uncomp_sz, len);
+// 	    memcpy(cdata, b->uncomp_p, l);
+// 	    b->uncomp_p += l;
+// 	    b->uncomp_sz -= l;
+// 	    cdata += l;
+// 	    len -= l;
+// 	    nb += l;
+// 
+// 	    if (!len)
+// 		return nb;
+// 	}
+// 
+// 	if (!b->gzip) {
+// 	    /* Already uncompressed, so easy to deal with */
+// 	    if (!b->comp_sz)
+// 		if (-1 == bam_more_input(b))
+// 		    return nb ? nb : 0;
+// 		    
+// 	    b->uncomp_p  = b->comp_p;
+// 	    b->uncomp_sz = b->comp_sz;
+// 	    b->comp_sz  = 0;
+// 	    continue;
+// 	}
+// 
+// 	/* in=compressed out=uncompressed, but used as input (sorry!) */
+// 	n = bam_uncompress_input(b);
+// 	if (n == -1)
+// 	    return -1;
+// 	if (n == 0)
+// 	    return nb;
+//     }
+// 
+//     return nb;
+// }
+// 
+// /*
+//  * Reads a line of text of unknown length.
+//  * 'str' is both input and output. If *str == NULL then memory is allocated
+//  * for the line. If *str != NULL then it is expected to point to an existing
+//  * block of memory that we can write into and realloc as required.
+//  *
+//  * Similarly *len is both input and output. It is expected to hold the
+//  * current allocated size of *str. It is modified if we realloc it.
+//  *
+//  * Lines have the \n removed and will be null terminated.
+//  *
+//  * Returns actual line length used (note note the same as *len) on success
+//  *        -1 on failure
+//  */
+// static int bam_get_line(bam_file_t *b, unsigned char **str, size_t *len) {
+//     unsigned char *buf = *str;
+//     int used_l = 0;
+//     size_t alloc_l = *len;
+//     int next_condition, r = 0;
+// 
+//     while (b->uncomp_sz || (r=bam_uncompress_input(b)) > 0) {
+// 	int tmp;
+// 	unsigned char *from = b->uncomp_p;
+// 	unsigned char *to   = &buf[used_l];
+// 
+// 	/*
+// 	 * Next condition is the number of loop iterations before something
+// 	 * has to be done - either getting more uncompressed output or
+// 	 * resizing the buffer. We don't care which, but it allows us to
+// 	 * have just one check per loop instead of two. Once out of the loop
+// 	 * we can then afford to determine which case is and deal with it.
+// 	 */
+// 	tmp = next_condition = MIN(b->uncomp_sz, alloc_l-used_l);
+// 
+// 	/*
+// 	 * Consume 32 or 64 bits at a time, looking for \n in any byte.
+// 	 * On 64-bit OS this function becomes 3x faster.
+// 	 */
+// #ifdef ALLOW_UAC
+// #if SIZEOF_LONG == 8 && ULONG_MAX != 0xffffffff
+// #define hasless(x,n) (((x)-0x0101010101010101UL*(n))&~(x)&0x8080808080808080UL)
+// #define haszero(x) (((x)-0x0101010101010101UL)&~(x)&0x8080808080808080UL)
+// 	{
+// 	    uint64_t *fromi     = (uint64_t *)from;
+// 	    uint64_t *toi       = (uint64_t *)to;
+// 	    while (next_condition >= 8) {
+// 		uint64_t w = *fromi ^ 0x0a0a0a0a0a0a0a0aUL;
+// 		if (haszero(w))
+// 		    break;
+// 
+// 		*toi++ = *fromi++;
+// 		next_condition -= 8;
+// 	    }
+// 	}
+// #else
+// #define hasless(x,n) (((x)-0x01010101UL*(n))&~(x)&0x80808080UL)
+// #define haszero(x) (((x)-0x01010101UL)&~(x)&0x80808080UL)
+// 	{
+// 	    uint32_t *fromi     = (uint32_t *)from;
+// 	    uint32_t *toi       = (uint32_t *)to;
+// 	    while (next_condition >= 4) {
+// 		uint32_t w = *fromi ^ 0x0a0a0a0aUL;
+// 		if (haszero(w))
+// 		    break;
+// 
+// 		*toi++ = *fromi++;
+// 		next_condition -= 4;
+// 	    }
+// 	}
+// #endif
+// 	from += tmp-next_condition;
+// 	to   += tmp-next_condition;
+// #endif
+// 
+// 	while (next_condition-- > 0) { /* these 3 lines are 50% of SAM cpu */
+// 	    if (*from != '\n') {
+// 		*to++ = *from++;
+// 	    } else {
+// 		if (to > buf && to[-1] == '\r') *--to = 0; // handle \r\n too
+// 		b->uncomp_p = from;
+// 		used_l = to-buf;
+// 		b->uncomp_p++;
+// 		buf[used_l] = 0;
+// 		// Enable next line when using valgrind to avoid uninitialised
+// 		// memory complaints.  We don't need to do this normally as
+// 		// one null in the next 8 is sufficient to terminate CPF
+// 		// macros.
+// 		//memset(&buf[used_l], 0, 8);
+// 		b->uncomp_sz -= (tmp - next_condition);
+// 		return used_l;
+// 	    }
+// 	}
+// 
+// 	used_l = to-buf;
+// 	b->uncomp_p = from;
+// 	b->uncomp_sz -= tmp;
+// 
+// 	if (used_l >= alloc_l) {
+// 	    alloc_l = alloc_l ? alloc_l * 2 : 1024;
+// 	    // +8 to cope with the 64-bit copy function in the
+// 	    // COPY_CPF_TO_CPTM macro.
+// 	    if (NULL == (buf = realloc(buf, alloc_l+8)))
+// 		return -1;
+// 	    *str = buf;
+// 	    *len = alloc_l;
+// 	}
+//     }
+// 
+//     if (r == -1)
+// 	return -1;
+//     if (b->uncomp_sz)
+// 	return -1;
+//     
+//     b->eof_block = 1; // expected eof
+//     return 0;
+// }
+// 
+// static int load_bam_header(bam_file_t *b) {
+//     char magic[4], *header;
+//     int i;
+//     int32_t header_len, nref;
+// 
+//     if (4 != bam_read(b, magic, 4))
+// 	return -1;
+//     if (memcmp(magic, "BAM\x01",4) != 0)
+// 	return -1;
+//     if (4 != bam_read(b, &header_len, 4))
+// 	return -1;
+//     header_len = le_int4(header_len);
+//     if (!(header = malloc(header_len+1)))
+// 	return -1;
+//     *header = 0;
+//     if (header_len != bam_read(b, header, header_len))
+// 	return -1;
+// 
+//     if (!(b->header = sam_hdr_parse(header, header_len)))
+// 	return -1;
+//     free(header);
+// 
+//     /* Load the reference data and check it matches the parsed header */
+//     if (4 != bam_read(b, &nref, 4))
+// 	return -1;
+//     nref = le_int4(nref);
+//     if (sam_hdr_nref(b->header) != nref && sam_hdr_nref(b->header)) {
+// 	fprintf(stderr, "Error: @RG lines are at odds with "
+// 		"binary encoded reference data\n");
+// 	return -1;
+//     }
+// 
+//     for (i = 0; i < nref; i++) {
+// 	uint32_t nlen, len;
+// 	char name_a[1024], *name;
+// 
+// 	if (4 != bam_read(b, &nlen, 4))
+// 	    return -1;
+// 	nlen = le_int4(nlen);
+//         name = (nlen < 1023 ? name_a
+//                 : (nlen < UINT32_MAX ? malloc(nlen + 1) : NULL));
+// 	if (!name)
+// 	    return -1;
+// 	if (nlen != bam_read(b, name, nlen))
+// 	    return -1;
+// 	name[nlen] = 0;
+// 
+// 	if (4 != bam_read(b, &len, 4))
+// 	    return -1;
+// 	len = le_int4(len);
+// 
+// 	const char *rname = sam_hdr_ref2name(b->header, i);
+// 	if (rname) {
+// 	    if (strcmp(rname, name)) {
+// 		fprintf(stderr, "Error: @SQ lines are at odds with "
+// 			"binary encoded reference data\n");
+// 		return -1;
+// 	    }
+// 
+// 	    if (sam_hdr_ref2len(b->header, i) != len) {
+// 		fprintf(stderr, "Error: @SQ lines are at odds with "
+// 			"binary encoded reference data\n");
+// 		return -1;
+// 	    }
+// 	} else {
+// 	    char len_c[100];
+// 	    sprintf(len_c, "%d", len);
+// 	    if (sam_hdr_add(b->header, "SQ", "SN", name, "LN", len_c, NULL)<0)
+// 		return -1;
+// 	}
+// 
+// 	if (name != name_a)
+// 	    free(name);
+//     }
+// 
+//     b->line = 0; // FIXME
+// 
+//     return 0;
+// }
+// 
+// static int load_sam_header(bam_file_t *b) {
+//     unsigned char *str = NULL;
+//     size_t alloc = 0, len;
+//     dstring_t *header = dstring_create(NULL);;
+//     int r = 0, ret = -1;
+// 
+//     while ((b->uncomp_sz > 0 || (r=bam_uncompress_input(b)) > 0) && *b->uncomp_p == '@') {
+// 	b->line++;
+// 	if ((len = bam_get_line(b, &str, &alloc)) == -1) {
+// 	    fprintf(stderr, "Failed to process SAM header line\n");
+// 	    goto err;
+// 	}
+// 
+// 	if (-1 == dstring_nappend(header, (char *)str, len))
+// 	    goto err;
+// 	if (-1 == dstring_append_char(header, '\n'))
+// 	    goto err;
+//     }
+//     if (r == -1)
+// 	goto err;
+//     b->line = 0; // FIXME
+// 
+//     const char *text = dstring_str(header);
+//     if (!(b->header = sam_hdr_parse(text ? text : "",
+// 				    dstring_length(header)))) {
+// 	fprintf(stderr, "Failed to parse SAM header\n");
+// 	goto err;
+//     }
+// 
+//     ret = 0;
+//  err:
+//     dstring_destroy(header);
+//     free(str);
+// 
+//     return ret;
+// }
+// 
+// /* --------------------------------------------------------------------------
+//  * 
+//  */
+// 
+// #ifndef O_BINARY
+// #    define O_BINARY 0
+// #endif
+// 
+// static void bam_file_init(bam_file_t *b) {
+//     b->comp_p     = b->comp;
+//     b->comp_sz    = 0;
+//     b->uncomp_p    = b->uncomp;
+//     b->uncomp_sz   = 0;
+//     b->next_len = -1;
+//     b->bs       = NULL;
+//     b->bs_size  = 0;
+//     b->z_finish = 1;
+//     b->bgzf     = 0;
+//     b->no_aux   = 0;
+//     b->line     = 0;
+//     b->binary   = 0;
+//     b->level    = Z_DEFAULT_COMPRESSION;
+//     b->sam_str  = NULL;
+//     b->pool     = NULL;
+//     b->equeue   = NULL;
+//     b->dqueue   = NULL;
+//     b->job_pending = NULL;
+//     b->eof      = 0;
+//     b->nd_jobs    = 0;
+//     b->ne_jobs    = 0;
+//     b->idx = NULL;
+//     b->current_block = 0;
+//     b->bgbuf_p = b->bgbuf;
+//     b->bgbuf_sz = 0;
+//     b->idx_fn = NULL;
+// }
+// 
+//  /*! Opens a SAM or BAM file.
+//   *
+//   * The mode parameter indicates the file
+//   * type (if not auto-detecting) and whether it is for reading or
+//   * writing. Use "rb" or "wb" for reading or writing BAM and "r" or
+//   * "w" or reading or writing SAM. When writing BAM, the mode may end
+//   * with a digit from 0 to 9 to indicate the compression to use with 0
+//   * indicating uncompressed data.
+//   *
+//   * @param fn The filename to open or create.
+//   * @param mode The input/output mode, similar to fopen().
+//   *
+//   * @return
+//   * Returns a bam_file_t pointer on success;
+//   *         NULL on failure.
+//   */
+//  bam_file_t *bam_open(const char *fn, const char *mode) {
+//      bam_file_t *b = calloc(1, sizeof *b);
+//      
+//      if (!b)
+//  	return NULL;
+//  
+//      bam_file_init(b);
+//  
+//      /* Creation */
+//      if (*mode == 'w') {
+//  	b->mode = O_WRONLY | O_TRUNC | O_CREAT;
+//  	if (mode[1] == 'b') {
+//  	    b->mode |= O_BINARY;
+//  	    b->binary = 1;
+//  	}
+//  	if (mode[2] >= '0' && mode[2] <= '9')
+//  	    b->level = mode[2] - '0';
+//  
+//  	if (strcmp(fn, "-") == 0) {
+//  	    b->fp = stdout; /* Stdout */
+//  #ifdef _WIN32
+//  	    _setmode(1, _O_BINARY);
+//  #endif
+//  	} else {
+//  	    if (NULL == (b->fp = fopen(fn, "wb")))
+//  		goto error;
+//  	}
+//  
+//  	return b;
+//      }
+//  
+//      if (*mode != 'r')
+//  	return NULL;
+//  
+//      if (strcmp(mode, "rb") == 0) {
+//  	b->mode = O_RDONLY | O_BINARY;
+//      } else {
+//  	b->mode = O_RDONLY;
+//      }
+//      if (strcmp(fn, "-") == 0) {
+//  	b->fp = stdin;
+//      } else {
+//  	if (NULL == (b->fp = fopen(fn, "rb")))
+//  	    goto error;
+//      }
+//  
+//      if (NULL == (b->idx = gzi_index_init()))
+//        goto error;
+//  
+//      /* Load first block so we can check */
+//      bam_more_input(b);
+//      if (b->comp_sz >= 2 && b->comp_p[0] == 31 && b->comp_p[1] == 139)
+//  	b->gzip = 1;
+//      else
+//  	b->gzip = 0;
+//  
+//      if (b->gzip) {
+//  	/* Set up zlib */
+//  	b->s.zalloc    = NULL;
+//  	b->s.zfree     = NULL;
+//  	b->s.opaque    = NULL;
+//  	inflateInit2(&b->s, -15);
+//      }
+//  
+//      if (-1 == bam_uncompress_input(b))
+//  	return NULL;
+//      /* Auto-correct open file type if we detect a BAM */
+//      if (b->uncomp_sz >= 4 && strncmp("BAM\001", (char *)b->uncomp_p, 4) == 0) {
+//  	b->mode |= O_BINARY;
+//  	b->binary = 1;
+//  	mode = "rb";
+//      } else {
+//  	b->mode &= ~O_BINARY;
+//  	mode = "r";
+//      }
+//  
+//      /* Load header */
+//      if (strcmp(mode, "rb") == 0) {
+//  	if (-1 == load_bam_header(b))
+//  	    goto error;
+//  	b->bam = 1;
+//      } else {
+//  	if (-1 == load_sam_header(b))
+//  	    goto error;
+//  	b->bam = 0;
+//      }
+//  
+//      return b;
+//  
+//   error:
+//      if (b) {
+//  	if (b->header)
+//  	    free(b->header);
+//  	free(b);
+//      }
+//  
+//      return NULL;
+//  }
+//  
+//  bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh) {
+//      bam_file_t *b = calloc(1, sizeof *b);
+//      
+//      if (!b)
+//  	return NULL;
+//  
+//      bam_file_init(b);
+//  
+//      b->fp = NULL; // forces bam_more_input() to fail
+//      b->bam = 1;
+//      b->gzip = 0;
+//      b->comp_sz = 0;
+//      b->uncomp_p = (unsigned char *) blk;
+//      b->uncomp_sz = blk_size;
+//      b->header = sh;
+//  
+//      sam_hdr_incr_ref(sh);
+//  
+//      return b;
+//  }
+//  
+//  
+//  int bam_close(bam_file_t *b) {
+//      int r = 0;
+//  
+//      if (!b)
+//  	return 0;
+//  
+//      if (b->mode & O_WRONLY) {
+//  	if (b->binary) {
+//  	    if (bgzf_block_write(b, b->level, b->uncomp,
+//  				 b->uncomp_p - b->uncomp)) {
+//  		fprintf(stderr, "Write failed in bam_close()\n");
+//  	    }
+//  
+//  	    BGZF_FLUSH(b);
+//  
+//  	    /* Output a blank BGZF block too to mark EOF */
+//  	    if (28 != fwrite(EOF_BLOCK, 1, 28, b->fp)) {
+//  		fprintf(stderr, "Write failed in bam_close()\n");
+//  	    }
+//  	} else {
+//  	    BGZF_FLUSH(b);
+//  
+//  	    if (b->uncomp_p - b->uncomp !=
+//  		fwrite(b->uncomp, 1, b->uncomp_p - b->uncomp, b->fp)) {
+//  		fprintf(stderr, "Write failed in bam_close()\n");
+//  	    }
+//  	}
+//      }
+//  
+//      if (b->bs)
+//  	free(b->bs);
+//  
+//      if (b->header)
+//  	sam_hdr_free(b->header);
+//  
+//      if (b->gzip)
+//  	inflateEnd(&b->s);
+//  
+//      if (b->sam_str)
+//  	free(b->sam_str);
+//  
+//      if (b->fp)
+//  	r = fclose(b->fp);
+//  
+//      if (b->idx) {
+//  	if ((b->mode == O_RDONLY) && b->idx_fn) {
+//  	    gzi_index_dump(b->idx, b->idx_fn, NULL);
+//  	}
+//  	gzi_index_free(b->idx);
+//      }
+//  
+//      if (b->pool) {
+//  	/* Should be no BAM jobs left in the pool, but if we abort on
+//  	 * and error and close early then we need to drain the pool of
+//  	 * jobs before destroying the results queue they are about to
+//  	 * append to.
+//  	 *
+//  	 * Consider adding a t_pool_terminate function or similar to
+//  	 * abort in-flight jobs connected to this specific results queue.
+//  	 */
+//  	//fprintf(stderr, "BAM: Draining pool\n");
+//  	t_pool_flush(b->equeue);
+//      }
+//  
+//      //fprintf(stderr, "BAM: destroying equeue %p, dqueue %p\n",
+//      //	    b->equeue, b->dqueue);
+//  
+//      if (b->equeue)
+//  	t_results_queue_destroy(b->equeue);
+//      if (b->dqueue)
+//  	t_results_queue_destroy(b->dqueue);
+//  
+//      free(b);
+//  
+//      return r;
+//  }
+//  
+//  /*
+//   * Loads more data into the input (compressed) buffer.
+//   *
+//   * Returns 0 on success
+//   *        -1 on failure.
+//   */
+//  static int bam_more_input(bam_file_t *b) {
+//      size_t l;
+//  
+//      if (!b->fp)
+//  	return -1;
+//  
+//      if (b->comp != b->comp_p) {
+//  	memmove(b->comp, b->comp_p, b->comp_sz);
+//  	b->comp_p = b->comp;
+//      }
+//  
+//      l = fread(&b->comp[b->comp_sz], 1, Z_BUFF_SIZE - b->comp_sz, b->fp);
+//      if (l <= 0)
+//  	return -1;
+//      
+//      b->comp_sz += l;
+//      return 0;
+//  }
+//  
+//  typedef struct {
+//      unsigned char comp[Z_BUFF_SIZE];
+//      unsigned char uncomp[Z_BUFF_SIZE];
+//      size_t comp_sz, uncomp_sz;
+//      int ignore_chksum;
+//  } bgzf_decode_job;
+//  static bgzf_decode_job *last_job = NULL;
+//  
+//  
+//  /*
+//   * Uncompresses a single zlib buffer.
+//   */
+//  #ifdef HAVE_LIBDEFLATE
+//  void *bgzf_decode_thread(void *arg) {
+//      bgzf_decode_job *j = (bgzf_decode_job *)arg;
+//      struct libdeflate_decompressor *z = libdeflate_alloc_decompressor();
+//      if (!z) return NULL;
+//  
+//      int err = libdeflate_deflate_decompress(z, j->comp, j->comp_sz,
+//  					    j->uncomp, Z_BUFF_SIZE, &j->uncomp_sz);
+//  
+//      libdeflate_free_decompressor(z);
+//      if (err != LIBDEFLATE_SUCCESS) {
+//  	fprintf(stderr, "Libdeflate returned error code %d\n", err);
+//  	return NULL;
+//      }
+//  
+//      if (!j->ignore_chksum) {
+//  	uint32_t crc1=libdeflate_crc32(0L, (unsigned char *)j->uncomp, j->uncomp_sz);
+//  	uint32_t crc2;
+//  	memcpy(&crc2, j->comp + j->comp_sz, 4);
+//  	crc2 = le_int4(crc2);
+//  	if (crc1 != crc2) {
+//  	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
+//  		    crc1, crc2);
+//  	    return NULL;
+//  	}
+//      }
+//  
+//      return j;
+//  }
+//  #else
+//  void *bgzf_decode_thread(void *arg) {
+//      bgzf_decode_job *j = (bgzf_decode_job *)arg;
+//      int err;
+//      z_stream s;
+//  
+//      s.avail_in  = j->comp_sz;
+//      s.next_in   = j->comp; 
+//      s.avail_out = Z_BUFF_SIZE;
+//      s.next_out  = j->uncomp;
+//      s.total_out = 0;
+//      s.zalloc    = NULL;
+//      s.zfree     = NULL;
+//      s.opaque    = NULL;
+//  
+//      inflateInit2(&s, -15);
+//      err = inflate(&s, Z_FINISH);
+//      inflateEnd(&s);
+//  
+//      if (err != Z_STREAM_END) {
+//  	fprintf(stderr, "Inflate returned error code %d\n", err);
+//  	return NULL;
+//      }
+//  
+//      if (!j->ignore_chksum) {
+//  	uint32_t crc1=iolib_crc32(0L, (unsigned char *)j->uncomp, s.total_out);
+//  	uint32_t crc2;
+//  	memcpy(&crc2, j->comp + j->comp_sz, 4);
+//  	crc2 = le_int4(crc2);
+//  	if (crc1 != crc2) {
+//  	    fprintf(stderr, "Invalid CRC in Deflate stream: %08x vs %08x\n",
+//  		    crc1, crc2);
+//  	    return NULL;
+//  	}
+//      }
+//  
+//      j->uncomp_sz  = s.total_out;
+//  
+//      return j;
+//  }
+//  #endif
+//  
+//  /*
+//   * Converts compressed input to the uncompressed output buffer
+//   *
+//   * Returns number of additional output bytes on success
+//   *         0 on eof
+//   *        -1 on failure.
+//   */
+//  static int bam_uncompress_input(bam_file_t *b) {
+//      int err = Z_OK;
+//      unsigned char *bgzf;
+//      int xlen, bsize;
+//      bgzf_decode_job *j;
+//  
+//      assert(b->uncomp_sz == 0);
+//  
+//      if (!b->gzip) {
+//  	/* Already uncompressed, so easy to deal with */
+//  	if (!b->comp_sz)
+//  	    if (-1 == bam_more_input(b))
+//  		return 0;
+//  		    
+//  	b->uncomp_p  = b->comp_p;
+//  	b->uncomp_sz = b->comp_sz;
+//  	b->comp_sz  = 0;
+//  	return b->uncomp_sz;
+//      }
+//  
+//      if (b->pool) {
+//  	t_pool_result *res;
+//  
+//  	/* Multi-threaded decoding. Assume BGZF for now */
+//  	//while (b->nd_jobs < b->pool->qsize) {
+//  	while (t_pool_results_queue_sz(b->dqueue) <
+//  	       hts_tpool_process_qsize(b->dqueue)) {
+//  	    bgzf_decode_job *j;
+//  	    int nonblock;
+//  
+//  	    if (b->job_pending) {
+//  		j = b->job_pending;
+//  	    } else {
+//  		if (!(j = malloc(sizeof(*j))))
+//  		    return -1;
+//  
+//  	    empty_block_1:
+//  		if (b->comp_sz < 28 && !b->eof) {
+//  		    if (-1 == bam_more_input(b)) {
+//  			b->eof = 1;
+//  			if (b->comp_sz < 28) {
+//  			    b->eof = 2;
+//  			    free(j);
+//  			    break;
+//  			}
+//  		    }
+//  		} else if (b->comp_sz == 0 && b->eof) {
+//  		    b->eof = 2;
+//  		    free(j);
+//  		    break;
+//  		}
+//  	    
+//  		if (!b->eof) {
+//  		    if (memcmp(b->comp_p, EOF_BLOCK, 28) == 0) {
+//  			b->eof_block = 1;
+//  			b->comp_p += 28; b->comp_sz -= 28;
+//  			goto empty_block_1;
+//  		    } else {
+//  			b->eof_block = 0;
+//  		    }
+//  		}
+//  
+//  		bgzf = b->comp_p;
+//  		b->comp_p += 10; b->comp_sz -= 10;
+//  
+//  		if (bgzf[0] != 31 || bgzf[1] != 139) {
+//  		    fprintf(stderr, "Zlib magic number failure\n");
+//  		    free(j);
+//  		    return -1; /* magic number failure */
+//  		}
+//  	    
+//  		if ((bgzf[3] & 4) == 4) {
+//  		    /* has extra fields, eg BGZF */
+//  		    xlen = bgzf[10] + bgzf[11]*256;
+//  		    b->comp_p += 2; b->comp_sz -= 2;
+//  		} else {
+//  		    fprintf(stderr, "Not BGZF\n");
+//  		    free(j);
+//  		    return -1;
+//  		}
+//  
+//  		if (xlen != 6) {
+//  		    fprintf(stderr, "XLEN != 6\n");
+//  		    free(j);
+//  		    return -1;
+//  		}
+//  
+//  		b->comp_p += 6;
+//  		b->comp_sz -= 6;
+//  
+//  		if (bgzf[12] != 'B' || bgzf[13] != 'C' ||
+//  		    bgzf[14] !=  2  || bgzf[15] !=  0) {
+//  		    fprintf(stderr, "BGZF XLEN block incorrect\n");
+//  		    free(j);
+//  		    return -1;
+//  		}
+//  		bsize = bgzf[16] + bgzf[17]*256;
+//  		bsize -= 6+19;
+//  
+//  		if (b->comp_sz < bsize + 8) {
+//  		    do {
+//  			if (bam_more_input(b) == -1) {
+//  			    fprintf(stderr, "EOF - truncated block\n");
+//  			    free(j);
+//  			    return -1; /* Truncated */
+//  			}
+//  		    } while (b->comp_sz < bsize + 8);
+//  		}
+//  
+//  		memcpy(j->comp, b->comp_p, bsize+8);
+//  		j->comp_sz = bsize;
+//  		j->ignore_chksum = b->ignore_chksum;
+//  
+//  		b->comp_p  += bsize + 8; // crc & isize
+//  		b->comp_sz -= bsize + 8; // crc & isize
+//  	    }
+//  
+//  	    //nonblock = b->nd_jobs ? 1 : 0;
+//  	    nonblock = t_pool_results_queue_len(b->dqueue) ? 1 : 0;
+//  
+//  	    if (-1 == t_pool_dispatch2(b->pool, b->dqueue,
+//  				       bgzf_decode_thread, j, nonblock)) {
+//  		/* Would block */
+//  		b->job_pending = j;
+//  		break;
+//  	    } else {
+//  		b->job_pending = NULL;
+//  		b->nd_jobs++;
+//  	    }
+//  	}
+//  
+//  	if (b->eof == 2 && t_pool_results_queue_empty(b->dqueue))
+//  	    return 0;
+//  
+//  	res = t_pool_next_result_wait(b->dqueue);
+//  	if (!res || !hts_tpool_result_data(res)) {
+//  	    fprintf(stderr, "t_pool_next_result failure\n");
+//  	    return -1;
+//  	}
+//  
+//  	b->nd_jobs--;
+//  
+//  	/* make a start on the next job as we know there is room now */
+//  	if (b->job_pending) {
+//  	    if (0 == t_pool_dispatch2(b->pool, b->dqueue,
+//  				      bgzf_decode_thread,
+//  				      b->job_pending, 1)) {
+//  		b->job_pending = NULL;
+//  		b->nd_jobs++;
+//  	    }
+//  	}
+//  
+//  	j = (bgzf_decode_job *)hts_tpool_result_data(res);
+//  
+//  #if 0
+//  	memcpy(b->uncomp, j->uncomp, j->uncomp_sz);
+//  	b->uncomp_p = b->uncomp;
+//  #else
+//  	if (last_job)
+//  	    free(last_job);
+//  	last_job = j;
+//  	b->uncomp_p = j->uncomp;
+//  #endif
+//  	b->uncomp_sz = j->uncomp_sz;
+//  	t_pool_delete_result(res, 0);
+//  	if (b->idx){
+//  	    if (gzi_index_add_block(b->idx, j->comp_sz + 26, b->uncomp_sz))
+//  		return -1;
+//  	}
+//      } else {
+//  	/* Single threaded version, or non-bgzf format data */
+//  
+//  	/* Uncompress another BGZF block */
+//  	/* BGZF header */
+//      empty_block_2:
+//  	if (b->comp_sz < 28) {
+//  	    if (-1 == bam_more_input(b))
+//  		return 0;
+//  	    if (b->comp_sz < 28)
+//  		return -1;
+//  	}
+//  	
+//  	if (memcmp(b->comp_p, EOF_BLOCK, 28) == 0) {
+//  	    b->eof_block = 1;
+//  	    b->comp_p += 28; b->comp_sz -= 28;
+//  	    goto empty_block_2;
+//  	} else {
+//  	    b->eof_block = 0;
+//  	}
+//  
+//  	if (b->z_finish) {
+//  	    /*
+//  	     * BGZF header is gzip + extra fields.
+//  	     */
+//  	    bgzf = b->comp_p;
+//  	    b->comp_p += 10; b->comp_sz -= 10;
+//  
+//  	    if (bgzf[0] != 31 || bgzf[1] != 139)
+//  		return -1; /* magic number failure */
+//  	    if ((bgzf[3] & 4) == 4) {
+//  		/* has extra fields, eg BGZF */
+//  		xlen = bgzf[10] + bgzf[11]*256;
+//  		b->comp_p += 2; b->comp_sz -= 2;
+//  	    } else {
+//  		xlen = 0;
+//  	    }
+//  	} else {
+//  	    /* Continuing with an existing data stream */
+//  	    xlen = 0;
+//  	}
+//  
+//  
+//  	/* BGZF */
+//  	if (xlen == 6) {
+//  	    b->bgzf = 1;
+//  	    b->comp_p += 6; b->comp_sz -= 6;
+//  
+//  	    if (bgzf[12] != 'B' || bgzf[13] != 'C' ||
+//  		bgzf[14] !=  2  || bgzf[15] !=  0)
+//  		return -1;
+//  	    bsize = bgzf[16] + bgzf[17]*256;
+//  	    bsize -= 6+19;
+//  
+//  	    /* Inflate */
+//  	    if (b->comp_sz < bsize + 8) {
+//  		do {
+//  		    if (bam_more_input(b) == -1) {
+//  			fprintf(stderr, "EOF - truncated block\n");
+//  			return -1; /* Truncated */
+//  		    }
+//  		} while (b->comp_sz < bsize + 8);
+//  	    }
+//  
+//  #ifdef HAVE_LIBDEFLATE
+//  	    struct libdeflate_decompressor *z = libdeflate_alloc_decompressor();
+//  	    if (!z) return -1;
+//  
+//  	    err = libdeflate_deflate_decompress(z, b->comp_p, bsize,
+//  						b->uncomp, Z_BUFF_SIZE, &b->uncomp_sz);
+//  
+//  	    libdeflate_free_decompressor(z);
+//  	    if (err != LIBDEFLATE_SUCCESS) {
+//  		fprintf(stderr, "Libdeflate returned error code %d\n", err);
+//  		return -1;
+//  	    }
+//  
+//  	    b->comp_p   += bsize + 8; /* crc & isize */
+//  	    b->comp_sz  -= bsize + 8;
+//  	    b->uncomp_p   = b->uncomp;
+//  #else
+//  	    b->s.avail_in  = bsize;
+//  	    b->s.next_in   = b->comp_p;
+//  	    b->s.avail_out = Z_BUFF_SIZE;
+//  	    b->s.next_out  = b->uncomp;
+//  	    b->s.total_out = 0;
+//  	    
+//  	    inflateReset(&b->s);
+//  	    err = inflate(&b->s, Z_FINISH);
+//  
+//  	    if (err != Z_STREAM_END) {
+//  		fprintf(stderr, "Inflate returned error code %d\n", err);
+//  		return -1;
+//  	    }
+//  	    b->z_finish = 1;
+//  
+//  	    b->comp_p   += bsize + 8; /* crc & isize */
+//  	    b->comp_sz  -= bsize + 8;
+//  	    b->uncomp_sz  = b->s.total_out;
+//  	    b->uncomp_p   = b->uncomp;
+//  #endif
+//  
+//  	    if (b->idx){
+//  		if (gzi_index_add_block(b->idx, bsize + 26, b->uncomp_sz))
+//  		    return -1;
+//  	    }
+//  
+//  	    if (!b->ignore_chksum) {
+//  		uint32_t crc1 = iolib_crc32(0L, (unsigned char *)b->uncomp,
+//  					    b->uncomp_sz);
+//  		uint32_t crc2;
+//  		memcpy(&crc2, b->comp_p-8, 4);
+//  		crc2 = le_int4(crc2);
+//  		if (crc1 != crc2) {
+//  		    fprintf(stderr, "Invalid CRC in Deflate stream: "
+//  			    "%08x vs %08x\n", crc1, crc2);
+//  		    return -1;
+//  		}
+//  	    }
+//  	} else {
+//  	    /* Some other gzip variant, but possibly still having xlen */
+//  	    /* NB: we don't check CRCs here, but I don't think these BAMs exist either */
+//  	    while (xlen) {
+//  		int d = MIN(b->comp_sz, xlen);
+//  		xlen     -= d;
+//  		b->comp_p  += d;
+//  		b->comp_sz -= d;
+//  		if (b->comp_sz == 0)
+//  		    bam_more_input(b);
+//  		if (b->comp_sz == 0)
+//  		    return -1; /* truncated file */
+//  	    }
+//  	    
+//  	    b->s.avail_in  = b->comp_sz;
+//  	    b->s.next_in   = b->comp_p;
+//  	    b->s.avail_out = Z_BUFF_SIZE;
+//  	    b->s.next_out  = b->uncomp;
+//  	    b->s.total_out = 0;
+//  	    if (b->z_finish)
+//  		inflateReset(&b->s);
+//  	    
+//  	    err = inflate(&b->s, Z_BLOCK);
+//  	    //printf("err=%d\n", err);
+//  
+//  	    if (err == Z_OK || err == Z_STREAM_END || err == Z_BUF_ERROR) {
+//  	        b->comp_p  += b->comp_sz - b->s.avail_in;
+//  	        b->comp_sz  = b->s.avail_in;
+//  	        b->uncomp_sz = b->s.total_out;
+//  	        b->uncomp_p  = b->uncomp;
+//  
+//  		if (err == Z_STREAM_END) {
+//  		    b->z_finish = 1;
+//  
+//  		    /* Consume (ignore) CRC & ISIZE */
+//  		    if (b->comp_sz < 8)
+//  			bam_more_input(b);
+//  
+//  		    if (b->comp_sz < 8)
+//  			return -1; /* truncated file */
+//  
+//  		    b->comp_sz -= 8;
+//  		    b->comp_p  += 8;
+//  		} else {
+//  		    b->z_finish = 0;
+//  	        }
+//  	    } else {
+//  	        fprintf(stderr, "Inflate returned error code %d\n", err);
+//  		return -1;
+//  	    }
+//  	}
+//      }
+//  
+//      /*
+//       * Zero length blocks may not actually be EOF, just bizarre. We return
+//       * 0 elsewhere for the EOF case, so if we got here and b->uncomp_sz is 0
+//       * then go around again.
+//       */
+//      return b->uncomp_sz ? b->uncomp_sz : bam_uncompress_input(b);
+//  
+//  }
+//  
+//  #ifdef ALLOW_UAC
+//  #if SIZEOF_LONG == 8 && ULONG_MAX != 0xffffffff
+//  #define COPY_CPF_TO_CPTM(n)				\
+//      do {					        \
+//  	uint64_t *cpfi = (uint64_t *)cpf;		\
+//  	uint64_t *cpti = (uint64_t *)cpt;		\
+//  	uint64_t *orig = cpfi;				\
+//  	while (!hasless(*cpfi,10)) {				\
+//  	    *cpti++ = *cpfi++ - (n)*0x0101010101010101UL;	\
+//  	}						\
+//  	cpf += (cpfi-orig)*8; cpt += (cpfi-orig)*8;	\
+//  	while (*cpf > '\t')				\
+//  	    *cpt++ = *cpf++ - (n);			\
+//      } while (0)
+//  
+//  #define CPF_SKIP()					\
+//      do {						\
+//  	uint64_t *cpfi = (uint64_t *)cpf;		\
+//  	uint64_t *orig = cpfi;				\
+//  	while(!hasless(*cpfi,10))			\
+//  	    cpfi++;					\
+//  	cpf += (cpfi-orig)*8;				\
+//  	while (*cpf > '\t')				\
+//  	    cpf++;					\
+//      } while (0)
+//  
+//  #else
+//  #define COPY_CPF_TO_CPTM(n)				\
+//      do {					        \
+//  	uint32_t *cpfi = (uint32_t *)cpf;		\
+//  	uint32_t *cpti = (uint32_t *)cpt;		\
+//  	uint32_t *orig = cpfi;				\
+//  	while (!hasless(*cpfi,10)) {			\
+//  	    *cpti++ = *cpfi++ - (n)*0x01010101;		\
+//  	}						\
+//  	cpf += (cpfi-orig)*4; cpt += (cpfi-orig)*4;	\
+//  	while (*cpf > '\t')				\
+//  	    *cpt++ = *cpf++ - (n);			\
+//      } while (0)
+//  
+//  #define CPF_SKIP()					\
+//      do {						\
+//  	uint32_t *cpfi = (uint32_t *)cpf;		\
+//  	uint32_t *orig = cpfi;				\
+//  	while(!hasless(*cpfi,10))			\
+//  	    cpfi++;					\
+//  	cpf += (cpfi-orig)*4;				\
+//  	while (*cpf > '\t')				\
+//  	    cpf++;					\
+//      } while (0)
+//  #endif
+//  
+//  #else /* !ALLOW_UAC */
+//  #define COPY_CPF_TO_CPTM(n)			        \
+//      do {						\
+//  	while (*cpf > '\t')				\
+//  	    *cpt++ = *cpf++ - (n);			\
+//      } while (0);
+//  
+//  #define CPF_SKIP()					\
+//      do {						\
+//  	while (*cpf > '\t')				\
+//  	    cpf++;					\
+//      } while (0)
+//  #endif
 #endif
-	b->uncomp_sz = j->uncomp_sz;
-	t_pool_delete_result(res, 0);
-	if (b->idx){
-	    if (gzi_index_add_block(b->idx, j->comp_sz + 26, b->uncomp_sz))
-		return -1;
-	}
-    } else {
-	/* Single threaded version, or non-bgzf format data */
-
-	/* Uncompress another BGZF block */
-	/* BGZF header */
-    empty_block_2:
-	if (b->comp_sz < 28) {
-	    if (-1 == bam_more_input(b))
-		return 0;
-	    if (b->comp_sz < 28)
-		return -1;
-	}
-	
-	if (memcmp(b->comp_p, EOF_BLOCK, 28) == 0) {
-	    b->eof_block = 1;
-	    b->comp_p += 28; b->comp_sz -= 28;
-	    goto empty_block_2;
-	} else {
-	    b->eof_block = 0;
-	}
-
-	if (b->z_finish) {
-	    /*
-	     * BGZF header is gzip + extra fields.
-	     */
-	    bgzf = b->comp_p;
-	    b->comp_p += 10; b->comp_sz -= 10;
-
-	    if (bgzf[0] != 31 || bgzf[1] != 139)
-		return -1; /* magic number failure */
-	    if ((bgzf[3] & 4) == 4) {
-		/* has extra fields, eg BGZF */
-		xlen = bgzf[10] + bgzf[11]*256;
-		b->comp_p += 2; b->comp_sz -= 2;
-	    } else {
-		xlen = 0;
-	    }
-	} else {
-	    /* Continuing with an existing data stream */
-	    xlen = 0;
-	}
-
-
-	/* BGZF */
-	if (xlen == 6) {
-	    b->bgzf = 1;
-	    b->comp_p += 6; b->comp_sz -= 6;
-
-	    if (bgzf[12] != 'B' || bgzf[13] != 'C' ||
-		bgzf[14] !=  2  || bgzf[15] !=  0)
-		return -1;
-	    bsize = bgzf[16] + bgzf[17]*256;
-	    bsize -= 6+19;
-
-	    /* Inflate */
-	    if (b->comp_sz < bsize + 8) {
-		do {
-		    if (bam_more_input(b) == -1) {
-			fprintf(stderr, "EOF - truncated block\n");
-			return -1; /* Truncated */
-		    }
-		} while (b->comp_sz < bsize + 8);
-	    }
-
-#ifdef HAVE_LIBDEFLATE
-	    struct libdeflate_decompressor *z = libdeflate_alloc_decompressor();
-	    if (!z) return -1;
-
-	    err = libdeflate_deflate_decompress(z, b->comp_p, bsize,
-						b->uncomp, Z_BUFF_SIZE, &b->uncomp_sz);
-
-	    libdeflate_free_decompressor(z);
-	    if (err != LIBDEFLATE_SUCCESS) {
-		fprintf(stderr, "Libdeflate returned error code %d\n", err);
-		return -1;
-	    }
-
-	    b->comp_p   += bsize + 8; /* crc & isize */
-	    b->comp_sz  -= bsize + 8;
-	    b->uncomp_p   = b->uncomp;
-#else
-	    b->s.avail_in  = bsize;
-	    b->s.next_in   = b->comp_p;
-	    b->s.avail_out = Z_BUFF_SIZE;
-	    b->s.next_out  = b->uncomp;
-	    b->s.total_out = 0;
-	    
-	    inflateReset(&b->s);
-	    err = inflate(&b->s, Z_FINISH);
-
-	    if (err != Z_STREAM_END) {
-		fprintf(stderr, "Inflate returned error code %d\n", err);
-		return -1;
-	    }
-	    b->z_finish = 1;
-
-	    b->comp_p   += bsize + 8; /* crc & isize */
-	    b->comp_sz  -= bsize + 8;
-	    b->uncomp_sz  = b->s.total_out;
-	    b->uncomp_p   = b->uncomp;
-#endif
-
-	    if (b->idx){
-		if (gzi_index_add_block(b->idx, bsize + 26, b->uncomp_sz))
-		    return -1;
-	    }
-
-	    if (!b->ignore_chksum) {
-		uint32_t crc1 = iolib_crc32(0L, (unsigned char *)b->uncomp,
-					    b->uncomp_sz);
-		uint32_t crc2;
-		memcpy(&crc2, b->comp_p-8, 4);
-		crc2 = le_int4(crc2);
-		if (crc1 != crc2) {
-		    fprintf(stderr, "Invalid CRC in Deflate stream: "
-			    "%08x vs %08x\n", crc1, crc2);
-		    return -1;
-		}
-	    }
-	} else {
-	    /* Some other gzip variant, but possibly still having xlen */
-	    /* NB: we don't check CRCs here, but I don't think these BAMs exist either */
-	    while (xlen) {
-		int d = MIN(b->comp_sz, xlen);
-		xlen     -= d;
-		b->comp_p  += d;
-		b->comp_sz -= d;
-		if (b->comp_sz == 0)
-		    bam_more_input(b);
-		if (b->comp_sz == 0)
-		    return -1; /* truncated file */
-	    }
-	    
-	    b->s.avail_in  = b->comp_sz;
-	    b->s.next_in   = b->comp_p;
-	    b->s.avail_out = Z_BUFF_SIZE;
-	    b->s.next_out  = b->uncomp;
-	    b->s.total_out = 0;
-	    if (b->z_finish)
-		inflateReset(&b->s);
-	    
-	    err = inflate(&b->s, Z_BLOCK);
-	    //printf("err=%d\n", err);
-
-	    if (err == Z_OK || err == Z_STREAM_END || err == Z_BUF_ERROR) {
-	        b->comp_p  += b->comp_sz - b->s.avail_in;
-	        b->comp_sz  = b->s.avail_in;
-	        b->uncomp_sz = b->s.total_out;
-	        b->uncomp_p  = b->uncomp;
-
-		if (err == Z_STREAM_END) {
-		    b->z_finish = 1;
-
-		    /* Consume (ignore) CRC & ISIZE */
-		    if (b->comp_sz < 8)
-			bam_more_input(b);
-
-		    if (b->comp_sz < 8)
-			return -1; /* truncated file */
-
-		    b->comp_sz -= 8;
-		    b->comp_p  += 8;
-		} else {
-		    b->z_finish = 0;
-	        }
-	    } else {
-	        fprintf(stderr, "Inflate returned error code %d\n", err);
-		return -1;
-	    }
-	}
-    }
-
-    /*
-     * Zero length blocks may not actually be EOF, just bizarre. We return
-     * 0 elsewhere for the EOF case, so if we got here and b->uncomp_sz is 0
-     * then go around again.
-     */
-    return b->uncomp_sz ? b->uncomp_sz : bam_uncompress_input(b);
-
-}
-
-#ifdef ALLOW_UAC
-#if SIZEOF_LONG == 8 && ULONG_MAX != 0xffffffff
-#define COPY_CPF_TO_CPTM(n)				\
-    do {					        \
-	uint64_t *cpfi = (uint64_t *)cpf;		\
-	uint64_t *cpti = (uint64_t *)cpt;		\
-	uint64_t *orig = cpfi;				\
-	while (!hasless(*cpfi,10)) {				\
-	    *cpti++ = *cpfi++ - (n)*0x0101010101010101UL;	\
-	}						\
-	cpf += (cpfi-orig)*8; cpt += (cpfi-orig)*8;	\
-	while (*cpf > '\t')				\
-	    *cpt++ = *cpf++ - (n);			\
-    } while (0)
-
-#define CPF_SKIP()					\
-    do {						\
-	uint64_t *cpfi = (uint64_t *)cpf;		\
-	uint64_t *orig = cpfi;				\
-	while(!hasless(*cpfi,10))			\
-	    cpfi++;					\
-	cpf += (cpfi-orig)*8;				\
-	while (*cpf > '\t')				\
-	    cpf++;					\
-    } while (0)
-
-#else
-#define COPY_CPF_TO_CPTM(n)				\
-    do {					        \
-	uint32_t *cpfi = (uint32_t *)cpf;		\
-	uint32_t *cpti = (uint32_t *)cpt;		\
-	uint32_t *orig = cpfi;				\
-	while (!hasless(*cpfi,10)) {			\
-	    *cpti++ = *cpfi++ - (n)*0x01010101;		\
-	}						\
-	cpf += (cpfi-orig)*4; cpt += (cpfi-orig)*4;	\
-	while (*cpf > '\t')				\
-	    *cpt++ = *cpf++ - (n);			\
-    } while (0)
-
-#define CPF_SKIP()					\
-    do {						\
-	uint32_t *cpfi = (uint32_t *)cpf;		\
-	uint32_t *orig = cpfi;				\
-	while(!hasless(*cpfi,10))			\
-	    cpfi++;					\
-	cpf += (cpfi-orig)*4;				\
-	while (*cpf > '\t')				\
-	    cpf++;					\
-    } while (0)
-#endif
-
-#else /* !ALLOW_UAC */
-#define COPY_CPF_TO_CPTM(n)			        \
-    do {						\
-	while (*cpf > '\t')				\
-	    *cpt++ = *cpf++ - (n);			\
-    } while (0);
-
-#define CPF_SKIP()					\
-    do {						\
-	while (*cpf > '\t')				\
-	    cpf++;					\
-    } while (0)
-#endif
-
 
 /* Custom strtol for aux tags, always base 10 */
 static int64_t inline STRTOL64(const char *v, const char **rv, int b) {
@@ -1232,6 +1235,7 @@ static int64_t inline STRTOL64(const char *v, const char **rv, int b) {
     return neg*n;
 }
 
+#if 0
 /*
  * Decodes the next line of SAM into a bam_seq_t struct.
  *
@@ -2006,6 +2010,7 @@ int bam_get_seq(bam_file_t *b, bam_seq_t **bsp) {
 int bam_next_seq(bam_file_t *b, bam_seq_t **bsp) {
     return bam_get_seq(b, bsp);
 }
+#endif // 0
 
 static int8_t aux_type_size[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -3144,6 +3149,7 @@ unsigned char *append_int64(unsigned char *cp, int64_t i) {
     return cp;
 }
 
+#if 0
 /*
  * This is set up so that count should never be more than BGZF_BUFF_SIZE. 
  * This has been chosen to deliberately be small enough such that the
@@ -4096,7 +4102,7 @@ int bam_write_header(bam_file_t *out) {
 
     return 0;
 }
-
+#endif
 
 /* 
  * Sets options on the bam_file_t. See BAM_OPT_* definitions in bam.h.

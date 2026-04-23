@@ -123,32 +123,23 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	    sprintf(mode2, "rc%.7s", mode+1), mode = mode2;
     }
 
-    if (*mode == 'r') {
-	if (1) {//mode[1] != 'b' && mode[1] != 's') {
-	    if (!(fd->sc= sam_open(filename, mode))) {
-		fprintf(stderr, "Error opening \"%s\"\n", filename);
-		return NULL;
-	    }
-	    fd->is_bam = 2 * !(mode[1] != 'b' && mode[1] != 's');
-	    if (!(fd->hdr = sam_hdr_convert(sam_hdr_read(fd->sc)))) {
-		fprintf(stderr, "Failed to read header\n");
-		return NULL;
-	    }
-	    fd->c = malloc(sizeof(*fd->c));
-	    if (!fd->c)
-		return NULL;
-	    fd->c->sc = fd->sc;
-	    fd->c->header = fd->hdr;
-	    return fd;
-	}
+    fd->is_bam = mode[1] == 'c' ? 0 : 1;
 
-	if ((fd->b = bam_open(filename, mode))) {
-	    fd->is_bam = 1;
-	    return fd;
+    if (*mode == 'r') {
+	if (!(fd->sc= sam_open(filename, mode))) {
+	    fprintf(stderr, "Error opening \"%s\"\n", filename);
+	    return NULL;
 	}
-	
-	free(fd);
-	return NULL;
+	if (!(fd->hdr = sam_hdr_convert(sam_hdr_read(fd->sc)))) {
+	    fprintf(stderr, "Failed to read header\n");
+	    return NULL;
+	}
+	fd->c = malloc(sizeof(*fd->c));
+	if (!fd->c)
+	    return NULL;
+	fd->c->sc = fd->sc;
+	fd->c->header = fd->hdr;
+	return fd;
     }
 
     /* For writing we cannot auto detect, so create the file type based
@@ -156,7 +147,6 @@ scram_fd *scram_open(const char *filename, const char *mode) {
      */
     //if (strncmp(mode, "wc", 2) == 0) {
     if (*mode == 'w') {
-	fd->is_bam = 2 * !(mode[1] != 'b' && mode[1] != 's');
 	// Mode s is for socket in htslib, or SAM for iolib
 	char mode2[100];
 	snprintf(mode2, 100, "%c%s", mode[0],
@@ -172,26 +162,12 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	return fd;
     }
 
-    /* Otherwise assume bam/sam */
-    if (!(fd->b = bam_open(filename, mode))) {
-	free(fd);
-	return NULL;
-    }
-    fd->is_bam = 1;
-    return fd;
+    /* Otherwise unknown mode */
+    return NULL;
 }
 
 int scram_close(scram_fd *fd) {
-    int r;
-
-    if (fd->is_bam == 1)
-	abort(); // this code shouldn't happen any more
-
-    if (fd->is_bam == 1) {
-	r = bam_close(fd->b);
-    } else {
-	r = sam_close(fd->sc);
-    }
+    int r= sam_close(fd->sc);
 
     if (fd->pool)
 	t_pool_destroy(fd->pool, 0);
@@ -220,43 +196,30 @@ int scram_close(scram_fd *fd) {
 //}
 
 SAM_hdr *scram_get_header(scram_fd *fd) {
-    // avoids cmovne generation from icc 2015 (bug)
-    return fd->is_bam == 1 && fd->b ? fd->b->header : fd->hdr;
+    return fd->hdr;
 }
 
 refs_t *scram_get_refs(scram_fd *fd) {
-    return fd->is_bam ? NULL : fd->c->refs;
+    // TODO
+    return fd->c->refs;
 }
 
 void scram_set_refs(scram_fd *fd, refs_t *refs) {
-    return;
-    if (fd->is_bam)
-	return;
-//    if (fd->c->refs)
-//	refs_free(fd->c->refs);
+    // TODO
     fd->c->refs = refs;
-//    if (refs)
-//	refs->count++;
 }
 
 void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
-    if (fd->is_bam == 1) {
-	fd->b->header = sam_hdr_dup(sh);
-    } else {
-	fd->sc->bam_header = sam_hdr_parse_htslib(sh->text->length,
-						  sh->text->str);
-	fd->c->header = sh;
-    }
+    fd->sc->bam_header = sam_hdr_parse_htslib(sh->text->length,
+					      sh->text->str);
+    fd->c->header = sh;
     sam_hdr_incr_ref(sh);
 
     fd->hdr = sh;
 }
 
 int scram_write_header(scram_fd *fd) {
-    if (fd->is_bam == 1)
-	return bam_write_header(fd->b);
-
-    // TODO: keep fd->hdr->hdr updated on the fly.
+    // TODO: keep fd->hdr->hdr updated on the fly?
     if (fd->hdr->hdr)
 	sam_hdr_destroy(fd->hdr->hdr);
     fd->hdr->hdr = sam_hdr_convert_to_htslib(fd->hdr);
@@ -290,8 +253,7 @@ int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
     // As per raw BAM block below
     bsp->ref         = b->core.tid;
     bsp->pos_32      = b->core.pos; // bottom 32-bits
-    //bsp->name_len    = b->core.l_qname;
-    bsp->name_len    = strlen((char *)b->data)+1;
+    bsp->name_len = b->core.l_qname - b->core.l_extranul;
     bsp->map_qual    = b->core.qual;
     bsp->bin         = b->core.bin;
     bsp->cigar_len   = b->core.n_cigar;
@@ -328,10 +290,9 @@ int bam_seq_to_bam1(bam_seq_t *bsp, bam1_t *b) {
     b->core.isize = bsp->ins_size;
     b->core.tid = bsp->ref;
     b->core.l_qname = bsp->name_len;
-    // SADLY this is costly in the main thread
+    // Ideal, but bam1_to_bam_seq ensures this is always 0 due to biobambam
     //b->core.l_extranul = bsp->name_len - (strlen(bam_name(bsp))+1);
-    //fprintf(stderr, "%d\n", b->core.l_extranul);
-    b->core.l_extranul = 0; // mandated due to biobambam's needs
+    b->core.l_extranul = 0;
 
     b->core.qual = bsp->map_qual;
     b->core.bin = bsp->bin;
@@ -345,24 +306,6 @@ int bam_seq_to_bam1(bam_seq_t *bsp, bam1_t *b) {
 }
 
 int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
-    if (fd->is_bam == 1) {
-	switch (bam_get_seq(fd->b, bsp)) {
-	case 1:
-	    return 0;
-
-	case 0:
-	    // FIXME: if we ever implement range queries for BAM this will
-	    // need amendments to not claim a sub-range is invalid EOF.
-	    fd->eof = fd->b->eof_block ? 1 : 2;
-	    return -1;
-
-	default:
-	    fd->eof = -1; // err
-	    return -1;
-	}
-    }
-
-    // CRAM
     if (!fd->bc)
 	fd->bc = bam_init1();
     int ret;
@@ -380,9 +323,6 @@ int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
 }
 
 int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
-    if (fd->is_bam == 1)
-	return bam_put_seq(fd->b, s);
-
     if (!fd->bc)
 	fd->bc = bam_init1();
     if (bam_seq_to_bam1(s, fd->bc) < 0)
@@ -398,30 +338,20 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 
     if (opt == CRAM_OPT_THREAD_POOL) {
 	t_pool *p = va_arg(args, t_pool *);
-	if (fd->is_bam == 1) {
-	    return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, p);
-	} else {
-	    htsThreadPool tp = {
-		.pool = p,
-		.qsize = hts_tpool_size(p)*2
-	    };
-	    return hts_set_thread_pool(fd->sc, &tp);
-	}
+	htsThreadPool tp = {
+	    .pool = p,
+	    .qsize = hts_tpool_size(p)*2
+	};
+	return hts_set_thread_pool(fd->sc, &tp);
     } else if (opt == CRAM_OPT_NTHREADS) {
 	int nthreads = va_arg(args, int);
 	if (nthreads > 1) {
-	    if (fd->is_bam == 1) {
-		if (!(fd->pool = t_pool_init(nthreads*2, nthreads)))
-		    return -1;
-
-		return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, fd->pool);
-	    } else {
-		return hts_set_threads(fd->sc, nthreads);
-	    }
+	    return hts_set_threads(fd->sc, nthreads);
 	} else {
 	    fd->pool = NULL;
 	    return 0;
 	}
+// TODO
 //    // unsupported in HTSlib
 //    } else if (opt == CRAM_OPT_BINNING) {
 //	int bin = va_arg(args, int);
@@ -431,25 +361,23 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 //	    : cram_set_option(fd->sc, CRAM_OPT_BINNING, bin);
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
-
-	return fd->is_bam == 1
-	    ? bam_set_option(fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
-	    : hts_set_opt(fd->sc, CRAM_OPT_IGNORE_CHKSUM, chk);
+	hts_set_opt(fd->sc, CRAM_OPT_IGNORE_CHKSUM, chk);
     } else if (opt == CRAM_OPT_WITH_BGZIP_INDEX) {
-        bgzi *idx = va_arg(args, bgzi *);
-        if (fd->is_bam == 1)
-	    return bam_set_option(fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
+	// TODO
+        // bgzi *idx = va_arg(args, bgzi *);
+        // if (fd->is_bam == 1)
+	//     return bam_set_option(fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
     } else if (opt == CRAM_OPT_OUTPUT_BGZIP_IDX) {
-        char *idx_fn = va_arg(args, char *);
-        if (fd->is_bam == 1)
-	    return bam_set_option(fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
+	// TODO
+        // char *idx_fn = va_arg(args, char *);
+        // if (fd->is_bam == 1)
+	//     return bam_set_option(fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
     } else if (opt == CRAM_OPT_EMBED_CONS) {
 	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 2);
     }
 
-    if (fd->is_bam == 0) {
+    if (!fd->is_bam)
 	r = cram_set_voption(fd->sc->fp.cram, opt, args);
-    }
 
     va_end(args);
 
@@ -475,10 +403,8 @@ int cram_set_option(cram_fd *fd, enum hts_fmt_option opt, ...) {
  *         0 for CRAM / BAM input.
  */
 int scram_line(scram_fd *fd) {
-    if (fd->is_bam == 1)
-	return fd->b->line;
-    else
-	return 0;
+    // TODO
+    return 0;
 }
 
 #ifdef HAVE_MALLOC_H
@@ -646,7 +572,6 @@ scram_fd *scram_open_cram_via_callbacks(
     if (!fd->c)
 	return NULL;
     fd->c->sc = fd->sc;
-    fd->is_bam = 0;
 
     if (!(fd->hdr = sam_hdr_convert(sam_hdr_read(fd->sc)))) {
 	// FIXME: mem leak
@@ -696,7 +621,6 @@ scram_fd *scram_openw_cram_via_callbacks(
     if (!fd->c)
 	return NULL;
     fd->c->sc = fd->sc;
-    fd->is_bam = 0;
 
     return fd;
 }

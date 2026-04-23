@@ -90,8 +90,7 @@ struct cram_fd {
  * Please consider this to be private.
  */
 typedef struct {
-    int is_bam;
-    // else is hFILE_scram
+    int is_bam; // bam or sam, ie "is not cram"
 
     int eof;
     union {
@@ -105,10 +104,10 @@ typedef struct {
     unsigned char *buf;
     size_t alloc;
     size_t used;
-    FILE *fp;   // copy of file handle.
+    FILE *fp;      // copy of file handle.
 
     t_pool *pool;
-    bam1_t *bc;
+    bam1_t *bc;    // A cache bam1_t struct, for type conversion
 } scram_fd;
 
 /*

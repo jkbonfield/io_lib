@@ -62,6 +62,8 @@
 
 #include <pthread.h>
 
+#include <htslib/sam.h>
+#include <htslib/hfile.h>
 #include "io_lib/os.h"
 #include "io_lib/scram.h"
 #include "io_lib/cram_bambam.h"
@@ -359,6 +361,8 @@ int cram_enque_compression_block(
  *        -1 on failure
  **/
 int cram_process_work_package(void *workpackage) {
+    fprintf(stderr, "In cram_process_work_package\n");
+
     cram_enc_work_package *pkg = (cram_enc_work_package *)workpackage;
     cram_enc_context *c;
     size_t bnum;
@@ -412,22 +416,40 @@ int cram_process_work_package(void *workpackage) {
     // then use the standard bam_get_seq() API to iterate over
     // sequences within the BAM block.
     for (bnum = 0; bnum < pkg->num_blocks; bnum++) {
-	bam_file_t *bf;
+	hFILE *hf;
+	htsFile *bf;
+	//bam_file_t *bf;
 	bam_seq_t *bsp = NULL;
 
-	pthread_mutex_lock(&c->header_lock);
-	bf = bam_open_block(pkg->block[bnum],
-			    pkg->blocksize[bnum],
-			    c->hdr);
-	pthread_mutex_unlock(&c->header_lock);
+	hf = hopen("mem:", "r:", pkg->block[bnum], pkg->blocksize[bnum]);
+	if (!hf)
+	    return -1;
+	bf = hts_hopen(hf, "-", "r");
 	if (!bf)
 	    return -1;
+	pthread_mutex_lock(&c->header_lock);
+	// cache htslib header within SAM_hdr so we don't repeatedly reparse it
+	sam_hdr_t *hdr = sam_hdr_parse_htslib(c->hdr->text->length,
+					      c->hdr->text->str);
+	sam_hdr_set(bf, hdr, 0);
+	//bf = bam_open_block(pkg->block[bnum],
+	//		    pkg->blocksize[bnum],
+	//		    c->hdr);
+	pthread_mutex_unlock(&c->header_lock);
+	//if (!bf)
+	//    return -1;
 
-	while (bam_get_seq(bf, &bsp)) {
+	//while (bam_get_seq(bf, &bsp)) {
+	bam1_t *b = bam_init1();
+	while (sam_read1(bf, hdr, b)) {
+	    int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p);
+	    bam1_to_bam_seq(b, &bsp);
 	    if (scram_put_seq(fd, bsp) != 0) {
 		fprintf(stderr, "Failed to write CRAM record\n");
 		pthread_mutex_lock(&c->header_lock);
-		bam_close(bf);
+		//bam_close(bf);
+		sam_close(bf);
+		//sam_hdr_decr(hdr);
 		pthread_mutex_unlock(&c->header_lock);
 		scram_close(fd);
 		return -1;
@@ -435,9 +457,12 @@ int cram_process_work_package(void *workpackage) {
 	}
 
 	pthread_mutex_lock(&c->header_lock);
-	bam_close(bf);
+	sam_close(bf);
+	//sam_hdr_decr(hdr);
+	//bam_close(bf);
 	pthread_mutex_unlock(&c->header_lock);
 
+	bam_destroy1(b);
 	if (bsp)
 	    free(bsp);
     }
