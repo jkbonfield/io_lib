@@ -374,6 +374,22 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 	//     return bam_set_option(fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
     } else if (opt == CRAM_OPT_EMBED_CONS) {
 	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 2);
+    } else if (opt == CRAM_OPT_PROFILE) {
+	char *prof = va_arg(args, char *);
+	int iprof = HTS_PROFILE_NORMAL;
+	if (strcasecmp(prof, "fast") == 0) {
+	    iprof = HTS_PROFILE_FAST;
+	} else if (strcasecmp(prof, "normal") == 0) {
+	    iprof = HTS_PROFILE_NORMAL;
+	} else if (strcasecmp(prof, "small") == 0) {
+	    iprof = HTS_PROFILE_SMALL;
+	} else if (strcasecmp(prof, "archive") == 0) {
+	    iprof = HTS_PROFILE_ARCHIVE;
+	} else {
+	    fprintf(stderr, "Unknown profile '%s', assuming 'normal'\n",
+		    prof);
+	}
+	return hts_set_opt(fd->sc, HTS_OPT_PROFILE, iprof);
     }
 
     if (!fd->is_bam)
