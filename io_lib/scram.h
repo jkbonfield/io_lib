@@ -53,23 +53,23 @@ extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 
 // It turns off BAM CRC checks too in io_lib's original, plus ignoring
 // cram container optional BD and SD tags (somewhat experimental)
-#define CRAM_OPT_IGNORE_CHKSUM     1001
+#define CRAM_OPT_IGNORE_CHKSUM     CRAM_OPT_IGNORE_MD5
 
 // Specifies the location of a BGZIP index
 // As a filename
-#define CRAM_OPT_OUTPUT_BGZIP_IDX  1002
-#define BAM_OPT_OUTPUT_BGZIP_IDX   1002
+#define CRAM_OPT_OUTPUT_BGZIP_IDX  10002
+#define BAM_OPT_OUTPUT_BGZIP_IDX   10002
 
 // Or as a file pointer
-#define CRAM_OPT_WITH_BGZIP_INDEX  1003
-#define BAM_OPT_WITH_BGZIP_IDX     1003
+#define CRAM_OPT_WITH_BGZIP_INDEX  10003
+#define BAM_OPT_WITH_BGZIP_IDX     10003
 
 // Unsupported in htslib
-#define BAM_OPT_BINNING             1004
-#define CRAM_OPT_BINNING            1004
-#define CRAM_OPT_PRESERVE_AUX_SIZE  1005
-#define CRAM_OPT_PRESERVE_AUX_ORDER 1006
-#define CRAM_OPT_LOSSY_READ_NAMES   1007
+#define BAM_OPT_BINNING             10004
+#define CRAM_OPT_BINNING            10004
+#define CRAM_OPT_PRESERVE_AUX_SIZE  10005 // TODO
+#define CRAM_OPT_PRESERVE_AUX_ORDER 10006 // TODO
+#define CRAM_OPT_LOSSY_READ_NAMES   10007 // TODO
 
 #define CRAM_OPT_EMBED_CONS        CRAM_OPT_EMBED_REF // via embed_ref=2
 #define CRAM_OPT_PROFILE           HTS_OPT_PROFILE
@@ -96,6 +96,7 @@ typedef struct {
     samFile *sc;
     cram_fd *c;    // legacy cram container, redirects to sc.
     SAM_hdr *hdr;
+    int do_binning;
 
     /* Primary Input/Output buffer */
     unsigned char *buf;

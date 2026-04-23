@@ -327,6 +327,14 @@ int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
 	fd->bc = bam_init1();
     if (bam_seq_to_bam1(s, fd->bc) < 0)
 	return -1;
+
+    if (fd->do_binning) {
+	uint8_t *qual = bam_get_qual(fd->bc);
+	uint32_t len = fd->bc->core.l_qseq;
+	for (uint32_t i = 0; i < len; i++)
+	    qual[i] = illumina_bin[qual[i]];
+    }
+
     return sam_write1(fd->sc, fd->hdr->hdr, fd->bc);
 }
 
@@ -351,14 +359,9 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 	    fd->pool = NULL;
 	    return 0;
 	}
-// TODO
-//    // unsupported in HTSlib
-//    } else if (opt == CRAM_OPT_BINNING) {
-//	int bin = va_arg(args, int);
-//
-//	return fd->is_bam
-//	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
-//	    : cram_set_option(fd->sc, CRAM_OPT_BINNING, bin);
+    } else if (opt == CRAM_OPT_BINNING) {
+	int bin = va_arg(args, int);
+	fd->do_binning = bin;
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
 	hts_set_opt(fd->sc, CRAM_OPT_IGNORE_CHKSUM, chk);
