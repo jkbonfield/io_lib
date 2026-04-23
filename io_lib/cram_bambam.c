@@ -361,116 +361,27 @@ int cram_enque_compression_block(
  *        -1 on failure
  **/
 int cram_process_work_package(void *workpackage) {
-    fprintf(stderr, "In cram_process_work_package\n");
-
-    cram_enc_work_package *pkg = (cram_enc_work_package *)workpackage;
-    cram_enc_context *c;
-    size_t bnum;
-
-    if (!pkg)
-	return -1;
-
-    if (!(c = pkg->context))
-	return -1;
-
-    // Our package task is turning a block of BAM records into a block
-    // of CRAM records.  This is essentially a bam-read cram-write loop.
-
-    // We reopen a new file handle for each block, so it's independent and
-    // thread safe.  However these filehandles are essentially backed by
-    // memory write rather than real I/O so this isn't so inefficient.
-    // We need to set the cram header so the write can work, but this
-    // doesn't write the header. (We need a series of naked cram blocks
-    // that we can stitch together.)
-    scram_fd *fd = scram_open("scramio:mem", "w");
-    // FIXME: set the output buffer pointers up too
-    // Or use scram_openw_cram_via_callbacks()
-    scram_set_header(fd, c->hdr);
-
-    // Copy the compression options from c->fd;
-    // FIXME: using internals of htsFile is wrong?
-    cram_fd *cfd = fd->sc->fp.cram;
-    int opts[] = {
-	CRAM_OPT_PROFILE,
-	CRAM_OPT_SEQS_PER_SLICE,
-	CRAM_OPT_BASES_PER_SLICE,
-	CRAM_OPT_VERSION
-    };
-    for (int i = 0; i < sizeof(opts)/sizeof(*opts); i++) {
-	switch(opts[i]) {
-	case CRAM_OPT_VERSION: {
-	    // TODO: use cram_get_option_str.
-	    char vers[100];
-	    int v = cram_get_option_int(cfd, opts[i]);
-	    sprintf(vers, "%d.%d", v>>8, v&0xff);
-	    break;
-	}
-
-	default:
-	    // FIXME: use hts_set_option on fd instead of cfd
-	    cram_set_option(cfd, opts[i], cram_get_option_int(cfd, opts[i]));
-	}
-    }
-	
-    // We create a fake bam_file_t containing the entire BAM block and
-    // then use the standard bam_get_seq() API to iterate over
-    // sequences within the BAM block.
-    for (bnum = 0; bnum < pkg->num_blocks; bnum++) {
-	hFILE *hf;
-	htsFile *bf;
-	//bam_file_t *bf;
-	bam_seq_t *bsp = NULL;
-
-	hf = hopen("mem:", "r:", pkg->block[bnum], pkg->blocksize[bnum]);
-	if (!hf)
-	    return -1;
-	bf = hts_hopen(hf, "-", "r");
-	if (!bf)
-	    return -1;
-	pthread_mutex_lock(&c->header_lock);
-	// cache htslib header within SAM_hdr so we don't repeatedly reparse it
-	sam_hdr_t *hdr = sam_hdr_parse_htslib(c->hdr->text->length,
-					      c->hdr->text->str);
-	sam_hdr_set(bf, hdr, 0);
-	//bf = bam_open_block(pkg->block[bnum],
-	//		    pkg->blocksize[bnum],
-	//		    c->hdr);
-	pthread_mutex_unlock(&c->header_lock);
-	//if (!bf)
-	//    return -1;
-
-	//while (bam_get_seq(bf, &bsp)) {
-	bam1_t *b = bam_init1();
-	while (sam_read1(bf, hdr, b)) {
-	    int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p);
-	    bam1_to_bam_seq(b, &bsp);
-	    if (scram_put_seq(fd, bsp) != 0) {
-		fprintf(stderr, "Failed to write CRAM record\n");
-		pthread_mutex_lock(&c->header_lock);
-		//bam_close(bf);
-		sam_close(bf);
-		//sam_hdr_decr(hdr);
-		pthread_mutex_unlock(&c->header_lock);
-		scram_close(fd);
-		return -1;
-	    }
-	}
-
-	pthread_mutex_lock(&c->header_lock);
-	sam_close(bf);
-	//sam_hdr_decr(hdr);
-	//bam_close(bf);
-	pthread_mutex_unlock(&c->header_lock);
-
-	bam_destroy1(b);
-	if (bsp)
-	    free(bsp);
-    }
-
-    scram_close(fd);
-
-    free(pkg);
-    return 0;
+    // Removal of this affects bamsormadup, but apparently not other
+    // multithreaded CRAM creation such as bamcollate2.
+    //
+    // Rewriting it to use htslib is problematic.  We could use
+    // hopen("mem:", "r:", data, len) to get an hFILE, and then hts_hopen
+    // to turn that into an htsFile, however this fails the type check
+    // as the data blocks provided are raw chunks of BAM without a header.
+    // We could prepend this with blocks of precomputed header too, at the
+    // cost of more memory allocations and copying, however for whatever
+    // reason the previous version of this code is failing.
+    //
+    // Even the official BioConda version of bamsormadup fails valgrind's
+    // helgrind and drd tools due to a large number of data races between
+    // threads.  While that version apparently works, I don't have confidence
+    // in my ability to navigate the threading mine field and port it to
+    // use htslib's mem: APIs so the decision is to give up.
+    //
+    // Please output to uncompressed BAM and pipe into samtools or
+    // scramble to convert to CRAM instead.
+    fprintf(stderr, "cram_process_work_package is no longer supported\n");
+    return -1;
 }
 
 cram_fd * cram_encoder_get_fd(void *p)

@@ -93,10 +93,7 @@ typedef struct {
     int is_bam; // bam or sam, ie "is not cram"
 
     int eof;
-    union {
-	bam_file_t *b;
-        samFile *sc;
-    };
+    samFile *sc;
     cram_fd *c;    // legacy cram container, redirects to sc.
     SAM_hdr *hdr;
 
