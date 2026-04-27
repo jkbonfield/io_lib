@@ -103,6 +103,7 @@ scram_fd *scram_open(const char *filename, const char *mode) {
     fd->buf = NULL;
     fd->alloc = fd->used = 0;
     fd->pool = NULL;
+    fd->line = 0;
 
     if (strcmp(filename, "-") == 0 && mode[0] == 'r'
 	&& mode[1] != 'b' && mode[1] != 'c' && mode[1] != 's') { 
@@ -139,6 +140,15 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	    return NULL;
 	fd->c->sc = fd->sc;
 	fd->c->header = fd->hdr;
+
+	// Count lines for SAM header
+	if (fd->sc->format.format == sam) {
+	    char *cp = fd->hdr->text->str;
+	    while ((cp = strchr(cp, '\n'))) {
+		fd->line++;
+		cp++;
+	    }
+	}
 	return fd;
     }
 
@@ -303,6 +313,7 @@ int bam_seq_to_bam1(bam_seq_t *bsp, bam1_t *b) {
 }
 
 int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
+    fd->line++;
     if (!fd->bc)
 	fd->bc = bam_init1();
     int ret;
@@ -320,6 +331,7 @@ int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
 }
 
 int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
+    fd->line++;
     if (!fd->bc)
 	fd->bc = bam_init1();
     if (bam_seq_to_bam1(s, fd->bc) < 0)
@@ -415,12 +427,11 @@ int cram_set_option(cram_fd *fd, enum hts_fmt_option opt, ...) {
 /*! Returns the line number when processing a SAM file
  *
  * @return
- * Returns line number if input is SAM;
- *         0 for CRAM / BAM input.
+ * Returns line number in SAM (counting from 1),
+ *         record number in BAM/CRAM (counting from 1)
  */
-int scram_line(scram_fd *fd) {
-    // TODO
-    return 0;
+uint64_t scram_line(scram_fd *fd) {
+    return fd->line;
 }
 
 #ifdef HAVE_MALLOC_H

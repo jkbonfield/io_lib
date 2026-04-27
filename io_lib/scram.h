@@ -67,9 +67,6 @@ extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 // Unsupported in htslib
 #define BAM_OPT_BINNING             10004
 #define CRAM_OPT_BINNING            10004
-#define CRAM_OPT_PRESERVE_AUX_SIZE  10005 // TODO
-#define CRAM_OPT_PRESERVE_AUX_ORDER 10006 // TODO
-#define CRAM_OPT_LOSSY_READ_NAMES   10007 // TODO
 
 #define CRAM_OPT_EMBED_CONS        CRAM_OPT_EMBED_REF // via embed_ref=2
 #define CRAM_OPT_PROFILE           HTS_OPT_PROFILE
@@ -97,6 +94,7 @@ typedef struct {
     cram_fd *c;    // legacy cram container, redirects to sc.
     SAM_hdr *hdr;
     int do_binning;
+    uint64_t line;
 
     /* Primary Input/Output buffer */
     unsigned char *buf;
@@ -296,10 +294,10 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...);
 /*! Returns the line number when processing a SAM file
  *
  * @return
- * Returns line number if input is SAM;
- *         0 for CRAM / BAM input.
+ * Returns line number in SAM,
+ *         record number in BAM/CRAM
  */
-int scram_line(scram_fd *fd);
+uint64_t scram_line(scram_fd *fd);
 
 
 /*! Advises the memory allocator of CRAM usage patterns

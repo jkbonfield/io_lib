@@ -58,6 +58,15 @@ API visible changes:
 
 * Blank files are no longer supported (was empty SAM).
 
+* Some CRAM_OPTS have been lost due to lacking support in htslib:
+
+  - CRAM_OPT_PRESERVE_AUX_SIZE
+  - CRAM_OPT_PRESERVE_AUX_ORDER
+  - CRAM_OPT_LOSSY_READ_NAMES
+
+  If these are required, requests should be made to add them to htslib via
+  https://github.com/samtools/htslib/.
+
 
 Internal changes:
 
