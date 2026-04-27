@@ -521,12 +521,8 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
     if (len > 0 && NULL == seq) return -1;
 
     /* Reallocate if needed */
-    required = (sizeof(**b)              /* the struct itself */
-#ifdef ALLOW_UAC
-		+ qname_len + 1         /* query name (unaligned) */
-#else
+    required = (sizeof(**b)             /* the struct itself */
 		+ round4(qname_len + 1) /* query name (aligned) */
-#endif
 		+ 4 * ncigar            /* CIGAR string */
 		+ (len + 1) / 2         /* Sequence, 2 bases per byte */
 		+ len                   /* Quality */

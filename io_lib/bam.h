@@ -203,11 +203,7 @@ static inline void bam_set_bin(bam_seq_t *b, uint32_t v) {
 // equivalent to (char *)(&(b)->data)
 #define bam_name(b) ((char *)(b) + offsetof(bam_seq_t, data))
 
-#ifdef ALLOW_UAC
-#define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + bam_name_len((b))))
-#else
 #define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + round4(bam_name_len((b)))))
-#endif
 #define bam_seq(b)       (((char *)bam_cigar((b))) + 4*bam_cigar_len(b))
 #define bam_qual(b)      (bam_seq(b) + (int)(((b)->len+1)/2))
 #define bam_aux(b)       (bam_qual(b) + (b)->len)

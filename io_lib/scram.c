@@ -253,7 +253,7 @@ int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
     // As per raw BAM block below
     bsp->ref         = b->core.tid;
     bsp->pos_32      = b->core.pos; // bottom 32-bits
-    bsp->name_len = b->core.l_qname - b->core.l_extranul;
+    bsp->name_len    = b->core.l_qname - b->core.l_extranul;
     bsp->map_qual    = b->core.qual;
     bsp->bin         = b->core.bin;
     bsp->cigar_len   = b->core.n_cigar;
@@ -263,14 +263,14 @@ int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
     bsp->mate_pos_32 = b->core.mpos;
     bsp->ins_size_32 = b->core.isize;
 
-    memcpy(&bsp->data, b->data, bsp->name_len);
-    memcpy(&bsp->data + bsp->name_len, b->data+b->core.l_qname,
-	   b->l_data - b->core.l_qname);
-    bsp->blk_size -= b->core.l_qname - bsp->name_len;
-    (&bsp->data)[bsp->blk_size - 32] = 0; // io_lib's AUX end of tag marker
+    //memcpy(&bsp->data, b->data, bsp->name_len);
+    //memcpy(&bsp->data + bsp->name_len, b->data+b->core.l_qname,
+    //	   b->l_data - b->core.l_qname);
+    //bsp->blk_size -= b->core.l_qname - bsp->name_len;
+    //(&bsp->data)[bsp->blk_size - 32] = 0; // io_lib's AUX end of tag marker
 
-    //memcpy(&bsp->data, b->data, b->l_data);
-    //(&bsp->data)[b->l_data] = 0; // io_lib's AUX end of tag marker
+    memcpy(&bsp->data, b->data, b->l_data);
+    (&bsp->data)[b->l_data] = 0; // io_lib's AUX end of tag marker
     return 0;
 }
 
@@ -289,11 +289,8 @@ int bam_seq_to_bam1(bam_seq_t *bsp, bam1_t *b) {
     b->core.mpos = bsp->mate_pos;
     b->core.isize = bsp->ins_size;
     b->core.tid = bsp->ref;
-    b->core.l_qname = bsp->name_len;
-    // Ideal, but bam1_to_bam_seq ensures this is always 0 due to biobambam
-    //b->core.l_extranul = bsp->name_len - (strlen(bam_name(bsp))+1);
-    b->core.l_extranul = 0;
-
+    b->core.l_qname = round4(bsp->name_len);
+    b->core.l_extranul = (4-(bam_name_len(bsp)&3))&3;
     b->core.qual = bsp->map_qual;
     b->core.bin = bsp->bin;
     b->core.n_cigar = bsp->cigar_len;
@@ -551,155 +548,8 @@ void scram_init_plugin(void) {
     hfile_add_scheme_handler("scramio", &handler);
 }
 
-/*
- * Open CRAM file for reading via callbacks
- *
- * Returns scram pointer on success
- *         NULL on failure
- */
-// Used by libmaus
-scram_fd *scram_open_cram_via_callbacks(
-    char const *filename,
-    cram_io_allocate_read_input_t   callback_allocate_function,
-    cram_io_deallocate_read_input_t callback_deallocate_function,
-    size_t const bufsize            
-)
-{
-    scram_fd *fd = calloc(1, sizeof(*fd));
-    if (!fd)
-	return NULL;
-
-    scram_init_plugin();
-
-    // Open the filename with scheme scramio to get an hFILE_scram
-    char fn[1024];
-    snprintf(fn, 1024, "scramio:%s", filename);
-    hFILE *hf = hopen(fn, "r");
-    if (!hf)
-	return NULL;
-
-    // Extend the hFILE with the function callbacks given to us here.
-    hFILE_scram *sio = (hFILE_scram *)hf;
-    sio->in_callbacks = callback_allocate_function(filename, 0);
-    sio->in_deallocate_func = callback_deallocate_function;
-    sio->bufsize = bufsize;
-    sio->is_read = 1;
-
-    // Now expand the hFILE into an hts_file.
-    fd->sc = hts_hopen(hf, filename, "rc");
-    fd->c = calloc(1, sizeof(*fd->c));
-    if (!fd->c)
-	return NULL;
-    fd->c->sc = fd->sc;
-
-    if (!(fd->hdr = sam_hdr_convert(sam_hdr_read(fd->sc)))) {
-	// FIXME: mem leak
-	fprintf(stderr, "Failed to read header\n");
-	return NULL;
-    }
-    fd->c->header = fd->hdr;
-
-    return fd;
-}
-
-// DOES NOT NEED TO BE EXTERNAL
-scram_fd *scram_openw_cram_via_callbacks(
-    char const *filename,
-    cram_io_allocate_write_output_t   callback_allocate_function,
-    cram_io_deallocate_write_output_t callback_deallocate_function,
-    size_t const bufsize            
-)
-{
-    scram_fd *fd = calloc(1, sizeof(*fd));
-    if (!fd)
-	return NULL;
-
-    // Register scheme handler.  It doesn't matter if it's done many times
-    hfile_has_plugin("load-me");
-    static const struct hFILE_scheme_handler handler =
-        { hopen_scramio, hfile_always_local, "scramio", 10 };
-    hfile_add_scheme_handler("scramio", &handler);
-
-    // Open the filename with scheme scramio to get an hFILE_scram
-    char fn[1024];
-    snprintf(fn, 1024, "scramio:%s", filename);
-    hFILE *hf = hopen(fn, "w");
-    if (!hf)
-	return NULL;
-
-    // Extend the hFILE with the function callbacks given to us here.
-    hFILE_scram *sio = (hFILE_scram *)hf;
-    sio->out_callbacks = callback_allocate_function(filename);
-    sio->out_deallocate_func = callback_deallocate_function;
-    sio->bufsize = bufsize;
-    sio->is_read = 0;
-
-    // Now expand the hFILE into an hts_file.
-    fd->sc = hts_hopen(hf, filename, "wc");
-    fd->c = malloc(sizeof(*fd->c));
-    if (!fd->c)
-	return NULL;
-    fd->c->sc = fd->sc;
-
-    return fd;
-}
-
 int cram_index_load(cram_fd *fd, char const *fn) {
     return sam_index_load(fd->sc, fn) ? 0 : -1;
 }
 
 
-//-----------------------------------------------------------------------------
-// Header manipulation
-
-
-// //-----------------------------------------------------------------------------
-// // Experiment to test scram_open_cram_via_callbacks()
-// cram_io_input_t *alloc_read_funcs(const char *fn, const int decompress) {
-//     cram_io_input_t *io = malloc(sizeof(*io));
-//     if (!io)
-// 	return NULL;
-//     io->user_data = (void *)fopen(fn, "r");
-//     io->fread_callback  = (cram_io_C_FILE_fread_t)fread;
-//     io->fseek_callback  = (cram_io_C_FILE_fseek_t)fseeko;
-//     io->ftell_callback  = (cram_io_C_FILE_ftell_t)ftello;
-// 
-//     return io;
-// }
-// 
-// cram_io_input_t *free_read_funcs(cram_io_input_t *io) {
-//     fclose((FILE *)io->user_data);
-//     free(io);
-//     return NULL;
-// }
-// 
-// cram_io_output_t *alloc_write_funcs(const char *fn) {
-//     cram_io_output_t *io = malloc(sizeof(*io));
-//     if (!io)
-// 	return NULL;
-//     io->user_data = (void *)fopen(fn, "w");
-//     io->fwrite_callback = (cram_io_C_FILE_fwrite_t)fwrite;
-//     io->ftell_callback  = (cram_io_C_FILE_ftell_t)ftello;
-// 
-//     return io;
-// }
-// 
-// cram_io_output_t *free_write_funcs(cram_io_output_t *io) {
-//     fclose((FILE *)io->user_data);
-//     free(io);
-//     return NULL;
-// }
-// 
-// scram_fd *scram_open_(const char *filename, const char *mode) {
-//     if (strchr(mode, 'w'))
-// 	return scram_openw_cram_via_callbacks(filename,
-// 					      alloc_write_funcs,
-// 					      free_write_funcs,
-// 					      1024*1024);
-//     else
-// 	return scram_open_cram_via_callbacks(filename,
-// 					     alloc_read_funcs,
-// 					     free_read_funcs,
-// 					     1024*1024);
-// }
-// 

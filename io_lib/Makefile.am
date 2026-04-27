@@ -100,8 +100,6 @@ libstaden_read_la_SOURCES = \
 	sam_header.h \
 	sam_header.c \
 	cram.h \
-	cram_bambam.c \
-	cram_bambam.h \
 	zfio.c \
 	zfio.h \
 	dstring.c \

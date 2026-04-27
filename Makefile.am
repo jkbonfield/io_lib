@@ -103,8 +103,7 @@ pkginclude_HEADERS = \
 	io_lib/thread_pool.h \
 	io_lib/binning.h \
 	io_lib/bgzip.h \
-	io_lib/version.h \
-	io_lib/cram_bambam.h
+	io_lib/version.h
 
 bin_SCRIPTS = io_lib-config
 
