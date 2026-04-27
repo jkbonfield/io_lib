@@ -1,3 +1,136 @@
+Version 1.16.0
+--------------
+
+This release is not ABI compatible with 1.15.x, and loses some API
+compatibility too.  All BAM and CRAM I/O is now performed via htslib,
+which is a newly added dependency.  This change was made due to recent
+CRAM security fixes in htslib and the desire to no longer support two
+independent CRAM implementations.  However with this comes a loss of
+some functionality.
+
+API visible changes:
+
+* io_lib/cram_bambam.[ch] and the CRAM_IO_CUSTOM_BUFFERING definitions have
+  been removed. This means the libmaus2 / biobambam2 API has been removed.
+
+  This was a tricky decision and we had this working (except for
+  bamsormadup), but getting that working has proved too challenging.
+  Additionally it is non-trivial to fix the multi-threading given existing
+  biobambam2 threading fails thread safety sanitizers such as valgrind tools
+  drd and helgrind.  Coupled with Linux distributions such as Debian and
+  Ubuntu disabling the io_lib integration with libmaus2 we decided to no
+  longer support this interface.
+
+  We recommend users use libmaus2's own native SAM and BAM support and pipe
+  to samtools if the CRAM format is needed.
+
+* The Thread pool has been removed.  Htslib's thread pool was derived from
+  io_lib's so most of the same functionality is present.  However some
+  function names differ.  Io_lib's thread_pool.h provides #defines to rename
+  these functions, so the function API is mostly still be valid albeit
+  without the ability to take their function pointers.  Other exceptions
+  include:
+
+  - Thread pool "queues" are now htslib "process"es.
+    The old t_results_queue_init took now arguments, however the htslib
+    equivalent function hts_tpool_process_init takes 3.
+
+  - The old t_pool_flush took a thread pool, while hts_tpool_process_flush
+    takes a process queue.
+
+  All of the thread-pool structures are now opaque.  Please use the correct
+  APIs to access thread pool elements, such as hts_tpool_result_data.
+
+* We used to be able to do cram_set_option(NULL,...) to change default
+  opts without having a file handle.  An example of this is CRAM_OPT_VERSION
+  to set the output version before opening the file.
+  This is not permitted in htslib and thus the new io_lib.
+
+* CRAM_OPT_DECODE_MD defaults to -1 in htslib, and 0 in old io_lib.
+  Scramble overrides this itself, but if calling the API you will need to be
+  explicit.
+
+* Experimental features such as libbsc and zstd support have been removed,
+  as they are not supported by htslib.
+
+* Renamed struct gzi to bgzf type instead of gzi, to avoid clash in htslib
+  enum.
+
+* Blank files are no longer supported (was empty SAM).
+
+
+Internal changes:
+
+* While htslib's header API was derived from the original API in io_lib, it
+  does not expose all of the functions that io_lib did.  This means we have
+  to still maintain io_lib's header API in addition to htslib's copy.  This
+  isn't ideal regarding memory usage, but is necessary to avoid needing code
+  changes to tools using io_lib.
+
+* Io_lib's bam_seq_t structure has a different memory layout to htslib's
+  bam1_t.  Specifically there in io_lib there is no "core" sub-structure and
+  the entire BAM record is held in a single allocated memory block rather
+  than the two components (fixed and variable) allocated by htslib.  We
+  transparently switch between the two when calling htslib, but this comes
+  at a small CPU cost which is in the main thread.  This has some impact on
+  speed, although htslib has had other speed improvements which mitigates
+  this for some file formats.
+
+  Some benchmarks on 10 million NovaSeq alignments follow.  Values are
+  real (elapsed), user CPU and system CPU times in seconds.
+  Conversions to uncompressed BAM (BAMu) are demonstrative of read-only
+  times, while BAM to ??? format conversions are indicative of write times
+  (given a fixed cost of decoding the input BAM which can be deduced from
+  BAM->BAMu).
+
+                      128 threads         0 threads
+                      SAM->BAMu           SAM->BAMu
+  samtools            0.95 4.12 1.31      2.79 2.14 0.64
+  scramble-1.15.1     2.85 2.86 0.73      2.28 1.84 0.44
+  scramble-hts        1.41 4.16 1.75      3.06 2.44 0.62
+  
+                      BAM->BAMu           BAM->BAMu
+  samtools            1.09 5.70 1.00      3.57 3.45 0.11
+  scramble-1.15.1     0.96 5.64 0.18      3.43 3.33 0.09
+  scramble-hts        1.22 5.58 1.03      3.81 3.68 0.12
+  
+                      CRAM->BAMu          CRAM->BAMu
+  samtools            2.53 11.39 4.15     7.66 7.61 0.04
+  scramble-1.15.1     2.78 16.14 14.50    8.67 8.62 0.04
+  scramble-hts        2.21 12.02 4.42     7.40 7.31 0.08
+  
+                      BAM->SAM            BAM->SAM
+  samtools            1.13 7.90 1.56      4.54 4.45 0.08
+  scramble-1.15.1     1.62 5.16 0.11      4.37 4.28 0.08
+  scramble-hts        1.34 6.72 0.66      4.62 4.43 0.19
+  
+                      BAM->BAM            BAM->BAM
+  samtools            1.15 36.12 0.84     27.98 27.87 0.10
+  scramble-1.15.1     0.89 35.53 0.16     27.77 27.65 0.11
+  scramble-hts        1.30 34.89 0.85     28.14 28.05 0.08
+  
+                      BAM->CRAM           BAM->CRAM
+  samtools            1.51 38.07 1.83     19.71 19.63 0.07
+  scramble-1.15.1     3.28 39.86 1.19     21.18 21.07 0.11
+  scramble-hts        2.48 33.70 1.32     19.32 19.21 0.10
+
+
+  This release represents a significant slow down in io_lib's SAM single
+  threaded decoding, a minor slow down in BAM decoding and a speed up in
+  CRAM decoding.  With many threads, this is a small slow down in BAM, a
+  small speed up to CRAM and a substantial speed up to SAM.
+
+  On the writing side SAM is comparable to before, BAM is a little slower
+  (especially when threaded) while CRAM is faster (again especially when
+  threaded).
+
+  In all cases however we would encourage developers to upgrade to using
+  htslib natively as this is the package with significantly better support
+  and is more performant due to avoiding the bam1_t to bam_seq_t conversion.
+
+* The default CRAM version is now 3.1, in line with htslib's version change.
+
+
 Version 1.15.1 (14th July 2025)
 --------------
 
