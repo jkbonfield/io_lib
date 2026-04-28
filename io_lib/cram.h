@@ -45,9 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "bam.h"
 #include "sam_header.h"
 
-#define HTS_NO_SAM_HDR
-#include <htslib/cram.h>
-
 // Minimal implementation for gap5's export_snps.c to build, but not to run.
 // (That code is internal debugging and not exported to the users.)
 typedef struct {

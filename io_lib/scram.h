@@ -45,9 +45,26 @@
 extern "C" {
 #endif
 
+//#define HTS_NO_SAM_HDR
+// Htslib has a set of old typedefs which are nominally for compatibility with
+// old code (which came from io_lib), but now they're working against us as
+// we get clashes while trying to introduce a shim layer.
+#define SAM_hdr        SAM_hdr_x
+#define sam_hdr_parse_ sam_hdr_parse_x
+#define sam_hdr_free   sam_hdr_free_x
+//#define sam_hdr_add_PG sam_hdr_add_PG_x
+#define sam_hdr_add_pg sam_hdr_add_pg_x
+#include <htslib/sam.h>
+#include <htslib/cram.h>
+#undef SAM_hdr
+#undef sam_hdr_parse_
+#undef sam_hdr_free
+#undef sam_hdr_add_PG
+#undef sam_hdr_add_pg
+
+
 #include "io_lib/bam.h"
 #include "io_lib/cram.h"
-#include <htslib/sam.h>
 
 extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 

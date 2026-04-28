@@ -239,7 +239,6 @@ int main(int argc, char **argv) {
     refs_t *refs;
     int nthreads = 1;
     t_pool *p = NULL;
-    bgzi *idx =NULL;
     int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
     int sam_fields = 0; // all
