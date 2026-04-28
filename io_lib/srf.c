@@ -114,6 +114,9 @@ void srf_destroy(srf_t *srf, int auto_close) {
     if (srf->mf)
 	mfdestroy(srf->mf);
 
+    if (srf->tb.trace)
+	free(srf->tb.trace);
+
     if (srf->ztr)
 	delete_ztr(srf->ztr);
 

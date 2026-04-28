@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
     case -1:
         fprintf(stderr, "Malformed or missing index hash. "
                 "Consider running srf_index_hash\n");
+        srf_destroy(srf, 1);
         return 1;
 
     case -2:
@@ -191,5 +192,7 @@ int main(int argc, char **argv) {
         break;
     }
 	
+    srf_destroy(srf, 1);
+
     return 0;
 }

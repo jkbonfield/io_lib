@@ -1213,6 +1213,8 @@ int main(int argc, char **argv) {
 	    }
 	    delete_ztr(ztr);
 	}
+
+	free(files);
     }
 
     if(destination_mode & FILE_DEST) {

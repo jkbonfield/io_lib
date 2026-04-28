@@ -678,6 +678,7 @@ int main(int argc, char **argv) {
 	}
 
 	srf_destroy(srf, 1);
+        HashTableDestroy(regn_hash, 1);
     }
 
     return 0;

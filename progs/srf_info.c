@@ -887,6 +887,8 @@ int main(int argc, char **argv) {
                 printf("Bases: TOTAL: %"PRId64"\n", total);
             }
         }
+
+        HashTableDestroy(regn_hash, 1);
     }
 
     return 0;
