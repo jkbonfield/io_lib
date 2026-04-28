@@ -34,7 +34,7 @@ jobs:
         brew update --auto-update
         brew install --overwrite autoconf automake libtool htslib libdeflate
     - name: configure
-      run: ./bootstrap; ./configure CPPFLAGS=-I/opt/homebrew/include
+      run: ./bootstrap; ./configure CPPFLAGS=-I/opt/homebrew/include --with-htslib=/opt/homebrew
     - name: make
       run: make
     - name: make check
