@@ -137,7 +137,7 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	    return NULL;
 	}
 	sam_hdr_destroy(sh);
-	fd->c = malloc(sizeof(*fd->c));
+	fd->c = calloc(1, sizeof(*fd->c));
 	if (!fd->c)
 	    return NULL;
 	fd->c->sc = fd->sc;
@@ -168,7 +168,7 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	    fprintf(stderr, "Error opening \"%s\"\n", filename);
 	    return NULL;
 	}
-	fd->c = malloc(sizeof(*fd->c));
+	fd->c = calloc(1, sizeof(*fd->c));
 	if (!fd->c)
 	    return NULL;
 	fd->c->sc = fd->sc;
@@ -180,7 +180,7 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 }
 
 int scram_close(scram_fd *fd) {
-    int r= sam_close(fd->sc);
+    int r = sam_close(fd->sc);
 
     if (fd->pool)
 	t_pool_destroy(fd->pool, 0);
@@ -191,8 +191,11 @@ int scram_close(scram_fd *fd) {
     if (fd->bc)
 	bam_destroy1(fd->bc);
 
-    if (fd->c)
+    if (fd->c) {
+	if (fd->c->index)
+	    hts_idx_destroy(fd->c->index);
 	free(fd->c);
+    }
 
     free(fd);
     return r;
@@ -375,6 +378,8 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
 	hts_set_opt(fd->sc, CRAM_OPT_IGNORE_CHKSUM, chk);
+    } else if (opt == CRAM_OPT_EMBED_REF) {
+	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 1);
     } else if (opt == CRAM_OPT_EMBED_CONS) {
 	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 2);
     } else if (opt == CRAM_OPT_PROFILE) {
@@ -551,7 +556,8 @@ void scram_init_plugin(void) {
 }
 
 int cram_index_load(cram_fd *fd, char const *fn) {
-    return sam_index_load(fd->sc, fn) ? 0 : -1;
+    fd->index = sam_index_load(fd->sc, fn);
+    return fd->index ? 0 : -1;
 }
 
 

@@ -1032,7 +1032,14 @@ void sam_hdr_free(SAM_hdr *hdr) {
     if (!hdr)
 	return;
 
-    sam_hdr_destroy(hdr->hdr); // htslib's API
+    if (hdr->hdr) {
+	int rc = hdr->hdr->ref_count;
+	sam_hdr_destroy(hdr->hdr); // htslib's API
+
+	if (rc <= 0)
+	    hdr->hdr = NULL; // avoid double frees
+    }
+
     if (--hdr->ref_count > 0)
 	return;
 

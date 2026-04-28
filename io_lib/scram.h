@@ -58,8 +58,8 @@ extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 // Unsupported in htslib
 #define BAM_OPT_BINNING             10004
 #define CRAM_OPT_BINNING            10004
+#define CRAM_OPT_EMBED_CONS         10005 // embed_ref 2
 
-#define CRAM_OPT_EMBED_CONS        CRAM_OPT_EMBED_REF // via embed_ref=2
 #define CRAM_OPT_PROFILE           HTS_OPT_PROFILE
 
 typedef struct hFILE_scram hFILE_scram;
@@ -70,6 +70,7 @@ struct cram_fd {
     SAM_hdr *header;
     refs_t *refs;
     samFile *sc;
+    hts_idx_t *index;
 };
 
 /*! The primary file handle for reading and writing.
