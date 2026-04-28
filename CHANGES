@@ -63,6 +63,8 @@ API visible changes:
   - CRAM_OPT_PRESERVE_AUX_SIZE
   - CRAM_OPT_PRESERVE_AUX_ORDER
   - CRAM_OPT_LOSSY_READ_NAMES
+  - CRAM_OPT_WITH_BGZIP_INDEX
+  - CRAM_OPT_OUTPUT_BGZIP_IDX
 
   If these are required, requests should be made to add them to htslib via
   https://github.com/samtools/htslib/.

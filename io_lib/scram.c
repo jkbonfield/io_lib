@@ -213,12 +213,10 @@ SAM_hdr *scram_get_header(scram_fd *fd) {
 }
 
 refs_t *scram_get_refs(scram_fd *fd) {
-    // TODO
     return fd->c->refs;
 }
 
 void scram_set_refs(scram_fd *fd, refs_t *refs) {
-    // TODO
     fd->c->refs = refs;
 }
 
@@ -377,16 +375,6 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
 	hts_set_opt(fd->sc, CRAM_OPT_IGNORE_CHKSUM, chk);
-    } else if (opt == CRAM_OPT_WITH_BGZIP_INDEX) {
-	// TODO
-        // bgzi *idx = va_arg(args, bgzi *);
-        // if (fd->is_bam == 1)
-	//     return bam_set_option(fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
-    } else if (opt == CRAM_OPT_OUTPUT_BGZIP_IDX) {
-	// TODO
-        // char *idx_fn = va_arg(args, char *);
-        // if (fd->is_bam == 1)
-	//     return bam_set_option(fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
     } else if (opt == CRAM_OPT_EMBED_CONS) {
 	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 2);
     } else if (opt == CRAM_OPT_PROFILE) {

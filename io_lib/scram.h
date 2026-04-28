@@ -55,22 +55,12 @@ extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
 // cram container optional BD and SD tags (somewhat experimental)
 #define CRAM_OPT_IGNORE_CHKSUM     CRAM_OPT_IGNORE_MD5
 
-// Specifies the location of a BGZIP index
-// As a filename
-#define CRAM_OPT_OUTPUT_BGZIP_IDX  10002
-#define BAM_OPT_OUTPUT_BGZIP_IDX   10002
-
-// Or as a file pointer
-#define CRAM_OPT_WITH_BGZIP_INDEX  10003
-#define BAM_OPT_WITH_BGZIP_IDX     10003
-
 // Unsupported in htslib
 #define BAM_OPT_BINNING             10004
 #define CRAM_OPT_BINNING            10004
 
 #define CRAM_OPT_EMBED_CONS        CRAM_OPT_EMBED_REF // via embed_ref=2
 #define CRAM_OPT_PROFILE           HTS_OPT_PROFILE
-
 
 typedef struct hFILE_scram hFILE_scram;
 typedef struct refs_t refs_t;

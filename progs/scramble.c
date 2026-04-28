@@ -205,16 +205,13 @@ static void usage(FILE *fp) {
 	    SLICE_PER_CNT);
     fprintf(fp, "    -V version     [Cram] Specify the file format version to write (eg 1.1, 2.0)\n");
     fprintf(fp, "    -e             [Cram] Embed reference sequence.\n");
+    fprintf(fp, "    -E             [Cram] Embed consensus sequence as reference.\n");
     fprintf(fp, "    -x             [Cram] Non-reference based encoding.\n");
     fprintf(fp, "    -M             [Cram] Use multiple references per slice.\n");
     fprintf(fp, "    -m             [Cram] Generate MD and NM tags.\n");
     fprintf(fp, "    -a             [Cram] Also compress using arithmetic coder (V3.1+).\n");
-#ifdef HAVE_LIBBZ2
     fprintf(fp, "    -j             [Cram] Also compress using bzip2.\n");
-#endif
-#ifdef HAVE_LIBLZMA
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
-#endif
     fprintf(fp, "    -f             [Cram] Also compression using fqzcomp (V3.1+)\n");
     fprintf(fp, "    -T             [Cram] Also compression using name tokeniser (V3.1+)\n");
     fprintf(fp, "    -q             Don't add scramble @PG header line\n");
@@ -222,8 +219,6 @@ static void usage(FILE *fp) {
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
     fprintf(fp, "    -!             Disable all checking of checksums\n");
-    fprintf(fp, "    -g FILE        Convert to Bam using index (file.gzi)\n");
-    fprintf(fp, "    -G FILE        Output Bam index when bam input(file.gzi)\n");
     fprintf(fp, "    -X mode        [Cram] Mode is fast, normal, small or archive.\n");
     fprintf(fp, "    -d tag-list    Keep only specified aux tags (discard the others)\n");
     fprintf(fp, "    -D tag-list    Discard specified aux tags (keep the others)\n");
@@ -232,7 +227,7 @@ static void usage(FILE *fp) {
 int main(int argc, char **argv) {
     scram_fd *in, *out;
     bam_seq_t *s;
-    char imode[10], *in_f = "", omode[10], *out_f = "", *index_fn = NULL, *index_out_fn = NULL;
+    char imode[10], *in_f = "", omode[10], *out_f = "";
     int level = '\0'; // nul terminate string => auto level
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, embed_cons = 0, ignore_md5 = 0, decode_md = 0;
@@ -371,21 +366,11 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'j':
-#ifdef HAVE_LIBBZ2
 	    use_bz2 = 1;
-#else
-	    fprintf(stderr, "Warning: bzip2 support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
 	    break;
 
 	case 'Z':
-#ifdef HAVE_LIBLZMA
 	    use_lzma = 1;
-#else
-	    fprintf(stderr, "Warning: lzma support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
 	    break;
 
 	case 'f':
@@ -414,14 +399,6 @@ int main(int argc, char **argv) {
 
 	case 'N':
 	    max_reads = atoi(optarg);
-	    break;
-
-	case 'g':
-	    index_fn = optarg;
-	    break;
-
-	case 'G':
-	    index_out_fn = optarg;
 	    break;
 
 	case 'd':
@@ -590,20 +567,6 @@ int main(int argc, char **argv) {
     }
     if (scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md))
 	return 1;
-
-    if (index_fn) {
-	if (NULL == (idx = gzi_index_load(index_fn))) {
-	    fprintf(stderr, "Cannot open index file.\n");
-	    return 1;
-	}
-	if (scram_set_option(out, CRAM_OPT_WITH_BGZIP_INDEX, idx))
-	    return 1;
-    }
-
-    if (index_out_fn) {
-	if (scram_set_option(in, CRAM_OPT_OUTPUT_BGZIP_IDX, index_out_fn))
-	    return 1;
-    }
 
     if (nthreads > 1) {
 	if (NULL == (p = t_pool_init(nthreads*2, nthreads)))
