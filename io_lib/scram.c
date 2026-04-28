@@ -131,10 +131,12 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	    fprintf(stderr, "Error opening \"%s\"\n", filename);
 	    return NULL;
 	}
-	if (!(fd->hdr = sam_hdr_convert(sam_hdr_read(fd->sc)))) {
+	sam_hdr_t *sh = sam_hdr_read(fd->sc);
+	if (!(fd->hdr = sam_hdr_convert(sh))) {
 	    fprintf(stderr, "Failed to read header\n");
 	    return NULL;
 	}
+	sam_hdr_destroy(sh);
 	fd->c = malloc(sizeof(*fd->c));
 	if (!fd->c)
 	    return NULL;
@@ -144,7 +146,8 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	// Count lines for SAM header
 	if (fd->sc->format.format == sam) {
 	    char *cp = fd->hdr->text->str;
-	    while ((cp = strchr(cp, '\n'))) {
+	    char *cp_end = cp + fd->hdr->text->length;
+	    while (cp < cp_end && (cp = strchr(cp, '\n'))) {
 		fd->line++;
 		cp++;
 	    }
