@@ -177,6 +177,7 @@ static int filter_tags(bam_seq_t *s, char *aux_filter, int keep) {
 	s_from = s_next;
     }
     *s_to = 0; // marks end of tag list
+    s->blk_size = s_to - (char *)&s->ref;
 
     return 0;
 }
