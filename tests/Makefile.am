@@ -51,9 +51,11 @@ TESTS                   = \
 			scram.test \
 			scram_mt30.test \
 			scram_mt31.test \
-			scram_mt40.test \
 			cram_io.test \
 			java.test
+
+# Disabled V4.0 for now due to needing htslib updates
+#			scram_mt40.test
 
 cram_io_test_SOURCES = cram_io_test.c
 cram_io_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
