@@ -31,10 +31,8 @@
 # 
 ## Makefile.am -- Process this file with automake to produce Makefile.in
 
-EXTRA_DIST              = $(TESTS) data compare_sam.pl generate_data.pl cram_io_test.c
+EXTRA_DIST              = $(TESTS) data compare_sam.pl generate_data.pl
 MAINTAINERCLEANFILES    = Makefile.in
-
-noinst_PROGRAMS = cram_io_test
 
 test_outdir              = test.out
 
@@ -51,7 +49,6 @@ TESTS                   = \
 			scram.test \
 			scram_mt30.test \
 			scram_mt31.test \
-			cram_io.test \
 			java.test
 
 # Disabled V4.0 for now due to needing htslib updates
