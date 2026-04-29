@@ -51,6 +51,11 @@ CRAM security fixes in htslib and the desire to no longer support two
 independent CRAM implementations.  However with this comes a loss of
 some functionality.  See CHANGES for full details.
 
+Note to pass all the CRAM v4 tests this needs htslib 1.24 or above.  It
+still works without this, except for the sign of insert sizes changing
+in some scenarios.
+
+
 Version 1.15.0 (14th April 2023)
 --------------
 

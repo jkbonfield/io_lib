@@ -8,6 +8,10 @@ CRAM security fixes in htslib and the desire to no longer support two
 independent CRAM implementations.  However with this comes a loss of
 some functionality.
 
+For SAM, BAM and CRAM support we would encourage developers to upgrade to
+using htslib natively as this is the package with significantly better
+support and is better tested.
+
 API visible changes:
 
 * io_lib/cram_bambam.[ch] and the CRAM_IO_CUSTOM_BUFFERING definitions have
@@ -78,6 +82,8 @@ Internal changes:
   isn't ideal regarding memory usage, but is necessary to avoid needing code
   changes to tools using io_lib.
 
+* The default CRAM version is now 3.1, in line with htslib's version change.
+
 * Io_lib's bam_seq_t structure has a different memory layout to htslib's
   bam1_t.  Specifically there in io_lib there is no "core" sub-structure and
   the entire BAM record is held in a single allocated memory block rather
@@ -87,59 +93,56 @@ Internal changes:
   speed, although htslib has had other speed improvements which mitigates
   this for some file formats.
 
-  Some benchmarks on 10 million NovaSeq alignments follow.  Values are
-  real (elapsed), user CPU and system CPU times in seconds.
-  Conversions to uncompressed BAM (BAMu) are demonstrative of read-only
-  times, while BAM to ??? format conversions are indicative of write times
-  (given a fixed cost of decoding the input BAM which can be deduced from
-  BAM->BAMu).
 
-                      128 threads         0 threads
-                      SAM->BAMu           SAM->BAMu
-  samtools            0.95 4.12 1.31      2.79 2.14 0.64
-  scramble-1.15.1     2.85 2.86 0.73      2.28 1.84 0.44
-  scramble-hts        1.41 4.16 1.75      3.06 2.44 0.62
-  
-                      BAM->BAMu           BAM->BAMu
-  samtools            1.09 5.70 1.00      3.57 3.45 0.11
-  scramble-1.15.1     0.96 5.64 0.18      3.43 3.33 0.09
-  scramble-hts        1.22 5.58 1.03      3.81 3.68 0.12
-  
-                      CRAM->BAMu          CRAM->BAMu
-  samtools            2.53 11.39 4.15     7.66 7.61 0.04
-  scramble-1.15.1     2.78 16.14 14.50    8.67 8.62 0.04
-  scramble-hts        2.21 12.02 4.42     7.40 7.31 0.08
-  
-                      BAM->SAM            BAM->SAM
-  samtools            1.13 7.90 1.56      4.54 4.45 0.08
-  scramble-1.15.1     1.62 5.16 0.11      4.37 4.28 0.08
-  scramble-hts        1.34 6.72 0.66      4.62 4.43 0.19
-  
-                      BAM->BAM            BAM->BAM
-  samtools            1.15 36.12 0.84     27.98 27.87 0.10
-  scramble-1.15.1     0.89 35.53 0.16     27.77 27.65 0.11
-  scramble-hts        1.30 34.89 0.85     28.14 28.05 0.08
-  
-                      BAM->CRAM           BAM->CRAM
-  samtools            1.51 38.07 1.83     19.71 19.63 0.07
-  scramble-1.15.1     3.28 39.86 1.19     21.18 21.07 0.11
-  scramble-hts        2.48 33.70 1.32     19.32 19.21 0.10
+Benchmarks:
+
+Some benchmarks on 10 million NovaSeq alignments follow.  Values are
+real (elapsed), user CPU and system CPU times in seconds.
+Conversions to uncompressed BAM (BAMu) are demonstrative of read-only
+times, while BAM to ??? format conversions are indicative of write times
+(given a fixed cost of decoding the input BAM which can be deduced from
+BAM->BAMu).
 
 
-  This release represents a significant slow down in io_lib's SAM single
-  threaded decoding, a minor slow down in BAM decoding and a speed up in
-  CRAM decoding.  With many threads, this is a small slow down in BAM, a
-  small speed up to CRAM and a substantial speed up to SAM.
+Reading:
+                      0 threads
+                      SAM               BAM                CRAM
+  samtools            2.35 1.76 0.59    3.32 3.23 0.09     5.49 5.38 0.10
+  scramble-1.15.1     2.08 1.59 0.48    3.15 3.08 0.06     4.89 4.83 0.05
+  scramble-hts        2.40 1.71 0.68    3.37 3.28 0.07     5.25 5.18 0.06
 
-  On the writing side SAM is comparable to before, BAM is a little slower
-  (especially when threaded) while CRAM is faster (again especially when
-  threaded).
+                      128 threads
+                      SAM               BAM                CRAM
+  samtools            0.65 3.22 0.65    0.61 4.73 0.56     1.71 7.50 3.70
+  scramble-1.15.1     2.09 1.65 0.49    0.43 4.85 0.09     1.38 7.94 10.28
+  scramble-hts        0.61 2.84 0.59    0.56 4.36 0.46     1.42 6.80 3.39
 
-  In all cases however we would encourage developers to upgrade to using
-  htslib natively as this is the package with significantly better support
-  and is more performant due to avoiding the bam1_t to bam_seq_t conversion.
+This release represents a significant slow down in io_lib's single
+threaded SAM and CRAM decoding and a minor slow down in BAM decoding.
+The slow downs are most likely down to the change in bam1_t memory layout
+incurred by htslib.
 
-* The default CRAM version is now 3.1, in line with htslib's version change.
+However with with many threads, this is a smaller slow down in BAM and
+CRAM and a very significant speed increase to SAM which previously didn't
+have a multi-threaded decoder.
+
+
+Reading + Writing:
+                      0 threads
+                      BAM->SAM          BAM->BAM           BAM->CRAM
+  samtools            4.54 4.45 0.08    27.98 27.87 0.10   19.71 19.63 0.07
+  scramble-1.15.1     4.37 4.28 0.08    27.77 27.65 0.11   21.18 21.07 0.11
+  scramble-hts        4.62 4.43 0.19    28.14 28.05 0.08   19.32 19.21 0.10
+
+                      128 threads
+                      BAM->SAM          BAM->BAM           BAM->CRAM
+  samtools            1.13 7.90 1.56    1.15 36.12 0.84    1.51 38.07 1.83
+  scramble-1.15.1     1.62 5.16 0.11    0.89 35.53 0.16    3.28 39.86 1.19
+  scramble-hts        1.34 6.72 0.66    1.30 34.89 0.85    2.48 33.70 1.32
+
+For writing, starting from a BAM decoding baseline (which is the least
+variable in the reading tests), SAM and BAM writing are broadly comparable
+to before (using libdeflate) while CRAM writing is significantly faster.
 
 
 Version 1.15.1 (14th July 2025)
