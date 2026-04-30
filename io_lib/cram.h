@@ -56,33 +56,17 @@ typedef struct {
     int line_length;
     int64_t count;         // for shared references so we know to dealloc seq
     char *seq;
-    //mFILE *mf;
     int is_md5;            // Reference comes from a raw seq found by MD5
 } ref_entry;
 
 typedef struct refs_t {
-    // big enough to swallow htslib's copy (112)
-    uint8_t htslib_private[1024];
-
     // io_lib bits accessed by Gap5.  This ensures any modification doesn't
     // overwrite htslib's data.
+    // Please use sam_hdr_* API in sam_header.h in preference.
     void *fp;
     ref_entry **ref_id;
     int nref;
 } refs_t;
-
-static inline
-char *load_ref_portion(void *fp, ref_entry *e, int start, int end) {
-    return NULL;
-}
-
-static inline
-refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
-    return NULL;
-}
-
-static inline
-void refs_free(refs_t *r) {}
 
 #define SEQS_PER_SLICE 10000
 #define BASES_PER_SLICE (SEQS_PER_SLICE*500)

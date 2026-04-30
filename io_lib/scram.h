@@ -142,7 +142,6 @@ typedef struct {
  *         NULL on failure
  */
 scram_fd *scram_open(const char *filename, const char *mode);
-scram_fd *scram_open_(const char *filename, const char *mode);
 
 /*! Closes a scram_fd handle
  *
@@ -159,9 +158,6 @@ int scram_close(scram_fd *fd);
  * The sam_hdr_t struct on success; NULL on failure.
  */
 SAM_hdr *scram_get_header(scram_fd *fd);
-//static inline sam_hdr_t *hts_get_header(scram_fd *fd) {
-//    return scram_get_header(fd)->hdr;
-//}
 
 
 /*! Sets the SAM_hdr struct.
@@ -169,7 +165,6 @@ SAM_hdr *scram_get_header(scram_fd *fd);
  * Note that this sets the raw pointer and does not take an internal
  * copy of it. If you need to do this call sam_hdr_dup() first.
  */
-//void scram_set_header(scram_fd *fd, sam_hdr_t *sh);
 void scram_set_header(scram_fd *fd, SAM_hdr *sh);
 
 
@@ -291,15 +286,12 @@ void scram_init(void);
  * Returns 0 on success,
  *        -1 on failure
  */
-//static inline int cram_load_reference(void *fd, const char *ref) {
 static inline int cram_load_reference(cram_fd *fd, const char *ref) {
     int r = hts_set_fai_filename(fd->sc, ref);
     fd->refs = cram_get_refs(fd->sc);
 
     return r;
 }
-
-//#define cram_set_option(f,o, ...) hts_set_opt((f), (o), __VA_ARGS__)
 
 int cram_index_load(cram_fd *fd, char const *fn);
 
