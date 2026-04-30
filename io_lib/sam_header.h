@@ -258,8 +258,8 @@ static inline const char *sam_hdr_str_htslib(sam_hdr_t *h) {
 #define sam_hdr_decr_ref    sam_hdr_decr_ref_iolib
 #define sam_hdr_free        sam_hdr_free_iolib
 #define sam_hdr_length      sam_hdr_length_iolib
-#define sam_hdr_str         sam_hdr_length_str_iolib
-#define sam_hdr_add_lines   sam_hdr_length_add_lines_iolib
+#define sam_hdr_str         sam_hdr_str_iolib
+#define sam_hdr_add_lines   sam_hdr_add_lines_iolib
 #define sam_hdr_add         sam_hdr_add_iolib
 #define sam_hdr_vadd        sam_hdr_vadd_iolib
 #define sam_hdr_find        sam_hdr_find_iolib
