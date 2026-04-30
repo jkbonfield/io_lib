@@ -52,7 +52,6 @@ extern "C" {
 #define SAM_hdr        SAM_hdr_x
 #define sam_hdr_parse_ sam_hdr_parse_x
 #define sam_hdr_free   sam_hdr_free_x
-//#define sam_hdr_add_PG sam_hdr_add_PG_x
 #define sam_hdr_add_pg sam_hdr_add_pg_x
 #include <htslib/sam.h>
 #include <htslib/cram.h>
@@ -114,27 +113,6 @@ typedef struct {
     bam1_t *bc;    // A cache bam1_t struct, for type conversion
 } scram_fd;
 
-/*
- * An input stream in SCRAM is a large block of memory which we periodically
- * fread into.
- *
- * This input stream is then broken down into chunks of appropriate size
- * as used by the underlying format. The only tricky bit here is the first
- * portion (opening the underlying format) can use an unknown amount of 
- * buffer due to the BAM header being variable length.
- *
- * Once we have this, scram_next_input() will return the next natural
- * chunk from the input buffer. This permits a single input buffer being
- * divided into multiple scram_buffers to pass to separate threads for
- * decoding.
- */
-typedef struct {
-    unsigned char *buf;
-    size_t alloc; // allocated size of buf
-    size_t size;  // size loaded
-    size_t usize; // size usable by the underlying format
-} scram_buffer_t;
-
 /*!@return
  * Returns 0 if not at end of file
  *         1 if we hit an expected EOF (end of range or EOF block)
@@ -165,21 +143,6 @@ typedef struct {
  */
 scram_fd *scram_open(const char *filename, const char *mode);
 scram_fd *scram_open_(const char *filename, const char *mode);
-
-#if defined(CRAM_IO_CUSTOM_BUFFERING)
-/*
- * Open CRAM file for reading via callbacks
- *
- * Returns scram pointer on success
- *         NULL on failure
- */
-scram_fd *scram_open_cram_via_callbacks(
-    char const * filename,
-    cram_io_allocate_read_input_t   callback_allocate_function,
-    cram_io_deallocate_read_input_t callback_deallocate_function,
-    size_t const bufsize            
-);
-#endif
 
 /*! Closes a scram_fd handle
  *
@@ -322,22 +285,6 @@ uint64_t scram_line(scram_fd *fd);
  * unless it is a larger amount.
  */
 void scram_init(void);
-
-// DOES NOT NEED TO BE EXTERNAL
-scram_fd *scram_open_cram_via_callbacks(
-    char const * filename,
-    cram_io_allocate_read_input_t   callback_allocate_function,
-    cram_io_deallocate_read_input_t callback_deallocate_function,
-    size_t const bufsize            
-);
-
-// DOES NOT NEED TO BE EXTERNAL
-scram_fd *scram_openw_cram_via_callbacks(
-    char const *filename,
-    cram_io_allocate_write_output_t   callback_allocate_function,
-    cram_io_deallocate_write_output_t callback_deallocate_function,
-    size_t const bufsize            
-);
 
 /*! Loads a reference and attaches it to a cram filehandle
  *
