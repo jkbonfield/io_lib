@@ -110,5 +110,8 @@ bin_SCRIPTS = io_lib-config
 EXTRA_DIST = README.md COPYRIGHT CHANGES man options.mk bootstrap \
 	docs/ZTR_format docs/Hash_File_Format io_lib-config.in io_lib/os.h.in
 
+# For distcheck, use this to get htslib working.
+# hts=/path/to/htslib/install, eg /usr/local
+# make -j8 distcheck CPPFLAGS="-I$hts/include" LDFLAGS="-L$hts/lib -Wl,-rpath,$hts/lib"
 dist-hook:
 	rm -rf `find $(distdir)/man -name .svn`

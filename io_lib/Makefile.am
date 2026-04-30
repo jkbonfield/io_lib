@@ -118,7 +118,6 @@ libstaden_read_la_SOURCES = \
 	binning.c \
 	bgzip.c \
 	bgzip.h \
-	cram_block_compression.h \
 	version.h
 
 libstaden_read_la_CPPFLAGS = -I${top_srcdir} @LIBCURL_CPPFLAGS@
