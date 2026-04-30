@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(io_lib, 1.15.1)
+AC_INIT(io_lib, 1.16.0)
 IOLIB_VERSION=$PACKAGE_VERSION
 IOLIB_VERSION_MAJOR=`expr "$PACKAGE_VERSION" : '\([[0-9]]*\)'`
 IOLIB_VERSION_MINOR=`expr "$PACKAGE_VERSION" : '[[0-9]]*\.\([[0-9]]*\)'`
@@ -59,9 +59,9 @@ AM_MAINTAINER_MODE
 #       libstaden-read.so.1 -> libstaden-read.so.1.1.0
 #       libstaden-read.so.1.1.0
 
-VERS_CURRENT=15
-VERS_REVISION=4
-VERS_AGE=1
+VERS_CURRENT=16
+VERS_REVISION=0
+VERS_AGE=0
 AC_SUBST(VERS_CURRENT)
 AC_SUBST(VERS_REVISION)
 AC_SUBST(VERS_AGE)

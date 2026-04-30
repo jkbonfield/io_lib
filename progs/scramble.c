@@ -185,7 +185,7 @@ static int filter_tags(bam_seq_t *s, char *aux_filter, int keep) {
 
 static void usage(FILE *fp) {
     fprintf(fp, "  -=- sCRAMble -=-     version %s\n", IOLIB_VERSION);
-    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2023\n\n");
+    fprintf(fp, "Author: James Bonfield, Wellcome Trust Sanger Institute. 2013-2026\n\n");
 
     fprintf(fp, "Usage:    scramble [options] [input_file [output_file]]\n");
 

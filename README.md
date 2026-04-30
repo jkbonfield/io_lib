@@ -1,5 +1,5 @@
-Io_lib:  Version 1.15.1
-=======================
+Io_lib
+======
 
 Io_lib is a library of file reading and writing code to provide a general
 purpose SAM/BAM/CRAM, trace file (and Experiment File) reading
@@ -41,15 +41,16 @@ been too time consuming.  Note this does have some small API
 incompatibilities however.
 
 
-Version 1.16.0 (May 2026)
+Version 1.16.0 (6th May 2026)
 --------------
 
-This release is not ABI compatible with 1.15.x, and loses some API
-compatibility too.  All BAM and CRAM I/O is now performed via htslib,
-which is a newly added dependency.  This change was made due to recent
-CRAM security fixes in htslib and the desire to no longer support two
-independent CRAM implementations.  However with this comes a loss of
-some functionality.  See CHANGES for full details.
+INCOMPATIBILITY: this release is not ABI compatible with 1.15.x, and
+loses some API compatibility too.  All BAM and CRAM I/O is now
+performed via HTSlib, which is a newly added dependency.  This change
+was made due to recent CRAM security fixes in htslib and the desire to
+no longer support two independent CRAM implementations.  However with
+this comes a loss of some functionality.  See CHANGES for full
+details.
 
 Note to pass all the CRAM v4 tests this needs htslib 1.24 or above.  It
 still works without this, except for the sign of insert sizes changing
@@ -246,11 +247,11 @@ files).  The appropriate operating system package names and comands
 differ per system.  On Debian Linux derived systems use the command
 below (or build and install your own copies from source):
 
-  sudo apt-get install make zlib1g-dev libbz2-dev liblzma-dev
+  sudo apt-get install make zlib1g-dev libhts-dev libdeflate-dev
 
 On RedHat derived systems the package names differ:
 
-  sudo yum install make zlib-devel bzip2-devel xz-devel
+  sudo yum install make zlib-devel htslib-devel libdeflate-devel
 
 
 Zlib
@@ -287,10 +288,11 @@ with ./configure --disable-own-crc (or CFLAGS=-UIOLIB_CRC).
 Libdeflate
 ----------
 
-The BAM reading and writing also has optional support for the
-libdeflate library (https://github.com/ebiggers/libdeflate).  This can
-be used instead of an optimised zlib (see above), and generally is
-slightly faster.  Build using:
+Libdeflate is used by HTSlib's BAM reading and writing, but io_lib also
+optionally makes use of its CRC32 implementation.
+See https://github.com/ebiggers/libdeflate.
+
+Build using:
 
     ./configure --with-libdeflate=/path
 
@@ -389,25 +391,6 @@ not been tested recently, but a past successful invocation was:
 
 with $DIST being pre-populated with already built and installed 3rd
 party dependencies, some from MSYS mentioned above.
-
-
-Libbsc
-------
-
-This is experimental, just to see what we can get with a high quality
-compression engine in CRAM.  It's hard to build right now, especially
-given it's a C++ library and our code is C.  The hacky solution now
-is (linux) e.g.:
-
-  ../configure \
-    CPPFLAGS=-I$HOME/ftp/compression/libbsc \
-    LDFLAGS="-L$HOME/ftp/compression/libbsc -fopenmp" \
-    LIBS=-lstdc++
-
-Enable it using scramble -J, but note this requires experimental CRAM
-versions 3.1 or 4.0.
-
-** Neither of these should be used for production data. **
 
 
 MacOS X
