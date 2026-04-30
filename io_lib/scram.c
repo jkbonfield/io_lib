@@ -459,5 +459,3 @@ int cram_index_load(cram_fd *fd, char const *fn) {
     fd->index = sam_index_load(fd->sc, fn);
     return fd->index ? 0 : -1;
 }
-
-

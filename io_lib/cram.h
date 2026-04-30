@@ -79,4 +79,22 @@ typedef struct {
     int64_t end;
 } cram_range;
 
+/* ---------------------------------------------------------------------------
+ * Only here for gap5's export_snps.c.
+ *
+ * These don't have to work as this code is
+ */
+static inline
+char *load_ref_portion(void *fp, ref_entry *e, int start, int end) {
+    return NULL;
+}
+
+static inline
+refs_t *refs_load_fai(refs_t *r_orig, char *fn, int is_err) {
+    return NULL;
+}
+
+static inline
+void refs_free(refs_t *r) {}
+
 #endif
