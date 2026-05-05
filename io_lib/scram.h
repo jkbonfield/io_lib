@@ -52,7 +52,6 @@ extern "C" {
 #define SAM_hdr        SAM_hdr_x
 #define sam_hdr_parse_ sam_hdr_parse_x
 #define sam_hdr_free   sam_hdr_free_x
-#define sam_hdr_add_PG sam_hdr_add_PG_x
 #define sam_hdr_add_pg sam_hdr_add_pg_x
 #include <htslib/sam.h>
 #include <htslib/cram.h>
@@ -62,6 +61,8 @@ extern "C" {
 #undef sam_hdr_add_PG
 #undef sam_hdr_add_pg
 
+// Incase we include this after sam_header.h
+#define sam_hdr_add_PG      sam_hdr_add_PG_iolib
 
 #include "io_lib/bam.h"
 #include "io_lib/cram.h"
