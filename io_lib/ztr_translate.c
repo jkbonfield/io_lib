@@ -476,11 +476,9 @@ static char *ztr_encode_confidence_1(ztr_t *z,
 
 static int ztr_decode_confidence_1(ztr_t *z, ztr_chunk_t *chunk, Read *r) {
     char *bytes = chunk->data;
-    int nbytes = chunk->dlength;
     int i;
     
     bytes++;
-    nbytes--;
 
     /* Unpack confidence values; depends on base calls */
     if (!r->base)
@@ -612,11 +610,9 @@ static char *ztr_encode_confidence_4(ztr_t *z,
 
 static int ztr_decode_confidence_4(ztr_t *z, ztr_chunk_t *chunk, Read *r) {
     char *bytes = chunk->data;
-    int nbytes = chunk->dlength;
     int i, j;
     
     bytes++;
-    nbytes--;
 
     /* Unpack confidence values; depends on base calls */
     if (!r->base)
