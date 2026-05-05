@@ -54,9 +54,6 @@ TESTS                   = \
 # Disabled V4.0 for now due to needing htslib updates
 #			scram_mt40.test
 
-cram_io_test_SOURCES = cram_io_test.c
-cram_io_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
-
 AM_CPPFLAGS= -I${top_srcdir}
 
 # Scram and scram_mt are the same input and output,

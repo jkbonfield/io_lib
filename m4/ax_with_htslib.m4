@@ -69,8 +69,9 @@ case $with_htslib in
 yes|search)
   AC_MSG_CHECKING([location of HTSlib source tree])
   case $srcdir in
-    .) srcp= ;;
-    *) srcp=$srcdir/ ;;
+    .)  srcp=`pwd`/ ;;
+    .*) srcp=`pwd`/$srcdir/ ;;
+    *)  srcp=$srcdir/ ;;
   esac
   found=
   for dir in ${srcp}htslib* -- ${srcp}../htslib -- ${srcp}../htslib*
