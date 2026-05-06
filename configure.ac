@@ -103,7 +103,6 @@ AC_CHECK_LIB([bsc], [bsc_compress], [
 	AC_DEFINE([HAVE_LIBBSC],1,[Define to 1 if you have the libbsc library.])])
 
 AX_LIBDEFLATE
-AX_ZSTD
 
 dnl Check host endian-ness
 AC_C_BIGENDIAN([SET_ENDIAN="#define SP_BIG_ENDIAN"],
@@ -183,7 +182,7 @@ AC_CHECK_FUNCS(strdup)
 dnl AC_CHECK_FUNCS(mktime strspn strstr strtol)
 AC_CHECK_FUNCS(fsync)
 
-AX_WITH_HTSLIB
+AX_WITH_HTSLIB(1.23.1)
 if test "$ax_cv_htslib" != yes; then
   AC_MSG_ERROR([HTSlib development files not found.])
 fi

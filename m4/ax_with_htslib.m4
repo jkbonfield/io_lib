@@ -4,7 +4,7 @@
 #
 # SYNOPSIS
 #
-#   AX_WITH_HTSLIB
+#   AX_WITH_HTSLIB([MINIMUM-VERSION])
 #
 # DESCRIPTION
 #
@@ -149,6 +149,29 @@ none)
   ax_cv_htslib=no
   ;;
 esac
+
+# Check the requested minimum version.
+# We do this by constructing a version in the major*10000+minor*100+patch
+# and comparing against HTS_VERSION in htslib/hts.h
+want_vers=0
+if test "x$1" != "x" -a $ax_cv_htslib = "yes"; then
+  v1=`expr "$1" : '\([[0-9]]*\)'`
+  v2=`expr "$1" : '[[0-9]]*\.\([[0-9]]*\)'`
+  v3=`expr "$1" : '[[0-9]]*\.[[0-9]]*\.\([[0-9]]*\)'`
+  want_vers=`expr "${v1:-0}" "*" 100000 + "${v2:-0}" "*" 100 + "${v3:-0}"`
+
+  CPPFLAGS="$CPPFLAGS $HTSLIB_CPPFLAGS"
+
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([
+#include <htslib/hts.h>
+#if HTS_VERSION < $want_vers
+#  error HTSLib version is too old
+#endif], [int dummy])],
+[ax_cv_htslib=yes],
+[AC_MSG_ERROR([HTSLib found, but the version is too old])])
+
+  CPPFLAGS=$ax_saved_CPPFLAGS
+fi
 
 AC_SUBST([HTSDIR])
 AC_SUBST([HTSLIB_CPPFLAGS])
