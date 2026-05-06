@@ -10,15 +10,6 @@ AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([serial-tests])
 AM_MAINTAINER_MODE
 
-# Htscodec subdirectory.
-#
-# For simplicity, we use --disable-shared and --with-pic here so we can
-# compile these directly into libstaden-read itself.
-
-dnl AC_CONFIG_SUBDIRS([htscodecs])
-AX_SUBDIRS_CONFIGURE([htscodecs],[[--disable-shared],[--with-pic]])
-
-
 # For my own benefit, here's a summary of how versioning should work.
 #
 # Library versioning, not to be confused with the release number:
@@ -107,54 +98,11 @@ AC_SEARCH_LIBS([socket], [socket], [],
     [AC_CHECK_LIB([socket], [socket],
                   [LIBS="-lsocket -lnsl $LIBS"], [], [-lnsl])])
 
-AC_ARG_ENABLE([bz2],
-    [AS_HELP_STRING([--disable-bz2],
-                    [omit support for BZ2-compressed CRAM files])],
-    [], [enable_bz2=yes])
-
-if test "$enable_bz2" != no
-then
-    bz2_devel=ok
-    AC_CHECK_LIB([bz2], [BZ2_bzBuffToBuffCompress], [
-        LIBS="-lbz2 $LIBS"
-        AC_DEFINE([HAVE_LIBBZ2],1,[Define to 1 if you have the libbz2 library.])], [bz2_devel=missing])
-    if test "$bz2_devel" != ok
-    then
-        AC_MSG_ERROR([libbzip2 development files not found.
-
-This is used within CRAM.  If you wish to compile io_lib without bzip2
-support, rerun configure with the --disable-bz2 option.
-])
-    fi
-fi
-
-AC_ARG_ENABLE([lzma],
-    [AS_HELP_STRING([--disable-lzma],
-                    [omit support for LZMA-compressed CRAM files])],
-    [], [enable_lzma=yes])
-
-if test "$enable_lzma" != no
-then
-    lzma_devel=ok
-    AC_CHECK_LIB([lzma], [lzma_easy_buffer_encode], [
-        LIBS="-llzma $LIBS"
-        AC_DEFINE([HAVE_LIBLZMA],1,[Define to 1 if you have the liblzma library.])], [lzma_devel=missing])
-    if test "$lzma_devel" != ok
-    then
-        AC_MSG_ERROR([liblzma development files not found.
-
-This is used within CRAM.  If you wish to compile io_lib without lzma
-support, rerun configure with the --disable-lzma option.
-])
-    fi
-fi
-
 AC_CHECK_LIB([bsc], [bsc_compress], [
 	LIBS="-lbsc $LIBS"
 	AC_DEFINE([HAVE_LIBBSC],1,[Define to 1 if you have the libbsc library.])])
 
 AX_LIBDEFLATE
-AX_ZSTD
 
 dnl Check host endian-ness
 AC_C_BIGENDIAN([SET_ENDIAN="#define SP_BIG_ENDIAN"],
@@ -205,15 +153,6 @@ dnl AC_TYPE_OFF_T
 dnl AC_TYPE_SIZE_T
 dnl AC_STRUCT_TM
 
-AC_ARG_ENABLE(custom-buffering,
-        AS_HELP_STRING([--enable-custom-buffering],[enable custom buffering code for CRAM [default yes]]),
-        [custombuffering=${enableval}],[custombuffering=yes])
-
-SET_CRAM_IO_CUSTOM_BUFFERING=
-if test ${custombuffering} = "yes" ; then
-    SET_CRAM_IO_CUSTOM_BUFFERING="#define CRAM_IO_CUSTOM_BUFFERING"
-fi
-
 AC_ARG_ENABLE(own-crc,
 	AS_HELP_STRING([--disable-own-crc],[Disable use of own CRC32 function (instead of Zlib's)]))
 
@@ -233,9 +172,6 @@ dnl Large file support
 AC_SYS_LARGEFILE
 AC_FUNC_FSEEKO
 
-dnl Mmap is used for CRAM reference files
-AC_FUNC_MMAP
-
 dnl Checks for library functions.
 AC_SEARCH_LIBS([pthread_join], [pthread])
 AC_SEARCH_LIBS(cos, m)
@@ -246,8 +182,15 @@ AC_CHECK_FUNCS(strdup)
 dnl AC_CHECK_FUNCS(mktime strspn strstr strtol)
 AC_CHECK_FUNCS(fsync)
 
+AX_WITH_HTSLIB(1.23.1)
+if test "$ax_cv_htslib" != yes; then
+  AC_MSG_ERROR([HTSlib development files not found.])
+fi
+CPPFLAGS="$CPPFLAGS $HTSLIB_CPPFLAGS"
+LDFLAGS="$LDFLAGS $HTSLIB_LDFLAGS"
+LIBS="$LIBS -lhts"
+
 AC_SUBST([SET_STDIO_EXT])
-AC_SUBST([SET_CRAM_IO_CUSTOM_BUFFERING])
 AC_SUBST([IOLIB_VERSION])
 AC_SUBST([IOLIB_VERSION_MAJOR])
 AC_SUBST([IOLIB_VERSION_MINOR])
@@ -260,16 +203,14 @@ echo
 echo "--------------------------------------------------"
 echo CONFIGURE SUMMARY
 echo "--------------------------------------------------"
-echo Bzip2 enabled: $enable_bz2
-echo lzma enabled: $enable_lzma
-echo custom-buffering enabled: $custombuffering
 echo Using own crc: $own_crc
 echo Libcurl enabled: $have_curl
 echo Libdeflate enabled: $ac_libdeflate_with
-echo have libbsc: $ac_cv_lib_bsc_bsc_compress
-echo Have zstd: $zstd_ok
+echo "Using HTSlib: $HTSDIR"
+
 echo
-echo CC: $CC
-echo CFLAGS: $CFLAGS
-echo LDFLAGS: $LDFLAGS
-echo LIBS: $LIBS
+echo "CC:       $CC"
+echo "CFLAGS:   $CFLAGS"
+echo "CPPFLAGS: $CPPFLAGS"
+echo "LDFLAGS:  $LDFLAGS"
+echo "LIBS:     $LIBS"

@@ -8,20 +8,46 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        # The default for anything that doesn't override it (eg htslib)
+        working-directory: ./iolib
+
     steps:
-    - uses: actions/checkout@v2
+    - name: io_lib checkout
+      uses: actions/checkout@v6
+      with:
+        path: iolib
+
     - name: deps
+      working-directory: .
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-suggests --no-install-recommends zlib1g-dev libbz2-dev liblzma-dev libdeflate-dev
-    - name: submodule
-      run: git submodule update --init
+        sudo apt-get install -y --no-install-suggests --no-install-recommends zlib1g-dev libdeflate-dev libbz2-dev liblzma-dev libcurl4-gnutls-dev libssl-dev
+
+    - name: htslib checkout
+      uses: actions/checkout@v6
+      with:
+        repository: samtools/htslib
+        ref: master
+        submodules: true
+        path: hidden-htslib
+
+    - name: htslib build
+      working-directory: hidden-htslib
+      run: |
+        autoreconf -i && ./configure --prefix=/usr && make -j5
+        sudo make install
+
     - name: configure
       run: ./bootstrap; ./configure; # CC="gcc -fsanitize=address"
+
     - name: make
-      run: make
+      run: make -j5
+
     - name: make check
       run: make check
+
     #- name: make distcheck
     #  run: make distcheck
 
@@ -30,16 +56,14 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
     - name: Update Homebrew packages
       run: |
         brew update --auto-update
-        brew install --overwrite autoconf automake libtool xz
-    - name: submodule
-      run: git submodule update --init
+        brew install --overwrite autoconf automake libtool htslib libdeflate
     - name: configure
-      run: ./bootstrap; ./configure CPPFLAGS=-I/opt/homebrew/include
+      run: ./bootstrap; ./configure CPPFLAGS=-I/opt/homebrew/include --with-htslib=/opt/homebrew
     - name: make
-      run: make
+      run: make -j5
     - name: make check
       run: make check

@@ -32,13 +32,28 @@ too. See the file include/Read.h for the generic 'Read' structure.
 See the CHANGES for a summary of older updates or git logs for the
 full details.
 
+Branch
+------
 
-Version 1.15.1 (14th July 2025)
+Replaced CRAM reading and writing with calls to htslib instead.
+This brings numerous bug fixes, as updating the code in two places has
+been too time consuming.  Note this does have some small API
+incompatibilities however.
+
+
+Version 1.16.0 (May 2026)
 --------------
 
-This is simply a change to the build infrastructure, with newer
-versions of the htscodecs submodule and an updated configure/libtool
-script to help MacOS builds.
+This release is not ABI compatible with 1.15.x, and loses some API
+compatibility too.  All BAM and CRAM I/O is now performed via htslib,
+which is a newly added dependency.  This change was made due to recent
+CRAM security fixes in htslib and the desire to no longer support two
+independent CRAM implementations.  However with this comes a loss of
+some functionality.  See CHANGES for full details.
+
+Note to pass all the CRAM v4 tests this needs htslib 1.24 or above.  It
+still works without this, except for the sign of insert sizes changing
+in some scenarios.
 
 
 Version 1.15.0 (14th April 2023)

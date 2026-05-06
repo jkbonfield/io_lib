@@ -32,7 +32,7 @@
 AUTOMAKE_OPTIONS = foreign no-dependencies
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = htscodecs io_lib progs tests
+SUBDIRS = io_lib progs tests
 
 man_MANS = \
 	man/man1/srf_index_hash.1 \
@@ -92,17 +92,9 @@ pkginclude_HEADERS = \
 	io_lib/deflate_interlaced.h \
 	io_lib/srf.h \
 	io_lib/pooled_alloc.h \
-	io_lib/cram.h \
-	io_lib/cram_structs.h \
-	io_lib/cram_io.h \
-	io_lib/cram_encode.h \
-	io_lib/cram_decode.h \
-	io_lib/cram_codecs.h \
-	io_lib/cram_index.h \
-	io_lib/cram_stats.h \
-	io_lib/cram_bambam.h \
 	io_lib/zfio.h \
 	io_lib/scram.h \
+	io_lib/cram.h \
 	io_lib/bam.h \
 	io_lib/sam_header.h \
 	io_lib/dstring.h \
@@ -118,5 +110,8 @@ bin_SCRIPTS = io_lib-config
 EXTRA_DIST = README.md COPYRIGHT CHANGES man options.mk bootstrap \
 	docs/ZTR_format docs/Hash_File_Format io_lib-config.in io_lib/os.h.in
 
+# For distcheck, use this to get htslib working.
+# hts=/path/to/htslib/install, eg /usr/local
+# make -j8 distcheck CPPFLAGS="-I$hts/include" LDFLAGS="-L$hts/lib -Wl,-rpath,$hts/lib"
 dist-hook:
 	rm -rf `find $(distdir)/man -name .svn`

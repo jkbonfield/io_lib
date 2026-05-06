@@ -32,27 +32,7 @@
  */
 
 /*
- * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013
- */
-
-/*! \file
- * SAM header parsing.
- *
- * These functions can be shared between SAM, BAM and CRAM file
- * formats as all three internally use the same string encoding for
- * header fields.
- *
- * Consider using the scram() generic API and calling
- * scram_get_header() to obtain the format-specific pointer to the
- * SAM_hdr struct.
- */ 
-
-/*
- * TODO.
- *
- * - Sort order (parse to struct, enum type, updating funcs)
- * - Removal of lines.
- * - Updating of lines
+ * Author: James Bonfield, Wellcome Trust Sanger Institute. 2013, 2026
  */
 
 #ifndef _SAM_HDR_H_
@@ -62,8 +42,34 @@
 extern "C" {
 #endif
 
+
+/*
+ * This is a shim over htslib's header implementation which has a lot of
+ * identical function names that would otherwise cause clashes.
+ *
+ * However the reason for this is htslib's implementation was derived from
+ * io_lib's anyway and then updated, so we may as well switch to it with a
+ * bit of typedefing and shim functions.
+ */
 #include <stdarg.h>
 
+//#define HTS_NO_SAM_HDR
+// Htslib has a set of old typedefs which are nominally for compatibility with
+// old code (which came from io_lib), but now they're working against us as
+// we get clashes while trying to introduce a shim layer.
+#define SAM_hdr        SAM_hdr_x
+#define sam_hdr_parse_ sam_hdr_parse_x
+#define sam_hdr_free   sam_hdr_free_x
+#define sam_hdr_add_pg sam_hdr_add_pg_x
+#include <htslib/sam.h>
+#include <htslib/cram.h>
+#undef SAM_hdr
+#undef sam_hdr_parse_
+#undef sam_hdr_free
+#undef sam_hdr_add_PG
+#undef sam_hdr_add_pg
+
+#include <htslib/kstring.h>
 #include "io_lib/dstring.h"
 #include "io_lib/hash_table.h"
 #include "io_lib/string_alloc.h"
@@ -179,6 +185,8 @@ enum sam_sort_order {
  * updated again.
  */
 typedef struct {
+    sam_hdr_t *hdr;           //!< htslib header struct
+    //int htslib_stale;         //!< True if hdr needs updating.
     dstring_t *text;          //!< concatenated text, indexed by SAM_hdr_tag
     HashTable *h;             //!< 2-char IDs, values are SAM_hdr_type
     string_alloc_t *str_pool; //!< Pool of SAM_hdr_tag->str strings
@@ -216,6 +224,79 @@ typedef struct {
     int ref_count;      // number of uses of this SAM_hdr
     // @endcond
 } SAM_hdr;
+
+
+/* ---------------------------------------------------------------------------
+ * Htslib / io_lib integration. This is tricky due to function name clashes.
+ *
+ * We're not attempting to achieve ABI compatibility here, just API.
+ * So we can use static inline functions and #defines to rewrite code such
+ * that both libraries can be included and used together.
+ */
+
+SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr);
+sam_hdr_t *sam_hdr_convert_to_htslib(SAM_hdr *hdr);
+void sam_hdr_free(SAM_hdr *hdr);
+
+// -----
+// Htslib wrappers.  We add _htslib to the function name so we can call this
+// API from within our own code or external tools, permitting us to rename
+// the clashing function names to _iolib suffix variants instead for anyone
+// including this file.
+// This also avoids issues when tools include both io_lib/sam_header.h and
+// htslib/sam.h.
+static inline sam_hdr_t *sam_hdr_parse_htslib(int len, const char *hdr) {
+    return sam_hdr_parse(len, hdr);
+}
+
+static inline sam_hdr_t *sam_hdr_dup_htslib(sam_hdr_t *h) {
+    return sam_hdr_dup(h);
+}
+
+static inline void sam_hdr_incr_ref_htslib(sam_hdr_t *h) {
+    return sam_hdr_incr_ref(h);
+}
+
+static inline size_t sam_hdr_length_htslib(sam_hdr_t *h) {
+    return sam_hdr_length(h);
+}
+
+static inline const char *sam_hdr_str_htslib(sam_hdr_t *h) {
+    return sam_hdr_str(h);
+}
+
+// Map io_lib header calls to sam_hdr_parse_ which converts from htslib's
+// identically named sam_hdr_parse function.
+#define sam_hdr_new         sam_hdr_new_iolib
+#define sam_hdr_parse       sam_hdr_parse_iolib
+#define sam_hdr_dup         sam_hdr_dup_iolib
+#define sam_hdr_incr_ref    sam_hdr_incr_ref_iolib
+#define sam_hdr_decr_ref    sam_hdr_decr_ref_iolib
+#define sam_hdr_free        sam_hdr_free_iolib
+#define sam_hdr_length      sam_hdr_length_iolib
+#define sam_hdr_str         sam_hdr_str_iolib
+#define sam_hdr_add_lines   sam_hdr_add_lines_iolib
+#define sam_hdr_add         sam_hdr_add_iolib
+#define sam_hdr_vadd        sam_hdr_vadd_iolib
+#define sam_hdr_find        sam_hdr_find_iolib
+#define sam_hdr_find_line   sam_hdr_find_line_iolib
+#define sam_hdr_find_key    sam_hdr_find_key_iolib
+#define sam_hdr_rebuild     sam_hdr_rebuild_iolib
+#define sam_hdr_name2ref    sam_hdr_name2ref_iolib
+#define sam_hdr_find_rg     sam_hdr_find_rg_iolib
+#define sam_hdr_link_pg     sam_hdr_link_rg_iolib
+#define sam_hdr_add_PG      sam_hdr_add_PG_iolib
+
+// New for completeness
+#define sam_hdr_nref        sam_hdr_nref_iolib
+#define sam_hdr_ref2name    sam_hdr_ref2name_iolib
+#define sam_hdr_ref2len     sam_hdr_ref2len_iolib
+
+// stringify_argv is identical to htslib so not shadowed
+
+/* ---------------------------------------------------------------------------
+ * Original io_lib header API follows
+ */
 
 /*! Creates an empty SAM header, ready to be populated.
  * 
@@ -441,6 +522,29 @@ int sam_hdr_link_pg(SAM_hdr *hdr);
  *        -1 on failure
  */
 int sam_hdr_add_PG(SAM_hdr *sh, const char *name, ...);
+
+/*! Returns the number of references in a header
+ *
+ * @return
+ * Reference count
+ */
+int sam_hdr_nref(SAM_hdr *sh);
+
+/*! Converts a reference number (>= 0) to reference name
+ *
+ * @return
+ * Returns reference name on success
+ *         NULL on failure
+ */
+const char *sam_hdr_ref2name(SAM_hdr *sh, int rnum);
+
+/*! Converts a reference number (>= 0) to reference length
+ *
+ * @return
+ * Returns reference length on success
+ *         -1 on failure
+ */
+ssize_t sam_hdr_ref2len(SAM_hdr *sh, int rnum);
 
 /*!
  * A function to help with construction of CL tags in @PG records.

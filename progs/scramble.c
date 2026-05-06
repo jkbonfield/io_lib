@@ -177,6 +177,7 @@ static int filter_tags(bam_seq_t *s, char *aux_filter, int keep) {
 	s_from = s_next;
     }
     *s_to = 0; // marks end of tag list
+    s->blk_size = s_to - (char *)&s->ref;
 
     return 0;
 }
@@ -205,34 +206,20 @@ static void usage(FILE *fp) {
 	    SLICE_PER_CNT);
     fprintf(fp, "    -V version     [Cram] Specify the file format version to write (eg 1.1, 2.0)\n");
     fprintf(fp, "    -e             [Cram] Embed reference sequence.\n");
+    fprintf(fp, "    -E             [Cram] Embed consensus sequence as reference.\n");
     fprintf(fp, "    -x             [Cram] Non-reference based encoding.\n");
     fprintf(fp, "    -M             [Cram] Use multiple references per slice.\n");
     fprintf(fp, "    -m             [Cram] Generate MD and NM tags.\n");
     fprintf(fp, "    -a             [Cram] Also compress using arithmetic coder (V3.1+).\n");
-#ifdef HAVE_LIBBZ2
     fprintf(fp, "    -j             [Cram] Also compress using bzip2.\n");
-#endif
-#ifdef HAVE_LIBLZMA
     fprintf(fp, "    -Z             [Cram] Also compress using lzma.\n");
-#endif
-#ifdef HAVE_LIBBSC
-    fprintf(fp, "    -J             [Cram] Also compression using libbsc (V3.1+)\n");
-#endif
-#ifdef HAVE_ZSTD
-    fprintf(fp, "    -z             [Cram] Also compression using zstd (V3.1+)\n");
-#endif
     fprintf(fp, "    -f             [Cram] Also compression using fqzcomp (V3.1+)\n");
     fprintf(fp, "    -T             [Cram] Also compression using name tokeniser (V3.1+)\n");
-    fprintf(fp, "    -n             [Cram] Discard read names where possible.\n");
-    fprintf(fp, "    -P             Preserve all aux tags (incl RG,NM,MD)\n");
-    fprintf(fp, "    -p             Preserve aux tag sizes ('i', 's', 'c')\n");
     fprintf(fp, "    -q             Don't add scramble @PG header line\n");
     fprintf(fp, "    -N integer     Stop decoding after 'integer' sequences\n");
     fprintf(fp, "    -t N           Use N threads (availability varies by format)\n");
     fprintf(fp, "    -B             Enable Illumina 8 quality-binning system (lossy)\n");
     fprintf(fp, "    -!             Disable all checking of checksums\n");
-    fprintf(fp, "    -g FILE        Convert to Bam using index (file.gzi)\n");
-    fprintf(fp, "    -G FILE        Output Bam index when bam input(file.gzi)\n");
     fprintf(fp, "    -X mode        [Cram] Mode is fast, normal, small or archive.\n");
     fprintf(fp, "    -d tag-list    Keep only specified aux tags (discard the others)\n");
     fprintf(fp, "    -D tag-list    Discard specified aux tags (keep the others)\n");
@@ -241,31 +228,28 @@ static void usage(FILE *fp) {
 int main(int argc, char **argv) {
     scram_fd *in, *out;
     bam_seq_t *s;
-    char imode[10], *in_f = "", omode[10], *out_f = "", *index_fn = NULL, *index_out_fn = NULL;
+    char imode[10], *in_f = "", omode[10], *out_f = "";
     int level = '\0'; // nul terminate string => auto level
     int c, verbose = 0;
     int s_opt = 0, S_opt = 0, embed_ref = 0, embed_cons = 0, ignore_md5 = 0, decode_md = 0;
     char *ref_fn = NULL;
     int start, end, multi_seq = -1, no_ref = 0;
-    int use_bz2 = 0, use_bsc = 0, use_lzma = 0, use_fqz = 0, use_tok = 0, use_arith = 0, use_zstd = 0;
+    int use_bz2 = 0, use_lzma = 0, use_fqz = 0, use_tok = 0, use_arith = 0;
     char ref_name[1024] = {0};
     refs_t *refs;
     int nthreads = 1;
     t_pool *p = NULL;
-    gzi *idx =NULL;
     int max_reads = -1;
     enum quality_binning binning = BINNING_NONE;
     int sam_fields = 0; // all
     int header = 1;
     int bases_per_slice = 0;
-    int lossy_read_names = 0;
-    int preserve_aux_order = 0;
-    int preserve_aux_size = 0;
     int add_pg = 1;
     int archive = 0;
     char *profile = "normal";
     int aux_keep = -1;
     char aux_filter[65536] = {0};
+    char *cram_version = NULL;
 
     scram_init();
 
@@ -321,8 +305,7 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'V':
-	    if (cram_set_option(NULL, CRAM_OPT_VERSION, optarg))
-		return 1;
+	    cram_version = optarg;
 	    break;
 
 	case 'r':
@@ -374,10 +357,6 @@ int main(int argc, char **argv) {
 	    ignore_md5 = 1;
 	    break;
 
-	case 'n':
-	    lossy_read_names = 1;
-	    break;
-
 	case 'M':
 	    multi_seq = 1;
 	    break;
@@ -387,39 +366,11 @@ int main(int argc, char **argv) {
 	    break;
 
 	case 'j':
-#ifdef HAVE_LIBBZ2
 	    use_bz2 = 1;
-#else
-	    fprintf(stderr, "Warning: bzip2 support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
 	    break;
-
-#ifdef HAVE_LIBBSC
-	case 'J':
-	    use_bsc = 1;
-	    break;
-#else
-	    fprintf(stderr, "Warning: bsc support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
-
-#ifdef HAVE_ZSTD
-	case 'z':
-	    use_zstd = 1;
-	    break;
-#else
-	    fprintf(stderr, "Warning: zstd support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
 
 	case 'Z':
-#ifdef HAVE_LIBLZMA
 	    use_lzma = 1;
-#else
-	    fprintf(stderr, "Warning: lzma support is not compiled into this"
-		    " version.\nPlease recompile.\n");
-#endif
 	    break;
 
 	case 'f':
@@ -442,28 +393,12 @@ int main(int argc, char **argv) {
 	    binning = BINNING_ILLUMINA;
 	    break;
 
-	case 'P':
-	    preserve_aux_order = 1;
-	    break;
-
-	case 'p':
-	    preserve_aux_size = 1;
-	    break;
-
 	case 'q':
 	    add_pg = 0;
 	    break;
 
 	case 'N':
 	    max_reads = atoi(optarg);
-	    break;
-
-	case 'g':
-	    index_fn = optarg;
-	    break;
-
-	case 'G':
-	    index_out_fn = optarg;
 	    break;
 
 	case 'd':
@@ -492,19 +427,6 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }    
-
-    if (cram_default_version() <= 300 && (use_bsc || use_fqz || use_zstd)) {
-	fprintf(stderr, "Libbsc, ZSTD and/or fqzcomp codecs are only permitted in CRAM v3.1 and 4.0.\n"
-		"Note these CRAM versions are a technology demonstration only.\n"
-		"Future versions of Scramble may not be able to read these files.\n");
-	return 1;
-    }
-
-    if (cram_default_version() >= 400) {
-	fprintf(stderr, "\nWARNING: this version of CRAM is not a recognised GA4GH standard.\n"
-		"Note this CRAM version is a technology demonstration only.\n"
-		"Future versions of Scramble may not be able to read these files.\n\n");
-    }
 
     if (argc - optind > 2) {
 	fprintf(stderr, "Usage: scramble [input_file [output_file]]\n");
@@ -556,6 +478,9 @@ int main(int argc, char **argv) {
 	    return 1;
 	}
     }
+    if (cram_version)
+	if (scram_set_option(out, CRAM_OPT_VERSION, cram_version) < 0)
+	    return 1;
 
 
     /* Set any format specific options */
@@ -606,14 +531,6 @@ int main(int argc, char **argv) {
 	if (scram_set_option(out, CRAM_OPT_USE_BZIP2, use_bz2))
 	    return 1;
 
-    if (use_bsc)
-	if (scram_set_option(out, CRAM_OPT_USE_BSC, use_bsc))
-	    return 1;
-
-    if (use_zstd)
-	if (scram_set_option(out, CRAM_OPT_USE_ZSTD, use_zstd))
-	    return 1;
-
     if (use_lzma)
 	if (scram_set_option(out, CRAM_OPT_USE_LZMA, use_lzma))
 	    return 1;
@@ -647,23 +564,9 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "Cannot use -m in conjunction with -x.\n");
 	    return 1;
 	}
-	if (scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md))
-	    return 1;
     }
-
-    if (index_fn) {
-	if (NULL == (idx = gzi_index_load(index_fn))) {
-	    fprintf(stderr, "Cannot open index file.\n");
-	    return 1;
-	}
-	if (scram_set_option(out, CRAM_OPT_WITH_BGZIP_INDEX, idx))
-	    return 1;
-    }
-
-    if (index_out_fn) {
-	if (scram_set_option(in, CRAM_OPT_OUTPUT_BGZIP_IDX, index_out_fn))
-	    return 1;
-    }
+    if (scram_set_option(in, CRAM_OPT_DECODE_MD, decode_md))
+	return 1;
 
     if (nthreads > 1) {
 	if (NULL == (p = t_pool_init(nthreads*2, nthreads)))
@@ -684,19 +587,6 @@ int main(int argc, char **argv) {
 	    return 1;
     }
     
-    if (lossy_read_names) {
-	if (scram_set_option(out, CRAM_OPT_LOSSY_READ_NAMES, lossy_read_names))
-	    return 1;
-    }
-
-    if (preserve_aux_order)
-	if (scram_set_option(out, CRAM_OPT_PRESERVE_AUX_ORDER, preserve_aux_order))
-	    return 1;
-
-    if (preserve_aux_size)
-	if (scram_set_option(out, CRAM_OPT_PRESERVE_AUX_SIZE, preserve_aux_size))
-	    return 1;
-
     if (sam_fields)
 	scram_set_option(in, CRAM_OPT_REQUIRED_FIELDS, sam_fields);
 
@@ -707,9 +597,12 @@ int main(int argc, char **argv) {
     if (ref_fn) {
 	if (scram_set_option(out, CRAM_OPT_REFERENCE, ref_fn))
 	    return 1;
+	if (scram_set_option(in,  CRAM_OPT_REFERENCE, ref_fn))
+	    return 1;
     } else {
 	// Attempt to fill out a cram->refs[] array from @SQ headers
 	scram_set_option(out, CRAM_OPT_REFERENCE, NULL);
+	scram_set_option(in,  CRAM_OPT_REFERENCE, NULL);
     }
 
     if (scram_get_header(out)) {

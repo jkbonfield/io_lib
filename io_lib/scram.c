@@ -76,90 +76,6 @@ before sending on to FILE *fp.
 
 #include "io_lib/scram.h"
 
-#define SCRAM_BUF_SIZE (1024*1024)
-
-/*
- * Expands the input buffer.
- * Returns 0 on sucess
- *        -1 on failure
- */
-static int scram_more_input(scram_fd *fd) {
-    size_t avail = fd->alloc - fd->used;
-    size_t l;
-
-    l = fread(&fd->buf[fd->used], 1, avail, fd->fp);
-    if (l <= 0)
-	return -1;
-    
-    fd->used += l;
-    return 0;
-}
-
-/*
- * Consumes a block of data from the input stream and returns a malloced
- * copy of it. The input buffer is then copied down (FIXME: inefficient).
- */
-static unsigned char *scram_input_next_block(scram_fd *fd, size_t max_size,
-					     size_t *out_size) {
-    ssize_t l = MIN(max_size, fd->used);
-    ssize_t i;
-    unsigned char *r = NULL;
-
-    if (max_size > fd->used) {
-	scram_more_input(fd);
-	if (fd->used == 0)
-	    return NULL;
-    }
-
-    if (fd->b->binary) {
-	uint32_t bsize;
-
-	if (l < 19)
-	    return NULL;
-	bsize = fd->buf[16] + 256*fd->buf[17] + 1;
-	fprintf(stderr, "block_size=%d\n", bsize);
-	
-	l = MIN(bsize, l);
-    } else {
-	for (i = l-1; i >= 0; i--) {
-	    while (fd->buf[i] != '\n')
-		i--;
-	}
-	assert(i >= 0);
-
-	l = i;
-    }
-
-    if (!(r = malloc(l)))
-	return NULL;
-    memcpy(r, fd->buf, l);
-    memcpy(fd->buf, &fd->buf[l], fd->used - l);
-    fd->used -= l;
-
-    if (out_size)
-	*out_size = l;
-
-    return r;
-}
-
-int scram_input_bam_block(scram_fd *fd) {
-    size_t sz;
-    unsigned char *r;
-
-    if (!fd->is_bam)
-	return -1;
-    r = scram_input_next_block(fd, Z_BUFF_SIZE, &sz);
-    if (!r)
-	return -1;
-
-//    if (fd->b->comp_p && fd->b->comp_p != fd->b->comp)
-//	free(fd->b->comp_p);
-    fd->b->comp_p = r;
-    fd->b->comp_sz = sz;
-    
-    return 0;
-}
-
 /*
  * Opens filename.
  * If reading we initially try cram first and then bam/sam if that fails.
@@ -187,6 +103,7 @@ scram_fd *scram_open(const char *filename, const char *mode) {
     fd->buf = NULL;
     fd->alloc = fd->used = 0;
     fd->pool = NULL;
+    fd->line = 0;
 
     if (strcmp(filename, "-") == 0 && mode[0] == 'r'
 	&& mode[1] != 'b' && mode[1] != 'c' && mode[1] != 's') { 
@@ -207,164 +124,210 @@ scram_fd *scram_open(const char *filename, const char *mode) {
 	    sprintf(mode2, "rc%.7s", mode+1), mode = mode2;
     }
 
+    fd->is_bam = mode[1] == 'c' ? 0 : 1;
+
     if (*mode == 'r') {
-	if (mode[1] != 'b' && mode[1] != 's') {
-	    if ((fd->c = cram_open(filename, mode))) {
-		cram_load_reference(fd->c, NULL);
-		fd->is_bam = 0;
-		return fd;
+	if (!(fd->sc= sam_open(filename, mode))) {
+	    fprintf(stderr, "Error opening \"%s\"\n", filename);
+	    return NULL;
+	}
+	sam_hdr_t *sh = sam_hdr_read(fd->sc);
+	if (!(fd->hdr = sam_hdr_convert(sh))) {
+	    fprintf(stderr, "Failed to read header\n");
+	    return NULL;
+	}
+	sam_hdr_destroy(sh);
+	fd->c = calloc(1, sizeof(*fd->c));
+	if (!fd->c)
+	    return NULL;
+	fd->c->sc = fd->sc;
+	fd->c->header = fd->hdr;
+
+	// Count lines for SAM header
+	if (fd->sc->format.format == sam) {
+	    char *cp = fd->hdr->text->str;
+	    char *cp_end = cp + fd->hdr->text->length;
+	    while (cp < cp_end && (cp = strchr(cp, '\n'))) {
+		fd->line++;
+		cp++;
 	    }
 	}
-
-	if ((fd->b = bam_open(filename, mode))) {
-	    fd->is_bam = 1;
-	    return fd;
-	}
-	
-	free(fd);
-	return NULL;
+	return fd;
     }
 
     /* For writing we cannot auto detect, so create the file type based
      * on the format in the mode string.
      */
-    if (strncmp(mode, "wc", 2) == 0) {
-	if (!(fd->c = cram_open(filename, mode))) {
-	    free(fd);
+    //if (strncmp(mode, "wc", 2) == 0) {
+    if (*mode == 'w') {
+	// Mode s is for socket in htslib, or SAM for iolib
+	char mode2[100];
+	snprintf(mode2, 100, "%c%s", mode[0],
+		 mode[1] == 's' ? mode+2 : mode+1);
+	if (!(fd->sc = sam_open(filename, mode2))) {
+	    fprintf(stderr, "Error opening \"%s\"\n", filename);
 	    return NULL;
 	}
-	fd->is_bam = 0;
+	fd->c = calloc(1, sizeof(*fd->c));
+	if (!fd->c)
+	    return NULL;
+	fd->c->sc = fd->sc;
 	return fd;
     }
 
-    /* Otherwise assume bam/sam */
-    if (!(fd->b = bam_open(filename, mode))) {
-	free(fd);
-	return NULL;
-    }
-    fd->is_bam = 1;
-    return fd;
-}
-
-#if defined(CRAM_IO_CUSTOM_BUFFERING)
-/*
- * Open CRAM file for reading via callbacks
- *
- * Returns scram pointer on success
- *         NULL on failure
- */
-scram_fd *scram_open_cram_via_callbacks(
-    char const * filename,
-    cram_io_allocate_read_input_t   callback_allocate_function,
-    cram_io_deallocate_read_input_t callback_deallocate_function,
-    size_t const bufsize            
-)
-{
-    scram_fd *fd = calloc(1, sizeof(*fd));
-    if (!fd)
-	return NULL;
-
-    fd->eof = 0;
-
-    /* I/O buffer */
-    fd->fp = NULL;
-    fd->buf = NULL;
-    fd->alloc = fd->used = 0;
-    fd->pool = NULL;
-
-    if ((fd->c = cram_open_by_callbacks(filename,
-					callback_allocate_function,
-					callback_deallocate_function,
-					bufsize))) 
-    {
-	cram_load_reference(fd->c, NULL);
-	fd->is_bam = 0;
-	return fd;
-    }
-
+    /* Otherwise unknown mode */
     return NULL;
 }
-#endif
 
 int scram_close(scram_fd *fd) {
-    int r;
-
-    if (fd->is_bam) {
-	r = bam_close(fd->b);
-    } else {
-	r = cram_close(fd->c);
-    }
+    int r = sam_close(fd->sc);
 
     if (fd->pool)
 	t_pool_destroy(fd->pool, 0);
 
+    if (fd->hdr)
+	sam_hdr_free(fd->hdr);
+
+    if (fd->bc)
+	bam_destroy1(fd->bc);
+
+    if (fd->c) {
+	if (fd->c->index)
+	    hts_idx_destroy(fd->c->index);
+	free(fd->c);
+    }
 
     free(fd);
     return r;
 }
 
+
+//// Use htslib's sam_hdr_parse and create a shadow struct matching the
+//// io_lib name.  This is to permit some fields to be exposed.
+//SAM_hdr *sam_hdr_parse_(const char *hdr, int len) {
+//    SAM_hdr *h = sam_hdr_convert(sam_hdr_parse_htslib(hdr, len));
+//    if (!h)
+//	return NULL;
+//    return h;
+//}
+
 SAM_hdr *scram_get_header(scram_fd *fd) {
-#ifdef __INTEL_COMPILER
-    // avoids cmovne generation from icc 2015 (bug)
-    return fd->is_bam && fd->b ? fd->b->header : fd->c->header;
-#else
-    return fd->is_bam ? fd->b->header : fd->c->header;
-#endif
+    return fd->hdr;
 }
 
 refs_t *scram_get_refs(scram_fd *fd) {
-    return fd->is_bam ? NULL : fd->c->refs;
+    return fd->c->refs;
 }
 
 void scram_set_refs(scram_fd *fd, refs_t *refs) {
-    if (fd->is_bam)
-	return;
-    if (fd->c->refs)
-	refs_free(fd->c->refs);
     fd->c->refs = refs;
-    if (refs)
-	refs->count++;
 }
 
 void scram_set_header(scram_fd *fd, SAM_hdr *sh) {
-    if (fd->is_bam) {
-	fd->b->header = sh;
-    } else {
-	fd->c->header = sh;
-    }
-
+    fd->sc->bam_header = sam_hdr_parse_htslib(sh->text->length,
+					      sh->text->str);
+    fd->c->header = sh;
     sam_hdr_incr_ref(sh);
+
+    fd->hdr = sh;
 }
 
 int scram_write_header(scram_fd *fd) {
-    return fd->is_bam
-	? bam_write_header(fd->b)
-	: cram_write_SAM_hdr(fd->c, fd->c->header);
+    // TODO: keep fd->hdr->hdr updated on the fly?
+    if (fd->hdr->hdr)
+	sam_hdr_destroy(fd->hdr->hdr);
+    fd->hdr->hdr = sam_hdr_convert_to_htslib(fd->hdr);
+    return sam_hdr_write(fd->sc, fd->hdr->hdr);
+}
+
+int bam1_to_bam_seq(bam1_t *b, bam_seq_t **bsp_p) {
+    bam_seq_t *bsp = *bsp_p;
+    if (!bsp) {
+	bsp = calloc(1, sizeof(*bsp));
+	if (!bsp)
+	    return -1;
+	*bsp_p = bsp;
+    }
+    if (bsp->alloc < sizeof(*bsp) + b->l_data+1) {
+	bsp->alloc = sizeof(*bsp) + b->l_data + 8;
+	bam_seq_t *n = realloc(bsp, bsp->alloc);
+	if (!n)
+	    return -1;
+	bsp = *bsp_p = n;
+    }
+
+    // libmaus2 validates read names length matches strlen(name)+1.
+    // So we must remove the padding bytes sadly.
+    // NB: This meant libmaus2 also didn't work on systems without ALLOC_UAC.
+
+    bsp->blk_size    = b->l_data + 32;
+    bsp->pos         = b->core.pos;
+    bsp->mate_pos    = b->core.mpos;
+    bsp->ins_size    = b->core.isize;
+    // As per raw BAM block below
+    bsp->ref         = b->core.tid;
+    bsp->pos_32      = b->core.pos; // bottom 32-bits
+    bsp->name_len    = b->core.l_qname - b->core.l_extranul;
+    bsp->map_qual    = b->core.qual;
+    bsp->bin         = b->core.bin;
+    bsp->cigar_len   = b->core.n_cigar;
+    bsp->flag        = b->core.flag;
+    bsp->len         = b->core.l_qseq;
+    bsp->mate_ref    = b->core.mtid;
+    bsp->mate_pos_32 = b->core.mpos;
+    bsp->ins_size_32 = b->core.isize;
+
+    //memcpy(&bsp->data, b->data, bsp->name_len);
+    //memcpy(&bsp->data + bsp->name_len, b->data+b->core.l_qname,
+    //	   b->l_data - b->core.l_qname);
+    //bsp->blk_size -= b->core.l_qname - bsp->name_len;
+    //(&bsp->data)[bsp->blk_size - 32] = 0; // io_lib's AUX end of tag marker
+
+    memcpy(&bsp->data, b->data, b->l_data);
+    (&bsp->data)[b->l_data] = 0; // io_lib's AUX end of tag marker
+    return 0;
+}
+
+int bam_seq_to_bam1(bam_seq_t *bsp, bam1_t *b) {
+    // NB: bam_set1 doesn't work as bam_seq(bsp) is 4-bit encoding while
+    // bam_set1 uses ASCII.
+    if (b->m_data < bsp->blk_size) {
+	b->m_data = bsp->blk_size + 8;
+	uint8_t *n = realloc(b->data, b->m_data);
+	if (!n)
+	    return -1;
+	b->data = n;
+    }
+    b->l_data = bsp->blk_size - 32;
+    b->core.pos = bsp->pos;
+    b->core.mpos = bsp->mate_pos;
+    b->core.isize = bsp->ins_size;
+    b->core.tid = bsp->ref;
+    b->core.l_qname = round4(bsp->name_len);
+    b->core.l_extranul = (4-(bam_name_len(bsp)&3))&3;
+    b->core.qual = bsp->map_qual;
+    b->core.bin = bsp->bin;
+    b->core.n_cigar = bsp->cigar_len;
+    b->core.flag = bsp->flag;
+    b->core.l_qseq = bsp->len;
+    b->core.mtid = bsp->mate_ref;
+    
+    memcpy(b->data, &bsp->data, b->l_data);
+    return 0;
 }
 
 int scram_get_seq(scram_fd *fd, bam_seq_t **bsp) {
-    if (fd->is_bam) {
-	switch (bam_get_seq(fd->b, bsp)) {
-	case 1:
-	    return 0;
-
-	case 0:
-	    // FIXME: if we ever implement range queries for BAM this will
-	    // need amendments to not claim a sub-range is invalid EOF.
-	    fd->eof = fd->b->eof_block ? 1 : 2;
-	    return -1;
-
-	default:
-	    fd->eof = -1; // err
-	    return -1;
-	}
-    }
-
-    if (-1 == cram_get_bam_seq(fd->c, bsp)) {
-	fd->eof = cram_eof(fd->c);
+    fd->line++;
+    if (!fd->bc)
+	fd->bc = bam_init1();
+    int ret;
+    if ((ret = sam_read1(fd->sc, fd->hdr->hdr, fd->bc)) < 0) {
+	fd->eof = ret == -1;
 	return -1;
     }
-    return 0;
+
+    // convert bam1_t to bam_seq
+    return bam1_to_bam_seq(fd->bc, bsp);
 }
 
 int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
@@ -372,9 +335,20 @@ int scram_next_seq(scram_fd *fd, bam_seq_t **bsp) {
 }
 
 int scram_put_seq(scram_fd *fd, bam_seq_t *s) {
-    return fd->is_bam
-	? bam_put_seq(fd->b, s)
-	: cram_put_bam_seq(fd->c, s);
+    fd->line++;
+    if (!fd->bc)
+	fd->bc = bam_init1();
+    if (bam_seq_to_bam1(s, fd->bc) < 0)
+	return -1;
+
+    if (fd->do_binning) {
+	uint8_t *qual = bam_get_qual(fd->bc);
+	uint32_t len = fd->bc->core.l_qseq;
+	for (uint32_t i = 0; i < len; i++)
+	    qual[i] = illumina_bin[qual[i]];
+    }
+
+    return sam_write1(fd->sc, fd->hdr->hdr, fd->bc);
 }
 
 int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
@@ -385,50 +359,62 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 
     if (opt == CRAM_OPT_THREAD_POOL) {
 	t_pool *p = va_arg(args, t_pool *);
-	if (fd->is_bam)
-	    return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, p);
-	else
-	    return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, p);
+	htsThreadPool tp = {
+	    .pool = p,
+	    .qsize = hts_tpool_size(p)*2
+	};
+	return hts_set_thread_pool(fd->sc, &tp);
     } else if (opt == CRAM_OPT_NTHREADS) {
 	int nthreads = va_arg(args, int);
 	if (nthreads > 1) {
-	    if (!(fd->pool = t_pool_init(nthreads*2, nthreads)))
-		return -1;
-
-	    if (fd->is_bam)
-		return bam_set_option(fd->b, BAM_OPT_THREAD_POOL, fd->pool);
-	    else
-		return cram_set_option(fd->c, CRAM_OPT_THREAD_POOL, fd->pool);
+	    return hts_set_threads(fd->sc, nthreads);
 	} else {
 	    fd->pool = NULL;
 	    return 0;
 	}
     } else if (opt == CRAM_OPT_BINNING) {
 	int bin = va_arg(args, int);
-
-	return fd->is_bam
-	    ? bam_set_option (fd->b,  BAM_OPT_BINNING, bin)
-	    : cram_set_option(fd->c, CRAM_OPT_BINNING, bin);
+	fd->do_binning = bin;
     } else if (opt == CRAM_OPT_IGNORE_CHKSUM) {
 	int chk = va_arg(args, int);
-
-	return fd->is_bam
-	    ? bam_set_option (fd->b,  BAM_OPT_IGNORE_CHKSUM, chk)
-	    : cram_set_option(fd->c, CRAM_OPT_IGNORE_CHKSUM, chk);
-    } else if (opt == CRAM_OPT_WITH_BGZIP_INDEX) {
-        gzi *idx = va_arg(args, gzi *);
-        if (fd->is_bam)
-	    return bam_set_option (fd->b,  BAM_OPT_WITH_BGZIP_IDX, idx);
-    } else if (opt == CRAM_OPT_OUTPUT_BGZIP_IDX) {
-        char *idx_fn = va_arg(args, char *);
-        if (fd->is_bam)
-	    return bam_set_option (fd->b,  BAM_OPT_OUTPUT_BGZIP_IDX, idx_fn);
+	hts_set_opt(fd->sc, CRAM_OPT_IGNORE_CHKSUM, chk);
+    } else if (opt == CRAM_OPT_EMBED_REF) {
+	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 1);
+    } else if (opt == CRAM_OPT_EMBED_CONS) {
+	return hts_set_opt(fd->sc, CRAM_OPT_EMBED_REF, 2);
+    } else if (opt == CRAM_OPT_PROFILE) {
+	char *prof = va_arg(args, char *);
+	int iprof = HTS_PROFILE_NORMAL;
+	if (strcasecmp(prof, "fast") == 0) {
+	    iprof = HTS_PROFILE_FAST;
+	} else if (strcasecmp(prof, "normal") == 0) {
+	    iprof = HTS_PROFILE_NORMAL;
+	} else if (strcasecmp(prof, "small") == 0) {
+	    iprof = HTS_PROFILE_SMALL;
+	} else if (strcasecmp(prof, "archive") == 0) {
+	    iprof = HTS_PROFILE_ARCHIVE;
+	} else {
+	    fprintf(stderr, "Unknown profile '%s', assuming 'normal'\n",
+		    prof);
+	}
+	return hts_set_opt(fd->sc, HTS_OPT_PROFILE, iprof);
     }
 
-    if (!fd->is_bam) {
-	r = cram_set_voption(fd->c, opt, args);
-    }
+    if (!fd->is_bam)
+	r = cram_set_voption(fd->sc->fp.cram, opt, args);
 
+    va_end(args);
+
+    return r;
+}
+
+// Copied from htslib
+int cram_set_option(cram_fd *fd, enum hts_fmt_option opt, ...) {
+    int r;
+    va_list args;
+
+    va_start(args, opt);
+    r = cram_set_voption(fd, opt, args);
     va_end(args);
 
     return r;
@@ -437,16 +423,12 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...) {
 /*! Returns the line number when processing a SAM file
  *
  * @return
- * Returns line number if input is SAM;
- *         0 for CRAM / BAM input.
+ * Returns line number in SAM (counting from 1),
+ *         record number in BAM/CRAM (counting from 1)
  */
-int scram_line(scram_fd *fd) {
-    if (fd->is_bam)
-	return fd->b->line;
-    else
-	return 0;
+uint64_t scram_line(scram_fd *fd) {
+    return fd->line;
 }
-
 
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>
@@ -471,4 +453,9 @@ void scram_init(void) {
 #if defined(HAVE_MALLOPT) && defined(M_TRIM_THRESHOLD)
     mallopt(M_TRIM_THRESHOLD, 100000000);
 #endif
+}
+
+int cram_index_load(cram_fd *fd, char const *fn) {
+    fd->index = sam_index_load(fd->sc, fn);
+    return fd->index ? 0 : -1;
 }

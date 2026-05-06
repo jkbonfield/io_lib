@@ -5,4 +5,3 @@
 set -x
 rm -rf install-sh missing mkinstalldirs depcomp aclocal.m4 config.cache config.log config.status configure autom4te.cache io_lib_config.h.in config.sub config.guess Makefile.in progs/Makefile.in progs/Makefile read/Makefile.in read/Makefile tests/Makefile tests/Makefile.in io_lib-config
 autoreconf -i
-(cd htscodecs; autoreconf -i)

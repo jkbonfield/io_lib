@@ -1,3 +1,150 @@
+Version 1.16.0
+--------------
+
+This release is not ABI compatible with 1.15.x, and loses some API
+compatibility too.  All BAM and CRAM I/O is now performed via htslib,
+which is a newly added dependency.  This change was made due to recent
+CRAM security fixes in htslib and the desire to no longer support two
+independent CRAM implementations.  However with this comes a loss of
+some functionality.
+
+For SAM, BAM and CRAM support we would encourage developers to upgrade to
+using htslib natively as this is the package with significantly better
+support and is better tested.
+
+API visible changes:
+
+* io_lib/cram_bambam.[ch] and the CRAM_IO_CUSTOM_BUFFERING definitions have
+  been removed. This means the libmaus2 / biobambam2 API has been removed.
+
+  This was a tricky decision and we had this working (except for
+  bamsormadup), but getting that working has proved too challenging.
+  Additionally it is non-trivial to fix the multi-threading given existing
+  biobambam2 threading fails thread safety sanitizers such as valgrind tools
+  drd and helgrind.  Coupled with Linux distributions such as Debian and
+  Ubuntu disabling the io_lib integration with libmaus2 we decided to no
+  longer support this interface.
+
+  We recommend users use libmaus2's own native SAM and BAM support and pipe
+  to samtools if the CRAM format is needed.
+
+* The Thread pool has been removed.  Htslib's thread pool was derived from
+  io_lib's so most of the same functionality is present.  However some
+  function names differ.  Io_lib's thread_pool.h provides #defines to rename
+  these functions, so the function API is mostly still be valid albeit
+  without the ability to take their function pointers.  Other exceptions
+  include:
+
+  - Thread pool "queues" are now htslib "process"es.
+    The old t_results_queue_init took now arguments, however the htslib
+    equivalent function hts_tpool_process_init takes 3.
+
+  - The old t_pool_flush took a thread pool, while hts_tpool_process_flush
+    takes a process queue.
+
+  All of the thread-pool structures are now opaque.  Please use the correct
+  APIs to access thread pool elements, such as hts_tpool_result_data.
+
+* We used to be able to do cram_set_option(NULL,...) to change default
+  opts without having a file handle.  An example of this is CRAM_OPT_VERSION
+  to set the output version before opening the file.
+  This is not permitted in htslib and thus the new io_lib.
+
+* CRAM_OPT_DECODE_MD defaults to -1 in htslib, and 0 in old io_lib.
+  Scramble overrides this itself, but if calling the API you will need to be
+  explicit.
+
+* Experimental features such as libbsc and zstd support have been removed,
+  as they are not supported by htslib.
+
+* Renamed struct gzi to bgzf type instead of gzi, to avoid clash in htslib
+  enum.
+
+* Blank files are no longer supported (was empty SAM).
+
+* Some CRAM_OPTS have been lost due to lacking support in htslib:
+
+  - CRAM_OPT_PRESERVE_AUX_SIZE
+  - CRAM_OPT_PRESERVE_AUX_ORDER
+  - CRAM_OPT_LOSSY_READ_NAMES
+  - CRAM_OPT_WITH_BGZIP_INDEX
+  - CRAM_OPT_OUTPUT_BGZIP_IDX
+
+  If these are required, requests should be made to add them to htslib via
+  https://github.com/samtools/htslib/.
+
+
+Internal changes:
+
+* While htslib's header API was derived from the original API in io_lib, it
+  does not expose all of the functions that io_lib did.  This means we have
+  to still maintain io_lib's header API in addition to htslib's copy.  This
+  isn't ideal regarding memory usage, but is necessary to avoid needing code
+  changes to tools using io_lib.
+
+* The default CRAM version is now 3.1, in line with htslib's version change.
+
+* Io_lib's bam_seq_t structure has a different memory layout to htslib's
+  bam1_t.  Specifically there in io_lib there is no "core" sub-structure and
+  the entire BAM record is held in a single allocated memory block rather
+  than the two components (fixed and variable) allocated by htslib.  We
+  transparently switch between the two when calling htslib, but this comes
+  at a small CPU cost which is in the main thread.  This has some impact on
+  speed, although htslib has had other speed improvements which mitigates
+  this for some file formats.
+
+
+Benchmarks:
+
+Some benchmarks on 10 million NovaSeq alignments follow.  Values are
+real (elapsed), user CPU and system CPU times in seconds.
+Conversions to uncompressed BAM (BAMu) are demonstrative of read-only
+times, while BAM to ??? format conversions are indicative of write times
+(given a fixed cost of decoding the input BAM which can be deduced from
+BAM->BAMu).
+
+
+Reading:
+                      0 threads
+                      SAM               BAM                CRAM
+  samtools            2.35 1.76 0.59    3.32 3.23 0.09     5.49 5.38 0.10
+  scramble-1.15.1     2.08 1.59 0.48    3.15 3.08 0.06     4.89 4.83 0.05
+  scramble-hts        2.40 1.71 0.68    3.37 3.28 0.07     5.25 5.18 0.06
+
+                      128 threads
+                      SAM               BAM                CRAM
+  samtools            0.65 3.22 0.65    0.61 4.73 0.56     1.71 7.50 3.70
+  scramble-1.15.1     2.09 1.65 0.49    0.43 4.85 0.09     1.38 7.94 10.28
+  scramble-hts        0.61 2.84 0.59    0.56 4.36 0.46     1.42 6.80 3.39
+
+This release represents a significant slow down in io_lib's single
+threaded SAM and CRAM decoding and a minor slow down in BAM decoding.
+The slow downs are most likely down to the change in bam1_t memory layout
+incurred by htslib.
+
+However with with many threads, this is a smaller slow down in BAM and
+CRAM and a very significant speed increase to SAM which previously didn't
+have a multi-threaded decoder.
+
+
+Reading + Writing:
+                      0 threads
+                      BAM->SAM          BAM->BAM           BAM->CRAM
+  samtools            4.54 4.45 0.08    27.98 27.87 0.10   19.71 19.63 0.07
+  scramble-1.15.1     4.37 4.28 0.08    27.77 27.65 0.11   21.18 21.07 0.11
+  scramble-hts        4.62 4.43 0.19    28.14 28.05 0.08   19.32 19.21 0.10
+
+                      128 threads
+                      BAM->SAM          BAM->BAM           BAM->CRAM
+  samtools            1.13 7.90 1.56    1.15 36.12 0.84    1.51 38.07 1.83
+  scramble-1.15.1     1.62 5.16 0.11    0.89 35.53 0.16    3.28 39.86 1.19
+  scramble-hts        1.34 6.72 0.66    1.30 34.89 0.85    2.48 33.70 1.32
+
+For writing, starting from a BAM decoding baseline (which is the least
+variable in the reading tests), SAM and BAM writing are broadly comparable
+to before (using libdeflate) while CRAM writing is significantly faster.
+
+
 Version 1.15.1 (14th July 2025)
 --------------
 

@@ -45,47 +45,75 @@
 extern "C" {
 #endif
 
+//#define HTS_NO_SAM_HDR
+// Htslib has a set of old typedefs which are nominally for compatibility with
+// old code (which came from io_lib), but now they're working against us as
+// we get clashes while trying to introduce a shim layer.
+#define SAM_hdr        SAM_hdr_x
+#define sam_hdr_parse_ sam_hdr_parse_x
+#define sam_hdr_free   sam_hdr_free_x
+#define sam_hdr_add_pg sam_hdr_add_pg_x
+#include <htslib/sam.h>
+#include <htslib/cram.h>
+#undef SAM_hdr
+#undef sam_hdr_parse_
+#undef sam_hdr_free
+#undef sam_hdr_add_PG
+#undef sam_hdr_add_pg
+
+// Incase we include this after sam_header.h
+#define sam_hdr_add_PG      sam_hdr_add_PG_iolib
+
 #include "io_lib/bam.h"
 #include "io_lib/cram.h"
 
-/*! The primary file handle for reading and writing. */
+extern int cram_set_voption(cram_fd *fd, enum hts_fmt_option opt, va_list args);
+
+// It turns off BAM CRC checks too in io_lib's original, plus ignoring
+// cram container optional BD and SD tags (somewhat experimental)
+#define CRAM_OPT_IGNORE_CHKSUM     CRAM_OPT_IGNORE_MD5
+
+// Unsupported in htslib
+#define BAM_OPT_BINNING             10004
+#define CRAM_OPT_BINNING            10004
+#define CRAM_OPT_EMBED_CONS         10005 // embed_ref 2
+
+#define CRAM_OPT_PROFILE           HTS_OPT_PROFILE
+
+typedef struct hFILE_scram hFILE_scram;
+typedef struct refs_t refs_t;
+
+// For transparent wrapping of old cram_fd contents, used by libmaus.
+struct cram_fd {
+    SAM_hdr *header;
+    refs_t *refs;
+    samFile *sc;
+    hts_idx_t *index;
+};
+
+/*! The primary file handle for reading and writing.
+ *
+ * Please consider this to be private.
+ */
 typedef struct {
-    int is_bam;
+    int is_bam; // bam or sam, ie "is not cram"
+
     int eof;
-    union {
-	bam_file_t *b;
-	cram_fd    *c;
-    };
+    samFile *sc;
+    cram_fd *c;    // legacy cram container, redirects to sc.
+    SAM_hdr *hdr;
+    int do_binning;
+    uint64_t line;
 
     /* Primary Input/Output buffer */
     unsigned char *buf;
     size_t alloc;
     size_t used;
-    FILE *fp;   // copy of file handle.
+    FILE *fp;      // copy of file handle.
 
     t_pool *pool;
+    bam1_t *bc;    // A cache bam1_t struct, for type conversion
 } scram_fd;
-
-/*
- * An input stream in SCRAM is a large block of memory which we periodically
- * fread into.
- *
- * This input stream is then broken down into chunks of appropriate size
- * as used by the underlying format. The only tricky bit here is the first
- * portion (opening the underlying format) can use an unknown amount of 
- * buffer due to the BAM header being variable length.
- *
- * Once we have this, scram_next_input() will return the next natural
- * chunk from the input buffer. This permits a single input buffer being
- * divided into multiple scram_buffers to pass to separate threads for
- * decoding.
- */
-typedef struct {
-    unsigned char *buf;
-    size_t alloc; // allocated size of buf
-    size_t size;  // size loaded
-    size_t usize; // size usable by the underlying format
-} scram_buffer_t;
 
 /*!@return
  * Returns 0 if not at end of file
@@ -117,21 +145,6 @@ typedef struct {
  */
 scram_fd *scram_open(const char *filename, const char *mode);
 
-#if defined(CRAM_IO_CUSTOM_BUFFERING)
-/*
- * Open CRAM file for reading via callbacks
- *
- * Returns scram pointer on success
- *         NULL on failure
- */
-scram_fd *scram_open_cram_via_callbacks(
-    char const * filename,
-    cram_io_allocate_read_input_t   callback_allocate_function,
-    cram_io_deallocate_read_input_t callback_deallocate_function,
-    size_t const bufsize            
-);
-#endif
-
 /*! Closes a scram_fd handle
  *
  * @return
@@ -144,7 +157,7 @@ int scram_close(scram_fd *fd);
 /*! Returns the SAM_hdr struct.
  *
  * @return
- * The SAM_hdr struct on success; NULL on failure.
+ * The sam_hdr_t struct on success; NULL on failure.
  */
 SAM_hdr *scram_get_header(scram_fd *fd);
 
@@ -160,7 +173,7 @@ void scram_set_header(scram_fd *fd, SAM_hdr *sh);
 /*! Writes the SAM hdr.
  *
  * This calls the appropriate SAM, BAM or CRAM I/O function to write
- * out the SAM_hdr currently associated with this fd.
+ * out the SAM header currently associated with this fd.
  *
  * @return
  * Returns 0 on success;
@@ -249,10 +262,10 @@ int scram_set_option(scram_fd *fd, enum cram_option opt, ...);
 /*! Returns the line number when processing a SAM file
  *
  * @return
- * Returns line number if input is SAM;
- *         0 for CRAM / BAM input.
+ * Returns line number in SAM,
+ *         record number in BAM/CRAM
  */
-int scram_line(scram_fd *fd);
+uint64_t scram_line(scram_fd *fd);
 
 
 /*! Advises the memory allocator of CRAM usage patterns
@@ -269,6 +282,24 @@ int scram_line(scram_fd *fd);
  * unless it is a larger amount.
  */
 void scram_init(void);
+
+/*! Loads a reference and attaches it to a cram filehandle
+ *
+ * Returns 0 on success,
+ *        -1 on failure
+ */
+static inline int cram_load_reference(cram_fd *fd, const char *ref) {
+    int r = hts_set_fai_filename(fd->sc, ref);
+    fd->refs = cram_get_refs(fd->sc);
+
+    return r;
+}
+
+int cram_index_load(cram_fd *fd, char const *fn);
+
+// For enum cigar_op in old io_lib
+#define BAM_UNKNOWN -1
+
 #ifdef __cplusplus
 }
 #endif

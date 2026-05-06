@@ -31,10 +31,8 @@
 # 
 ## Makefile.am -- Process this file with automake to produce Makefile.in
 
-EXTRA_DIST              = $(TESTS) data compare_sam.pl generate_data.pl cram_io_test.c
+EXTRA_DIST              = $(TESTS) data compare_sam.pl generate_data.pl
 MAINTAINERCLEANFILES    = Makefile.in
-
-noinst_PROGRAMS = cram_io_test
 
 test_outdir              = test.out
 
@@ -51,14 +49,12 @@ TESTS                   = \
 			scram.test \
 			scram_mt30.test \
 			scram_mt31.test \
-			scram_mt40.test \
-			cram_io.test \
 			java.test
 
-cram_io_test_SOURCES = cram_io_test.c
-cram_io_test_LDADD = $(top_builddir)/io_lib/libstaden-read.la
+# Disabled V4.0 for now due to needing htslib updates
+#			scram_mt40.test
 
-AM_CPPFLAGS= -I${top_srcdir} -I${top_srcdir}/htscodecs
+AM_CPPFLAGS= -I${top_srcdir}
 
 # Scram and scram_mt are the same input and output,
 # but with different options.  Hence they clash and cannot run

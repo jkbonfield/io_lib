@@ -13,7 +13,7 @@ do
     echo "=== testing $i ==="
     ref=`echo $i | sed 's/#.*/.fa/'`
     root=`echo $i | sed 's/\.cram$//;s:.*/::'`
-    if [ -e "$ref" -a "$ref" != "$root" ]
+    if [ -e "$ref" -a "$ref" != "$root" -a "$ref" != $i ]
     then
 	echo "$scramble -t4 -r $ref $i $outdir/$root.scramble.sam"
 	$scramble -r $ref $i $outdir/$root.scramble.sam || exit 1

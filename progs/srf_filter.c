@@ -169,8 +169,6 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
     int   isNewline;              /* Boolean indicating we've read a CR or LF */
     long  lFileLen;               /* Length of file */
     long  lIndex;                 /* Index into cThisLine array */
-    long  lLineCount;             /* Current line number */
-    long  lTotalChars;            /* Total characters read */
     char  cThisLine[MAX_REC_LEN]; /* Contents of current line */
     char *cFile;                  /* Dynamically allocated buffer (entire file) */
     char *cThisPtr;               /* Pointer to current position in cFile */
@@ -195,9 +193,6 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
     if (1 != fread(cFile, lFileLen, 1, input))
 	return -1;
 
-    lLineCount  = 0L;
-    lTotalChars = 0L;
-
     cThisPtr    = cFile;              /* Point to beginning of array */
 
     while (*cThisPtr)                 /* Read until reaching null char */
@@ -219,7 +214,6 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
 		    /* Don't copy LS or CR */
 		    if (*cThisPtr != CR && *cThisPtr != LF) {
 			cThisLine[lIndex++] = *cThisPtr++; /* Add char to output and increment */
-			++lTotalChars;
 		    } else {
 			cThisPtr++;
 		    }
@@ -227,7 +221,6 @@ int read_filter_from_file(FILE *input, read_filter_t *read_filter)
 		} /* end while (*cThisPtr) */
 
 	    cThisLine[lIndex] = '\0';     /* Terminate the string */
-	    ++lLineCount;                 /* Increment the line counter */
 
 	    /* Find the one and only = in the string. */
 	    if(strchr(cThisLine,'=') != NULL && (strchr(cThisLine,'=') == strrchr(cThisLine,'='))) {

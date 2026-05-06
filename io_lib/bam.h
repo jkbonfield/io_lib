@@ -48,6 +48,10 @@
 extern "C" {
 #endif
 
+#include <htslib/sam.h>
+
+#undef bam_get_seq // clashes with our function; use bam_seq.
+
 #include <inttypes.h>
 #include <stddef.h>
 #include <zlib.h>
@@ -58,6 +62,10 @@ extern "C" {
 #include "io_lib/thread_pool.h"
 #include "io_lib/binning.h"
 #include "io_lib/bgzip.h"
+
+// Renames of the htslib/sam.h ones
+#define BAM_CBASE_MATCH 7
+#define BAM_CBASE_MISMATCH 8
 
 /* BAM header structs */
 typedef struct tag_list {
@@ -143,76 +151,6 @@ typedef struct {
  */
 #define Z_BUFF_SIZE 65536    /* Max size of a zlib block */
 #define BGZF_BUFF_SIZE 65273 // 65535 - MIN_LOOKAHEAD to avoid fill_window()
-typedef struct {
-    FILE *fp;
-
-    int mode, binary, level;
-    z_stream s;
-
-    unsigned char comp[Z_BUFF_SIZE];
-    unsigned char *comp_p;
-    size_t comp_sz;
-
-    unsigned char uncomp[Z_BUFF_SIZE];
-    unsigned char *uncomp_p;
-    size_t uncomp_sz;
-
-    /* BAM specifics */
-    int32_t next_len;
-
-    SAM_hdr *header;      /* Parsed SAM header */
-
-    /* Cached bam_seq_t, to avoid excessive mallocs */
-    bam_seq_t *bs;
-    int bs_size;
-
-    /* Boolean to indicate if we've finished the most recent z stream */
-    int z_finish;
-
-    /* Indicates whether gzipped, and if so with bgzf extra fields */
-    int gzip;
-    int bgzf; 
-
-    /* Whether BAM or SAM format */
-    int bam;
-
-    /* If true, skip auxillary field parsing while reading SAM */
-    int no_aux;
-
-    /* line number (when in SAM mode) */
-    int line;
-
-    /* EOF block present in BAM */
-    int eof_block;
-
-    /* Static avoidance: used in sam_next_seq() */
-    unsigned char *sam_str;
-    size_t alloc_l;
-
-    /* Thread pool for encoding */
-    t_pool *pool;
-    t_results_queue *equeue;
-
-    /* Decoding queue */
-    t_results_queue *dqueue;
-    void *job_pending;
-    int eof;
-    int nd_jobs, ne_jobs;
-
-    /* Quality binning */
-    enum quality_binning binning;
-
-    /* Disabling CRC checks */
-    int ignore_chksum;
-
-    /* Used when gzi files are supplied. */
-    gzi *idx;
-    char *idx_fn;
-    uint64_t current_block;
-    unsigned char bgbuf[Z_BUFF_SIZE];
-    unsigned char *bgbuf_p;
-    size_t bgbuf_sz;
-} bam_file_t;
 
 /* BAM flags */
 #define BAM_FPAIRED           1
@@ -265,34 +203,36 @@ static inline void bam_set_bin(bam_seq_t *b, uint32_t v) {
 // equivalent to (char *)(&(b)->data)
 #define bam_name(b) ((char *)(b) + offsetof(bam_seq_t, data))
 
-#ifdef ALLOW_UAC
-#define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + bam_name_len((b))))
-#else
 #define bam_cigar(b)     ((uint32_t *)(bam_name((b)) + round4(bam_name_len((b)))))
-#endif
 #define bam_seq(b)       (((char *)bam_cigar((b))) + 4*bam_cigar_len(b))
 #define bam_qual(b)      (bam_seq(b) + (int)(((b)->len+1)/2))
 #define bam_aux(b)       (bam_qual(b) + (b)->len)
+// 32 is the size of the fixed BAM record on disk.
+#define bam_aux_len(b)   (&(b)->data + (b)->blk_size-32 - (uint8_t *)bam_aux((b)))
 
 /* Rounds up to the next multiple of 4 or 8 */
 #define round4(v) (((v-1)&~3)+4)
 #define round8(v) (((v-1)&~7)+8)
 
 /* CIGAR operations, taken from samtools bam.h */
-#define BAM_CIGAR_SHIFT 4
-#define BAM_CIGAR_MASK  ((1 << BAM_CIGAR_SHIFT) - 1)
+#ifndef BAM_CIGAR_SHIFT
+#  define BAM_CIGAR_SHIFT 4
+#  define BAM_CIGAR_MASK  ((1 << BAM_CIGAR_SHIFT) - 1)
+#endif
 
+// Mirrors values in htslib/sam.h, but we need it here so we can define
+// the type.
 enum cigar_op {
-    BAM_UNKNOWN=-1,
-    BAM_CMATCH=0,
-    BAM_CINS=1,
-    BAM_CDEL=2,
-    BAM_CREF_SKIP=3,
-    BAM_CSOFT_CLIP=4,
-    BAM_CHARD_CLIP=5,
-    BAM_CPAD=6,
-    BAM_CBASE_MATCH=7,
-    BAM_CBASE_MISMATCH=8
+    IOLIB_BAM_UNKNOWN=-1,
+    IOLIB_BAM_CMATCH=0,
+    IOLIB_BAM_CINS=1,
+    IOLIB_BAM_CDEL=2,
+    IOLIB_BAM_CREF_SKIP=3,
+    IOLIB_BAM_CSOFT_CLIP=4,
+    IOLIB_BAM_CHARD_CLIP=5,
+    IOLIB_BAM_CPAD=6,
+    IOLIB_BAM_CBASE_MATCH=7,
+    IOLIB_BAM_CBASE_MISMATCH=8
 };
 
 /*
@@ -319,56 +259,6 @@ enum cigar_op {
  * with some utility functions for querying aux records.
  */
 
-/*! Opens a SAM or BAM file.
- *
- * The mode parameter indicates the file
- * type (if not auto-detecting) and whether it is for reading or
- * writing. Use "rb" or "wb" for reading or writing BAM and "r" or
- * "w" or reading or writing SAM. When writing BAM, the mode may end
- * with a digit from 0 to 9 to indicate the compression to use with 0
- * indicating uncompressed data.
- *
- * @param fn The filename to open or create.
- * @param mode The input/output mode, similar to fopen().
- *
- * @return
- * Returns a bam_file_t pointer on success;
- *         NULL on failure.
- */
-bam_file_t *bam_open(const char *fn, const char *mode);
-
-bam_file_t *bam_open_block(const char *blk, size_t blk_size, SAM_hdr *sh);
-
-/*! Closes a SAM or BAM file.
- * 
- * @param b The file to close.
- *
- * @return
- * Retrurns 0 on success;
- *         -1 on failure.
- */
-int bam_close(bam_file_t *b);
-
-/*! Deprecated: please use bam_get_seq() instead.
- */
-int bam_next_seq(bam_file_t *b, bam_seq_t **bsp);
-
-/*! Reads the next sequence.
- *
- * Fills out the next bam_seq_t struct.
- * This function will alloc and/or grow the memory accordingly, allowing for
- * efficient reuse.
- *
- * @param bsp Must be non-null, but *bsp may be NULL or an existing
- * bam_seq_t pointer.
- *
- * @return
- * Returns 1 on success;
- *         0 on eof;
- *        -1 on error.
- */
-int bam_get_seq(bam_file_t *b, bam_seq_t **bsp);
-
 /*!Looks for aux field 'key' and returns the value.
  * The type is the first char and the value is the 2nd character onwards.
  *
@@ -392,8 +282,6 @@ float bam_aux_f(const uint8_t *s);
 double bam_aux_d(const uint8_t *s);
 char bam_aux_A(const uint8_t *s);
 char *bam_aux_Z(const uint8_t *s);
-
-//int bam_aux_del(bam_seq_t *b, uint8_t *s); // not implemented yet
 
 /*! Add auxiliary tags to a bam_seq_t structure.
  *
@@ -673,22 +561,9 @@ int bam_add_raw(bam_seq_t **b, size_t len, const uint8_t *data);
 int bam_aux_iter(bam_seq_t *b, char **iter_handle,
 		 char *key, char *type, bam_aux_t *val);
 
-/* Taken from samtools/bam.h */
-#define bam_seqi(s, i) ((s)[(i)/2] >> 4*(1-(i)%2) & 0xf)
 #define bam_nt16_rev_table "=ACMGRSVTWYHKDBN"
 
 /* Output code */
-
-/*! Writes a single bam sequence object.
- *
- * @param fp The SAM/BAM file handle.
- * @param b  The bam_seq_t pointer
- *
- * @return
- * Returns 0 on success;
- *        -1 on failure
- */
-int bam_put_seq(bam_file_t *fp, bam_seq_t *b);
 
 /*! Constructs a bam_seq_t from separate components.
  *
@@ -743,45 +618,6 @@ int bam_construct_seq(bam_seq_t **b, size_t extra_len,
  *         NULL on failure.
  */
 bam_seq_t *bam_dup(bam_seq_t *b);
-
-/*! Writes a SAM header block.
- *
- * @return
- * Returns 0 for success;
- *        -1 for failure
- */
-int bam_write_header(bam_file_t *out);
-
-enum bam_option {
-    BAM_OPT_THREAD_POOL,
-    BAM_OPT_BINNING,
-    BAM_OPT_IGNORE_CHKSUM,
-    BAM_OPT_WITH_BGZIP_IDX,
-    BAM_OPT_OUTPUT_BGZIP_IDX
-};
-
-/*! Sets options on the bam_file_t.
- *
- * Sets options on the bam_file_t. See BAM_OPT_* definitions in bam.h.
- * Use this immediately after opening.
- *
- * @return
- * Returns 0 on success;
- *        -1 on failure
- */
-int bam_set_option(bam_file_t *fd, enum bam_option opt, ...);
-
-/*! Sets options on the bam_file_t.
- *
- * Sets options on the bam_file_t. See BAM_OPT_* definitions in bam.h.
- * Use this immediately after opening.
- *
- * @return
- * Returns 0 on success;
- *        -1 on failure
- */
-int bam_set_voption(bam_file_t *fd, enum bam_option opt, va_list args);
-
 
 
 /*

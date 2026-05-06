@@ -1004,6 +1004,8 @@ SAM_hdr *sam_hdr_dup(SAM_hdr *hdr) {
  */
 void sam_hdr_incr_ref(SAM_hdr *hdr) {
     hdr->ref_count++;
+    if (hdr->hdr)
+	sam_hdr_incr_ref_htslib(hdr->hdr);
 }
 
 /*! Increments a reference count on hdr.
@@ -1029,6 +1031,14 @@ void sam_hdr_decr_ref(SAM_hdr *hdr) {
 void sam_hdr_free(SAM_hdr *hdr) {
     if (!hdr)
 	return;
+
+    if (hdr->hdr) {
+	int rc = hdr->hdr->ref_count;
+	sam_hdr_destroy(hdr->hdr); // htslib's API
+
+	if (rc <= 0)
+	    hdr->hdr = NULL; // avoid double frees
+    }
 
     if (--hdr->ref_count > 0)
 	return;
@@ -1088,6 +1098,71 @@ void sam_hdr_free(SAM_hdr *hdr) {
 	string_pool_destroy(hdr->str_pool);
 
     free(hdr);
+}
+
+SAM_hdr *sam_hdr_convert(sam_hdr_t *hdr) {
+    if (!hdr)
+	return NULL;
+
+    // Allocate the SAM_hdr struct and point to the htslib one.
+    SAM_hdr *sh = sam_hdr_new();
+    if (!sh)
+	return NULL;
+
+    sh->hdr = hdr;
+
+    // Reparse the htslib text into io_lib's format.
+    if (sam_hdr_add_lines(sh, hdr->text?hdr->text:"", hdr->l_text) < 0) {
+	free(sh);
+	return NULL;
+    }
+
+    /* Obtain sort order */
+    sh->sort_order = sam_hdr_parse_sort_order(sh);
+
+    //sam_hdr_link_pg(sh);
+
+    return sh;
+
+//    h->text = malloc(sizeof(*h->text));
+//    if (!h->text)
+//	return NULL;
+//    h->text->allocated = 0;
+//    h->text->length = hdr->l_text;
+//    h->text->str = hdr->text;
+//    h->nref = hdr->n_targets;
+//    // taget_name and target_len
+//    h->ref = calloc(h->nref, sizeof(*h->ref));
+//    if (!h->ref)
+//	return NULL;
+//    for (int i = 0; i < h->nref; i++) {
+//	h->ref[i].name = hdr->target_name[i];
+//	h->ref[i].len = hdr->target_len[i];
+//    }
+//
+//    return h;
+}
+
+/*
+ * Converts an io_lib header to an htslib header.
+ *
+ * We mirror the number of reference counts for both, but this should
+ * probably be done in the caller as it depends on why we're converting.
+ * If it's a throw-away header then this leads to a memory leak.
+ * If we're caching the header in a file handle then it needs to match.
+ */
+sam_hdr_t *sam_hdr_convert_to_htslib(SAM_hdr *sh) {
+    if (sam_hdr_rebuild(sh) < 0)
+	return NULL;
+    sam_hdr_t *h = sam_hdr_parse_htslib(sam_hdr_length(sh), sam_hdr_str(sh));
+    if (!h)
+	return NULL;
+
+    // FIXME: why here?  Why -1?
+    for (int i = 0; i < sh->ref_count-1; i++)
+	sam_hdr_incr_ref_htslib(h);
+
+    return h;
 }
 
 int sam_hdr_length(SAM_hdr *hdr) {
@@ -1245,6 +1320,35 @@ int sam_hdr_add_PG(SAM_hdr *sh, const char *name, ...) {
     //sam_hdr_dump(sh);
 
     return 0;
+}
+
+/*! Returns the number of references in a header
+ *
+ * @return
+ * Reference count
+ */
+int sam_hdr_nref(SAM_hdr *sh) {
+    return sh->nref;
+}
+
+/*! Converts a reference number (>= 0) to reference name
+ *
+ * @return
+ * Returns reference name on success
+ *         NULL on failure
+ */
+const char *sam_hdr_ref2name(SAM_hdr *sh, int rnum) {
+    return rnum >= 0 && rnum < sh->nref ? sh->ref[rnum].name : NULL;
+}
+
+/*! Converts a reference number (>= 0) to reference length
+ *
+ * @return
+ * Returns reference length on success
+ *         -1 on failure
+ */
+ssize_t sam_hdr_ref2len(SAM_hdr *sh, int rnum) {
+    return rnum >= 0 && rnum < sh->nref ? sh->ref[rnum].len : -1;
 }
 
 /*

@@ -100,20 +100,6 @@ libstaden_read_la_SOURCES = \
 	sam_header.h \
 	sam_header.c \
 	cram.h \
-	cram_codecs.c \
-	cram_codecs.h \
-	cram_encode.c \
-	cram_encode.h \
-	cram_decode.c \
-	cram_decode.h \
-	cram_stats.c \
-	cram_stats.h \
-	cram_io.c \
-	cram_io.h \
-	cram_index.c \
-	cram_index.h \
-	cram_structs.h \
-	cram_bambam.h \
 	zfio.c \
 	zfio.h \
 	dstring.c \
@@ -126,16 +112,14 @@ libstaden_read_la_SOURCES = \
 	crc32.h \
 	scram.c \
 	scram.h \
-	thread_pool.c \
+	hfile_internal.h \
 	thread_pool.h \
 	binning.h \
 	binning.c \
-	cram_bambam.c \
 	bgzip.c \
 	bgzip.h \
-	cram_block_compression.h \
 	version.h
 
-libstaden_read_la_CPPFLAGS = -I${top_srcdir} -I${top_srcdir}/htscodecs @LIBCURL_CPPFLAGS@
+libstaden_read_la_CPPFLAGS = -I${top_srcdir} @LIBCURL_CPPFLAGS@
 libstaden_read_la_LDFLAGS = -version-info @VERS_CURRENT@:@VERS_REVISION@:@VERS_AGE@ 
-libstaden_read_la_LIBADD = @LIBZ@ @LIBCURL@ ${top_builddir}/htscodecs/htscodecs/libhtscodecs.la
+libstaden_read_la_LIBADD = @LIBZ@ @LIBCURL@

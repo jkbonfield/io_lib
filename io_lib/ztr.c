@@ -416,6 +416,7 @@ ztr_t *fread_ztr(FILE *fp) {
 	case ZTR_TYPE_SMP4:
 	    if (! (sections & READ_SAMPLES)) {
 		fseek(fp, chunk->dlength, SEEK_CUR);
+		xfree(chunk->mdata);
 		xfree(chunk);
 		continue;
 	    }
@@ -429,6 +430,7 @@ ztr_t *fread_ztr(FILE *fp) {
 	case ZTR_TYPE_CSID:
 	    if (! (sections & READ_BASES)) {
 		fseek(fp, chunk->dlength, SEEK_CUR);
+		xfree(chunk->mdata);
 		xfree(chunk);
 		continue;
 	    }
@@ -437,6 +439,7 @@ ztr_t *fread_ztr(FILE *fp) {
 	case ZTR_TYPE_TEXT:
 	    if (! (sections & READ_COMMENTS)) {
 		fseek(fp, chunk->dlength, SEEK_CUR);
+		xfree(chunk->mdata);
 		xfree(chunk);
 		continue;
 	    }

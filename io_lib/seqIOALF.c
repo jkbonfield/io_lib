@@ -271,8 +271,6 @@ Read *fread_alf(FILE *fp) {
 			       section */
     uint_2 actBaseDataSize; /* actual number of bytes of data of information
 			       containing the base and basePos information */
-    int num_points;         /* keeps track of the actual number of points,
-			       rather than the early guess of numPoints */
 
     off_t indexO;           /* File offset where the index is */
     uint_4 baseO;           /* File offset where the bases are stored */
@@ -405,8 +403,6 @@ Read *fread_alf(FILE *fp) {
 	if (fseek(fp, (off_t)(dataO+header_size), 0) != 0) 
 	    goto bail_out;
 	
-	num_points = 0;
-	
 	for (i=0; i < read->NPoints; i++) {
 	    if (!le_read_int_2(fp, &(read->traceA[i])))
 		goto bail_out;
@@ -432,8 +428,6 @@ Read *fread_alf(FILE *fp) {
 		read->traceC[i]==0 && read->traceG[i]==0 &&
 		i > (numPoints-64))
 		break;
-	    
-	    num_points++;
 	}
     }
     

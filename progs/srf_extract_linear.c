@@ -171,5 +171,8 @@ int main(int argc, char **argv) {
 #endif
 
     fwrite(mf->data, 1, mf->size, stdout);
+    srf_destroy(srf, 1);
+    mfclose(mf);
+
     return 0;
 }
