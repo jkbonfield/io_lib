@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
     int bases_per_slice = 0;
     int add_pg = 1;
     int archive = 0;
-    char *profile = "normal";
+    char *profile = NULL;
     int aux_keep = -1;
     char aux_filter[65536] = {0};
     char *cram_version = NULL;
